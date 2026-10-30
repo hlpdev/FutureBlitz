@@ -5,6 +5,7 @@
 #include "fb/packages.hpp"
 #include "fb/process.hpp"
 #include "fb/registry_api.hpp"
+#include "fb/utf8.hpp"
 #include "package_helpers.hpp"
 #include "registry_server.hpp"
 
@@ -261,12 +262,35 @@ TEST_CASE("yanking, owners, and search go through the registry's API", "[registr
 
     const auto owners = fb::list_owners("physics", session);
     REQUIRE(owners);
-    REQUIRE(owners->size() == 1);
-    CHECK(owners->front().name == "tester");
-    CHECK(fb::change_owner("physics", "alice", false, session) ==
-          "alice is invited to own physics, which they accept on the package site");
+    REQUIRE(owners->owners.size() == 1);
+    CHECK(owners->owners.front().name == "tester");
+    CHECK(owners->invites.empty());
+    // m10-edges-11: a user is invited, and a team added, each said as a verb and the rest.
+    const auto invited = fb::change_owner("physics", "alice", false, session);
+    REQUIRE(invited);
+    CHECK(invited->verb == "Invited");
+    CHECK(invited->message == "alice to own physics, which they accept on the package site");
+    const auto team = fb::change_owner("physics", "team:acme", false, session);
+    REQUIRE(team);
+    CHECK(team->verb == "Added");
+    CHECK(team->message == "team acme as an owner of physics");
     CHECK(fb::change_owner("physics", "tester", true, session).error() ==
           "a package keeps one owner at least");
+
+    // m10-edges-5: the list needs no token, and has the invites.
+    const auto anyone = fb::list_owners("physics", session_of(server, ""));
+    REQUIRE(anyone);
+    REQUIRE(anyone->invites.size() == 1);
+    CHECK(anyone->invites.front().invitee == "alice");
+    CHECK(anyone->invites.front().expires_at == "2026-11-13T09:30:00Z");
+
+    // m10-edges-6: a token without the owners scope says how to get one that has it.
+    const auto unscoped = fb::change_owner("physics", "bob", false,
+                                           session_of(server, fb::testing::publish_only_token));
+    REQUIRE_FALSE(unscoped);
+    CHECK(unscoped.error() ==
+          "the token doesn't have the owners scope; a token that has it comes from fb login, with "
+          "it ticked on the sign-in page, or from the package site's Tokens page");
 
     const auto found = fb::search_packages("phys", 10, session);
     REQUIRE(found);
@@ -293,10 +317,12 @@ TEST_CASE("fb login opens the sign-in page and polls until it's approved", "[reg
         .show = [&](const std::string_view code, const std::string_view,
                     const bool) { shown = code; },
     };
-    const std::expected<std::string, std::string> token =
+    const std::expected<fb::signed_in_t, std::string> signed_in =
         fb::login("fb on test", session_of(server, ""), hooks);
-    REQUIRE(token);
-    CHECK(*token == fb::testing::test_token);
+    REQUIRE(signed_in);
+    CHECK(signed_in->token == fb::testing::test_token);
+    // m10-journey-3: the poll's answer names the account.
+    CHECK(signed_in->username == "tester");
     CHECK(opened == std::vector<std::string>{ server.index().substr(0, server.index().size() - 6) +
                                               "cli-login/login1" });
     CHECK(shown == "WDJB-MJHT");
@@ -352,7 +378,7 @@ TEST_CASE("fb login shows its code before it opens the page, and opens only a sa
 TEST_CASE("fb login polls through rate limits and failures, until it's denied or too late",
           "[registry-api]") {
     // commands-4: 429s wait as Retry-After says, and 5xx's and the network failing are tried
-    // again.
+    // again; a 503, `unavailable`, waits as Retry-After says too.
     fb::testing::registry_server_t server;
     server.poll_statuses = { 429, 500, 503 };
     std::vector<std::chrono::seconds> waited;
@@ -369,23 +395,23 @@ TEST_CASE("fb login polls through rate limits and failures, until it's denied or
 
         return fb::send_http(request);
     };
-    const std::expected<std::string, std::string> token = fb::login("fb", session, hooks);
+    const std::expected<fb::signed_in_t, std::string> token = fb::login("fb", session, hooks);
     INFO((token ? std::string() : token.error()));
     REQUIRE(token);
-    CHECK(*token == fb::testing::test_token);
+    CHECK(token->token == fb::testing::test_token);
     // The network's failure, the 429, the 500, the 503, the pending poll, then the approval.
     CHECK(waited == std::vector<std::chrono::seconds>{
                         std::chrono::seconds(1),
                         std::chrono::seconds(1),
                         std::chrono::seconds(7),
                         std::chrono::seconds(1),
-                        std::chrono::seconds(1),
+                        std::chrono::seconds(7),
                         std::chrono::seconds(1),
                     });
 
     // Denied, or expired, it says so.
     server.poll_statuses = { 410 };
-    const std::expected<std::string, std::string> denied =
+    const std::expected<fb::signed_in_t, std::string> denied =
         fb::login("fb", session_of(server, ""), hooks);
     REQUIRE_FALSE(denied);
     CHECK(denied.error() == "the sign-in was denied, or it expired; fb login starts another");
@@ -394,7 +420,7 @@ TEST_CASE("fb login polls through rate limits and failures, until it's denied or
     server.poll_statuses.clear();
     server.pending_polls = 100'000;
     waited.clear();
-    const std::expected<std::string, std::string> late =
+    const std::expected<fb::signed_in_t, std::string> late =
         fb::login("fb", session_of(server, ""), hooks);
     REQUIRE_FALSE(late);
     CHECK(late.error() == "the sign-in wasn't approved in time; fb login starts another");
@@ -404,6 +430,62 @@ TEST_CASE("fb login polls through rate limits and failures, until it's denied or
     server.poll_statuses = { 403 };
     CHECK(fb::login("fb", session_of(server, ""), hooks).error() ==
           "the registry refused the sign-in: try again");
+}
+
+TEST_CASE("a token's account is the registry's to say, and one it doesn't take is refused",
+          "[registry-api]") {
+    // m10-edges-9 and m10-journey-3: fb login --token asks GET /me about the token.
+    const fb::testing::registry_server_t server;
+    CHECK(fb::account_of(session_of(server)) == "tester");
+    const std::expected<std::string, std::string> wrong =
+        fb::account_of(session_of(server, "fbr_revoked"));
+    REQUIRE_FALSE(wrong);
+    CHECK(wrong.error() == "a token is needed, and that one isn't it");
+    const fb::testing::sandbox_t sandbox;
+    CHECK(fb::account_of({ .index = sandbox.registry() }).error().contains("on disk"));
+}
+
+TEST_CASE("sizes are in the registry's units, a thousand bytes to a KB", "[registry-api]") {
+    // m10-edges-12: Packaged, Uploading, and the limits' errors say sizes the same way.
+    CHECK(fb::size_text(0) == "0 B");
+    CHECK(fb::size_text(381) == "381 B");
+    CHECK(fb::size_text(999) == "999 B");
+    CHECK(fb::size_text(1000) == "1.0 KB");
+    CHECK(fb::size_text(48'200) == "48.2 KB");
+    CHECK(fb::size_text(999'949) == "999.9 KB");
+    CHECK(fb::size_text(999'950) == "1.0 MB");
+    CHECK(fb::size_text(9'900'000) == "9.9 MB");
+    CHECK(fb::size_text(10'500'000) == "10.5 MB");
+}
+
+TEST_CASE("a download that can't be written says so, not that the network failed", "[http]") {
+    // m10-journey-6: a file fb can't write is named, with why Windows refuses a long path.
+    const fb::testing::registry_server_t server;
+    const fb::testing::sandbox_t sandbox;
+    const std::filesystem::path missing = sandbox / "no/such/folder/config.json";
+    const std::expected<fb::http_response_t, std::string> unwritable =
+        fb::send_http({ .url = server.index() + "config.json", .save_to = missing });
+    REQUIRE_FALSE(unwritable);
+    CHECK(unwritable.error() ==
+          std::format("{}config.json couldn't be downloaded: fb couldn't write {}", server.index(),
+                      fb::to_utf8(missing)));
+#ifdef _WIN32
+    // A folder Windows can make, and a file in it past MAX_PATH, as a deep FB_HOME's cache has.
+    std::filesystem::path deep = std::filesystem::absolute(sandbox.folder());
+    while (deep.native().size() < 230) {
+        deep /= "deeper-folder";
+    }
+
+    std::filesystem::create_directories(deep);
+    const std::filesystem::path file = deep / "jsonkit-1.0.0-windows-x64-a-long-name.fbpkg";
+    const std::expected<fb::http_response_t, std::string> long_path =
+        fb::send_http({ .url = server.index() + "config.json", .save_to = file });
+    REQUIRE_FALSE(long_path);
+    CHECK(long_path.error().contains("fb couldn't write "));
+    CHECK(long_path.error().contains(
+        std::format("; it's {} characters, past Windows' 259; a shorter FB_HOME holds it",
+                    file.native().size())));
+#endif
 }
 
 TEST_CASE("a token goes only to an API over TLS, or on this machine", "[registry-api]") {
@@ -512,16 +594,20 @@ TEST_CASE("a GitHub workflow publishes with trusted publishing's token", "[regis
     const fb::testing::environment_t request("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "request-token");
     // What trusted publishing gives: its token, "none" outside a workflow, or "error: ...".
     const auto token_of = [&] {
-        const std::optional<std::expected<std::string, std::string>> token =
+        const std::optional<std::expected<fb::trusted_token_t, std::string>> token =
             fb::trusted_publishing_token(anonymous);
         if (!token) {
             return std::string("none");
         }
 
-        return token->has_value() ? token->value() : "error: " + token->error();
+        return token->has_value() ? token->value().token : "error: " + token->error();
     };
     const std::string token = token_of();
     CHECK(token == "fbr_trusted");
+    const auto exchanged = fb::trusted_publishing_token(anonymous);
+    REQUIRE(exchanged);
+    REQUIRE(*exchanged);
+    CHECK(exchanged->value().packages == std::vector<std::string>{ "physics" });
 
     const fb::testing::sandbox_t sandbox;
     library(sandbox, server, "shapes", "0.3.0", "", "// shapes\n");
@@ -534,6 +620,53 @@ TEST_CASE("a GitHub workflow publishes with trusted publishing's token", "[regis
     const std::string refused = token_of();
     CHECK(refused.starts_with("error: "));
     CHECK(refused.contains("id-token: write"));
+}
+
+TEST_CASE("trusted publishing's token publishes only the packages it's for, uploading nothing else",
+          "[registry-api]") {
+    // m10-journey-9: a new package, or one that doesn't trust the workflow, is said before any
+    // upload, as the registry would refuse the publish after them.
+    const fb::testing::registry_server_t server;
+    const fb::testing::sandbox_t sandbox;
+    fb::registry_session_t trusted = session_of(server);
+    trusted.trusted_packages = std::vector<std::string>{ "physics" };
+    library(sandbox, server, "shapes", "0.3.0", "", "// shapes\n");
+    const auto fresh = publish(sandbox, trusted, "shapes");
+    REQUIRE_FALSE(fresh);
+    CHECK(fresh.error() ==
+          "trusted publishing publishes new versions of packages that trust the workflow, and "
+          "shapes isn't on the registry yet; its first version comes from fb login or "
+          "FB_REGISTRY_TOKEN");
+    CHECK(count_of(server.requests(), "PUT /api/v1/uploads/") == 0);
+
+    REQUIRE(publish(sandbox, session_of(server), "shapes"));
+    library(sandbox, server, "shapes", "0.4.0", "", "// shapes\n");
+    const auto untrusted = publish(sandbox, trusted, "shapes");
+    REQUIRE_FALSE(untrusted);
+    CHECK(untrusted.error() == "shapes doesn't trust this workflow to publish it; its owners add "
+                               "the workflow as a trusted publisher on the package site");
+
+    library(sandbox, server, "physics", "1.0.0", "", "// physics\n");
+    CHECK(publish(sandbox, trusted, "physics"));
+}
+
+TEST_CASE("a registry that's limiting or unavailable is asked again when it says",
+          "[registry-api]") {
+    // A 429, or a 503 `unavailable`, is sent again after its Retry-After, twice at most.
+    fb::testing::registry_server_t server;
+    std::vector<std::chrono::seconds> waited;
+    fb::registry_session_t session = session_of(server);
+    session.wait = [&](const std::chrono::seconds seconds) { waited.push_back(seconds); };
+    server.api_statuses = { 503, 429 };
+    CHECK(fb::list_owners("physics", session));
+    CHECK(waited ==
+          std::vector<std::chrono::seconds>{ std::chrono::seconds(7), std::chrono::seconds(7) });
+
+    server.api_statuses = { 503, 503, 503, 503, 503 };
+    const auto down = fb::list_owners("physics", session);
+    REQUIRE_FALSE(down);
+    CHECK(down.error() == "GitHub couldn't be asked");
+    CHECK(waited.size() == 4);
 }
 
 TEST_CASE("an environment variable's value is read as it is, not as a path", "[registry-api]") {

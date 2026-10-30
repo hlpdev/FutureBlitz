@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <expected>
@@ -27,6 +28,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -60,6 +62,11 @@ bool write_bytes(const std::filesystem::path& path, const std::string_view bytes
     out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
     out.close();
     return static_cast<bool>(out);
+}
+
+std::string text_field(const json_t& object, const std::string_view key) {
+    const auto found = object.find(key);
+    return found != object.end() && found->is_string() ? found->get<std::string>() : "";
 }
 
 bool is_utf8(const std::string_view text) {
@@ -180,6 +187,45 @@ std::expected<void, std::string> check_prebuilt(const std::filesystem::path& roo
     return {};
 }
 
+/// Why the registry refused a request, in its words, and for a token without the scope the
+/// request needs, how to get one that has it.
+std::string refusal(const http_response_t& response) {
+    std::string out = api_error(response);
+    const json_t body = json_t::parse(response.body, nullptr, false);
+    const auto errors = body.is_object() ? body.find("errors") : body.end();
+    if (!body.is_object() || errors == body.end() || !errors->is_array()) {
+        return out;
+    }
+
+    const bool scope = std::ranges::any_of(*errors, [](const json_t& error) {
+        return error.is_object() && text_field(error, "code") == "scope";
+    });
+    if (scope) {
+        out += "; a token that has it comes from fb login, with it ticked on the sign-in page, or "
+               "from the package site's Tokens page";
+    }
+
+    return out;
+}
+
+/// Whether the registry asks for a request again later: a 429, as it limits requests, or a 503,
+/// `unavailable`, as a service it asks, like GitHub, couldn't be; each with Retry-After.
+bool waits_to_retry(const http_response_t& response) {
+    return response.status == 429 || response.status == 503;
+}
+
+/// The seconds Retry-After asks for, or 0 without it.
+std::int64_t retry_after(const http_response_t& response) {
+    const auto after = response.headers.find("retry-after");
+    std::int64_t seconds = 0;
+    if (after != response.headers.end()) {
+        (void)std::from_chars(after->second.data(), after->second.data() + after->second.size(),
+                              seconds);
+    }
+
+    return seconds;
+}
+
 /// The registry's API's URL, from its config.json.
 std::expected<std::string, std::string> api_of(const registry_session_t& session) {
     // Fetched once a session.
@@ -237,13 +283,26 @@ std::expected<http_response_t, std::string> call(const registry_session_t& sessi
         request.body = body.dump();
     }
 
+    // A registry that's limiting requests, or that couldn't ask a service it needs, is asked
+    // again, twice at most, after the seconds it asks for, within reason.
     std::expected<http_response_t, std::string> response = session.http(request);
+    for (int again = 0; again < 2 && response && waits_to_retry(*response); ++again) {
+        const std::chrono::seconds seconds(std::clamp<std::int64_t>(retry_after(*response), 1, 60));
+        if (session.wait) {
+            session.wait(seconds);
+        } else {
+            std::this_thread::sleep_for(seconds);
+        }
+
+        response = session.http(request);
+    }
+
     if (!response) {
         return std::unexpected(response.error());
     }
 
     if (!std::ranges::contains(expect, response->status)) {
-        return std::unexpected(api_error(*response));
+        return std::unexpected(refusal(*response));
     }
 
     return response;
@@ -274,7 +333,7 @@ std::expected<void, std::string> upload(const registry_session_t& session,
     }
 
     if (session.status) {
-        session.status("Uploading", std::format("{} ({} KB)", what, (ref.size + 1023) / 1024));
+        session.status("Uploading", std::format("{} ({})", what, size_text(ref.size)));
     }
 
     if (ref.size <= session.most_single_upload) {
@@ -291,8 +350,7 @@ std::expected<void, std::string> upload(const registry_session_t& session,
         }
 
         if (put->status != 201 && put->status != 200) {
-            return std::unexpected(
-                std::format("{} couldn't be uploaded: {}", what, api_error(*put)));
+            return std::unexpected(std::format("{} couldn't be uploaded: {}", what, refusal(*put)));
         }
 
         return {};
@@ -333,8 +391,8 @@ std::expected<void, std::string> upload(const registry_session_t& session,
 
         const json_t part = json_t::parse(put->body, nullptr, false);
         if (put->status != 200 || !part.is_object() || !part.contains("etag")) {
-            return std::unexpected(std::format("part {} of {} couldn't be uploaded: {}", number,
-                                               what, api_error(*put)));
+            return std::unexpected(
+                std::format("part {} of {} couldn't be uploaded: {}", number, what, refusal(*put)));
         }
 
         parts.push_back({ { "part", number }, { "etag", part["etag"] } });
@@ -424,11 +482,6 @@ std::expected<void, std::string> yank_locally(const std::string_view name,
     return {};
 }
 
-std::string text_field(const json_t& object, const std::string_view key) {
-    const auto found = object.find(key);
-    return found != object.end() && found->is_string() ? found->get<std::string>() : "";
-}
-
 } // namespace
 
 namespace {
@@ -462,6 +515,19 @@ std::optional<std::string> registry_name_error(const std::string_view name) {
     }
 
     return std::nullopt;
+}
+
+std::string size_text(const std::uint64_t bytes) {
+    if (bytes < 1000) {
+        return std::format("{} B", bytes);
+    }
+
+    // From 999,950 bytes, a KB's one decimal would round to "1000.0 KB", which is 1.0 MB.
+    if (bytes < 999'950) {
+        return std::format("{:.1f} KB", static_cast<double>(bytes) / 1e3);
+    }
+
+    return std::format("{:.1f} MB", static_cast<double>(bytes) / 1e6);
 }
 
 std::optional<std::string> target_size_error(const std::string_view file, const std::uint64_t size,
@@ -719,6 +785,24 @@ publish_package(const prepared_package_t& package, const std::string_view docs,
         return std::unexpected("publishing needs a token: fb login, or FB_REGISTRY_TOKEN");
     }
 
+    // Trusted publishing publishes only new versions of the packages that trust the workflow, so
+    // nothing's uploaded for another.
+    if (const std::optional<std::vector<std::string>>& trusted = session.trusted_packages;
+        trusted && !std::ranges::contains(*trusted, name)) {
+        if (published->empty()) {
+            return std::unexpected(std::format(
+                "trusted publishing publishes new versions of packages that trust the workflow, "
+                "and {} isn't on the registry yet; its first version comes from fb login or "
+                "FB_REGISTRY_TOKEN",
+                name));
+        }
+
+        return std::unexpected(std::format(
+            "{} doesn't trust this workflow to publish it; its owners add the workflow as a "
+            "trusted publisher on the package site",
+            name));
+    }
+
     json_t archives = json_t::object();
     for (const built_archive_t* archive : { &package.source }) {
         if (const std::expected<void, std::string> sent =
@@ -793,8 +877,8 @@ std::expected<void, std::string> yank_version(const std::string_view name,
     return {};
 }
 
-std::expected<std::vector<package_owner_t>, std::string>
-list_owners(const std::string_view name, const registry_session_t& session) {
+std::expected<package_owners_t, std::string> list_owners(const std::string_view name,
+                                                         const registry_session_t& session) {
     if (!local_index_folder(session.index).empty()) {
         return std::unexpected("a registry on disk has no owners");
     }
@@ -805,13 +889,24 @@ list_owners(const std::string_view name, const registry_session_t& session) {
         return std::unexpected(done.error());
     }
 
-    std::vector<package_owner_t> owners;
+    package_owners_t owners;
     const json_t answer = json_t::parse(done->body, nullptr, false);
     if (answer.is_object() && answer.contains("owners") && answer["owners"].is_array()) {
         for (const json_t& owner : answer["owners"]) {
             if (owner.is_object()) {
-                owners.push_back(
+                owners.owners.push_back(
                     { .kind = text_field(owner, "kind"), .name = text_field(owner, "name") });
+            }
+        }
+    }
+
+    if (answer.is_object() && answer.contains("invites") && answer["invites"].is_array()) {
+        for (const json_t& invite : answer["invites"]) {
+            if (invite.is_object() && !text_field(invite, "invitee").empty()) {
+                owners.invites.push_back({
+                    .invitee = text_field(invite, "invitee"),
+                    .expires_at = text_field(invite, "expires_at"),
+                });
             }
         }
     }
@@ -819,9 +914,10 @@ list_owners(const std::string_view name, const registry_session_t& session) {
     return owners;
 }
 
-std::expected<std::string, std::string> change_owner(const std::string_view name,
-                                                     const std::string_view who, const bool remove,
-                                                     const registry_session_t& session) {
+std::expected<owner_change_t, std::string> change_owner(const std::string_view name,
+                                                        const std::string_view who,
+                                                        const bool remove,
+                                                        const registry_session_t& session) {
     if (!local_index_folder(session.index).empty()) {
         return std::unexpected("a registry on disk has no owners");
     }
@@ -836,14 +932,27 @@ std::expected<std::string, std::string> change_owner(const std::string_view name
         return std::unexpected(done.error());
     }
 
+    const std::string shown = team ? "team " + named : named;
     if (remove) {
-        return std::format("{} {} no longer owns {}", team ? "team" : "user", named, name);
+        return owner_change_t{
+            .verb = "Removed",
+            .message = std::format("{} as an owner of {}", shown, name),
+        };
     }
 
-    return done->status == 202
-               ? std::format("{} is invited to own {}, which they accept on the package site",
-                             named, name)
-               : std::format("team {} owns {}", named, name);
+    // A user is invited, and owns the package once they accept; a team is added at once.
+    if (done->status == 202) {
+        return owner_change_t{
+            .verb = "Invited",
+            .message =
+                std::format("{} to own {}, which they accept on the package site", named, name),
+        };
+    }
+
+    return owner_change_t{
+        .verb = "Added",
+        .message = std::format("{} as an owner of {}", shown, name),
+    };
 }
 
 std::expected<std::pair<std::vector<found_package_t>, std::size_t>, std::string>
@@ -852,7 +961,7 @@ search_packages(const std::string_view words, const std::size_t limit,
     std::vector<found_package_t> found;
     if (const std::filesystem::path folder = local_index_folder(session.index); !folder.empty()) {
         // A registry on disk is searched by its packages' names, which are lowercase: a name
-        // with any of the words in it.
+        // with every one of the words in it, as the API's search needs every word.
         std::vector<std::string> wanted;
         for (const auto word : std::views::split(words, ' ')) {
             std::string lower(word.begin(), word.end());
@@ -869,10 +978,8 @@ search_packages(const std::string_view words, const std::size_t limit,
         for (std::filesystem::directory_iterator each(folder, error), end; !error && each != end;
              each.increment(error)) {
             const std::string name = to_utf8(each->path().filename());
-            const bool matches =
-                wanted.empty() || std::ranges::any_of(wanted, [&](const std::string& part) {
-                    return name.contains(part);
-                });
+            const bool matches = std::ranges::all_of(
+                wanted, [&](const std::string& part) { return name.contains(part); });
             if (each->is_regular_file(error) && !name.contains('.') && matches) {
                 names.push_back(name);
             }
@@ -932,7 +1039,7 @@ search_packages(const std::string_view words, const std::size_t limit,
     return std::pair(std::move(found), total);
 }
 
-std::expected<std::string, std::string>
+std::expected<signed_in_t, std::string>
 login(const std::string_view name, const registry_session_t& session, const login_hooks_t& hooks) {
     if (!local_index_folder(session.index).empty()) {
         return std::unexpected("a registry on disk has no accounts to sign in to");
@@ -992,20 +1099,14 @@ login(const std::string_view name, const registry_session_t& session, const logi
             .headers = { { "Accept", "application/json" }, { "Content-Type", "application/json" } },
             .body = json_t({ { "secret", secret } }).dump(),
         });
-        if (!polled || polled->status == 202 || polled->status >= 500) {
+        if (!polled || polled->status == 202 ||
+            (polled->status >= 500 && !waits_to_retry(*polled))) {
             continue;
         }
 
-        if (polled->status == 429) {
-            // Retry-After's seconds, within reason.
-            const auto after = polled->headers.find("retry-after");
-            std::int64_t seconds = 0;
-            if (after != polled->headers.end()) {
-                (void)std::from_chars(after->second.data(),
-                                      after->second.data() + after->second.size(), seconds);
-            }
-
-            wait = std::clamp<std::int64_t>(seconds, interval, 120);
+        // Retry-After's seconds, within reason.
+        if (waits_to_retry(*polled)) {
+            wait = std::clamp<std::int64_t>(retry_after(*polled), interval, 120);
             continue;
         }
 
@@ -1016,7 +1117,7 @@ login(const std::string_view name, const registry_session_t& session, const logi
 
         if (polled->status != 200) {
             return std::unexpected(
-                std::format("the registry refused the sign-in: {}", api_error(*polled)));
+                std::format("the registry refused the sign-in: {}", refusal(*polled)));
         }
 
         const json_t approved = json_t::parse(polled->body, nullptr, false);
@@ -1025,13 +1126,31 @@ login(const std::string_view name, const registry_session_t& session, const logi
             return std::unexpected("the registry approved the sign-in, but sent no token");
         }
 
-        return token;
+        return signed_in_t{
+            .token = std::move(token),
+            .username = text_field(approved, "username"),
+        };
     }
 
     return std::unexpected("the sign-in wasn't approved in time; fb login starts another");
 }
 
-std::optional<std::expected<std::string, std::string>>
+std::expected<std::string, std::string> account_of(const registry_session_t& session) {
+    if (!local_index_folder(session.index).empty()) {
+        return std::unexpected("a registry on disk has no accounts to sign in to");
+    }
+
+    const std::expected<http_response_t, std::string> done =
+        call(session, "GET", "/me", nullptr, { 200 });
+    if (!done) {
+        return std::unexpected(done.error());
+    }
+
+    const json_t answer = json_t::parse(done->body, nullptr, false);
+    return answer.is_object() ? text_field(answer, "username") : std::string();
+}
+
+std::optional<std::expected<trusted_token_t, std::string>>
 trusted_publishing_token(const registry_session_t& session) {
     const std::optional<std::string> request_url =
         environment_variable("ACTIONS_ID_TOKEN_REQUEST_URL");
@@ -1081,12 +1200,22 @@ trusted_publishing_token(const registry_session_t& session) {
     }
 
     const json_t token = json_t::parse(exchanged->body, nullptr, false);
-    std::string value = token.is_object() ? text_field(token, "token") : "";
-    if (value.empty()) {
+    trusted_token_t out{ .token = token.is_object() ? text_field(token, "token") : "" };
+    if (out.token.empty()) {
         return std::unexpected("the registry's answer to trusted publishing had no token");
     }
 
-    return value;
+    if (const auto packages = token.find("packages");
+        packages != token.end() && packages->is_array()) {
+        out.packages.emplace();
+        for (const json_t& package : *packages) {
+            if (package.is_string()) {
+                out.packages->push_back(package.get<std::string>());
+            }
+        }
+    }
+
+    return out;
 }
 
 std::expected<void, std::string> revoke_token(const registry_session_t& session) {

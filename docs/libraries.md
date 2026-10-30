@@ -225,6 +225,10 @@ folder `FB_HOME` names:
   place; an archive unpacks into a temporary folder that's renamed when it's whole, with a file,
   `.fbpkg-<archive>`, holding the hash it came from. So two fb processes at once, or one that's
   stopped halfway, never leave a package that looks whole and isn't.
+- A download fb can't write is that, naming the file, not the network's failure; on Windows, a
+  path in the cache past MAX_PATH's 259 characters says so, and that a shorter `FB_HOME` holds
+  it, as an archive's file that would be too long unpacked does. A target's archive is said
+  with its target: "Downloading jsonkit v1.0.0 (windows-x64)".
 - The driver finds a registry dependency through fb.lock alone, in `cache/packages/`, and never
   uses the network: `fb check`, `build`, `run`, `test`, `doc`, and `publish` fetch and unpack what
   fb.lock needs first, and the LSP uses what's there, or says to build.
@@ -271,9 +275,12 @@ tools = { version = "2", registry = "company" }
   as tests use: the same files the server serves, `<index>/config.json` and `<index>/<name>`, with
   config.json's `dl` a template of a folder from the index's, or of a `file://` URL. `fb publish`
   and `fb yank` write to one directly, and `fb search` reads its index files' names, finding
-  those with any of its words, in any letter case. A folder without config.json is no registry,
-  which fb says. A dependency's registry on an index line is compared as its canonical index,
-  and futureblitz.dev's is the mirror [registries] names for it, if there is one.
+  those with every one of its words, in any letter case, as the API's search finds packages
+  whose names, descriptions, or keywords have every word. A folder without config.json is no
+  registry, which every command says, before it does anything, and one named like a host, which
+  isn't a folder, is most likely an index's URL without its `https://`, which fb suggests. A
+  dependency's registry on an index line is compared as its canonical index, and
+  futureblitz.dev's is the mirror [registries] names for it, if there is one.
 - A dependency is from futureblitz.dev unless it names another registry; a package on another
   registry depends on that one's packages by naming it, and its index lines record that
   registry's index URL. futureblitz.dev's packages depend only on its own.
@@ -295,7 +302,9 @@ tools = { version = "2", registry = "company" }
   it stores. Polls that are rate limited (after Retry-After), or that the network or the registry
   fails, are tried again until the sign-in would have expired. A token the store then couldn't
   keep is shown, not lost. `fb login --token` reads one from stdin instead, made on
-  the dashboard. `fb logout` removes the stored one.
+  the dashboard, and asks the registry about it (`GET /me`) before it keeps it, so one that's
+  mistyped, revoked, or expired is refused, leaving the token there was. Each says the account
+  it signed in as. `fb logout` removes the stored one.
 - `fb publish [folder] [--dry-run] [--registry <name>]` builds the archives, writes `fb doc`'s
   JSON, and checks what the registry checks: a library (an executable can't be a dependency) whose
   name the registry takes (not `std`, `fb`, `futureblitz`, `apt`, `rpm`, or `releases`, even with
@@ -306,15 +315,27 @@ tools = { version = "2", registry = "company" }
   20,000 files and 8 times its limit unpacked; and for a prebuilt package each target's debug and release builds and
   their .fbi agreeing. `--dry-run` stops there and lists each archive's files; otherwise it checks
   the version is new, uploads each archive and the docs (in parts when they're over 64 MB), and
-  publishes them. In a GitHub workflow without `FB_REGISTRY_TOKEN`, fb asks GitHub for an OIDC
-  token for the registry's audience, exchanges it for a short-lived token, publishes with it, and
-  revokes it.
+  publishes them. Its sizes are in the registry's units, as its limits are, a KB a thousand bytes
+  and an MB a million, and Uploading says the size Packaged did. In a GitHub workflow without
+  `FB_REGISTRY_TOKEN`, fb asks GitHub for an OIDC token for the registry's audience, exchanges it
+  for a short-lived token, publishes with it, and revokes it. A package the exchange doesn't name,
+  as it names only packages already on the registry that trust the workflow, is refused before
+  anything's uploaded: a package's first version comes from `fb login` or `FB_REGISTRY_TOKEN`.
 - `fb yank <name>@<version> [--undo]`, `fb owner <name> [--add <who> | --remove <who>]`, and
   `fb search <words>`, each with `--registry`. The package's name is checked first, and `<who>`
-  is a username or `team:<name>`.
+  is a username or `team:<name>`. `fb owner` lists the owners, and the invites to own the package
+  that aren't accepted yet, with no token, as the registry shows them to anyone; `--add` invites
+  a user ("Invited alice to own physics") or adds a team, and `--add` and `--remove` need a token
+  with the `owners` scope, which the sign-in page doesn't tick unless it's asked. A token without
+  a scope a request needs is refused with how to get one that has it.
 - `fb add <name>[@<range>] [--registry <name>] [--beside]` adds the dependency to project.toml,
   as the newest version's range (`physics = "1.4.2"`, which is `^1.4.2`), keeping the file's
-  other lines as they are, and then locks and fetches it; `fb update [names]` resolves again.
+  other lines as they are, and then locks and fetches it, and says it's added once it's locked;
+  a dependency that can't be locked is taken out again. Its `--registry` is a name
+  `[registries]` gives, which the dependency is written with, not an index's URL or folder.
+  `fb update [names]` resolves again.
+- When no version fits a range, fb says the package's newest five by version, and why those that
+  fit don't: that they're yanked, or that one needs another fb than this one.
 
 **The wire format** (config.json, the index's lines, the archives' checks, and the API) is
 [registry-api.md](registry-api.md), the server's, which futureblitz-web's `workers/api` keeps and
@@ -324,7 +345,8 @@ this repo mirrors. fb reads an index line of a later format (`"v"`) as a later f
 from the runtime's tls_roots.cpp: it's built, tested, and linked statically on every OS already,
 with proxies, redirects, HTTP/2, and gzip, and using it from the compiler's library needs no
 runtime. std.net.http's own functions would bring the runtime's objects and its I/O thread into
-fb.
+fb. A request the API answers with a `429` or a `503` `unavailable` is sent again after its
+Retry-After (1 to 60 seconds), twice at most, and fb login's polls wait as it says too.
 
 ## Not in M7
 

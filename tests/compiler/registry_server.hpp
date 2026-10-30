@@ -256,6 +256,9 @@ private:
 
 /// The token the test registry's one account has.
 inline constexpr std::string_view test_token = "fbr_test_token";
+/// A token of the account's that has the publish scopes and yank, but not owners, as fb login's
+/// sign-in page gives by default.
+inline constexpr std::string_view publish_only_token = "fbr_publish_only";
 
 /// A registry over HTTP, as docs/registry-api.md has it, kept in memory: its index under
 /// /index/, its archives under /dl/, and its API under /api/v1. It records each request.
@@ -287,6 +290,11 @@ public:
     std::string workflow_jwt = "header.payload.signature";
     /// The most an upload can be in one request, beyond which it takes parts of `part_size`.
     std::size_t part_size = 1024;
+    /// What the API's requests, but the sign-in's polls, answer first, in order: 429, limited, or
+    /// 503, `unavailable`, each with "Retry-After: 7".
+    std::vector<long> api_statuses;
+    /// The packages trusted publishing's token publishes, as the exchange says.
+    std::vector<std::string> trusted_packages{ "physics" };
 
 private:
     http_server_t m_server;
@@ -297,8 +305,11 @@ private:
     std::map<std::string, std::string, std::less<>> m_uploads;
     std::map<std::string, std::map<int, std::string>, std::less<>> m_parts;
     std::map<std::string, std::vector<std::string>, std::less<>> m_owners;
+    /// Each package's pending invites, by the invitee's name.
+    std::map<std::string, std::vector<std::string>, std::less<>> m_invites;
     int m_polls = 0;
     std::size_t m_scripted = 0;
+    std::size_t m_limited = 0;
     std::set<std::string, std::less<>> m_revoked;
 
     static http_response_t json(const long status, const nlohmann::json& body) {
@@ -327,6 +338,7 @@ private:
     [[nodiscard]] bool authorized(const http_request_t& request) const {
         const std::string token = header(request, "authorization");
         return token == std::format("Bearer {}", test_token) ||
+               token == std::format("Bearer {}", publish_only_token) ||
                (token == "Bearer fbr_trusted" && !m_revoked.contains("fbr_trusted"));
     }
 
@@ -378,6 +390,15 @@ private:
             return error(404, "not_found", "nothing's here");
         }
 
+        if (m_limited < api_statuses.size() && !path.ends_with("/poll")) {
+            const long status = api_statuses[m_limited++];
+            http_response_t answer = status == 503
+                                         ? error(503, "unavailable", "GitHub couldn't be asked")
+                                         : error(status, "rate_limited", "too many requests");
+            answer.headers.emplace("Retry-After", "7");
+            return answer;
+        }
+
         return api(request, path.substr(7));
     }
 
@@ -405,7 +426,7 @@ private:
                 http_response_t answer = status == 410
                                              ? error(410, "expired", "the sign-in was denied")
                                              : error(status, "busy", "try again");
-                if (status == 429) {
+                if (status == 429 || status == 503) {
                     answer.headers.emplace("Retry-After", "7");
                 }
 
@@ -416,7 +437,11 @@ private:
                 return json(202, { { "status", "pending" } });
             }
 
-            return json(200, { { "status", "approved" }, { "token", test_token } });
+            return json(200, {
+                                 { "status", "approved" },
+                                 { "token", test_token },
+                                 { "username", "tester" },
+                             });
         }
 
         if (path == "/trusted-publishing/token") {
@@ -425,7 +450,7 @@ private:
             }
 
             m_revoked.erase("fbr_trusted");
-            return json(201, { { "token", "fbr_trusted" } });
+            return json(201, { { "token", "fbr_trusted" }, { "packages", trusted_packages } });
         }
 
         if (path.starts_with("/search")) {
@@ -445,8 +470,18 @@ private:
             return json(200, { { "packages", packages }, { "total", packages.size() } });
         }
 
+        // A package's owners are anyone's to see.
+        if (request.method == "GET" && path.starts_with("/packages/") &&
+            path.ends_with("/owners")) {
+            return package(request, path.substr(10), body);
+        }
+
         if (!authorized(request)) {
             return error(401, "unauthorized", "a token is needed, and that one isn't it");
+        }
+
+        if (path == "/me" && request.method == "GET") {
+            return json(200, { { "username", "tester" }, { "email_verified", true } });
         }
 
         if (path == "/tokens/current" && request.method == "DELETE") {
@@ -521,18 +556,40 @@ private:
 
         if (rest == "/owners") {
             std::vector<std::string>& owners = m_owners[name];
+            std::vector<std::string>& invites = m_invites[name];
             if (request.method == "GET") {
                 nlohmann::json listed = nlohmann::json::array();
                 for (const std::string& owner : owners) {
                     listed.push_back({ { "kind", "user" }, { "name", owner } });
                 }
 
-                return json(200, { { "owners", listed }, { "invites", nlohmann::json::array() } });
+                nlohmann::json invited = nlohmann::json::array();
+                for (const std::string& invitee : invites) {
+                    invited.push_back({
+                        { "id", 1 },
+                        { "kind", "owner" },
+                        { "package", name },
+                        { "invitee", invitee },
+                        { "expires_at", "2026-11-13T09:30:00Z" },
+                    });
+                }
+
+                return json(200, { { "owners", listed }, { "invites", invited } });
+            }
+
+            if (header(request, "authorization") == std::format("Bearer {}", publish_only_token)) {
+                return error(403, "scope", "the token doesn't have the owners scope");
             }
 
             const std::string user = body.is_object() ? body.value("user", "") : "";
+            const std::string team = body.is_object() ? body.value("team", "") : "";
+            if (request.method == "POST" && !team.empty()) {
+                return json(201, { { "kind", "team" }, { "name", team } });
+            }
+
             if (request.method == "POST") {
-                return json(202, { { "id", "invite1" }, { "kind", "owner" } });
+                invites.push_back(user);
+                return json(202, { { "id", 1 }, { "kind", "owner" }, { "invitee", user } });
             }
 
             if (owners.size() == 1 && owners.front() == user) {

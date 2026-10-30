@@ -4,6 +4,7 @@
 #include "fb/http_client.hpp"
 
 #include "fb/build_config.hpp"
+#include "fb/utf8.hpp"
 #include "tls_roots.hpp"
 
 #include <array>
@@ -142,6 +143,21 @@ CURLcode check_as_os(CURL* /*easy*/, void* config, void* check) {
     return CURLE_OK;
 }
 
+/// Why Windows can't write `path`, when it's past MAX_PATH's 259 characters, which Windows' own
+/// calls refuse: "; it's 300 characters, past Windows' 259; a shorter FB_HOME holds it". Empty
+/// elsewhere.
+std::string path_too_long([[maybe_unused]] const std::filesystem::path& path) {
+#ifdef _WIN32
+    constexpr std::size_t most_characters = 259;
+    const std::size_t characters = std::filesystem::absolute(path).native().size();
+    if (characters > most_characters) {
+        return std::format("; it's {} characters, past Windows' {}; a shorter FB_HOME holds it",
+                           characters, most_characters);
+    }
+#endif
+    return {};
+}
+
 struct easy_deleter_t {
     void operator()(CURL* easy) const {
         curl_easy_cleanup(easy);
@@ -255,6 +271,13 @@ std::expected<http_response_t, std::string> send_http(const http_request_t& requ
     if (received.over) {
         return std::unexpected(std::format("{} sent more than the {} bytes fb takes of it",
                                            request.url, request.most_body));
+    }
+
+    // A body that couldn't be written is the disk's failure, or the path's, not the network's.
+    if (result == CURLE_WRITE_ERROR && !received.path.empty()) {
+        return std::unexpected(std::format("{} couldn't be downloaded: fb couldn't write {}{}",
+                                           request.url, to_utf8(received.path),
+                                           path_too_long(received.path)));
     }
 
     if (result != CURLE_OK) {

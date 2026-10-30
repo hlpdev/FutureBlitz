@@ -80,19 +80,6 @@ bool write_text(const std::filesystem::path& path, const std::string_view text) 
     return static_cast<bool>(out);
 }
 
-/// A size as people read it: "812 B", "48.2 KB", or "5.1 MB".
-std::string size_of(const std::uint64_t bytes) {
-    if (bytes < 1024) {
-        return std::format("{} B", bytes);
-    }
-
-    if (bytes < std::uint64_t{ 1024 } * 1024) {
-        return std::format("{:.1f} KB", static_cast<double>(bytes) / 1024.0);
-    }
-
-    return std::format("{:.1f} MB", static_cast<double>(bytes) / (1024.0 * 1024.0));
-}
-
 /// The package the current folder is in, or nullopt after saying there's none.
 std::optional<std::filesystem::path> current_package(const console_t& console,
                                                      const options_t& options) {
@@ -136,9 +123,40 @@ bool is_index(const std::string_view given) {
            given.contains('.');
 }
 
+/// Whether `written`, an index as --registry or [registries] gives it, looks like a host's name
+/// without its URL's scheme, like "index.example.com": letters, digits, '-', and '.'s, with no
+/// '/'.
+bool looks_like_host(const std::string_view written) {
+    return written.contains('.') && !written.starts_with('.') &&
+           std::ranges::all_of(written, [](const char c) {
+               return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+                      c == '-' || c == '.';
+           });
+}
+
+/// Why `index`, a canonical one, written as `written`, isn't a registry fb can use, or nullopt
+/// when it is: a folder is a registry on disk only with its config.json. A folder that isn't
+/// there, named like a host, is most likely a URL without its https://.
+std::optional<std::string> folder_error(const std::string_view index,
+                                        const std::string_view written) {
+    const std::filesystem::path folder = local_index_folder(index);
+    std::error_code error;
+    if (folder.empty() || std::filesystem::is_regular_file(folder / "config.json", error)) {
+        return std::nullopt;
+    }
+
+    std::string out =
+        std::format("there's no registry in {}: it has no config.json", to_utf8(folder));
+    if (looks_like_host(written) && !std::filesystem::exists(folder, error)) {
+        out += std::format("; an index's URL starts with https://, like https://{}/", written);
+    }
+
+    return out;
+}
+
 /// The registry --registry names, from [registries] of the package in `root`, if there is one,
 /// or as an index's URL or folder, or else futureblitz.dev's, or the mirror [registries] names
-/// it.
+/// it. A folder has to be a registry on disk's, with its config.json.
 std::expected<chosen_registry_t, std::string>
 choose_registry(const options_t& options, const std::optional<std::filesystem::path>& root) {
     const std::string given = options.registry.value_or(std::string(default_registry));
@@ -156,6 +174,10 @@ choose_registry(const options_t& options, const std::optional<std::filesystem::p
         }
 
         const std::string index = canonical_index(*written, std::filesystem::current_path(error));
+        if (const std::optional<std::string> wrong = folder_error(index, given)) {
+            return std::unexpected(*wrong);
+        }
+
         return chosen_registry_t{ .index = index, .public_registry = index == default_index };
     }
 
@@ -175,6 +197,12 @@ choose_registry(const options_t& options, const std::optional<std::filesystem::p
             given, root ? "the package" : "a package"));
     }
 
+    const auto entry = std::ranges::find(registries, given, &registry_entry_t::name);
+    if (const std::optional<std::string> wrong =
+            folder_error(*index, entry != registries.end() ? entry->index : "")) {
+        return std::unexpected(*wrong);
+    }
+
     return chosen_registry_t{
         .index = *index,
         .name = given,
@@ -187,6 +215,8 @@ choose_registry(const options_t& options, const std::optional<std::filesystem::p
 struct token_t {
     std::string value;
     bool trusted = false;
+    /// Trusted publishing's packages, as the registry said them.
+    std::optional<std::vector<std::string>> packages;
 };
 
 std::expected<token_t, std::string> token_for(const registry_session_t& session,
@@ -197,13 +227,18 @@ std::expected<token_t, std::string> token_for(const registry_session_t& session,
     }
 
     if (publishing) {
-        if (const std::optional<std::expected<std::string, std::string>> trusted =
+        if (const std::optional<std::expected<trusted_token_t, std::string>> trusted =
                 trusted_publishing_token(session)) {
             if (!*trusted) {
                 return std::unexpected(trusted->error());
             }
 
-            return token_t{ .value = **trusted, .trusted = true };
+            const trusted_token_t& exchanged = **trusted;
+            return token_t{
+                .value = exchanged.token,
+                .trusted = true,
+                .packages = exchanged.packages,
+            };
         }
     }
 
@@ -243,6 +278,10 @@ std::optional<registry_session_t> session_for(const console_t& console,
     }
 
     session.token = token->value;
+    if (token->trusted) {
+        session.trusted_packages = token->packages;
+    }
+
     if (trusted != nullptr) {
         *trusted = token->trusted;
     }
@@ -416,6 +455,7 @@ int add_command(const console_t& console, const options_t& options) {
 
     registry_t registry(chosen->index, send_http, options.offline, {});
     std::string text = *before;
+    std::vector<std::string> added_lines;
     for (const std::string& spec : options.names) {
         const std::size_t at = spec.find('@');
         const std::string name = spec.substr(0, at);
@@ -458,8 +498,8 @@ int add_command(const console_t& console, const options_t& options) {
         }
 
         text = *added;
-        console.status("Adding", std::format("{} {} to dependencies", name,
-                                             at == std::string::npos ? "v" + range : range));
+        added_lines.push_back(std::format("{} {} to dependencies", name,
+                                          at == std::string::npos ? "v" + range : range));
     }
 
     for (const std::string& note : registry.notes()) {
@@ -471,10 +511,15 @@ int add_command(const console_t& console, const options_t& options) {
         return compile_errors_exit_code;
     }
 
-    // What can't be locked is taken out of project.toml again.
+    // What can't be locked is taken out of project.toml again, so it's said to be added only
+    // once it's locked.
     if (!report_sync(console, sync_packages(*root, sync_options(console, options)))) {
         (void)write_text(manifest, *before);
         return compile_errors_exit_code;
+    }
+
+    for (const std::string& line : added_lines) {
+        console.status("Added", line);
     }
 
     return 0;
@@ -618,7 +663,7 @@ int publish_command(const console_t& console, const options_t& options) {
         console.status("Packaged",
                        std::format("{}: {} file{}, {}", archive->file, archive->paths.size(),
                                    archive->paths.size() == 1 ? "" : "s",
-                                   size_of(archive->ref.size)));
+                                   size_text(archive->ref.size)));
         if (options.dry_run) {
             for (const std::string& path : archive->paths) {
                 console_t::print(std::format("{}  {}\n", archive->file, path));
@@ -741,34 +786,44 @@ int owner_command(const console_t& console, const options_t& options) {
         }
     }
 
-    const std::optional<registry_session_t> session = session_for(console, *chosen, true, false);
+    // The list is the registry's to show anyone, so only a change needs a token.
+    const std::optional<registry_session_t> session =
+        session_for(console, *chosen, options.owner.has_value(), false);
     if (!session) {
         return compile_errors_exit_code;
     }
 
     if (!options.owner) {
-        const std::expected<std::vector<package_owner_t>, std::string> owners =
-            list_owners(name, *session);
+        const std::expected<package_owners_t, std::string> owners = list_owners(name, *session);
         if (!owners) {
             console.error(owners.error());
             return compile_errors_exit_code;
         }
 
-        for (const package_owner_t& owner : *owners) {
+        for (const package_owner_t& owner : owners->owners) {
             console_t::print(std::format("{} {}\n", owner.kind, owner.name));
+        }
+
+        // An invite's expiry, as the registry writes it, is shown by its date.
+        for (const owner_invite_t& invite : owners->invites) {
+            const std::string until =
+                invite.expires_at.size() >= 10
+                    ? std::format(", until {}", std::string_view(invite.expires_at).substr(0, 10))
+                    : "";
+            console_t::print(std::format("user {} (invited{})\n", invite.invitee, until));
         }
 
         return 0;
     }
 
-    const std::expected<std::string, std::string> changed =
+    const std::expected<owner_change_t, std::string> changed =
         change_owner(name, *options.owner, options.remove_owner, *session);
     if (!changed) {
         console.error(changed.error());
         return compile_errors_exit_code;
     }
 
-    console.status(options.remove_owner ? "Removed" : "Added", *changed);
+    console.status(changed->verb, changed->message);
     return 0;
 }
 
@@ -802,6 +857,7 @@ int login_command(const console_t& console, const options_t& options) {
     }
 
     std::string token;
+    std::string username;
     if (options.token) {
         // A token made on the dashboard, from stdin, which a pipe or a paste gives.
         std::string line;
@@ -822,7 +878,18 @@ int login_command(const console_t& console, const options_t& options) {
             return usage_exit_code;
         }
 
+        // One the registry doesn't take, mistyped, revoked, or expired, isn't kept over the
+        // token there is.
+        registry_session_t checking = *session;
+        checking.token = line;
+        const std::expected<std::string, std::string> account = account_of(checking);
+        if (!account) {
+            console.error(std::format("the registry didn't take the token: {}", account.error()));
+            return compile_errors_exit_code;
+        }
+
         token = line;
+        username = *account;
     } else {
         // FB_BROWSER=none, or empty, opens nothing.
         const std::optional<std::string> browser = environment_variable("FB_BROWSER");
@@ -854,14 +921,15 @@ int login_command(const console_t& console, const options_t& options) {
             hooks.open = nullptr;
         }
 
-        const std::expected<std::string, std::string> signed_in =
+        const std::expected<signed_in_t, std::string> signed_in =
             login(std::format("fb on {}", machine_name()), *session, hooks);
         if (!signed_in) {
             console.error(signed_in.error());
             return compile_errors_exit_code;
         }
 
-        token = *signed_in;
+        token = signed_in->token;
+        username = signed_in->username;
     }
 
     if (const std::expected<void, std::string> kept =
@@ -873,7 +941,9 @@ int login_command(const console_t& console, const options_t& options) {
         return compile_errors_exit_code;
     }
 
-    console.status("Logged in", std::format("to {}", chosen->index));
+    console.status("Logged in", username.empty()
+                                    ? std::format("to {}", chosen->index)
+                                    : std::format("to {} as {}", chosen->index, username));
     if (environment_variable("FB_REGISTRY_TOKEN")) {
         console.note("FB_REGISTRY_TOKEN is set, and fb uses it before the token it kept");
     }

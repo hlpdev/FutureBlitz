@@ -133,6 +133,8 @@ std::string package_help(const command_t command, const style_t& style) {
         break;
     case command_t::SEARCH:
         out = usage(" <words>...");
+        out += "\nA package matches when its name, description, or keywords have every word; in a\n"
+               "registry on disk, its name has to.\n";
         break;
     case command_t::PUBLISH:
         out = usage(" [package folder]");
@@ -146,12 +148,14 @@ std::string package_help(const command_t command, const style_t& style) {
         break;
     case command_t::OWNER:
         out = usage(" <package>");
-        out += "\nWithout --add or --remove, it lists the owners. A team is team:<name>.\n";
+        out += "\nWithout --add or --remove, it lists the owners and the invites to own it, which\n"
+               "needs no token. A team is team:<name>.\n";
         break;
     case command_t::LOGIN:
         out = usage("");
         out += "\nIt opens the registry's sign-in page, and keeps the token in the OS's\n"
-               "credential store, or the file FB_CREDENTIALS_FILE names.\n";
+               "credential store, or the file FB_CREDENTIALS_FILE names. A token from --token is\n"
+               "kept only once the registry takes it.\n";
         break;
     default:
         out = usage("");
@@ -159,7 +163,11 @@ std::string package_help(const command_t command, const style_t& style) {
     }
 
     out += std::format("\n{}\n", style.paint("Options:", tone_t::SUCCESS));
-    if (command != command_t::UPDATE) {
+    // fb add writes the dependency with its registry's name, so it takes only a name.
+    if (command == command_t::ADD) {
+        out +=
+            entry("    --registry <name>", "A registry that [registries] names (futureblitz.dev)");
+    } else if (command != command_t::UPDATE) {
         out += entry("    --registry <name>",
                      "A registry in [registries], or an index's URL or folder (futureblitz.dev)");
     }
@@ -168,9 +176,10 @@ std::string package_help(const command_t command, const style_t& style) {
         out += entry("    --beside", "Ship it beside the executable, as link = \"beside\"");
     }
 
-    if (command == command_t::ADD || command == command_t::UPDATE ||
-        command == command_t::PUBLISH) {
+    if (command == command_t::ADD || command == command_t::UPDATE) {
         out += entry("    --offline", "Use only what's in the cache");
+    } else if (command == command_t::PUBLISH) {
+        out += entry("    --offline", "With --dry-run, use only what's in the cache");
     }
 
     if (command == command_t::SEARCH) {

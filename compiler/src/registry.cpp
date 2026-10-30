@@ -633,8 +633,18 @@ registry_t::archive(const std::string_view name, const std::string_view version,
                 file));
         }
 
+        // A version has its own archive and one for each target, so a target's says which.
         if (m_status) {
-            m_status("Downloading", std::format("{} v{}", name, version));
+            const std::string own = archive_name(name, version);
+            const std::string_view stem = std::string_view(own).substr(0, own.size() - 6);
+            std::string shown = std::format("{} v{}", name, version);
+            if (file != own && file.starts_with(std::format("{}-", stem)) &&
+                file.ends_with(".fbpkg")) {
+                shown += std::format(" ({})",
+                                     file.substr(stem.size() + 1, file.size() - stem.size() - 7));
+            }
+
+            m_status("Downloading", shown);
         }
 
         // Into a file beside its place, as it comes, then renamed once it's checked.

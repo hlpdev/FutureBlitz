@@ -102,6 +102,56 @@ TEST_CASE("fb's package commands say what they take", "[cli-packages]") {
     }
 
     CHECK(fb_run({ "help", "build" }).output.contains("--offline"));
+    // m10-journey-2 and m10-journey-12: each command's options say what it takes.
+    const std::string add = fb_run({ "help", "add" }).output;
+    CHECK(add.contains("A registry that [registries] names (futureblitz.dev)"));
+    CHECK_FALSE(add.contains("index's URL"));
+    CHECK(fb_run({ "help", "publish" })
+              .output.contains("With --dry-run, use only what's in the cache"));
+    CHECK(fb_run({ "help", "search" }).output.contains("have every word"));
+    CHECK(fb_run({ "help", "owner" }).output.contains("needs no token"));
+}
+
+TEST_CASE("--registry's folder has to be a registry's, and a host's name needs its https://",
+          "[cli-packages]") {
+    // m10-edges-7: every command says a folder without config.json is no registry, and a name
+    // like a host's that's no folder is most likely a URL that lost its scheme.
+    const fb::testing::sandbox_t sandbox;
+    const working_folder_t in_sandbox(sandbox.folder());
+    const fb::testing::environment_t token("FB_REGISTRY_TOKEN", "x");
+    const std::string no_registry = "/nope: it has no config.json";
+    const std::string hint =
+        "; an index's URL starts with https://, like https://staging-index.futureblitz.dev/";
+    for (const std::vector<std::string>& command : std::vector<std::vector<std::string>>{
+             { "search", "json" },
+             { "yank", "mathx@1.0.0" },
+             { "owner", "mathx" },
+             { "login" },
+         }) {
+        std::vector<std::string> missing = command;
+        missing.insert(missing.end(), { "--registry", "./nope" });
+        const fb::process_result_t folder = fb_run(missing);
+        INFO(folder.output);
+        CHECK(folder.exit_code == 2);
+        CHECK(folder.output.contains("there's no registry in "));
+        CHECK(folder.output.contains(no_registry));
+        CHECK_FALSE(folder.output.contains("https://"));
+
+        std::vector<std::string> host = command;
+        host.insert(host.end(), { "--registry", "staging-index.futureblitz.dev" });
+        const fb::process_result_t bare = fb_run(host);
+        INFO(bare.output);
+        CHECK(bare.exit_code == 2);
+        CHECK(bare.output.contains("it has no config.json" + hint));
+    }
+
+    // A folder that's there, without config.json, isn't a host's name.
+    std::filesystem::create_directories(sandbox / "index.example.com");
+    const fb::process_result_t there =
+        fb_run({ "search", "json", "--registry", "index.example.com" });
+    CHECK(there.exit_code == 2);
+    CHECK(there.output.contains("it has no config.json"));
+    CHECK_FALSE(there.output.contains("https://"));
 }
 
 TEST_CASE("fb publish, add, search, and yank work with a registry on disk", "[cli-packages]") {
@@ -149,8 +199,10 @@ TEST_CASE("fb publish, add, search, and yank work with a registry on disk", "[cl
     const fb::process_result_t added = fb_run({ "add", "physics", "--registry", "local" });
     INFO(added.output);
     REQUIRE(added.exit_code == 0);
-    CHECK(added.output.contains("Adding physics v1.2.0 to dependencies"));
+    // m10-journey-10: it's said to be added once it's locked.
     CHECK(added.output.contains("Adding shapes v0.3.0"));
+    CHECK(added.output.find("Adding shapes v0.3.0") <
+          added.output.find("Added physics v1.2.0 to dependencies"));
     CHECK(sandbox.read("game/project.toml")
               .ends_with(
                   "\n[dependencies]\nphysics = { version = \"1.2.0\", registry = \"local\" }\n"));
@@ -167,6 +219,14 @@ TEST_CASE("fb publish, add, search, and yank work with a registry on disk", "[cl
     const fb::process_result_t missing = fb_run({ "add", "nope@1", "--registry", "local" });
     CHECK(missing.exit_code == 1);
     CHECK(missing.output.contains("there's no package nope in"));
+    CHECK_FALSE(missing.output.contains("to dependencies"));
+    CHECK(sandbox.read("game/project.toml") == before);
+    const fb::process_result_t unfit = fb_run({ "add", "physics@2", "--registry", "local" });
+    CHECK(unfit.exit_code == 1);
+    CHECK(unfit.output.contains("no version of physics fits 2, which game asks for; its only "
+                                "version is 1.2.0"));
+    CHECK_FALSE(unfit.output.contains("this fb is"));
+    CHECK_FALSE(unfit.output.contains("to dependencies"));
     CHECK(sandbox.read("game/project.toml") == before);
 
     const fb::process_result_t found = fb_run({ "search", "phys", "--registry", "local" });
@@ -174,12 +234,18 @@ TEST_CASE("fb publish, add, search, and yank work with a registry on disk", "[cl
     CHECK(found.exit_code == 0);
     CHECK(found.output.contains("physics = \"1.2.0\""));
     CHECK(fb_run({ "search", "zzz", "--registry", "local" }).output.contains("no packages in"));
-    // commands-12: any of the words, in any letter case.
+    // commands-12 and m10-journey-1: every one of the words, in any letter case, as the API's
+    // search needs every word.
     CHECK(fb_run({ "search", "PHYSICS", "--registry", "local" })
               .output.contains("physics = \"1.2.0\""));
-    const std::string both = fb_run({ "search", "zzz", "shape", "--registry", "local" }).output;
+    const std::string both = fb_run({ "search", "SHAPE", "pes", "--registry", "local" }).output;
     CHECK(both.contains("shapes = \"0.3.0\""));
     CHECK_FALSE(both.contains("physics"));
+    const fb::process_result_t neither =
+        fb_run({ "search", "shape", "phys", "--registry", "local" });
+    CHECK(neither.exit_code == 0);
+    CHECK(neither.output.contains("no packages in"));
+    CHECK_FALSE(neither.output.contains(" = \""));
 
     // A dry run can be offline; a publish can't.
     CHECK(fb_run({ "publish", fb::to_utf8(sandbox / "shapes"), "--registry", index, "--dry-run",
@@ -310,7 +376,9 @@ TEST_CASE("fb login keeps a token that publish, owner, and logout use", "[cli-pa
     const fb::testing::environment_t no_browser("FB_BROWSER", "none");
     const std::string index = server.index();
 
-    const fb::process_result_t without = fb_run({ "owner", "physics", "--registry", index });
+    // A change needs a token.
+    const fb::process_result_t without =
+        fb_run({ "owner", "physics", "--registry", index, "--add", "alice" });
     CHECK(without.exit_code == 1);
     CHECK(without.output.contains("fb has no token for"));
 
@@ -320,7 +388,7 @@ TEST_CASE("fb login keeps a token that publish, owner, and logout use", "[cli-pa
     REQUIRE(signed_in.exit_code == 0);
     CHECK(signed_in.output.contains("cli-login/login1 to sign in, in a browser"));
     CHECK(signed_in.output.contains("WDJB-MJHT"));
-    CHECK(signed_in.output.contains("Logged in to " + index));
+    CHECK(signed_in.output.contains("Logged in to " + index + " as tester"));
     CHECK(sandbox.read("home/credentials.json").contains(fb::testing::test_token));
 
     sandbox.library("physics", "physics", "1.0.0", "", { { "world.fb", "// physics\n" } });
@@ -328,36 +396,86 @@ TEST_CASE("fb login keeps a token that publish, owner, and logout use", "[cli-pa
         fb_run({ "publish", fb::to_utf8(sandbox / "physics"), "--registry", index });
     INFO(published.output);
     CHECK(published.exit_code == 0);
-    CHECK(published.output.contains("Uploading physics-1.0.0.fbpkg"));
     CHECK(published.output.contains("warning: the readme has no title"));
     CHECK(published.output.contains("Published physics v1.0.0"));
+    // m10-edges-12: Uploading says the size Packaged did.
+    const std::string packaged = "Packaged physics-1.0.0.fbpkg: ";
+    const std::size_t files = published.output.find(packaged);
+    REQUIRE(files != std::string::npos);
+    const std::size_t size = published.output.find(", ", files) + 2;
+    std::string shown = published.output.substr(size, published.output.find('\n', size) - size);
+    if (shown.ends_with('\r')) {
+        shown.pop_back();
+    }
 
+    CHECK(shown.ends_with(" B"));
+    CHECK(published.output.contains(std::format("Uploading physics-1.0.0.fbpkg ({})", shown)));
+
+    // m10-edges-11 and m10-journey-11: an invite is said as one, and a team as added.
     CHECK(fb_run({ "owner", "physics", "--registry", index }).output.contains("user tester"));
     CHECK(fb_run({ "owner", "physics", "--registry", index, "--add", "alice" })
-              .output.contains("alice is invited to own physics"));
+              .output.contains("Invited alice to own physics, which they accept on the package "
+                               "site"));
+    CHECK(fb_run({ "owner", "physics", "--registry", index, "--add", "team:acme" })
+              .output.contains("Added team acme as an owner of physics"));
 
     CHECK(fb_run({ "logout", "--registry", index }).output.contains("Logged out of " + index));
     CHECK(fb_run({ "logout", "--registry", index }).output.contains("fb kept no token for"));
 
-    // A token from stdin, as one made on the dashboard is given, without what's around it.
+    // m10-edges-5: the list needs no token, and shows the invites.
+    const fb::process_result_t listed = fb_run({ "owner", "physics", "--registry", index });
+    INFO(listed.output);
+    CHECK(listed.exit_code == 0);
+    CHECK(listed.output.starts_with("user tester\n"));
+    CHECK(listed.output.contains("\nuser alice (invited, until 2026-11-13)\n"));
+
+    // A token from stdin, as one made on the dashboard is given, without what's around it, kept
+    // once the registry takes it, and saying whose it is.
     const fb::process_result_t pasted =
-        fb_run({ "login", "--token", "--registry", index }, " \tfbr_pasted\t \r\n");
+        fb_run({ "login", "--token", "--registry", index },
+               std::format(" \t{}\t \r\n", fb::testing::test_token));
+    INFO(pasted.output);
     CHECK(pasted.exit_code == 0);
-    CHECK(sandbox.read("home/credentials.json").contains("\"fbr_pasted\""));
+    CHECK(pasted.output.contains("Logged in to " + index + " as tester"));
+    const std::string kept = std::format("\"{}\"", fb::testing::test_token);
+    CHECK(sandbox.read("home/credentials.json").contains(kept));
+    // m10-edges-9 and m10-journey-3: one the registry doesn't take isn't kept over it.
+    const fb::process_result_t refused =
+        fb_run({ "login", "--token", "--registry", index }, "fbr_notarealtoken\n");
+    CHECK(refused.exit_code == 1);
+    CHECK(refused.output.contains("the registry didn't take the token: a token is needed, and "
+                                  "that one isn't it"));
+    CHECK_FALSE(refused.output.contains("Logged in"));
+    CHECK(sandbox.read("home/credentials.json").contains(kept));
+    CHECK_FALSE(sandbox.read("home/credentials.json").contains("fbr_notarealtoken"));
     CHECK(fb_run({ "login", "--token", "--registry", index }, "").output.contains("gave none"));
     // commands-7: a token is printable ASCII, and one that isn't is refused, leaving nothing.
     const fb::process_result_t binary =
         fb_run({ "login", "--token", "--registry", index }, "fbr_\xff\xfe\n");
     CHECK(binary.exit_code == 2);
     CHECK(binary.output.contains("that isn't a registry's token"));
-    CHECK(sandbox.read("home/credentials.json").contains("\"fbr_pasted\""));
+    CHECK(sandbox.read("home/credentials.json").contains(kept));
     for (const auto& entry : std::filesystem::directory_iterator(sandbox / "home")) {
         CHECK_FALSE(fb::to_utf8(entry.path().filename()).contains(".partial"));
     }
 
     // FB_REGISTRY_TOKEN comes first, as in CI.
-    const fb::testing::environment_t ci("FB_REGISTRY_TOKEN", std::string(fb::testing::test_token));
-    CHECK(fb_run({ "yank", "physics@1.0.0", "--registry", index }).exit_code == 0);
+    {
+        const fb::testing::environment_t ci("FB_REGISTRY_TOKEN",
+                                            std::string(fb::testing::test_token));
+        CHECK(fb_run({ "yank", "physics@1.0.0", "--registry", index }).exit_code == 0);
+    }
+
+    // m10-edges-6: a token without the owners scope, as fb login's page gives by default, says how
+    // to get one that has it.
+    const fb::testing::environment_t unscoped("FB_REGISTRY_TOKEN",
+                                              std::string(fb::testing::publish_only_token));
+    const fb::process_result_t scoped =
+        fb_run({ "owner", "physics", "--registry", index, "--add", "bob" });
+    INFO(scoped.output);
+    CHECK(scoped.exit_code == 1);
+    CHECK(scoped.output.contains("the token doesn't have the owners scope; a token that has it "
+                                 "comes from fb login, with it ticked on the sign-in page"));
 }
 
 TEST_CASE("fb login checks it can keep a token before the sign-in, which it never loses",
@@ -427,6 +545,22 @@ TEST_CASE("fb publish in a GitHub workflow uses trusted publishing, and revokes 
     CHECK(again.output.contains("published already"));
     CHECK(server.requests().back() == "DELETE /api/v1/tokens/current");
     CHECK(revokes() == 2);
+
+    // m10-journey-9: a package the token isn't for, as a new one isn't, uploads nothing, says
+    // where its first version comes from, and revokes the token.
+    sandbox.library("shapes", "shapes", "0.1.0", "", { { "area.fb", "// shapes\n" } });
+    toml = sandbox.read("shapes/project.toml");
+    toml.replace(toml.find("../registry/index"), std::string_view("../registry/index").size(),
+                 server.index());
+    sandbox.write("shapes/project.toml", toml);
+    const fb::process_result_t fresh =
+        fb_run({ "publish", fb::to_utf8(sandbox / "shapes"), "--registry", server.index() });
+    INFO(fresh.output);
+    CHECK(fresh.exit_code == 1);
+    CHECK(fresh.output.contains("shapes isn't on the registry yet; its first version comes from "
+                                "fb login or FB_REGISTRY_TOKEN"));
+    CHECK_FALSE(fresh.output.contains("Uploading"));
+    CHECK(revokes() == 3);
 }
 
 TEST_CASE("fb login doesn't wait for the browser it opens", "[cli-packages]") {

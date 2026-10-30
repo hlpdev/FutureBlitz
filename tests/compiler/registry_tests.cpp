@@ -258,6 +258,16 @@ TEST_CASE("an archive is downloaded once, and checked against its hash", "[regis
         CHECK(said == std::vector<std::string>{ "Downloading physics v1.0.0" });
         // Into a file of the request's, as it came, which is the cache's once it's checked.
         CHECK_FALSE(server.requests.back().save_to.empty());
+
+        // m10-journey-16: a target's archive says its target.
+        server.answers["https://dl.example.com/physics/1.0.0/physics-1.0.0-linux-x64.fbpkg"] = {
+            .status = 200,
+            .body = bytes,
+        };
+        said.clear();
+        CHECK(held(registry.archive("physics", "1.0.0", "physics-1.0.0-linux-x64.fbpkg", hash,
+                                    1000)) == bytes);
+        CHECK(said == std::vector<std::string>{ "Downloading physics v1.0.0 (linux-x64)" });
     }
 
     // From the cache, even offline.
