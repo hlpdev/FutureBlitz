@@ -11,7 +11,7 @@ Extern "runtime"
     Function fb_crypto_equal(a: UInt8[], b: UInt8[]): Int32
 End Extern
 
-/// SecureRandom's Static Methods.
+/// Random bytes and numbers from the OS's randomness, for keys, tokens, and other secrets.
 ///
 /// # Examples
 ///

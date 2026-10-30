@@ -17,8 +17,8 @@ Extern "runtime"
     Function fb_mem_compare(a: Ptr<Void>, b: Ptr<Void>, bytes: UInt64): Int32
 End Extern
 
-/// Mem's Static Methods. What Alloc, AllocUninitialized, and Resize give, Free gives back, and what
-/// AllocAligned gives, FreeAligned.
+/// Allocating, copying, filling, and comparing raw memory, for Unsafe code. What Alloc,
+/// AllocUninitialized, and Resize give, Free gives back, and what AllocAligned gives, FreeAligned.
 ///
 /// # Examples
 ///

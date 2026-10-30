@@ -61,7 +61,7 @@ Public Struct DirEntry
     Public Method IsDirectory(): Bool => Kind == FileKind.DIRECTORY
 End Struct
 
-/// A folder's Static Methods.
+/// Making, listing, walking, and removing folders, and the current and temporary ones.
 ///
 /// # Examples
 ///

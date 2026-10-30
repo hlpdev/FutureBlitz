@@ -16,7 +16,7 @@ End Extern
 Const NO_DATA = -3007
 Const NO_NAME = -3008
 
-/// Dns's Static Methods.
+/// The addresses a host's name has, as the OS's resolver finds them.
 ///
 /// # Examples
 ///

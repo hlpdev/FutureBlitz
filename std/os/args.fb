@@ -595,7 +595,7 @@ Public Class ArgsParser
     End Method
 End Class
 
-/// Args' Static Methods.
+/// Parsing the program's command-line arguments into a Struct of its options, and their help.
 ///
 /// # Examples
 ///
