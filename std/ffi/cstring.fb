@@ -1,3 +1,5 @@
+//! CStrings that C code can keep: copies of Strings, their lengths, and freeing them.
+//!
 //! What a CString does besides ToString, which is built in: a copy of a String that C code can
 //! keep, its length, and giving the copy back. The copy is the runtime's, like the one an Extern
 //! Function's call makes of a String argument, so leak reports count one that's never freed.
@@ -12,6 +14,17 @@ Extend CString
     /// A CString of `text`'s UTF-8 bytes and a NUL, in memory of its own, which C code can keep
     /// until Free gives it back. C reads it up to its first NUL, so a NUL in `text` ends it
     /// there.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # Import std.text
+    /// Local copy = CString.From("hello")
+    /// Unsafe
+    ///     Expect(copy.Length() == 5)
+    ///     copy.Free()
+    /// End Unsafe
+    /// ```
     Public Static Method From(text: String): CString
         Return fb_cstring_new(text)
     End Method

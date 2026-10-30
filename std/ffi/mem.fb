@@ -1,3 +1,5 @@
+//! Raw memory for Unsafe code: allocating, copying, filling, comparing, and freeing it.
+//!
 //! Raw memory, which Unsafe code allocates, resizes, fills, copies, compares, and gives back,
 //! through the runtime, whose C functions a program can declare as it likes. Sizes are Int64s, as
 //! SizeOf's and two Ptrs' difference are, so one that went below 0 panics instead of wrapping
@@ -17,6 +19,20 @@ End Extern
 
 /// Mem's Static Methods. What Alloc, AllocUninitialized, and Resize give, Free gives back, and what
 /// AllocAligned gives, FreeAligned.
+///
+/// # Examples
+///
+/// ```
+/// Unsafe
+///     Local a = Mem.Alloc(16)
+///     Local b = Mem.Alloc(16)
+///     Mem.Fill(a, 0xAB, 16)
+///     Mem.Copy(b, a, 16)
+///     Expect(Mem.Compare(a, b, 16) == 0)
+///     Mem.Free(a)
+///     Mem.Free(b)
+/// End Unsafe
+/// ```
 Public Struct Mem
     /// Mem isn't made: it's only its Static Methods.
     New()

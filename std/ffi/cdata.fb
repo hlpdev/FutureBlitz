@@ -1,8 +1,18 @@
+//! CData, the constraint for the types C code has.
+//!
 //! CData: the constraint for the types C code has, which a Ptr points to and SizeOf measures.
 
 /// What C code has, which the compiler decides, as it does Sendable: numbers, Bools, Enums,
 /// CStrings, Ptrs, Callbacks, @CLayout Structs, and fixed arrays of these. A type parameter with
 /// it can be a Ptr's T and SizeOf's, as in `Unsafe Function First<T: CData>(p: Ptr<T>): T`. It's
 /// only a constraint, and a Struct that lists it is checked for it.
+///
+/// # Examples
+///
+/// ```
+/// Function Zeros<T: CData>(count: Int64): Buffer<T> => Buffer<T>(count)
+///
+/// Expect(Zeros<Float64>(3).ToArray() == [0.0, 0.0, 0.0] As Float64[])
+/// ```
 Public Interface CData
 End Interface

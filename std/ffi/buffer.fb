@@ -1,3 +1,5 @@
+//! Native memory of C values, which C code and safe code share without copying.
+//!
 //! `Buffer<T>`: native memory of C's values at an address that doesn't move, which C code reads and
 //! fills through its Pointer and safe code reads and sets with [], each index checked against its
 //! Count, so std.io and C libraries share memory with safe code without copying it.
@@ -13,6 +15,19 @@ End Extern
 /// Count T's of native memory at an address that doesn't move: its own, all 0 at first, given back
 /// once nothing has the Buffer; part of another Buffer's, which a view from Slice keeps alive; or
 /// memory C owns, which a view from View promises is there while it is.
+///
+/// # Examples
+///
+/// ```
+/// Local buffer = Buffer<Int32>(4)
+/// buffer[1] = 7
+/// Expect(buffer.Count == 4)
+/// Expect(buffer.ToArray() == [0, 7, 0, 0] As Int32[])
+/// // A slice is a view of the same memory.
+/// Local tail = buffer.Slice(1, 4)
+/// tail[2] = 9
+/// Expect(buffer[3] == 9)
+/// ```
 Public Class Buffer<T: CData> Implements Iterable<T>
     /// Each is set once, in a New, since the memory's owner and its bounds are what keep safe
     /// code's reads and writes in it.
@@ -185,6 +200,7 @@ Public Struct BufferIterator<T: CData> Implements Iterator<T>
     Field Values: Buffer<T>
     Field Index: Int64
 
+    /// The next value, in order, or Null after the last.
     @PanicsAtCaller
     Public ByRef Method Next(): T?
         If Index >= Values.Count Then Return Null
