@@ -453,8 +453,9 @@ private:
     /// `If`, which is a name then: the error says so, with a fix-it that spells it. The word has
     /// to be where the keyword could stand, at the error, right before it, or first on its line,
     /// and not a name the file declares, as `Local to = 5` does, since a keyword's case is part of
-    /// it and `to` is a name like any other.
-    void suggest_keyword_case(diagnostic_t& diagnostic) const {
+    /// it and `to` is a name like any other. It's kept out of line, so its locals aren't in the
+    /// frames of the recursive functions that report errors.
+    [[gnu::noinline]] void suggest_keyword_case(diagnostic_t& diagnostic) const {
         const auto at =
             std::ranges::lower_bound(m_tokens, diagnostic.span.begin, {},
                                      [](const token_t& token) { return token.span.begin; });
