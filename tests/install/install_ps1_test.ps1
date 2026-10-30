@@ -69,8 +69,12 @@ foreach ($bad in @(
     if ((Get-Content -LiteralPath $which) -ne 'newer') { Fail "the $($bad.Name) archive replaced it" }
 }
 
-# Run in the caller's session, as `irm | iex` runs it, it leaves the session as it was, its own
-# variables named like the script's parameters too.
+# Windows PowerShell's irm reads a script served with no charset as Latin-1, so it's ASCII.
+$bytes = [IO.File]::ReadAllBytes($Script)
+if (@($bytes | Where-Object { $_ -gt 127 }).Count -ne 0) { Fail "install.ps1 isn't ASCII" }
+
+# Run in the caller's session, as `irm | iex` runs it, dot-sourced and by iex with arguments, it
+# leaves the session as it was, its own variables named like the script's parameters too.
 $probe = @"
 `$ErrorActionPreference = 'Continue'
 `$ProgressPreference = 'Continue'
@@ -78,14 +82,17 @@ $probe = @"
 `$Archive = 'kept'
 `$NoModifyPath = 'too'
 `$before = [Net.ServicePointManager]::SecurityProtocol
-. '$Script' -Archive '$Out\archives\newer.zip' -NoModifyPath | Out-Null
+. '$Script' -Archive '$Out\archives\good.zip' -NoModifyPath | Out-Null
+`$dotted = Get-Content -LiteralPath '$which'
+Invoke-Expression "& { `$(Get-Content -Raw -LiteralPath '$Script') } -Archive '$Out\archives\newer.zip' -NoModifyPath" | Out-Null
+`$piped = Get-Content -LiteralPath '$which'
 `$left = @(Get-Variable root, repository, work, bin -ErrorAction SilentlyContinue).Count
 `$left += @(Get-Command Install-FutureBlitz -ErrorAction SilentlyContinue).Count
-"`$ErrorActionPreference `$ProgressPreference `$([Net.ServicePointManager]::SecurityProtocol -eq `$before) `$left `$Version `$Archive `$NoModifyPath"
+"`$ErrorActionPreference `$ProgressPreference `$([Net.ServicePointManager]::SecurityProtocol -eq `$before) `$left `$Version `$Archive `$NoModifyPath `$dotted `$piped"
 "@
 Set-Content -LiteralPath "$Out\probe.ps1" -Value $probe
 $session = & $shell -NoProfile -ExecutionPolicy Bypass -File "$Out\probe.ps1" | Select-Object -Last 1
-if ($session -ne 'Continue Continue True 0 mine kept too') {
+if ($session -ne 'Continue Continue True 0 mine kept too good newer') {
     Fail "the session was left with: $session"
 }
 Write-Host 'install.ps1 passed'

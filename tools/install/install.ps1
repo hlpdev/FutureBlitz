@@ -1,13 +1,16 @@
 # Installs FutureBlitz on Windows from its GitHub Releases into %USERPROFILE%\.futureblitz, or
 # $env:FUTUREBLITZ_HOME, and puts its bin on the user's PATH. Running it again updates it.
 #
+#   irm https://futureblitz.dev/install.ps1 | iex
 #   irm https://github.com/hlpdev/FutureBlitz/releases/latest/download/install.ps1 | iex
-#   .\install.ps1 -Version 0.1.0
-#   .\install.ps1 -Archive futureblitz-0.1.0-windows-x64.zip
+#   iex "& { $(irm https://futureblitz.dev/install.ps1) } -Version 1.0.0"
+#   .\install.ps1 -Version 1.0.0
+#   .\install.ps1 -Archive futureblitz-1.0.0-windows-x64.zip
 #
 # -NoModifyPath leaves PATH as it is. `irm | iex` runs this in the caller's session, so all of it
 # is in a script block, whose parameters, variables, preferences, and function are its own, and
-# the session's own variables of those names stay as they were.
+# the session's own variables of those names stay as they were. It's ASCII, as Windows
+# PowerShell's irm reads a script served with no charset as Latin-1.
 & {
     param(
         [string]$Version = $env:FUTUREBLITZ_VERSION,
