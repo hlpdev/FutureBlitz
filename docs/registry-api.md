@@ -113,7 +113,8 @@ A `.fbpkg` is a gzip-compressed tar (POSIX ustar, or pax for long paths), with i
 root, not under a folder.
 
 - **The source archive**, `<name>-<version>.fbpkg`: `project.toml`, the license, the readme, and
-  either the package's `.fb` source or, for a prebuilt package, no `.fb` files at all.
+  either the package's `.fb` source or, for a prebuilt package, no `.fb` files at all. Its
+  `lib/<target>/` and `native/<target>/` go in the target's archive instead.
 - **A target's archive**, `<name>-<version>-<target>.fbpkg`: only `lib/<target>/` and
   `native/<target>/`. A prebuilt package's has `lib/<target>/debug/<name>.fblib` and `.fbi` and
   the same in `release/`; a package with natives has its `native/<target>/` files.
@@ -142,17 +143,20 @@ The API refuses an archive, with an error naming the file and why, when:
   `LICENSE.txt`, `COPYING`, or what `[project] license_file` names) or no readme (`README.md`,
   `README`, `README.txt`, or what `[project] readme` names); the readme is over 1 MB, isn't
   UTF-8, or doesn't render.
-- **Prebuilt:** a source archive with `.fb` files has a `lib/` folder, or one without them has no
-  target archives; a target archive has a path outside `lib/<target>/` and `native/<target>/`,
-  or is empty; a target with `lib/` lacks either `debug` or `release`'s `<name>.fblib` and
+- **Prebuilt:** the source archive has a `lib/<target>/` or `native/<target>/` path; it has no
+  `.fb` files and there are no target archives; a source package's target archive has `lib/`; a
+  target archive has a path outside `lib/<target>/` and `native/<target>/`, or is empty; a
+  prebuilt package's target archive lacks either `debug` or `release`'s `<name>.fblib` and
   `<name>.fbi`; a `.fblib`'s first line, `// fblib <name> <version> <hash>`, and its `.fbi`'s,
   `// fbi <name> <version> <hash>`, don't name this package, this version, and one hash.
 - **Docs:** the docs JSON doesn't parse, or isn't fb doc's format 1 for this package and version
   (`format`, `package`, `version`, and `modules`).
 
 project.toml's `[project]` keys the registry reads: `name`, `version`, `type`, `license`,
-`license_file`, `readme`, `description` (at most 300 characters), `keywords` (at most 5, each a
-name), `repository`, `homepage`, `documentation` (https URLs), and `fb`.
+`license_file`, `readme`, `description` (at most 300 characters), `keywords` (at most 5, each up
+to 32 lowercase letters, digits, and `-`), `repository`, `homepage`, `documentation` (https
+URLs), and `fb`; and `[dependencies]`, each a range or `{ version = "…" }`, whose `link` the
+registry ignores (the program decides it).
 
 ## The API
 
@@ -164,7 +168,8 @@ uploads, readmes, and redirects.
 - **A token**: `Authorization: Bearer fbr_<43 characters>`. fb's commands use this.
 - **A session**: the `__Host-fb_session` cookie the sign-in endpoints set (Secure, HttpOnly,
   SameSite=Lax, 30 days), for the package site. A request with a session that changes something
-  needs an `Origin` header that's the package site's.
+  needs an `Origin` header that's the package site's, and any change with another `Origin` is
+  refused; fb sends none.
 - **Re-auth:** a session's sensitive changes (tokens, owners, trusted publishers, passkeys,
   recovery codes, deleting) need a passkey or GitHub sign-in in the last 10 minutes, or they're a
   `403` with `reauth_required`. A token's scopes stand in for it.
@@ -195,8 +200,9 @@ A token has scopes and, optionally, the packages it's for:
 | `yank` | yanking, unyanking, and deleting a version within 72 hours |
 | `owners` | adding and removing owners and trusted publishers |
 
-`packages` is a list of names, each of which may end with `*` (`engine_*`), or `null` for every
-package the account can act on; a token with a list can't touch others, new ones included. A
+`packages` is a list of up to 50 names, each of which may end with `*` (`engine_*`), or `null`
+for every package the account can act on; a token with a list can't touch others, new ones
+included. A
 token expires (90 days by default, at most 365); it's shown once, and stored as its SHA-256.
 
 ### Sign-in for fb (`fb login`)
@@ -217,11 +223,13 @@ In CI, fb reads `FB_REGISTRY_TOKEN` instead.
 ### Uploads
 
 A publish names archives that were uploaded first, each by its SHA-256, so a retry re-sends only
-what's missing. Uploads need a token with a publish scope.
+what's missing. Uploads need a token with a publish scope, and an account whose email is
+verified. Each account's uploads are its own.
 
-- `HEAD /uploads/<sha256>`: `200` with `Content-Length` when this account has it staged, else
-  `404`.
-- `PUT /uploads/<sha256>` with `Content-Length` and the bytes, up to 64 MB: `201 { "sha256", "size" }`.
+- `GET /uploads/<sha256>` (or `HEAD`): `200 { "sha256", "size" }` when this account has it
+  staged, else `404`.
+- `PUT /uploads/<sha256>` with `Content-Length` and the bytes, up to 64 MB:
+  `201 { "sha256", "size" }`; bytes that aren't the SHA-256 are a `422` `checksum`.
 - Bigger, in parts: `POST /uploads/<sha256>/parts` `{ "size" }` → `201 { "upload_id", "part_size" }`;
   then `PUT /uploads/<sha256>/parts/<upload_id>/<n>`, for n from 1, each `part_size` bytes but
   the last → `200 { "part": n, "etag" }`; then `POST /uploads/<sha256>/parts/<upload_id>/complete`
@@ -247,8 +255,9 @@ The SHA-256 is checked at publish. Staged uploads are deleted a day after they'r
 `docs` is the upload of `fb doc`'s JSON, or `null`. It needs a token with `publish-new` (a new
 package) or `publish-update`, an account whose email is verified, and, for an existing package,
 an owner's rights; 30 publishes an hour per account. On success,
-`201 { "name", "version", "warnings": [] }`: the version is in the index at once, and its
-readme, docs, and search follow within a minute. Two publishes of one package are serialized; of
+`201 { "name", "version", "warnings": [] }`: the version is in the index at once (the edge
+elsewhere within seconds, by the purge), and its readme, docs, and search follow within a minute;
+the other owners get a mail. Two publishes of one package are serialized; of
 one version, the second is a `409` `version_exists`.
 
 ### Packages and versions
@@ -257,7 +266,8 @@ one version, the second is a `409` `version_exists`.
 - `GET /packages/<name>/versions/<version>` → `<version>`:
   `{ "version", "yanked", "license", "fb", "deps", "targets", "archives", "published_at", "published_by": "<username> or null", "trusted_publisher": "<owner/repo> or null", "downloads", "readme": bool, "docs": bool }`.
 - `GET /packages/<name>/versions/<version>/readme` → the rendered readme, `text/html`; raw HTML in
-  the Markdown is escaped, and links are only http, https, and mailto.
+  the Markdown is escaped, and links are only http, https, mailto, and relative ones; a `404`
+  until it's rendered.
 - `GET /packages/<name>/versions/<version>/docs` → the docs JSON.
 - `GET /packages/<name>/dependents?page=` → `{ "dependents": [{ "name", "version", "req" }], "total" }`:
   the newest version of each package that depends on it.
@@ -272,7 +282,8 @@ one version, the second is a `409` `version_exists`.
 An owner is `{ "kind": "user", "name": "alice" }` or `{ "kind": "team", "name": "acme" }`.
 
 - `GET /packages/<name>/owners` → `{ "owners": [<owner>], "invites": [<invite>] }`.
-- `POST /packages/<name>/owners` `{ "user": "alice" }` → `202 <invite>`, which alice accepts; or
+- `POST /packages/<name>/owners` `{ "user": "alice" }` → `202 <invite>`, mailed to alice, who
+  accepts it; or
   `{ "team": "acme" }` → `201 <owner>`, added at once if the caller is one of acme's owners.
 - `DELETE /packages/<name>/owners` `{ "user": "alice" }` or `{ "team": "acme" }` → `204`; the last
   owner is a `409` `last_owner`.
@@ -300,7 +311,7 @@ Changing a team needs a session with re-auth, or a token with `owners`, and the 
 
 A package's owner names a GitHub repository and workflow:
 
-- `GET /packages/<name>/trusted-publishers` → `{ "trusted_publishers": [{ "id", "repository": "owner/repo", "workflow": "release.yml", "environment": "release" or null, "created_at" }] }`.
+- `GET /packages/<name>/trusted-publishers` (signed in) → `{ "trusted_publishers": [{ "id", "repository": "owner/repo", "workflow": "release.yml", "environment": "release" or null, "created_at" }] }`.
 - `POST /packages/<name>/trusted-publishers` `{ "repository", "workflow", "environment" }` → `201`;
   the registry looks the repository up and keeps its and its owner's GitHub ids, so a repository
   deleted and made again by someone else doesn't match.
@@ -312,8 +323,10 @@ In the workflow (`permissions: id-token: write`), fb asks GitHub for an OIDC tok
 - `POST /trusted-publishing/token` `{ "token": "<the JWT>" }` →
   `201 { "token": "fbr_…", "expires_at", "packages": ["physics"] }`: a token for 30 minutes,
   with `publish-update` and `yank` scopes for the packages whose trusted publishers match the
-  JWT's `repository_id`, `repository_owner_id`, workflow (from `job_workflow_ref`), and, if one is
-  named, `environment`. A JWT is used once.
+  JWT's `repository_id`, `repository_owner_id`, workflow file (from `workflow_ref`, which has to
+  be in the JWT's own `repository`), and, if one is named, `environment`. The JWT is RS256,
+  from `https://token.actions.githubusercontent.com`, for `oidc_audience`, unexpired, and used
+  once. Deleting the trusted publisher revokes its tokens.
 - fb then publishes with it as with any token, and `DELETE /tokens/current` revokes it at the end.
 
 ### The account
@@ -336,7 +349,10 @@ package site, where the browser goes after.
 - **GitHub:** `GET /auth/github?next=/dashboard&purpose=signin|reauth` → `302` to GitHub;
   GitHub comes back to `GET /auth/github/callback`, which signs in (making the account the first
   time, with the GitHub login as its username, or `<login>-<4 digits>` if that's taken) and
-  `302`s to `next`. With `purpose=reauth` the signed-in account's GitHub has to match.
+  `302`s to `next`. With `purpose=reauth` the signed-in account's GitHub has to match;
+  `purpose=link` (re-auth) adds GitHub to a signed-in email account. A failure `302`s to
+  `/signin?error=<state|expired|github|session|deleted>`, or to `next` with
+  `error=github_mismatch` or `github_taken`.
 - **Email and a passkey, signing up:** `POST /auth/register/options`
   `{ "email", "username", "turnstile" }` → `{ "challenge_id", "options" }` (WebAuthn creation
   options); `POST /auth/register/verify` `{ "challenge_id", "credential" }` → `201 <me>`. The
