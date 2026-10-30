@@ -251,17 +251,29 @@ void collect_symbols(const std::vector<outline_t>& symbols, const std::string& c
     }
 }
 
-/// A Location in a compilation's file, or nullopt for one that isn't on disk.
-std::optional<json_t> location_of(const compilation_t& compilation, const span_t span,
+/// A Location in a compilation's file, or nullopt for one that isn't on disk. A prebuilt
+/// library's module is in its interface file, at the same lines, a module as a whole at its first.
+std::optional<json_t> location_of(const compilation_t& compilation, span_t span,
                                   const positions_t& positions) {
-    const std::filesystem::path path = compilation.disk_path(span.file);
+    std::filesystem::path path = compilation.disk_path(span.file);
+    const source_file_t& file = compilation.sources.get(span.file);
     if (path.empty()) {
-        return std::nullopt;
+        path = compilation.interface_path(span.file);
+        if (path.empty()) {
+            return std::nullopt;
+        }
+
+        // The lines before the module's are empty.
+        if (span.empty() && span.begin == 0) {
+            const std::size_t first = file.text().find_first_not_of("\r\n");
+            span.begin = span.end = static_cast<std::uint32_t>(
+                first == std::string_view::npos ? file.text().size() : first);
+        }
     }
 
     return json_t{
         { "uri", uri_of(path) },
-        { "range", positions.range(compilation.sources.get(span.file), span) },
+        { "range", positions.range(file, span) },
     };
 }
 
@@ -550,7 +562,9 @@ json_t references(const std::span<const std::shared_ptr<const compilation_t>> co
 
         // Which files are kept, by file id, once each.
         std::map<file_id_t, bool> kept;
-        const auto add = [&](const span_t span) {
+        // An example's code is shown in its doc comment.
+        const auto add = [&](const span_t written) {
+            const span_t span = compilation->sources.shown(written);
             auto [found, added] = kept.try_emplace(span.file, false);
             if (added) {
                 const std::filesystem::path path = compilation->disk_path(span.file);
@@ -921,7 +935,10 @@ json_t code_actions(const query_t& query, const span_t range, const positions_t&
         }
 
         out.push_back({
-            { "title", "Fix: " + diagnostic.message },
+            {
+                "title",
+                diagnostic.fix_title.empty() ? "Fix: " + diagnostic.message : diagnostic.fix_title,
+            },
             { "kind", "quickfix" },
             {
                 "diagnostics",

@@ -1,7 +1,6 @@
 #include "fb/lsp/workspace.hpp"
 
 #include "fb/ast.hpp"
-#include "fb/build_config.hpp"
 #include "fb/diagnostic.hpp"
 #include "fb/driver.hpp"
 #include "fb/lexer.hpp"
@@ -9,6 +8,7 @@
 #include "fb/manifest.hpp"
 #include "fb/parser.hpp"
 #include "fb/source.hpp"
+#include "fb/toolchain.hpp"
 #include "fb/utf8.hpp"
 
 #include <algorithm>
@@ -38,7 +38,7 @@ using steady_t = std::chrono::steady_clock;
 
 /// The standard library's folder.
 std::filesystem::path std_folder() {
-    return path_from_utf8(build_config::std_directory);
+    return toolchain().std;
 }
 
 /// Whether the file or folder `key` is the folder `folder` or in it, both as file_key() gives
@@ -494,7 +494,8 @@ workspace_t::with_dependents(const std::filesystem::path& path) {
     std::set<std::string> keys = dependents(key);
     keys.insert(key);
     std::vector<std::shared_ptr<const compilation_t>> compilations;
-    for (const job_t& job : jobs_for(keys)) {
+    for (job_t& job : jobs_for(keys)) {
+        job.examples = true;
         if (std::shared_ptr<const compilation_t> compilation = run_job(lock, job)) {
             compilations.push_back(std::move(compilation));
         }
@@ -633,6 +634,7 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
             return found != texts.end() ? std::optional(found->second) : std::nullopt;
         },
         .cache = &m_std_names,
+        .examples = job.examples,
     });
     std::shared_ptr<const compilation_t> compilation =
         result ? std::make_shared<const compilation_t>(std::move(*result)) : nullptr;

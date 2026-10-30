@@ -102,6 +102,10 @@ struct compilation_t { // NOLINT(bugprone-exception-escape)
     /// compile()'s, in memory, a prebuilt library's modules, in its interface file, and a
     /// library's empty main file.
     std::vector<std::filesystem::path> on_disk;
+    /// For each of `sources`' files that's a prebuilt library's module, its interface file on
+    /// disk, whose lines the module's are, where a tool can show its declarations, as the LSP's
+    /// definitions do. Empty for the others.
+    std::vector<std::filesystem::path> in_interface;
     /// For fb test: the modules made of its package's doc comments' examples.
     std::vector<doc_test_t> doc_tests;
 
@@ -111,6 +115,9 @@ struct compilation_t { // NOLINT(bugprone-exception-escape)
 
     /// Where `id`'s file is on disk, or an empty path, as `on_disk` has it.
     [[nodiscard]] std::filesystem::path disk_path(file_id_t id) const;
+
+    /// The interface file `id`'s file is a module of, or an empty path, as `in_interface` has it.
+    [[nodiscard]] std::filesystem::path interface_path(file_id_t id) const;
 };
 
 /// A file a program can import besides its main file, by its path in the program: one of the
@@ -234,6 +241,10 @@ struct check_request_t {
     build_mode_t mode = build_mode_t::DEBUG;
     /// What the checks share, if they do.
     std_names_cache_t* cache = nullptr;
+    /// Whether a package's files' doc comments' examples are checked too, as fb test compiles
+    /// them, in a package of their own: for the LSP's references and renames, which find and
+    /// change the names their code uses, in the doc comments.
+    bool examples = false;
 };
 
 /// For the LSP, which checks only the files an edit touches: `request`'s files, each a module of

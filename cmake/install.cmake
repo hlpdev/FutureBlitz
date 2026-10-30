@@ -136,10 +136,10 @@ install(DIRECTORY "${PROJECT_SOURCE_DIR}/std/" DESTINATION std)
 install(FILES "${PROJECT_SOURCE_DIR}/tools/lldb/futureblitz.py" DESTINATION lldb)
 
 # The notices: std's bundled libraries', which programs link, and fb's executables have some of
-# in them; LLVM's for LLVM, clang, and lld; toml++'s, which fb's executables have in them; and
-# those of the C runtime's pieces in lib/<target>/ and in fb's executables: MinGW-w64's,
-# winpthreads', and GCC's on Windows, with libxml2's, which the LLVM installer links into
-# lld.exe, and GCC's, glibc's, and the Linux headers' on Linux.
+# in them; LLVM's for LLVM, clang, and lld; toml++'s, which fb's executables have in them, and
+# nlohmann/json's, which fb-lsp has; and those of the C runtime's pieces in lib/<target>/ and in
+# fb's executables: MinGW-w64's, winpthreads', and GCC's on Windows, with libxml2's, which the
+# LLVM installer links into lld.exe, and GCC's, glibc's, and the Linux headers' on Linux.
 cmake_path(GET FB_LIBUV_NOTICE PARENT_PATH fb_notices)
 install(DIRECTORY "${fb_notices}/" DESTINATION notices)
 set(fb_release_notices llvm)
@@ -153,3 +153,9 @@ foreach(notice IN LISTS fb_release_notices)
 endforeach()
 FetchContent_GetProperties(tomlplusplus)
 install(FILES "${tomlplusplus_SOURCE_DIR}/LICENSE" DESTINATION notices RENAME tomlplusplus.txt)
+# nlohmann/json, which fb-lsp has in it.
+if(TARGET fb_lsp)
+  FetchContent_GetProperties(nlohmann_json)
+  install(FILES "${nlohmann_json_SOURCE_DIR}/LICENSE.MIT" DESTINATION notices
+          RENAME nlohmann_json.txt)
+endif()

@@ -1791,4 +1791,20 @@ TEST_CASE("a syntax error after a miscased keyword names the keyword, with a fix
     // A miscased word on another line, or none, isn't suggested.
     CHECK(fixed("Local then = 1\nLocal x = = 2\n") == "no fix");
     CHECK(fixed("Local x = = 2\n") == "no fix");
+    // Lowercase names like keywords are names: one the file declares isn't suggested, and nor is
+    // one away from the error and the line's start.
+    CHECK(fixed("Local from = 1\nLocal to = 5\nLocal d = to - from)\n") == "no fix");
+    CHECK(fixed("Local final = 10\nPrint(final +)\n") == "no fix");
+    CHECK(fixed("Local to = [1, 2]\nPrint(to[0] *)\n") == "no fix");
+    CHECK(fixed("Function F(loop: Int)\n    Return loop +\nEnd Function\n") == "no fix");
+    CHECK(fixed("Print(select, 1 +)\n") == "no fix");
+    CHECK(fixed("For i = 1 TO 3\nNext\n").ends_with("as 'To'"));
+}
+
+TEST_CASE("a miscased keyword's fix-it says what it writes", "[parser]") {
+    const fb::source_file_t file(fb::file_id_t{}, "test.fb", "if x Then Print(1)\n");
+    fb::diagnostic_bag_t bag;
+    (void)fb::parse(file, fb::lex(file, bag), bag);
+    REQUIRE_FALSE(bag.diagnostics().empty());
+    CHECK(bag.diagnostics().front().fix_title == "Write 'if' as 'If'");
 }

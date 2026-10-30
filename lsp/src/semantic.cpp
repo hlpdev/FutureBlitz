@@ -1,5 +1,4 @@
 #include "fb/ast.hpp"
-#include "fb/build_config.hpp"
 #include "fb/diagnostic.hpp"
 #include "fb/driver.hpp"
 #include "fb/lexer.hpp"
@@ -9,6 +8,7 @@
 #include "fb/sema.hpp"
 #include "fb/source.hpp"
 #include "fb/token.hpp"
+#include "fb/toolchain.hpp"
 #include "fb/types.hpp"
 
 #include <algorithm>
@@ -198,7 +198,7 @@ json_t semantic_tokens(const query_t& query, const positions_t& positions) {
     }
 
     // Names, as what they name, over what the lexer says of them.
-    const std::string standard = file_key(std::filesystem::path(build_config::std_directory));
+    const std::string standard = file_key(toolchain().std);
     std::map<file_id_t, bool> in_std;
     for (const named_t& named : query.names()) {
         const symbol_t& symbol = analysis.symbol(named.symbol);

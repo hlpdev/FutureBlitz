@@ -218,6 +218,33 @@ TEST_CASE("formatting keeps comments where they are, at their line's indentation
     unchanged("/* a\n   block */\nPrint(1)\n// last\n");
 }
 
+TEST_CASE("formatting keeps the spaces at a doc comment's line's end", "[format]") {
+    // Markdown's line break, and an example's string, which its test compares.
+    const std::string_view text = "//! First line  \n"
+                                  "//! second.\n"
+                                  "\n"
+                                  "/// Pads.\n"
+                                  "///\n"
+                                  "/// ```\n"
+                                  "/// Local s = \"\"\"\n"
+                                  "///     ab  \n"
+                                  "///     \"\"\"\n"
+                                  "/// Expect(Pad(s) == 4)\n"
+                                  "/// ```\n"
+                                  "Public Function Pad(s: String): Int => s.Length\n";
+    unchanged(text);
+    // A comment that isn't a doc comment still loses them.
+    CHECK(formatted("//// banner   \nPrint(1)\n") == "//// banner\nPrint(1)\n");
+
+    // A change to a doc comment's text changes what the file means, which fb fmt never makes.
+    const fb::source_file_t file(fb::file_id_t{}, "test.fb", std::string(text));
+    CHECK_FALSE(fb::same_meaning(file, "//! First line\n"
+                                       "//! second.\n"
+                                       "\n"
+                                       "/// Pads.\n"
+                                       "Public Function Pad(s: String): Int => s.Length\n"));
+}
+
 TEST_CASE("formatting lines a list that goes on up inside its bracket", "[format]") {
     CHECK(formatted("Print(1, 2,\n  3)\nLocal a = [1,\n          2]\n") ==
           "Print(1, 2,\n      3)\nLocal a = [1,\n           2]\n");

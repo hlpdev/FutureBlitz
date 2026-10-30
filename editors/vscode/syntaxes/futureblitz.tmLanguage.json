@@ -134,7 +134,7 @@
       "patterns": [
         {
           "name": "comment.line.documentation.futureblitz",
-          "begin": "///(?!/)",
+          "begin": "//[/!](?!/)",
           "beginCaptures": {
             "0": {
               "name": "punctuation.definition.comment.futureblitz"
@@ -185,7 +185,7 @@
     "doc-markdown": {
       "patterns": [
         {
-          "match": "(?<=///)\\s*(#+\\s+.*)$",
+          "match": "(?<=//[/!])\\s*(#+\\s+.*)$",
           "captures": {
             "1": {
               "name": "markup.heading.futureblitz"

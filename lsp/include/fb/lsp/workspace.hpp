@@ -130,7 +130,8 @@ public:
 
     /// Checks that together hold the file at `path` and every file of the workspace that imports
     /// it, directly or not, with their current texts: one for each unit they're in, for
-    /// references and renames.
+    /// references and renames, with the examples of a package's files' doc comments, whose
+    /// code uses its names too.
     [[nodiscard]] std::vector<std::shared_ptr<const compilation_t>>
     with_dependents(const std::filesystem::path& path);
 
@@ -160,6 +161,8 @@ private:
         std::size_t unit = 0;
         std::vector<std::filesystem::path> roots;
         std::optional<std::filesystem::path> main;
+        /// With the files' examples, as check_request_t has them.
+        bool examples = false;
     };
 
     /// What an open document's last check has: it, and the version it checked.

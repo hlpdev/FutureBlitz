@@ -1131,8 +1131,7 @@ int doc_command(const options_t& options) {
     diagnostic_bag_t warnings;
     const doc_package_t package = document(compilation, standard, options.mode, warnings);
     for (const diagnostic_t& warning : warnings.diagnostics()) {
-        console_t::print_error(
-            render_pretty(warning, compilation.sources, { .color = console.err().color }));
+        console_t::print_error(render_pretty(warning, compilation.sources, console.diagnostics()));
     }
 
     const std::string json = doc_json(package, compilation.sources);

@@ -8,6 +8,10 @@ as RHEL 8 and Ubuntu 20.04 have), and macOS 15 or newer (arm64 and x64). They're
 now, so a browser warns about the archives and installers it downloads; the install scripts
 don't.
 
+The install scripts install a published release, and there's none yet: the first one is coming.
+Until it's out, build FutureBlitz from source, as [Building from source](#building-from-source)
+says.
+
 On Linux and macOS:
 
 ```sh
@@ -32,3 +36,19 @@ fb new hello
 cd hello
 fb run
 ```
+
+## Building from source
+
+FutureBlitz builds with CMake and Ninja, a C++23 compiler (GCC 14 or newer, MinGW-w64's on
+Windows, or Apple's Clang on macOS), and LLVM 22 with its lld and libclang, whose CMake package
+`-DLLVM_DIR` names, or on Windows `-DFB_LLVM_ROOT` the folder LLVM's installer put it in. The
+other libraries it uses CMake fetches itself.
+
+```sh
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DLLVM_DIR=/usr/lib/llvm-22/lib/cmake/llvm
+cmake --build build
+build/cli/fb new hello
+```
+
+A build folder's fb finds its toolchain and std where CMake put them, and
+`cmake --install build --prefix <folder>` lays a release's folder out there.

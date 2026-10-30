@@ -2,7 +2,9 @@
 
 #include "fb/driver.hpp"
 #include "fb/library.hpp"
+#include "fb/source.hpp"
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -55,5 +57,11 @@ namespace fb {
 /// empty lines in place of those before it, so its lines are the file's. nullopt when its lines
 /// aren't an interface file's.
 [[nodiscard]] std::optional<std::vector<library_file_t>> interface_modules(std::string_view text);
+
+/// The line of a prebuilt library's source, from 1, that `offset` in one of its interface file's
+/// modules, `file`, comes from, as the "// line" comment above it says: each declaration has one,
+/// for its doc comment's first line. nullopt with none, as in an older interface file.
+[[nodiscard]] std::optional<std::uint32_t> source_line(const source_file_t& file,
+                                                       std::uint32_t offset);
 
 } // namespace fb

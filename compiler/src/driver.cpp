@@ -966,6 +966,14 @@ private:
             std::error_code ignored;
             note_disk_path(m_compilation, file,
                            std::filesystem::absolute(disk_path(m_files, path), ignored));
+        } else if (const package_t* package =
+                       m_files.root ? prebuilt_package(m_files, path) : nullptr) {
+            std::error_code ignored;
+            const auto index = static_cast<std::size_t>(std::to_underlying(file));
+            m_compilation.in_interface.resize(
+                std::max(m_compilation.in_interface.size(), index + 1));
+            m_compilation.in_interface[index] =
+                std::filesystem::absolute(package->interface, ignored);
         }
 
         const std::size_t index = m_loaded.size();
@@ -1754,7 +1762,9 @@ private:
                 .package = loaded.path.starts_with("std/")
                                ? std_package
                                : packages[package_of(loaded.path).value_or(0)],
-                .prebuilt = prebuilt_package(m_files, loaded.path) != nullptr,
+                // fb test's build of a prebuilt library has a main file of its own, whose code
+                // isn't in the library's binary.
+                .prebuilt = index != 0 && prebuilt_package(m_files, loaded.path) != nullptr,
                 .beside = beside_package(loaded.path),
                 .other_main = m_files.testing && index != 0 && !reached[index] &&
                               !m_files.packages.empty() && package_of(loaded.path) == 0 &&
@@ -2802,6 +2812,13 @@ void add_examples(compilation_t& compilation, file_set_t& files,
 
         const std::string shown = shown_path(files, path);
         const file_id_t origin = compilation.sources.add(shown, std::move(*text));
+        // The LSP shows an example's places in its doc comment, in the file on disk.
+        if (files.root && prebuilt_package(files, path) == nullptr) {
+            std::error_code error;
+            note_disk_path(compilation, origin,
+                           std::filesystem::absolute(disk_path(files, path), error));
+        }
+
         // An example Imports its module by its name, which has to be one an Import takes.
         const bool importable = of == examples_of_t::PROGRAM || importable_name(module);
         for (example_module_t& example : examples) {
@@ -2919,11 +2936,39 @@ compile_package(const std::filesystem::path& folder,
         extra = library_files(own);
     }
 
+    // The examples of the doc comments in `documented`, files of the package, each a module of
+    // the package of its examples.
+    const auto add_doc_tests = [&](const std::vector<std::string>& documented) {
+        file_set_t files{
+            .root = own.root,
+            .packages = *packages,
+            .read = request != nullptr ? request->read : source_reader_t{},
+        };
+        add_examples(compilation, files, documented, own.name + ".doctests/", mode,
+                     examples_of_t::PACKAGE);
+        std::ranges::copy(files.extra, std::back_inserter(extra));
+        generated = std::move(files.generated);
+        package_t examples{
+            .name = own.name + ".doctests",
+            .version = own.version,
+            .root = own.root,
+            .prefix = own.name + ".doctests/",
+            .dependencies = { own.name },
+        };
+        std::ranges::copy(own.dependencies, std::back_inserter(examples.dependencies));
+        packages->push_back(std::move(examples));
+    };
+
     // The package's own folders: its own, and its tests/ folder's, by their places in `packages`.
     std::vector<std::size_t> folders{ 0 };
     if (purpose == purpose_t::TEST || purpose == purpose_t::CHECK) {
-        // The package's own files' examples, the main file's among them, not its tests'.
-        const std::vector<std::string> documented = extra;
+        // The package's own files' examples, the main file's among them, not its tests', or a
+        // prebuilt library's, in its interface file, which run against its binary.
+        std::vector<std::string> documented = extra;
+        for (const library_file_t& module : own.modules) {
+            documented.push_back(module.path);
+        }
+
         if (std::optional<package_t> tests = tests_package(own)) {
             if (request == nullptr) {
                 std::ranges::copy(library_files(*tests), std::back_inserter(extra));
@@ -2934,20 +2979,7 @@ compile_package(const std::filesystem::path& folder,
         }
 
         if (purpose == purpose_t::TEST) {
-            file_set_t files{ .root = own.root, .packages = *packages };
-            add_examples(compilation, files, documented, own.name + ".doctests/", mode,
-                         examples_of_t::PACKAGE);
-            std::ranges::copy(files.extra, std::back_inserter(extra));
-            generated = std::move(files.generated);
-            package_t examples{
-                .name = own.name + ".doctests",
-                .version = own.version,
-                .root = own.root,
-                .prefix = own.name + ".doctests/",
-                .dependencies = { own.name },
-            };
-            std::ranges::copy(own.dependencies, std::back_inserter(examples.dependencies));
-            packages->push_back(std::move(examples));
+            add_doc_tests(documented);
         }
     }
 
@@ -2966,6 +2998,16 @@ compile_package(const std::filesystem::path& folder,
                     break;
                 }
             }
+        }
+
+        // A check for references and renames has the package's own files' examples too, whose
+        // code uses its names as fb test compiles it.
+        if (request->examples) {
+            std::vector<std::string> documented;
+            std::ranges::copy_if(
+                extra, std::back_inserter(documented),
+                [&](const std::string& path) { return path.starts_with(own.prefix); });
+            add_doc_tests(documented);
         }
     }
 
@@ -3225,6 +3267,11 @@ std::filesystem::path compilation_t::disk_path(const file_id_t id) const {
     return index < on_disk.size() ? on_disk[index] : std::filesystem::path();
 }
 
+std::filesystem::path compilation_t::interface_path(const file_id_t id) const {
+    const auto index = static_cast<std::size_t>(std::to_underlying(id));
+    return index < in_interface.size() ? in_interface[index] : std::filesystem::path();
+}
+
 std::expected<compilation_t, std::string> check_files(const check_request_t& request) {
     if (const std::optional<std::string> unreadable = unreadable_std()) {
         return std::unexpected(*unreadable);
@@ -3237,8 +3284,7 @@ std::expected<compilation_t, std::string> check_files(const check_request_t& req
     std::error_code error;
     const std::filesystem::path first =
         std::filesystem::weakly_canonical(request.files.front(), error);
-    const std::optional<std::filesystem::path> standard =
-        real_path(path_from_utf8(build_config::std_directory));
+    const std::optional<std::filesystem::path> standard = real_path(toolchain().std);
     const std::optional<std::filesystem::path> real = real_path(first);
     if (standard && real && is_under(*real, *standard)) {
         // The standard library's files, with an empty main file beside them, which no file of
@@ -3461,6 +3507,7 @@ std::vector<test_case_t> package_tests(const compilation_t& compilation) {
                 .function = test.function,
                 .name = example->name,
                 .main_thread = test.main_thread,
+                .example = true,
             });
         } else if (declared.package == own || (modules.has_manifest(own) &&
                                                modules.package_name(declared.package) == outside)) {

@@ -35,6 +35,9 @@ constexpr std::string_view binary_start = "// fblib ";
 constexpr std::string_view bundled_start = "// bundled";
 constexpr std::string_view module_start = "// module ";
 constexpr std::string_view uses_start = "// uses ";
+/// Before each declaration, and a module's doc comment: the line of the library's source that the
+/// lines after it start at, the doc comment's first, which fb doc names.
+constexpr std::string_view line_start = "// line ";
 
 /// One of the library's modules as the interface file writes it: its file's tokens, lexed for
 /// the build's mode, and the hidden Imports its printed types need, by module. Making its map
@@ -726,6 +729,26 @@ private:
         return out;
     }
 
+    /// The "// line" comment before a declaration, or with no `id`, before its module's doc
+    /// comment, which has none without one.
+    [[nodiscard]] std::string line_comment(const module_text_t& module,
+                                           const std::optional<stmt_id_t> id,
+                                           const std::string_view indent) const {
+        const doc_comment_t* doc = id ? m_ast.doc(*id) : m_ast.module_doc(module.module->file);
+        std::optional<std::uint32_t> offset;
+        if (doc != nullptr && !doc->lines.empty()) {
+            offset = doc->lines.front().begin;
+        } else if (id) {
+            offset = start_of(*id);
+        }
+
+        if (!offset) {
+            return {};
+        }
+
+        return std::format("{}{}{}\n", indent, line_start, module.file->line_of(*offset) + 1);
+    }
+
     /// The spaces and tabs before `offset` on its line.
     [[nodiscard]] static std::string_view indentation(const module_text_t& module,
                                                       const std::uint32_t offset) {
@@ -760,7 +783,8 @@ private:
             imports += std::format("Import {} As {}\n", import_name(module, target), qualifier);
         }
 
-        return doc_lines(module, std::nullopt, "") + imports + declarations;
+        return line_comment(module, std::nullopt, "") + doc_lines(module, std::nullopt, "") +
+               imports + declarations;
     }
 
     /// What an Import in `module` writes for `target`: a module of another package by its
@@ -799,8 +823,9 @@ private:
     std::string declaration_text(const std::size_t index) {
         const candidate_t& candidate = m_candidates[index];
         const module_text_t& module = m_modules[candidate.module];
-        return doc_lines(module, candidate.id, indentation(module, start_of(candidate.id))) +
-               undocumented_text(index);
+        const std::string_view indent = indentation(module, start_of(candidate.id));
+        return line_comment(module, candidate.id, indent) +
+               doc_lines(module, candidate.id, indent) + undocumented_text(index);
     }
 
     /// declaration_text() without its doc comment.
@@ -1399,6 +1424,27 @@ std::optional<std::vector<library_file_t>> interface_modules(const std::string_v
     }
 
     return modules;
+}
+
+std::optional<std::uint32_t> source_line(const source_file_t& file, const std::uint32_t offset) {
+    const std::uint32_t at = file.line_of(offset);
+    for (std::uint32_t line = at + 1; line-- > 0;) {
+        std::string_view text = file.line_text(line);
+        text.remove_prefix(std::min(text.find_first_not_of(" \t"), text.size()));
+        if (!text.starts_with(line_start)) {
+            continue;
+        }
+
+        std::uint32_t first = 0;
+        const std::string_view number = text.substr(line_start.size());
+        const auto [end, error] =
+            std::from_chars(number.data(), number.data() + number.size(), first);
+        if (error == std::errc() && end == number.data() + number.size() && first > 0) {
+            return first + (at - line - 1);
+        }
+    }
+
+    return std::nullopt;
 }
 
 } // namespace fb

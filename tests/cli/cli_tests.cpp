@@ -518,7 +518,9 @@ TEST_CASE("fb new refuses a folder that isn't empty, and a name a package can't 
              std::pair{ "9lives", "a package's name is an identifier, like game or my_physics, not "
                                   "\"9lives\"; it's the folder's name" },
              std::pair{ "my-game", "not \"my-game\"" },
-             std::pair{ "If", "not \"If\"" },
+             std::pair{ "If", "If is a keyword, which a package's name can't be; it's the "
+                              "folder's name" },
+             std::pair{ "Self", "Self is a keyword, which a package's name can't be" },
              std::pair{ "std", "std is the standard library's name" },
          }) {
         INFO(name);
@@ -601,6 +603,15 @@ TEST_CASE("FB_COLUMNS=utf-16 counts diagnostics' columns in UTF-16 code units", 
     setenv("FB_COLUMNS", "utf-16", 1);
 #endif
     const fb::process_result_t units = fb_run({ "check", fb::to_utf8(source) });
+    // fb doc's warnings too.
+    const std::filesystem::path documented = std::filesystem::path(FB_TEST_OUTPUT) / "columns";
+    std::filesystem::remove_all(documented);
+    std::filesystem::create_directories(documented);
+    std::ofstream(documented / "project.toml", std::ios::binary)
+        << "[project]\nname = \"columns\"\nversion = \"0.1.0\"\ntype = \"library\"\n";
+    std::ofstream(documented / "a.fb", std::ios::binary)
+        << "/// A \xF0\x9F\x98\x80 thing, see [Missing].\nPublic Function F(): Int => 1\n";
+    const fb::process_result_t warned = fb_run({ "doc", fb::to_utf8(documented), "-o", "-" });
 #ifdef _WIN32
     _putenv_s("FB_COLUMNS", "");
 #else
@@ -608,6 +619,8 @@ TEST_CASE("FB_COLUMNS=utf-16 counts diagnostics' columns in UTF-16 code units", 
 #endif
     INFO(units.output);
     CHECK(units.output.contains("columns.fb:1:20: error: 'y' isn't declared\n"));
+    INFO(warned.output);
+    CHECK(warned.output.contains("a.fb:1:21: warning: 'Missing' names nothing"));
     // The snippet's markers still go under the span by the columns the terminal shows.
     CHECK(units.output.contains("1 | Local s = \"\xF0\x9F\x98\x80\xF0\x9F\x98\x80\" + y\n"));
 }
@@ -2303,6 +2316,28 @@ TEST_CASE("fb test runs a package's examples, each a test named after its declar
     CHECK(alone.output.contains(
         std::format("expect failed: Twice(3) == 5 at {}:9:5\n", shown_file(lone))));
     CHECK_FALSE(alone.output.contains("top-level code"));
+
+    // A stack trace calls an example's code by its test's name.
+    const std::filesystem::path panics =
+        write_source("examples/half.fb", "Import std.core\n"
+                                         "\n"
+                                         "/// Half of `n`.\n"
+                                         "///\n"
+                                         "/// # Examples\n"
+                                         "///\n"
+                                         "/// ```\n"
+                                         "/// Local h = Half(3)\n"
+                                         "/// ```\n"
+                                         "Public Function Half(n: Int): Int\n"
+                                         "    Local parts = [n]\n"
+                                         "    Return parts[n]\n"
+                                         "End Function\n");
+    const fb::process_result_t traced = fb_run({ "test", fb::to_utf8(panics), "--color", "never" });
+    INFO(traced.output);
+    CHECK(traced.exit_code == 1);
+    CHECK(traced.output.contains(
+        std::format("    at half.Half (example) ({}:8)\n", shown_file(panics))));
+    CHECK_FALSE(traced.output.contains("DocTest__Example"));
 }
 
 TEST_CASE("fb doc writes a package's public API as JSON, and warns about its doc comments",
@@ -3296,7 +3331,88 @@ void prebuild(const std::filesystem::path& folder, const std::string_view name) 
     }
 }
 
+/// A library whose docs have an example, a module doc, members, and blank lines and bodies
+/// that its interface file leaves out.
+void write_documented_geo(const folder_writer_t& write) {
+    write("geo/project.toml",
+          "[project]\nname = \"geo\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    write("geo/shapes.fb", "//! Shapes.\n"
+                           "\n"
+                           "Import std.core\n"
+                           "\n"
+                           "/// A circle.\n"
+                           "Public Class Circle\n"
+                           "    /// The radius.\n"
+                           "    Public Field Radius: Float\n"
+                           "\n"
+                           "    /// Makes one.\n"
+                           "    Public New(r: Float)\n"
+                           "        Radius = r\n"
+                           "    End New\n"
+                           "\n"
+                           "    /// Grows it.\n"
+                           "    ///\n"
+                           "    /// # Examples\n"
+                           "    ///\n"
+                           "    /// ```\n"
+                           "    /// Local c = Circle(1)\n"
+                           "    /// c.Grow(1)\n"
+                           "    /// Expect(c.Radius == 2)\n"
+                           "    /// ```\n"
+                           "    @Inline\n"
+                           "    Public Method Grow(by: Float)\n"
+                           "        Radius += by\n"
+                           "    End Method\n"
+                           "End Class\n"
+                           "\n"
+                           "/// Twice `n`.\n"
+                           "Public Function Twice(n: Int): Int\n"
+                           "    Return n + n\n"
+                           "End Function\n");
+}
+
 } // namespace
+
+TEST_CASE("fb doc gives a prebuilt library's items the lines of its source", "[cli]") {
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "doc-prebuilt";
+    std::filesystem::remove_all(folder);
+    write_documented_geo({ .folder = folder });
+    prebuild(folder, "geo");
+    const fb::process_result_t source = fb_run({ "doc", fb::to_utf8(folder / "geo"), "-o", "-" });
+    INFO(source.output);
+    REQUIRE(source.exit_code == 0);
+    CHECK(source.output.contains(R"("name": "Grow")"));
+    const fb::process_result_t prebuilt =
+        fb_run({ "doc", fb::to_utf8(folder / "geo-prebuilt"), "-o", "-" });
+    INFO(prebuilt.output);
+    REQUIRE(prebuilt.exit_code == 0);
+    // The same JSON, between the lines that name the folder it documents.
+    const auto json = [](const std::string& output) {
+        const std::size_t begin = output.find('{');
+        return output.substr(begin, output.rfind('}') + 1 - begin);
+    };
+    CHECK(json(prebuilt.output) == json(source.output));
+}
+
+TEST_CASE("fb test runs a prebuilt library's tests and examples against its binary", "[cli]") {
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "test-prebuilt";
+    std::filesystem::remove_all(folder);
+    const folder_writer_t write{ .folder = folder };
+    write_documented_geo(write);
+    prebuild(folder, "geo");
+    write("geo-prebuilt/tests/grows.fb", "Import std.test\n"
+                                         "Import geo.shapes\n"
+                                         "@Test Function Twice2()\n"
+                                         "    Expect(Twice(2) == 4)\n"
+                                         "End Function\n");
+    const fb::process_result_t tested =
+        fb_run({ "test", fb::to_utf8(folder / "geo-prebuilt"), "--color", "never" });
+    INFO(tested.output);
+    CHECK(tested.exit_code == 0);
+    CHECK(tested.output.contains("test geo.tests.grows.Twice2 ... ok"));
+    CHECK(tested.output.contains("test geo.shapes.Circle.Grow (example) ... ok"));
+    CHECK(tested.output.contains("2 passed; 0 failed"));
+}
 
 TEST_CASE("a prebuilt library's binary runs its code as its source would", "[cli]") {
     const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "prebuilt_runs";

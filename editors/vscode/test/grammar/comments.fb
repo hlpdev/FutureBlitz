@@ -23,6 +23,12 @@ Local d = 4
 //  ^^^^^^^^^^ comment.line.documentation.futureblitz markup.heading.futureblitz
 //// four slashes are a plain comment
 // <---- comment.line.double-slash.futureblitz - comment.line.documentation
+//! A module, with `code` and a [Shape] link.
+// <--- comment.line.documentation.futureblitz punctuation.definition.comment.futureblitz
+//                 ^^^^^^ comment.line.documentation.futureblitz markup.inline.raw.futureblitz
+//                              ^^^^^^^ markup.underline.link.futureblitz
+//! # Examples
+//  ^^^^^^^^^^ comment.line.documentation.futureblitz markup.heading.futureblitz
 
 #If DEBUG && !PLATFORM_WINDOWS
 // <- meta.preprocessor.futureblitz punctuation.definition.directive.futureblitz

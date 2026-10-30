@@ -25,8 +25,9 @@ FutureBlitz/
 ├── cmake/warnings.cmake
 ├── compiler/   include/fb/  src/   lexer, parser, semantic analysis, MIR, LLVM codegen
 ├── runtime/    include/fb/  src/   refcounting, strings, panics, scheduler, task pool
-├── cli/        src/                 new / build / run / test / package manager
-├── lsp/        src/                 language server (reuses compiler)
+├── cli/        src/                 new / build / run / test / fmt / doc, package manager later
+├── lsp/        include/fb/  src/   the language server: fb_lsp_server and fb-lsp (M8)
+├── editors/    vscode/              the VS Code extension (M8)
 ├── std/        standard library, written in FutureBlitz
 ├── engine/     C++ engine core and its FutureBlitz bindings
 ├── tools/      asset cooker, bindgen, migrator, .b3d → glTF converter
@@ -46,7 +47,8 @@ Target names match project names.
 | `compiler` | static lib | LLVM's C API (`LLVM-C`, see `cmake/llvm.cmake`) |
 | `runtime` | static lib | |
 | `cli` | executable `fb` | `compiler` |
-| `lsp` | executable | `compiler` |
+| `fb_lsp_server` | static lib | `compiler`, nlohmann/json |
+| `fb_lsp` | executable `fb-lsp` | `fb_lsp_server` |
 
 - Headers live under `<project>/include/fb/`; everything is in namespace `fb`.
 - Sources are globbed with `CONFIGURE_DEPENDS`; each project needs at least one `.cpp`.
@@ -88,8 +90,8 @@ C++ library linked into every FutureBlitz program:
 
 | Tool | Purpose |
 |---|---|
-| `cli` (`fb`) | `build`, `run`, `check`, and `--show` for every stage (M1); `new`, `test`, package management later |
-| `lsp` | language server: diagnostics, completion, go-to-definition, etc. |
+| `cli` (`fb`) | `build`, `run`, `check`, and `--show` for every stage (M1); `new`, `test`, `fmt`, and `doc` (M8); package management in M10 |
+| `lsp` (`fb-lsp`) | language server: diagnostics, completion, go-to-definition, etc. (M8) |
 | VS Code extension | interim editor support until the IDE exists |
 | Formatter | enforces style (docs/tooling.md); sema warns about inline-vs-`Where` generic constraints |
 | `bindgen` | C header → `Extern` module (libclang) |

@@ -2657,6 +2657,10 @@ private:
             return "top-level code";
         }
 
+        if (!m_mir.functions[function_index].trace_name.empty()) {
+            return m_mir.functions[function_index].trace_name;
+        }
+
         std::string_view name = m_mir.functions[function_index].name;
         if (const std::size_t number = name.rfind('#');
             number != std::string_view::npos &&

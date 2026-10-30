@@ -34,4 +34,8 @@ struct toolchain_t {
 /// This fb's toolchain, found the first time it's asked for.
 [[nodiscard]] const toolchain_t& toolchain();
 
+/// Makes toolchain() give `chosen` until it's called again, as a test does to run on another
+/// layout, like a release's. Nothing may be using the toolchain while it's called.
+void use_toolchain(toolchain_t chosen);
+
 } // namespace fb

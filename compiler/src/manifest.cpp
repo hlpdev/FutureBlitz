@@ -525,6 +525,10 @@ std::optional<manifest_t> read_manifest(const source_file_t& file, diagnostic_ba
 }
 
 std::optional<std::string> package_name_error(const std::string_view text) {
+    if (keyword_kind(text)) {
+        return std::format("{} is a keyword, which a package's name can't be", text);
+    }
+
     if (!is_identifier(text)) {
         return std::format("a package's name is an identifier, like game or my_physics, not \"{}\"",
                            text);

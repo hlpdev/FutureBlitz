@@ -2132,7 +2132,8 @@ private:
                     name.text, interface)
                 .with_fix({ .file = file.id(), .begin = name.span.end, .end = name.span.end },
                           std::format(": {}", interface))
-                .with_fix(where, "");
+                .with_fix(where, "")
+                .fix_title = "Move the constraint inline";
             return;
         }
 
@@ -2177,6 +2178,8 @@ private:
         }
 
         reported.with_fix({ .file = file.id(), .begin = header.end, .end = header.end }, lines);
+        reported.fix_title = inline_ones.size() > 1 ? "Move the constraints to Where lines"
+                                                    : "Move the constraint to a Where line";
     }
 
     /// Whether a name is a Struct's, Class's, Interface's, or Enum's that the code there sees,

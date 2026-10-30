@@ -106,6 +106,15 @@ describe("indentation", () => {
         assert.deepEqual("2.Seconds".match(word), ["2", "Seconds"]);
     });
 
+    test("a doc comment, a declaration's or a module's, goes on to the next line", () => {
+        const appended = (line: string): string | undefined =>
+            configuration.onEnterRules.find((rule: { beforeText: string }) => new RegExp(rule.beforeText).test(line))
+                ?.action.appendText;
+        assert.equal(appended("    /// Grows it."), "/// ");
+        assert.equal(appended("//! Shapes."), "//! ");
+        assert.equal(appended("// a comment"), undefined);
+    });
+
     // VS Code's rules see a line at a time, so some lines miss: a Select's first Case, which goes a
     // block deeper than Select as Cases do, and an Interface's Methods without bodies. Over std and
     // the test programs, what the rules give a statement's first line, from the one before it, is

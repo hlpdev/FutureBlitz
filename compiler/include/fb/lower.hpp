@@ -24,6 +24,9 @@ struct test_case_t {
     symbol_id_t function{};
     std::string name;
     bool main_thread = false;
+    /// A doc comment's example's, whose Function the compiler makes, so stack traces call it by
+    /// the test's name.
+    bool example = false;
 };
 
 /// Like lower(), for fb test: main sets the Globals, then runs `tests`, by their index in it, with

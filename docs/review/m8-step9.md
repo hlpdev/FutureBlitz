@@ -1,6 +1,6 @@
 # The review of M8 (step 9, the milestone review)
 
-20 confirmed findings, each with its Status.
+20 confirmed findings, and one from CI, each with its Status.
 
 ## journey-1 (high): In a release, fb-lsp treats the release's std as user code: a std file opened by go-to-definition shows false errors, a rename of a std declaration is allowed and edits the release's std, and Import completion has no std modules
 
@@ -16,7 +16,7 @@ Skeptic: I installed a release into review-m8/refute-journey/rel with cmake --in
 
 Fix: Use toolchain().std (fb/toolchain.hpp) wherever the LSP and check_files() mean 'the standard library's folder', in server.cpp, workspace.cpp, semantic.cpp, and driver.cpp:3241, and add an LSP test that runs on a release layout (or a toolchain_t pointing elsewhere) and covers std Import completion, std diagnostics, and the refused rename.
 
-Status: open
+Status: fixed: the LSP and check_files() take std from toolchain().std, in server.cpp, workspace.cpp, semantic.cpp, and driver.cpp, and use_toolchain() lets a test choose another; an LSP test on a std of its own, with a module the build's hasn't, completes its Import, checks its print.fb without diagnostics, and refuses the rename
 
 ## cross-3 (medium): fb doc on a prebuilt package writes the .fbi's line numbers under the source file's name
 
@@ -32,7 +32,7 @@ Skeptic: I rebuilt vx/lib/geo with `fb build` and `fb build --release` and copie
 
 Fix: Record each declaration's source line in the interface file: the .fbi's `// module` header could give the original line count, or the declarations could keep their line origin. Then read it in doc.cpp for interface modules. Or write the .fbi's path and lines. Add a test that compares a library's JSON from source and from prebuilt.
 
-Status: open
+Status: fixed: the interface file has a `// line N` comment before each declaration and its module's doc, the source's line of its doc's first line, which fb doc reads for a prebuilt module's items and examples (source_line(), interface.hpp); a cli test compares a library's fb doc JSON from source and prebuilt
 
 ## cross-4 (medium): fb test on a prebuilt package fails with a raw lld undefined-symbol error
 
@@ -48,7 +48,7 @@ Skeptic: vx/lib/geopre2 holds geo's project.toml, the freshly built lib/windows-
 
 Fix: Under TEST, link a prebuilt own package's .fblib for the build's mode, as a dependency's is linked. Or stop early with fb build's message. Add a cli test for fb test on a prebuilt package.
 
-Status: open
+Status: fixed: fb test's build of a prebuilt library has its main file's code, which isn't the library's binary's, so its tests/ folder runs against the binary, and the interface file's examples run too; a cli test runs both
 
 ## cross-5 (medium): The miscased-keyword note and fix-it fire for a correctly lowercase variable on any syntax error on its line
 
@@ -64,7 +64,7 @@ Skeptic: vx/kw/a.fb (`Local from = 1`, `Local to = 5`, `Local d = to - from)`): 
 
 Fix: Suggest the keyword only when the identifier isn't a declared or used name in scope, e.g. when it's the first token of its statement, or when the token the parser expected is that keyword. Add parser tests with lowercase variables named like keywords on a line with an unrelated syntax error.
 
-Status: open
+Status: fixed: the fix-it is only for a word at the error, right before it, or first on its line, and not for a name the file declares or assigns (after Local, Global, Const, Field, For, Function, a type's keyword, Catch, and so on, or before a `:` or `=`); parser tests with lowercase variables named like keywords, journey-2's and cross-5's lines among them
 
 ## docs-1 (medium): Releases ship nlohmann/json inside fb-lsp without its MIT notice; tooling.md's notices list leaves it out too
 
@@ -80,7 +80,7 @@ Skeptic: lsp/CMakeLists.txt FetchContents nlohmann_json v3.12.0 and links it int
 
 Fix: In cmake/install.cmake, after the toml++ lines, add `FetchContent_GetProperties(nlohmann_json)` and `install(FILES "${nlohmann_json_SOURCE_DIR}/LICENSE.MIT" DESTINATION notices RENAME nlohmann_json.txt)`. Add nlohmann_json to install_test.cmake's notices list, and to tooling.md's notices bullet as being in fb-lsp.
 
-Status: open
+Status: fixed: cmake/install.cmake installs nlohmann/json's LICENSE.MIT as notices/nlohmann_json.txt where fb-lsp is built, the install test checks for it, and tooling.md's notices bullet names it
 
 ## docs-2 (medium): The LSP's quick fix for a miscased keyword is titled with the misleading parentheses error
 
@@ -96,7 +96,7 @@ Skeptic: With a.fb (`if x == 1 Then` on line 3), `fb check` prints `error: calls
 
 Fix: Give fix_t an optional title, which the parser sets to something like "Write 'if' as 'If'" and the constraint fix-its set to their own wording. features.cpp uses it before falling back to "Fix: " + message. Add an editing_tests case for the code action's title on `if x == 1 Then`.
 
-Status: open
+Status: fixed: diagnostic_t has a fix_title, which the code action uses: "Write 'if' as 'If'" for a miscased keyword, and "Move the constraint inline" or "... to a Where line" for the constraints' fix-its; LSP tests check both titles
 
 ## journey-2 (medium): The new miscased-keyword fix-it fires on a correctly spelled variable named like a keyword, as a preferred quick fix that breaks the code
 
@@ -112,7 +112,7 @@ Skeptic: kw/k2.fb is `Local final = 10` / `Print(final +)` / `Local to = [1, 2]`
 
 Fix: Suggest only where the keyword could stand: the identifier is the line's first token, or the token the error is at or right before it, or it's followed by what the keyword's syntax needs. Don't suggest a name the line declares or that was declared earlier (a Local, a parameter). Give the code action a title that says what it does, like "Write 'If'". Add parser tests for `Local final = 10` / `Print(final +)`.
 
-Status: open
+Status: fixed with cross-5: a declared name isn't suggested, and the code action says what it writes
 
 ## cross-1 (low): LSP rename and references skip the code in doc-comment examples, so a rename breaks fb test
 
@@ -128,7 +128,7 @@ Skeptic: I used the build folder's fb-lsp.exe, rebuilt at 20:57 from the current
 
 Fix: When a check covers files that have examples, include each example module (add_examples with purpose CHECK) in the references and rename checks. Then map their spans back through the line origin to the doc comment's text, so rename edits `/// ...` lines. Optionally also rename `[Name]` links that resolve to the symbol.
 
-Status: open
+Status: fixed: references and renames check the files with their doc comments' examples (check_request_t::examples), and show an example's places in its doc comment, so a rename edits `/// Local x = Grow(1, 2)` too; an LSP test checks references and the rename; `[Grow]` links still aren't renamed
 
 ## cross-6 (low): fb fmt strips trailing spaces inside doc comments, which changes doc tests' results and fb doc's Markdown; format_source's meaning check doesn't see it
 
@@ -144,7 +144,7 @@ Skeptic: I restored the two trailing spaces in vx/fmt2/pad.fb's example line (`/
 
 Fix: Don't trim the trailing whitespace of `///` and `//!` lines, or at least of lines inside a doc comment's code fence. Make same_meaning() compare each doc comment's text, ast_t::doc, so a change to it is refused like a change to the code.
 
-Status: open
+Status: fixed: fb fmt keeps the spaces at the end of a `///` or `//!` line, and its meaning check compares the doc comments' text, so a change to one is refused; a format test
 
 ## cross-8 (low): Go to definition gives nothing for a prebuilt package's declarations and its Import, though its .fbi is on disk
 
@@ -160,7 +160,7 @@ Skeptic: The build folder's fb-lsp on vx/lib/app, which depends on ../geopre (pr
 
 Fix: note_disk_path() the interface file for each module read from it, so definition and references can open the .fbi. Or say in tooling.md that a prebuilt package has hover only.
 
-Status: open
+Status: fixed: a prebuilt module's file notes its interface file (compilation_t::interface_path()), which go to definition opens at the declaration's line, and an Import's module at its first line; references and renames still leave the interface file out
 
 ## docs-3 (low): The TextMate grammar and language configuration don't know step 8's `//!` module doc comments
 
@@ -176,7 +176,7 @@ Skeptic: Read the files. editors/vscode/syntaxes/futureblitz.tmLanguage.json:137
 
 Fix: Make the doc-comment pattern `//[/!](?!/)` (or add a twin rule for `//!`) with the same Markdown inner patterns, and add an onEnterRule for `^\s*//!.*$` that appends `//! `. Add `//!` cases to test/grammar/comments.fb and language.test.ts, and say so in tooling.md's grammar bullet.
 
-Status: open
+Status: fixed: the grammar's doc comment rule is `//[/!](?!/)`, with its Markdown, and `//!` goes on to the next line; comments.fb and language.test.ts check them (npm run test:unit)
 
 ## docs-5 (low): tooling.md says to dispatch the release workflow by id because master lacks release.yml, but master has it now
 
@@ -192,7 +192,7 @@ Skeptic: docs/tooling.md:73-75 still says to dispatch by id `gh workflow run 401
 
 Fix: Rewrite the sentence as "or a dispatch on a branch to check it (`gh workflow run release.yml --ref <branch>`)".
 
-Status: open
+Status: fixed: tooling.md says `gh workflow run release.yml --ref <branch>`
 
 ## docs-6 (low): README's install commands 404: no GitHub Release exists yet, and M8's done-when needs one
 
@@ -208,7 +208,7 @@ Skeptic: README.md:13 and :19 give `curl -fsSL https://github.com/hlpdev/FutureB
 
 Fix: Leave it for the user's call at step 9's close: push v0.1.0, which matches CMakeLists.txt's version, and publish the draft. Until then, add a line to the README's Installing section that the first release is coming.
 
-Status: open
+Status: fixed: README says the scripts install a published release, that the first is coming, and how to build from source until then; no release was made (the user publishes it)
 
 ## docs-8 (low): architecture.md still says `new` and `test` come later, and doesn't show M8's editors/ or lsp library
 
@@ -224,7 +224,7 @@ Skeptic: docs/architecture.md:91 still reads "`new`, `test`, package management 
 
 Fix: Update the three spots: the cli row ("... (M1); `new`, `test`, `fmt`, and `doc` (M8); package management in M10"), a layout line `editors/ vscode/ the VS Code extension (M8)`, and the CMake targets row for lsp (`fb_lsp_server` static lib, `fb-lsp` executable).
 
-Status: open
+Status: fixed: architecture.md's cli row has new, test, fmt, and doc (M8) and package management in M10, the layout has editors/vscode/ and lsp's headers, and the targets table names fb_lsp_server and fb_lsp
 
 ## docs-9 (low): A stray untracked file `a` in the repo root holds a scratch path
 
@@ -240,7 +240,7 @@ Skeptic: `git status --short` shows `?? a` in the repo root, and `cat a` is one 
 
 Fix: Delete it before committing step 9, and stage the fix-it's files by name.
 
-Status: open
+Status: fixed: the file is gone from the main checkout, and nothing committed it
 
 ## journey-5 (low): Import completion offers the package's tests/ modules in its own files, which then can't import them
 
@@ -256,7 +256,7 @@ Skeptic: I made a library package util with math.fb and tests/outside.fb, and re
 
 Fix: Leave the tests/ folder's modules out of import_names() for a file outside tests/ (and out of the folder names that unit_modules adds).
 
-Status: open
+Status: fixed: Import completion in a package's own file leaves out its `<name>.tests` modules, which a tests/ file still gets; an LSP test
 
 ## journey-6 (low): install.ps1 run with `irm | iex` overwrites and then deletes the session's own $Version, $Archive, and $NoModifyPath
 
@@ -272,7 +272,7 @@ Skeptic: I made ps/stub.ps1: install.ps1 with Install-FutureBlitz's body replace
 
 Fix: Drop the script-level param() for the iex path: read $env:FUTUREBLITZ_VERSION inside the function, keep param() only when $PSCommandPath is set, or wrap the whole script in `& { param(...) ... }` so its variables are a child scope's. Then don't Remove-Variable names the session may own.
 
-Status: open
+Status: fixed: install.ps1 is a script block called with its arguments, so its parameters are its own and the session's $Version, $Archive, and $NoModifyPath stay; it runs an archive's fb only when the file starts as a program does, since Windows shows a window that waits for one that doesn't; the install.ps1 test checks the session's variables
 
 ## journey-7 (low): A failing doc test's stack trace names a generated function, util.doctests.3.DocTest__Example, not the test
 
@@ -288,7 +288,7 @@ Skeptic: In util/math.fb, Half's example `Local h = Half(3)` panics. `fb test` (
 
 Fix: Give the example's generated Function a trace name of the test's name (the call-site table's FB name), or name its module after the declaration rather than an index.
 
-Status: open
+Status: fixed: an example's test Function has its test's name as its trace name (mir_function_t::trace_name), so a trace says `at half.Half (example)`; a cli test
 
 ## journey-8 (low): fb doc's warnings ignore FB_COLUMNS, unlike every other command's diagnostics
 
@@ -304,7 +304,7 @@ Skeptic: math.fb line 29 is `/// A 😀 thing, see [Missing].`. Both `fb doc -o 
 
 Fix: Pass console.diagnostics() to render_pretty there, as the other commands do.
 
-Status: open
+Status: fixed: fb doc renders its warnings with console.diagnostics(), so FB_COLUMNS counts them too; the FB_COLUMNS cli test checks fb doc's
 
 ## journey-9 (low): fb new with a keyword folder name says it isn't an identifier
 
@@ -320,4 +320,18 @@ Skeptic: `fb new If` and `fb new Self` (release, PATH emptied) print `error: a p
 
 Fix: In package_name_error, check keyword_kind(text) first and say it's a keyword.
 
-Status: open
+Status: fixed: package_name_error says a keyword is one: "If is a keyword, which a package's name can't be"; the fb new cli test checks If and Self
+
+## ci-1 (medium): A rename to a name code already sees, Print or Int, isn't refused on Linux
+
+lsp/src/completion.cpp:836. visible_names() looped over `completer_t(query, offset).names(false)["items"]`, a member of a temporary. A range-for keeps the temporaries of its range only from C++23's P2718 on, which GCC 15 and Clang have and GCC 14 hasn't, so with Ubuntu's g++-14 the items were read after they were freed, and the set of names code sees came out without them. rename_conflict() refuses a variable's name by its scope first, so `c` and `nums` were refused, and only the names it finds through visible_names(), Print and Int, weren't.
+
+Shown by: tests/lsp/names_tests.cpp:222, "a rename to a name code already sees there is refused", in the m8-check-final CI run on Linux (ubuntu-24.04, g++-14): `null == -32803` with message `Print`, and again with `Int`. It passes on Windows (MinGW's GCC 15.2) and macOS (Clang).
+
+Expected: Each of the four renames is refused with -32803.
+
+Actual: The renames to Print and Int succeed on Linux.
+
+Fix: Hold the completion's result in a local before the loop.
+
+Status: fixed: visible_names() holds the result in a local; the test is as it was, and fails without the fix only under a compiler without P2718, as GCC 14 (CI on Linux), and no other range-for in the repo loops over a member of a temporary

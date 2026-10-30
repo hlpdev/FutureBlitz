@@ -406,7 +406,15 @@ public:
             m_test_functions.insert(test.function);
         }
 
-        return run();
+        mir_module_t module = run();
+        for (const test_case_t& test : tests) {
+            if (const auto found = m_functions.find(test.function);
+                test.example && found != m_functions.end()) {
+                module.functions[std::to_underlying(found->second)].trace_name = test.name;
+            }
+        }
+
+        return module;
     }
 
     mir_module_t run_one(const symbol_id_t id, const std::vector<type_id_t>& type_arguments) {

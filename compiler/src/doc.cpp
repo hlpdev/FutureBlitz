@@ -2,6 +2,7 @@
 
 #include "fb/build_config.hpp"
 #include "fb/driver.hpp"
+#include "fb/interface.hpp"
 #include "fb/lexer.hpp"
 #include "fb/parser.hpp"
 #include "fb/types.hpp"
@@ -748,6 +749,20 @@ std::vector<example_module_t> example_modules(const ast_t& ast, const source_fil
 namespace {
 
 // The API
+
+/// The line, from 1, that `offset` in `file` is on, or in a prebuilt library's interface file,
+/// the line of the library's source it comes from, as fb doc names it whether the library is
+/// built from source or not.
+[[nodiscard]] std::uint32_t line_in(const source_file_t& file, const std::uint32_t offset,
+                                    const bool prebuilt) {
+    if (prebuilt) {
+        if (const std::optional<std::uint32_t> line = source_line(file, offset)) {
+            return *line;
+        }
+    }
+
+    return file.location_of(offset, column_unit_t::UTF8).line + 1;
+}
 
 /// Where a declaration is, for finding the names its doc's links name: its module, and the type
 /// or Extend it's in, or for a type, itself.
@@ -1627,7 +1642,11 @@ private:
 
     doc_module_t document_module(const module_id_t id) {
         const module_t& module = m_ast.modules().get(id);
-        doc_module_t documented{ .name = module.name, .file = package_path(module) };
+        doc_module_t documented{
+            .name = module.name,
+            .file = package_path(module),
+            .prebuilt = module.prebuilt,
+        };
         if (const doc_comment_t* comment = m_ast.module_doc(module.file)) {
             documented.doc = read_doc(*comment);
             documented.links = links_of(*documented.doc, { .module = id }, true);
@@ -1780,8 +1799,8 @@ private:
         }
 
         item.signature = tokens_text(file, all, signature, end);
-        item.line = file.location_of(begin, column_unit_t::UTF8).line + 1;
         const std::optional<module_id_t> module = m_ast.modules().of(written.file);
+        item.line = line_in(file, begin, module && m_ast.modules().get(*module).prebuilt);
         item.file = module ? package_path(m_ast.modules().get(*module)) : file.path();
     }
 
@@ -2074,7 +2093,8 @@ void write_links(json_writer_t& out, const std::vector<doc_target_t>& links) {
 }
 
 void write_doc(json_writer_t& out, const std::optional<doc_t>& doc,
-               const std::vector<doc_target_t>& links, const source_manager_t& sources) {
+               const std::vector<doc_target_t>& links, const source_manager_t& sources,
+               const bool prebuilt) {
     out.key("doc");
     if (!doc) {
         out.null();
@@ -2106,10 +2126,7 @@ void write_doc(json_writer_t& out, const std::optional<doc_t>& doc,
         out.key("code");
         out.string(example.shown());
         out.key("line");
-        out.number(sources.get(example.fence.file)
-                       .location_of(example.fence.begin, column_unit_t::UTF8)
-                       .line +
-                   1);
+        out.number(line_in(sources.get(example.fence.file), example.fence.begin, prebuilt));
         out.key("runs");
         out.boolean(example.kind == example_kind_t::RUN);
         out.close('}');
@@ -2119,7 +2136,8 @@ void write_doc(json_writer_t& out, const std::optional<doc_t>& doc,
     out.close('}');
 }
 
-void write_item(json_writer_t& out, const doc_item_t& item, const source_manager_t& sources) {
+void write_item(json_writer_t& out, const doc_item_t& item, const source_manager_t& sources,
+                const bool prebuilt) {
     out.open('{');
     out.key("kind");
     out.string(item.kind);
@@ -2142,7 +2160,7 @@ void write_item(json_writer_t& out, const doc_item_t& item, const source_manager
     out.string(item.file);
     out.key("line");
     out.number(item.line);
-    write_doc(out, item.doc, item.links, sources);
+    write_doc(out, item.doc, item.links, sources, prebuilt);
     if (!item.doc_from.empty()) {
         out.key("doc_from");
         out.string(item.doc_from);
@@ -2158,7 +2176,7 @@ void write_item(json_writer_t& out, const doc_item_t& item, const source_manager
         out.key("members");
         out.open('[');
         for (const doc_item_t& member : item.members) {
-            write_item(out, member, sources);
+            write_item(out, member, sources, prebuilt);
         }
 
         out.close(']');
@@ -2199,11 +2217,11 @@ std::string doc_json(const doc_package_t& package, const source_manager_t& sourc
         out.string(module.name);
         out.key("file");
         out.string(module.file);
-        write_doc(out, module.doc, module.links, sources);
+        write_doc(out, module.doc, module.links, sources, module.prebuilt);
         out.key("items");
         out.open('[');
         for (const doc_item_t& item : module.items) {
-            write_item(out, item, sources);
+            write_item(out, item, sources, module.prebuilt);
         }
 
         out.close(']');

@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <string_view>
 #include <system_error>
+#include <utility>
 
 namespace fb {
 
@@ -52,9 +53,21 @@ toolchain_t find_toolchain(const std::filesystem::path& executable) {
     return built;
 }
 
-const toolchain_t& toolchain() {
-    static const toolchain_t found = find_toolchain(current_executable());
+namespace {
+
+toolchain_t& chosen_toolchain() {
+    static toolchain_t found = find_toolchain(current_executable());
     return found;
+}
+
+} // namespace
+
+const toolchain_t& toolchain() {
+    return chosen_toolchain();
+}
+
+void use_toolchain(toolchain_t chosen) {
+    chosen_toolchain() = std::move(chosen);
 }
 
 } // namespace fb

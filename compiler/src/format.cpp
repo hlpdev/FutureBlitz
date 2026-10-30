@@ -11,6 +11,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <optional>
 #include <span>
 #include <string>
@@ -35,6 +36,11 @@ std::uint32_t width_of(const std::string_view text) {
     }
 
     return width;
+}
+
+/// Whether a comment's text is a doc comment's line: "///", but not "////", or "//!".
+bool is_doc_comment(const std::string_view text) {
+    return (text.starts_with("///") && !text.starts_with("////")) || text.starts_with("//!");
 }
 
 constexpr bool is_opener(const token_kind_t kind) {
@@ -418,9 +424,10 @@ private:
 
     template <typename Flush>
     void place_comment(const span_t span, const token_t& next, unit_t& current, Flush& flush) {
-        // A comment runs to its line break, which the formatter writes itself.
+        // A comment runs to its line break, which the formatter writes itself. A doc comment's
+        // spaces at its end are its Markdown's, a line break, or its example's code.
         std::string_view text = slice(span.begin, span.end);
-        while (text.ends_with(' ') || text.ends_with('\t')) {
+        while (!is_doc_comment(text) && (text.ends_with(' ') || text.ends_with('\t'))) {
             text.remove_suffix(1);
         }
 
@@ -1205,6 +1212,13 @@ std::string meaning(const source_file_t& file, diagnostic_bag_t& diagnostics) {
             out += ' ';
             out += file.slice(token.span);
             out += '\n';
+        }
+    }
+
+    // And the doc comments, whose text is Markdown and examples' code.
+    for (const span_t comment : trivia.comments) {
+        if (is_doc_comment(file.slice(comment))) {
+            out += std::format("doc {}\n", file.slice(comment));
         }
     }
 

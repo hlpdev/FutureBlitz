@@ -3,6 +3,7 @@
 #include "fb/format.hpp"
 #include "fb/lsp/protocol.hpp"
 #include "fb/source.hpp"
+#include "fb/toolchain.hpp"
 #include "fb/utf8.hpp"
 
 #include <algorithm>
@@ -14,6 +15,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 using fb::lsp::json_t;
@@ -324,6 +326,57 @@ TEST_CASE("rename changes a name everywhere the workspace uses it", "[lsp]") {
     CHECK(client.request("textDocument/prepareRename", client.at(main, "Print")).is_null());
 }
 
+TEST_CASE("references and renames reach the code of doc comments' examples", "[lsp]") {
+    const std::string grow = "/// Grows `n`.\n"
+                             "///\n"
+                             "/// # Examples\n"
+                             "///\n"
+                             "/// ```\n"
+                             "/// Local x = Grow(1, 2)\n"
+                             "/// Expect(x == 3)\n"
+                             "/// ```\n"
+                             "Public Function Grow(n: Int, by: Int): Int => n + by\n";
+    const std::string uses = "Import std.test\nImport geo.grow\n"
+                             "@Test Function Grows()\n"
+                             "    Expect(Grow(1, 1) == 2)\n"
+                             "End Function\n";
+    const folder_t folder({
+        { "project.toml", std::string(manifest) },
+        { "grow.fb", grow },
+        { "tests/grows.fb", uses },
+    });
+    client_t client({ .folders = { folder.root() } });
+    const std::string uri = folder.uri("grow.fb");
+    client.open(uri, grow);
+    client.settle();
+
+    json_t params = client.at(uri, "Grow(n", 0);
+    params["context"] = { { "includeDeclaration", true } };
+    const json_t found = client.request("textDocument/references", params);
+    std::set<std::uint32_t> lines;
+    for (const json_t& location : found) {
+        if (location["uri"] == uri) {
+            lines.insert(location["range"]["start"]["line"].get<std::uint32_t>());
+        }
+    }
+
+    CHECK(lines == std::set<std::uint32_t>{ 5, 8 });
+    CHECK(found.size() == 3);
+
+    params = client.at(uri, "Grow(n", 0);
+    params["newName"] = "Enlarge";
+    const json_t changes = client.request("textDocument/rename", params)["changes"];
+    REQUIRE(changes.contains(uri));
+    REQUIRE(changes[uri].size() == 2);
+    CHECK(changes[folder.uri("tests/grows.fb")].size() == 1);
+    for (const json_t& edit : changes[uri]) {
+        if (edit["range"]["start"]["line"] == 5) {
+            CHECK(edit["range"]["start"] == client_t::position(5, 14));
+            CHECK(edit["range"]["end"] == client_t::position(5, 18));
+        }
+    }
+}
+
 TEST_CASE("rename changes the names a From line brings in", "[lsp]") {
     const folder_t folder({
         { "project.toml", std::string(manifest) },
@@ -366,6 +419,67 @@ TEST_CASE("rename changes an open file outside the workspace, but not std's", "[
     client.open(print_uri, read.str());
     CHECK(client.request("textDocument/prepareRename", client.at(uri, "Print")).is_null());
     params = client.at(uri, "Print");
+    params["newName"] = "Show";
+    CHECK(client.send("textDocument/rename", params)["error"]["code"] == -32803);
+}
+
+namespace {
+
+/// Makes the toolchain's std another folder while it lives, as a release's is beside its bin/.
+class chosen_std_t {
+public:
+    explicit chosen_std_t(const std::filesystem::path& folder) {
+        fb::toolchain_t chosen = m_before;
+        chosen.std = folder;
+        fb::use_toolchain(std::move(chosen));
+    }
+
+    chosen_std_t(const chosen_std_t&) = delete;
+    chosen_std_t& operator=(const chosen_std_t&) = delete;
+    chosen_std_t(chosen_std_t&&) = delete;
+    chosen_std_t& operator=(chosen_std_t&&) = delete;
+
+    // The toolchain's paths move back, which allocates nothing, though clang-tidy can't see it.
+    ~chosen_std_t() { // NOLINT(bugprone-exception-escape)
+        fb::use_toolchain(std::move(m_before));
+    }
+
+private:
+    fb::toolchain_t m_before = fb::toolchain();
+};
+
+} // namespace
+
+TEST_CASE("the LSP's std is the toolchain's as a release's is and not the build's", "[lsp]") {
+    // A std of its own, with a module the build's hasn't.
+    const folder_t release(
+        { { "std/zz/probe.fb", "//! A probe.\n\n/// One.\nPublic Function Probe(): Int => 1\n" } });
+    std::filesystem::copy(fb::path_from_utf8(fb::build_config::std_directory), release.path("std"),
+                          std::filesystem::copy_options::recursive);
+    const chosen_std_t chosen(release.path("std"));
+    const folder_t folder({});
+    const std::string uri = folder.uri("main.fb");
+    client_t client({});
+
+    // Its modules are the ones an Import completes.
+    client.open(uri, "Import std.core\nImport std.z\nPrint(1)\n");
+    const std::set<std::string> modules =
+        labels(client.request("textDocument/completion", client.at(uri, "std.z", 5)));
+    CHECK(modules.contains("std.zz.probe"));
+    CHECK(modules.contains("std.collections"));
+
+    // Its files are std's, which check as std, and whose names aren't renamed.
+    client.change(uri, "Import std.core\nPrint(1)\n");
+    const std::filesystem::path print = release.path("std/core/print.fb");
+    std::ifstream const in(print, std::ios::binary);
+    std::ostringstream read;
+    read << in.rdbuf();
+    const std::string print_uri = fb::lsp::uri_of(print);
+    client.open(print_uri, read.str());
+    client.settle();
+    CHECK(client.diagnostics(print_uri).empty());
+    CHECK(client.request("textDocument/prepareRename", client.at(uri, "Print")).is_null());
+    json_t params = client.at(print_uri, "Function Print", 9);
     params["newName"] = "Show";
     CHECK(client.send("textDocument/rename", params)["error"]["code"] == -32803);
 }
@@ -428,6 +542,28 @@ TEST_CASE("completion gives members, names in scope, modules, and keywords", "[l
     client.change(shapes, importing);
     CHECK(labels(client.request("textDocument/completion", client.at(shapes, "collections.\n", 12)))
               .contains("Stack"));
+}
+
+TEST_CASE("an Import in a package's own file doesn't complete its tests/ folder's modules",
+          "[lsp]") {
+    std::vector<std::pair<std::string, std::string>> files = geo();
+    files.emplace_back("tests/outside.fb", "Import geo.shapes\n");
+    const folder_t folder(files);
+    client_t client({ .folders = { folder.root() }, .load_folders = false });
+    const std::string importing = "Import geo.\n" + std::string(shapes_text);
+    const std::string shapes = folder.uri("shapes.fb");
+    client.open(shapes, importing);
+    const std::set<std::string> own =
+        labels(client.request("textDocument/completion", client.at(shapes, "geo.\n", 4)));
+    CHECK(own.contains("geo.report"));
+    CHECK(!own.contains("geo.tests"));
+    CHECK(!own.contains("geo.tests.outside"));
+
+    // The tests/ folder's own files see each other.
+    const std::string outside = folder.uri("tests/outside.fb");
+    client.open(outside, "Import geo.\nImport geo.shapes\n");
+    CHECK(labels(client.request("textDocument/completion", client.at(outside, "geo.\n", 4)))
+              .contains("geo.tests.outside"));
 }
 
 TEST_CASE("signature help shows the parameters of the call being typed", "[lsp]") {
@@ -559,6 +695,7 @@ TEST_CASE("code actions make the fix-its fb has", "[lsp]") {
                                           });
     REQUIRE(actions.size() == 1);
     CHECK(actions[0]["kind"] == "quickfix");
+    CHECK(actions[0]["title"] == "Move the constraint inline");
     const json_t& edits = actions[0]["edit"]["changes"][uri];
     REQUIRE(edits.size() == 2);
     CHECK(edits[0]["newText"] == ": Comparable");
@@ -573,6 +710,49 @@ TEST_CASE("code actions make the fix-its fb has", "[lsp]") {
                            { { "start", client_t::position(5, 0) },
                              { "end", client_t::position(5, 1) } } },
                          { "context", { { "diagnostics", json_t::array() } } } })
+              .empty());
+}
+
+TEST_CASE("a miscased keyword's code action says what it writes", "[lsp]") {
+    const folder_t folder({});
+    const auto actions_for = [&](const std::string& name, const std::string& text) {
+        const std::string uri = folder.uri(name);
+        client_t client({});
+        client.open(uri, text);
+        client.settle();
+        const json_t diagnostics = client.diagnostics(uri);
+        REQUIRE_FALSE(diagnostics.empty());
+        return client.request("textDocument/codeAction",
+                              {
+                                  { "textDocument", { { "uri", uri } } },
+                                  {
+                                      "range",
+                                      {
+                                          { "start", client_t::position(0, 0) },
+                                          { "end", client_t::position(9, 0) },
+                                      },
+                                  },
+                                  { "context", { { "diagnostics", diagnostics } } },
+                              });
+    };
+
+    const json_t actions = actions_for("if.fb", "Import std.core\n"
+                                                "Local x = 1\n"
+                                                "if x == 1 Then\n"
+                                                "    Print(\"one\")\n"
+                                                "End If\n");
+    REQUIRE(actions.size() == 1);
+    CHECK(actions[0]["title"] == "Write 'if' as 'If'");
+    const json_t& edits = actions[0]["edit"]["changes"][folder.uri("if.fb")];
+    REQUIRE(edits.size() == 1);
+    CHECK(edits[0]["newText"] == "If");
+
+    // Variables named like keywords in lowercase are names, which no action rewrites.
+    CHECK(actions_for("names.fb", "Import std.core\n"
+                                  "Local from = 1\n"
+                                  "Local to = 5\n"
+                                  "Local d = to - from)\n"
+                                  "Print(d)\n")
               .empty());
 }
 

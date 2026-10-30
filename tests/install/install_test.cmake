@@ -26,9 +26,10 @@ if(system)
   message(FATAL_ERROR "The release's bin/ has the system's ${system}")
 endif()
 
-# The notices of what's in the release besides std's bundled libraries: LLVM, toml++ in fb, and
-# the C runtime's pieces, with winpthreads and the libxml2 in lld.exe on Windows.
-set(notices llvm tomlplusplus)
+# The notices of what's in the release besides std's bundled libraries: LLVM, toml++ in fb,
+# nlohmann/json in fb-lsp, and the C runtime's pieces, with winpthreads and the libxml2 in lld.exe
+# on Windows.
+set(notices llvm tomlplusplus nlohmann_json)
 if(CMAKE_HOST_WIN32)
   list(APPEND notices mingw-w64 winpthreads gcc libxml2)
 elseif(NOT CMAKE_HOST_APPLE)

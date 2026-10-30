@@ -8,6 +8,7 @@
 #include "fb/lsp/workspace.hpp"
 #include "fb/module.hpp"
 #include "fb/source.hpp"
+#include "fb/toolchain.hpp"
 #include "fb/utf8.hpp"
 
 #include <algorithm>
@@ -554,7 +555,7 @@ json_t server_t::references(const json_t& params, const bool declaration) {
 
 bool server_t::editable(const std::filesystem::path& file) const {
     // std is the workspace's own only when it's in one of its folders.
-    const std::string standard = file_key(path_from_utf8(build_config::std_directory)) + "/";
+    const std::string standard = file_key(toolchain().std) + "/";
     return m_workspace->owns(file) ||
            (m_workspace->document(file).has_value() && !file_key(file).starts_with(standard));
 }
@@ -780,7 +781,7 @@ std::vector<std::string> server_t::import_names(const std::filesystem::path& pat
     // std's, found once.
     if (m_std_modules.empty()) {
         std::set<std::string> found;
-        const std::filesystem::path folder = path_from_utf8(build_config::std_directory);
+        const std::filesystem::path& folder = toolchain().std;
         unit_modules(
             { .kind = unit_t::kind_t::STANDARD, .root = folder, .files = package_files(folder) },
             "std", found);
@@ -800,6 +801,16 @@ std::vector<std::string> server_t::import_names(const std::filesystem::path& pat
             !module.name.contains('(')) {
             names.insert(module.name);
         }
+    }
+
+    // A package's own files don't import its tests/ folder, whose tests use it from outside.
+    const std::string tests = file_key(unit.root / "tests");
+    const std::string key = file_key(path);
+    if (unit.kind == unit_t::kind_t::PACKAGE && !unit.name.empty() && key != tests &&
+        !key.starts_with(tests + "/")) {
+        std::erase_if(names, [&](const std::string& name) {
+            return name == unit.name + ".tests" || name.starts_with(unit.name + ".tests.");
+        });
     }
 
     return { names.begin(), names.end() };

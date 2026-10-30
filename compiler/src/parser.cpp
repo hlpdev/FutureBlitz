@@ -449,30 +449,90 @@ private:
         return error(peek().span, "expected {}, found {}", what, describe_current());
     }
 
-    /// A syntax error's line, up to it, may have a keyword written in the wrong letter case, as
-    /// `if` for `If`, which is a name then: the error says so, with a fix-it that spells it.
+    /// A syntax error's line may have a keyword written in the wrong letter case, as `if` for
+    /// `If`, which is a name then: the error says so, with a fix-it that spells it. The word has
+    /// to be where the keyword could stand, at the error, right before it, or first on its line,
+    /// and not a name the file declares, as `Local to = 5` does, since a keyword's case is part of
+    /// it and `to` is a name like any other.
     void suggest_keyword_case(diagnostic_t& diagnostic) const {
-        const auto after =
-            std::ranges::upper_bound(m_tokens, diagnostic.span.begin, {},
+        const auto at =
+            std::ranges::lower_bound(m_tokens, diagnostic.span.begin, {},
                                      [](const token_t& token) { return token.span.begin; });
-        for (auto at = after; at != m_tokens.begin();) {
-            const token_t& token = *--at;
-            if (token.kind == token_kind_t::NEWLINE && token.span.begin < diagnostic.span.begin) {
-                return;
-            }
+        auto first = at;
+        while (first != m_tokens.begin() && std::prev(first)->kind != token_kind_t::NEWLINE) {
+            --first;
+        }
 
-            if (token.kind != token_kind_t::IDENTIFIER) {
+        std::vector<const token_t*> candidates;
+        if (at != m_tokens.end()) {
+            candidates.push_back(&*at);
+        }
+
+        if (at != first) {
+            candidates.push_back(&*std::prev(at));
+        }
+
+        if (first != m_tokens.end()) {
+            candidates.push_back(&*first);
+        }
+
+        for (const token_t* token : candidates) {
+            if (token->kind != token_kind_t::IDENTIFIER || declares(text(*token))) {
                 continue;
             }
 
-            if (const std::optional<std::string_view> keyword = miscased_keyword(text(token))) {
+            if (const std::optional<std::string_view> keyword = miscased_keyword(text(*token))) {
                 diagnostic.with_note(
                     std::format("'{}' is a name here; keywords are written as they are, as '{}'",
-                                text(token), *keyword));
-                diagnostic.with_fix(token.span, std::string(*keyword));
+                                text(*token), *keyword));
+                diagnostic.with_fix(token->span, std::string(*keyword));
+                diagnostic.fix_title = std::format("Write '{}' as '{}'", text(*token), *keyword);
                 return;
             }
         }
+    }
+
+    /// Whether the file declares a name, or assigns it, anywhere: after a keyword that declares
+    /// one, or before a `:` or `=`, as a parameter, a typed Field, or a variable's is.
+    [[nodiscard]] bool declares(const std::string_view name) const {
+        for (std::size_t i = 0; i < m_tokens.size(); ++i) {
+            if (m_tokens[i].kind != token_kind_t::IDENTIFIER || text(m_tokens[i]) != name) {
+                continue;
+            }
+
+            const token_kind_t next = m_tokens[i + 1 < m_tokens.size() ? i + 1 : i].kind;
+            if (next == token_kind_t::COLON || next == token_kind_t::EQUAL) {
+                return true;
+            }
+
+            if (i == 0) {
+                continue;
+            }
+
+            switch (m_tokens[i - 1].kind) {
+            case token_kind_t::KW_LOCAL:
+            case token_kind_t::KW_GLOBAL:
+            case token_kind_t::KW_CONST:
+            case token_kind_t::KW_FIELD:
+            case token_kind_t::KW_STATIC:
+            case token_kind_t::KW_THREADLOCAL:
+            case token_kind_t::KW_FOR:
+            case token_kind_t::KW_FUNCTION:
+            case token_kind_t::KW_METHOD:
+            case token_kind_t::KW_PROPERTY:
+            case token_kind_t::KW_CLASS:
+            case token_kind_t::KW_STRUCT:
+            case token_kind_t::KW_INTERFACE:
+            case token_kind_t::KW_ENUM:
+            case token_kind_t::KW_ALIAS:
+            case token_kind_t::KW_CATCH:
+                return true;
+            default:
+                break;
+            }
+        }
+
+        return false;
     }
 
     /// The current token as messages show it. "End" includes the keyword after it on its line.

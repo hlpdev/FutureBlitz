@@ -140,6 +140,9 @@ struct doc_module_t {
     std::vector<doc_target_t> links;
     /// Its Public declarations, and its Extends of what its users see, in source order.
     std::vector<doc_item_t> items;
+    /// From a prebuilt library's interface file, whose examples' lines are its source's, as its
+    /// "// line" comments say.
+    bool prebuilt = false;
 };
 
 /// A package's public API, as fb doc writes it.

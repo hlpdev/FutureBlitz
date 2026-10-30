@@ -71,8 +71,7 @@ other people can install and use every day in an editor. Step 0 settled what was
 
 - Versioned builds of fb for windows-x64, linux-x64, linux-arm64, macos-arm64, and macos-x64,
   from .github/workflows/release.yml, which a pushed `v<version>` tag runs, or a dispatch on a
-  branch to check it (by the workflow's id, `gh workflow run 401031694 --ref <branch>`, while
-  master hasn't the file, as GitHub finds one by its name only there). A tag makes a **draft**
+  branch to check it (`gh workflow run release.yml --ref <branch>`). A tag makes a **draft**
   GitHub Release of the assets, which is published by hand; the tag has to be CMakeLists.txt's
   version.
 - What fb itself needs: Windows 10 or newer (x64, which arm64 Windows runs too), Ubuntu 22.04 or
@@ -93,8 +92,10 @@ other people can install and use every day in an editor. Step 0 settled what was
   .profile for bash on macOS (else a new .bash_profile), fish's config.fish, else .profile; or
   in Windows' user PATH, as it's written there, %VAR%s and its REG_EXPAND_SZ kept.
   `--no-modify-path` (`-NoModifyPath`) leaves it, and says what to add. Running one again
-  updates. install.ps1 runs in a function of its own, so `irm | iex` leaves the session's
-  preferences, TLS, and variables as they were.
+  updates. install.ps1 runs in a script block of its own, parameters and all, so `irm | iex`
+  leaves the session's preferences, TLS, and variables as they were, those named like its
+  parameters too; and it runs an archive's fb only when the file is a program, since Windows
+  shows a window that waits to be closed for one that isn't.
 - The MSI (WiX 5, tools/install/futureblitz.wxs) installs the same folder for the user alone,
   in %USERPROFILE%\.futureblitz with its bin on the user's PATH, and uninstalls both; a newer one
   replaces an older one. The .pkg (pkgbuild) installs it for every user in
@@ -120,7 +121,8 @@ other people can install and use every day in an editor. Step 0 settled what was
   lib/<target>/include/ (MinGW-w64's and winpthreads', or glibc 2.28's and the kernel's), or on
   macOS the SDK's, from `xcrun`; a build folder has libclang's own and the C compiler's.
 - notices/: std's bundled libraries', some of which fb's executables have in them too; LLVM's
-  (for LLVM, clang, and lld) and toml++'s, in fb's executables; MinGW-w64's, winpthreads', and
+  (for LLVM, clang, and lld) and toml++'s, in fb's executables, and nlohmann/json's, in
+  fb-lsp; MinGW-w64's, winpthreads', and
   GCC's on Windows, with libxml2's, which the LLVM installer links into lld.exe; and GCC's,
   glibc's, and the Linux headers' on Linux; from cmake/notices/, and the bundled shared
   libraries' own, in notices/shared/, from their Debian packages or Homebrew kegs.
@@ -188,8 +190,10 @@ How it's built (2026-10-29):
   one's diagnostics.
 - **Requests** answer from the check of the document's current text, which they wait for, kept
   for each open document; references and renames check the file that declares the name with every
-  file that imports it. Sema records each use of a symbol (`analysis_t::uses`, symbol_use_t lists
-  the kinds), which hover, definitions, references, renames, and semantic tokens look names up in,
+  file that imports it, and their doc comments' examples, as fb test compiles them, so a rename
+  changes an example's code in its doc comment too. A prebuilt package's declarations are in its
+  interface file, which definitions go to. Sema records each use of a symbol (`analysis_t::uses`,
+  symbol_use_t lists the kinds), which hover, definitions, references, renames, and semantic tokens look names up in,
   and a test checks a program with each kind of use; and a member being typed, "x.", is a member
   with an empty name, whose object sema works out quietly, which completion takes the members
   from. Document and workspace symbols parse the file alone.
@@ -229,18 +233,18 @@ README says how to build, test, and install it.
   Import, Weak in a capture list, Sendable before Func, and Has and Or in a For Method's Where),
   attributes and Attribute declarations, strings with escapes, interpolation, and format specs (a
   `:` with no space after it, outside the interpolation's brackets), raw and triple-quoted
-  strings, Chars, numbers, `//`, nested `/* */`, and `///` comments with their Markdown's code,
-  links, and headings, #If lines and their symbols, declarations' names, parameters, and types
-  (after a declaration's `:`, a lambda's and an Operator's too, As, Is, Implements, Extends,
-  Throws, and Where, and type arguments, `Name<...>` with no space before the `<` and no `&&` in
-  them), calls, members, UPPER_CASE constants, and operators. A colon is the ternary's after its
+  strings, Chars, numbers, `//`, nested `/* */`, and `///` and `//!` comments with their
+  Markdown's code, links, and headings, #If lines and their symbols, declarations' names,
+  parameters, and types (after a declaration's `:`, a lambda's and an Operator's too, As, Is,
+  Implements, Extends, Throws, and Where, and type arguments, `Name<...>` with no space before
+  the `<` and no `&&` in them), calls, members, UPPER_CASE constants, and operators. A colon is the ternary's after its
   spaced `?`, or at the start of a line that goes on from one, and a named argument's, a Map
   entry's, or a typed loop's elsewhere. Brackets balance in a parameter list, so a default's call
   doesn't end it. A single-line string, an interpolation in it, and type arguments end with their
   line, as the lexer has them, so one left open doesn't color the rest of the file.
 - **The language configuration**: `//` and `/* */` for comment toggling, brackets and quotes that
-  close themselves, `///` going on to the next line, numbers as one word as the lexer reads them
-  (`0xFF_00`, `1.5e-3`), folding by indentation and by #If ... #End If, and indentation rules for
+  close themselves, `///` and `//!` going on to the next line, numbers as one word as the lexer
+  reads them (`0xFF_00`, `1.5e-3`), folding by indentation and by #If ... #End If, and indentation rules for
   the blocks: the line after one's first line indents, and Else, ElseIf, Case, Default, Catch,
   Finally, Until, and End lines go back. A `Then` or `=>` in a comment or a string isn't the
   line's. The rules see one line at a time, so a Select's first Case, a block deeper than Select,
@@ -333,7 +337,9 @@ The style, std's own (settled with the user 2026-10-29), which `fb fmt` enforces
   block's end, and the file ends with one line break, `\r\n` when its first line ends so.
 - **Comments** stay where they are. One on its own line gets the indentation of the line after
   it, or a block's when it's written inside the block before its end; one after code is one
-  space after it. Their text is kept, but for spaces at their end.
+  space after it. Their text is kept, but for spaces at their end, which a doc comment keeps,
+  as its Markdown's line breaks and its examples' strings have them; the meaning check compares
+  doc comments' text too.
 - **Lines that go on**: a statement goes on to another line only after a comma, an operator,
   `=`, `=>`, or an opening bracket, and inside brackets also before a ternary's `:`. Inside
   brackets, the line lines up one past the innermost open bracket, its items packed; a `:` that
@@ -388,7 +394,9 @@ The style, std's own (settled with the user 2026-10-29), which `fb fmt` enforces
   the LSP's hover shows, and `module_doc()` a file's. `read_doc()` (compiler/include/fb/doc.hpp)
   reads one's Markdown into its summary, sections, links, and examples.
 - A prebuilt library's interface file keeps its `///` and `//!` docs, so `fb doc` and the hover
-  have them for a prebuilt package. Its ABI hash leaves their lines out, and the module line
+  have them for a prebuilt package, and a `// line` comment before each declaration and its
+  module's doc, the line of the source it comes from, so `fb doc` gives a prebuilt package the
+  lines its source has. Its ABI hash leaves their lines out, and the module line
   counts they change, so a doc's new words are the same build; a doc that adds or takes out lines
   moves the code's lines, which the binary's stack traces and debug info name, and so is another
   (spec 11).

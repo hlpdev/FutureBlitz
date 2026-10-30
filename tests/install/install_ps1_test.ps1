@@ -69,18 +69,23 @@ foreach ($bad in @(
     if ((Get-Content -LiteralPath $which) -ne 'newer') { Fail "the $($bad.Name) archive replaced it" }
 }
 
-# Run in the caller's session, as `irm | iex` runs it, it leaves the session as it was.
+# Run in the caller's session, as `irm | iex` runs it, it leaves the session as it was, its own
+# variables named like the script's parameters too.
 $probe = @"
 `$ErrorActionPreference = 'Continue'
 `$ProgressPreference = 'Continue'
+`$Version = 'mine'
+`$Archive = 'kept'
+`$NoModifyPath = 'too'
 `$before = [Net.ServicePointManager]::SecurityProtocol
 . '$Script' -Archive '$Out\archives\newer.zip' -NoModifyPath | Out-Null
 `$left = @(Get-Variable root, repository, work, bin -ErrorAction SilentlyContinue).Count
 `$left += @(Get-Command Install-FutureBlitz -ErrorAction SilentlyContinue).Count
-"`$ErrorActionPreference `$ProgressPreference `$([Net.ServicePointManager]::SecurityProtocol -eq `$before) `$left"
+"`$ErrorActionPreference `$ProgressPreference `$([Net.ServicePointManager]::SecurityProtocol -eq `$before) `$left `$Version `$Archive `$NoModifyPath"
 "@
 Set-Content -LiteralPath "$Out\probe.ps1" -Value $probe
 $session = & $shell -NoProfile -ExecutionPolicy Bypass -File "$Out\probe.ps1" | Select-Object -Last 1
-if ($session -ne 'Continue Continue True 0') { Fail "the session was left with: $session" }
-
+if ($session -ne 'Continue Continue True 0 mine kept too') {
+    Fail "the session was left with: $session"
+}
 Write-Host 'install.ps1 passed'

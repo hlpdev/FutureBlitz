@@ -43,6 +43,9 @@ struct diagnostic_t {
     std::vector<std::string> notes;
     /// Changes that together fix it, which the LSP offers as a code action. They don't overlap.
     std::vector<fix_t> fixes;
+    /// What the fixes do, as the LSP's code action names it, like "Write 'if' as 'If'". Empty
+    /// for "Fix: " and the message.
+    std::string fix_title;
 
     diagnostic_t& with_label(const span_t at, std::string text) {
         labels.push_back({ .span = at, .message = std::move(text) });

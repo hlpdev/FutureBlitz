@@ -36,6 +36,22 @@
 
 namespace {
 
+/// An interface file's text without its "// line" comments, the source's lines its declarations
+/// come from, which fb doc reads and a test of what else it has leaves out.
+std::string without_lines(const std::string_view text) {
+    std::string out;
+    for (const auto part : std::views::split(text, '\n')) {
+        const std::string_view line(part.begin(), part.end());
+        if (!line.substr(std::min(line.find_first_not_of(' '), line.size()))
+                 .starts_with("// line ")) {
+            out += std::format("{}\n", line);
+        }
+    }
+
+    out.pop_back();
+    return out;
+}
+
 /// "<file>: <source text>: message" for each diagnostic, in order.
 std::vector<std::string> errors_of(const fb::compilation_t& compilation) {
     std::vector<std::string> errors;
@@ -3143,10 +3159,10 @@ TEST_CASE("a library's interface file holds what programs compile against", "[dr
         fb::read_interface_header(text).value_or(fb::interface_header_t{});
     CHECK(header.name == "physics");
     CHECK(header.version == "0.2.0");
-    // Each module is its Imports and what programs compile against, without comments or the
-    // lines an #If leaves out.
-    const std::string body = text.substr(text.find('\n') + 1);
-    CHECK(body == "// module physics/shapes.fb 18\n"
+    // Each module is its Imports and what programs compile against, without comments, but for the
+    // "// line" ones, which its count has, or the lines an #If leaves out.
+    const std::string body = without_lines(text.substr(text.find('\n') + 1));
+    CHECK(body == "// module physics/shapes.fb 32\n"
                   "Import std.core\n"
                   "Public Const Pi: Float64 = 3.25\n"
                   "Public Const Label: String = \"a \\\"{{x}}\\\" \\u{E9}\"\n"
@@ -3165,7 +3181,7 @@ TEST_CASE("a library's interface file holds what programs compile against", "[dr
                   "    Return Pick(a > b, a, b)\n"
                   "End Function\n"
                   "Function Pick<T>(first: Bool, a: T, b: T): T => first ? a : b\n"
-                  "// module physics/world.fb 9\n"
+                  "// module physics/world.fb 14\n"
                   "Import \"./shapes\"\n"
                   "Public Struct World\n"
                   "    Public Field Gravity: Float64 = -9.5\n"
@@ -3252,18 +3268,24 @@ TEST_CASE("an interface file keeps its library's docs, which its ABI hash leaves
     const fb::library_build_t first = built("A circle.");
     const std::string& text = first.interface;
     // The module's doc first, and each declaration's before it, its members' and an Enum's too.
-    CHECK(text.contains("// module docs/shapes.fb 18\n"
-                        "//! Shapes.\n"
-                        "Import std.core\n"
-                        "/// A circle.\n"
-                        "Public Class Circle\n"
-                        "    /// Its radius.\n"
-                        "    Public Field Radius: Float64\n"
-                        "    /// Its area.\n"
-                        "    Public Method Area(): Float64 => ...\n"
-                        "End Class\n"
-                        "/// The larger.\n"
-                        "Public Function Larger<T: Comparable>(a: T, b: T): T\n"));
+    CHECK(without_lines(text).contains("// module docs/shapes.fb 24\n"
+                                       "//! Shapes.\n"
+                                       "Import std.core\n"
+                                       "/// A circle.\n"
+                                       "Public Class Circle\n"
+                                       "    /// Its radius.\n"
+                                       "    Public Field Radius: Float64\n"
+                                       "    /// Its area.\n"
+                                       "    Public Method Area(): Float64 => ...\n"
+                                       "End Class\n"
+                                       "/// The larger.\n"
+                                       "Public Function Larger<T: Comparable>(a: T, b: T): T\n"));
+    // Before each declaration's doc, and the module's, the line of the source it starts at.
+    CHECK(text.contains("// module docs/shapes.fb 24\n// line 1\n//! Shapes.\n"));
+    CHECK(text.contains("\n// line 5\n/// A circle.\n"));
+    CHECK(text.contains("\n    // line 7\n    /// Its radius.\n"));
+    CHECK(text.contains("\n    // line 10\n    /// Its area.\n"));
+    CHECK(text.contains("\n// line 14\n/// The larger.\n"));
     CHECK(text.contains("/// Kinds.\n"
                         "Public Enum Kind\n"
                         "    /// Round.\n"
@@ -3418,42 +3440,43 @@ TEST_CASE("an interface file keeps each kind of declaration as programs need it"
     const std::string text =
         fb::write_interface(*kinds, fb::build_mode_t::RELEASE, diagnostics).value_or("");
     REQUIRE_FALSE(text.empty());
-    CHECK(text.substr(text.find('\n') + 1) == "// module kinds/a.fb 25\n"
-                                              "Import std.core\n"
-                                              "Public Enum Color\n"
-                                              "    RED\n"
-                                              "    GREEN = 5\n"
-                                              "End Enum\n"
-                                              "Public Alias Meters = Float64\n"
-                                              "Public Interface Named\n"
-                                              "    Method Name(): String\n"
-                                              "End Interface\n"
-                                              "Public Attribute Tag(Text: String)\n"
-                                              "Public Class Base Implements Named\n"
-                                              "    Protected Field level: Int\n"
-                                              "    New() => ...\n"
-                                              "    Public Method Name(): String => ...\n"
-                                              "    Protected Method Grow() => ...\n"
-                                              "End Class\n"
-                                              "Public Function MakeBase(): Base => ...\n"
-                                              "Extend Int32\n"
-                                              "    Public Method Squared(): Int32 => ...\n"
-                                              "    Method Cubed(): Int32 => ...\n"
-                                              "End Extend\n"
-                                              "Public Extern \"C\"\n"
-                                              "    Function abs(x: Int32): Int32\n"
-                                              "End Extern\n"
-                                              "Public Const Mode: String = \"release\"\n"
-                                              "// module kinds/my-parts/c.fb 3\n"
-                                              "Import \"../a\"\n"
-                                              "Import \"../a\" As __fbi1\n"
-                                              "Public Global Far: __fbi1.Base = ...\n"
-                                              "// module kinds/b.fb 5\n"
-                                              "Import \"./a\"\n"
-                                              "Import \"./my-parts/c\"\n"
-                                              "Import \"./a\" As __fbi1\n"
-                                              "Public Global Home: __fbi1.Base = ...\n"
-                                              "Public Global Colors: __fbi1.Color[] = ...\n");
+    CHECK(without_lines(text.substr(text.find('\n') + 1)) ==
+          "// module kinds/a.fb 41\n"
+          "Import std.core\n"
+          "Public Enum Color\n"
+          "    RED\n"
+          "    GREEN = 5\n"
+          "End Enum\n"
+          "Public Alias Meters = Float64\n"
+          "Public Interface Named\n"
+          "    Method Name(): String\n"
+          "End Interface\n"
+          "Public Attribute Tag(Text: String)\n"
+          "Public Class Base Implements Named\n"
+          "    Protected Field level: Int\n"
+          "    New() => ...\n"
+          "    Public Method Name(): String => ...\n"
+          "    Protected Method Grow() => ...\n"
+          "End Class\n"
+          "Public Function MakeBase(): Base => ...\n"
+          "Extend Int32\n"
+          "    Public Method Squared(): Int32 => ...\n"
+          "    Method Cubed(): Int32 => ...\n"
+          "End Extend\n"
+          "Public Extern \"C\"\n"
+          "    Function abs(x: Int32): Int32\n"
+          "End Extern\n"
+          "Public Const Mode: String = \"release\"\n"
+          "// module kinds/my-parts/c.fb 4\n"
+          "Import \"../a\"\n"
+          "Import \"../a\" As __fbi1\n"
+          "Public Global Far: __fbi1.Base = ...\n"
+          "// module kinds/b.fb 7\n"
+          "Import \"./a\"\n"
+          "Import \"./my-parts/c\"\n"
+          "Import \"./a\" As __fbi1\n"
+          "Public Global Home: __fbi1.Base = ...\n"
+          "Public Global Colors: __fbi1.Color[] = ...\n");
 
     // Programs see the same: a Private New stays one, and so does an Extend's Private Method.
     packages.write("prebuilt/project.toml", "[project]\nname = \"kinds\"\nversion = \"1.2.3\"\n");
@@ -3688,7 +3711,7 @@ TEST_CASE("programs check against an interface file as they do against the libra
     CHECK(diagnostics.diagnostics().empty());
     REQUIRE_FALSE(text.empty());
     // A hidden Import's qualifier is one the module's own names aren't.
-    CHECK(text.contains("\nImport \"./threads\" As __fbi2\nPublic Struct Money\n"));
+    CHECK(without_lines(text).contains("\nImport \"./threads\" As __fbi2\nPublic Struct Money\n"));
     CHECK(text.contains("\nPublic Global Far: __fbi2.Inner = ...\n"));
     CHECK(text.contains("\n@MainThreadOnly(\"uses the Global 'score', which only the main thread "
                         "can, unless it's an Atomic or a Mutex\") Public Function Bump(): Int => "

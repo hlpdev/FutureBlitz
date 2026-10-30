@@ -559,6 +559,9 @@ struct mir_extern_t {
 struct mir_function_t {
     /// The name with its parameter types, like "Add(Int32, Int32)", so overloads differ.
     std::string name;
+    /// What stack traces and debuggers call it in place of its name, as an example's test is
+    /// called by the test's name. Empty for its name.
+    std::string trace_name;
     /// The parameters come first.
     std::vector<local_t> locals;
     std::size_t parameter_count = 0;

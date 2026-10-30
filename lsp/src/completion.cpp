@@ -833,7 +833,10 @@ private:
 
 std::set<std::string> visible_names(const query_t& query, const std::uint32_t offset) {
     std::set<std::string> names;
-    for (const json_t& item : completer_t(query, offset).names(false)["items"]) {
+    // Held, since a range-for keeps the temporaries of its range only from C++23's P2718 on,
+    // which GCC 14 doesn't have: there, the items were read after they were freed.
+    const json_t found = completer_t(query, offset).names(false);
+    for (const json_t& item : found["items"]) {
         if (item["kind"].get<int>() != static_cast<int>(item_kind_t::KEYWORD)) {
             names.insert(item["label"].get<std::string>());
         }
