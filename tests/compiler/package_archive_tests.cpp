@@ -273,7 +273,14 @@ TEST_CASE("an archive's paths are ones every disk can hold, inside its folder", 
     // archive-9: every name Windows keeps for a device, and C1's controls, as the registry
     // refuses them.
     const std::vector<std::string_view> devices{
-        "CONIN$", "conout$.txt", "a/COM0", "lpt0.fb", "COM\xc2\xb9", "lpt\xc2\xb3.x", "a\xc2\x85b",
+        "CONIN$",
+        "conout$.txt",
+        "a/COM0",
+        "lpt0.fb",
+        "COM\xc2\xb9",
+        "lpt\xc2\xb3.x",
+        "a\xc2\x85"
+        "b",
     };
     for (const std::string_view wrong : devices) {
         INFO(wrong);

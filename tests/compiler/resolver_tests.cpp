@@ -13,7 +13,7 @@
 
 namespace {
 
-constexpr std::string_view index = "https://index.example.com/";
+constexpr std::string_view test_index = "https://index.example.com/";
 
 /// A registry's packages, by name: each version, with its dependencies' ranges.
 class packages_t {
@@ -49,7 +49,7 @@ public:
         return [this](const std::string_view name, const std::string_view source)
                    -> std::expected<std::vector<fb::index_entry_t>, std::string> {
             ++asked;
-            if (source != index) {
+            if (source != test_index) {
                 return std::unexpected(std::format("{} can't be reached", source));
             }
 
@@ -69,7 +69,7 @@ fb::requirement_t wants(const std::string_view name, const std::string_view rang
     return {
         .name = std::string(name),
         .range = *fb::parse_range(range),
-        .source = std::string(index),
+        .source = std::string(test_index),
         .who = std::string(who),
     };
 }
@@ -98,7 +98,7 @@ fb::lockfile_t locked(const std::vector<std::pair<std::string, std::string>>& ve
     fb::lockfile_t lockfile;
     for (const auto& [name, version] : versions) {
         lockfile.packages.push_back(
-            { .name = name, .version = version, .source = std::string(index) });
+            { .name = name, .version = version, .source = std::string(test_index) });
     }
 
     return lockfile;
@@ -279,7 +279,7 @@ TEST_CASE("an index line's registry is its canonical index, through the program'
         .add_from("tools", "1.0.0", "shapes", "0.3", "https://index.futureblitz.dev/")
         .add_from("tool2", "1.0.0", "shapes", "0.3", "https://index.example.com");
     const fb::preferences_t mirrored{
-        .mirrors = { { "https://index.futureblitz.dev/", std::string(index) } },
+        .mirrors = { { "https://index.futureblitz.dev/", std::string(test_index) } },
     };
     CHECK(picked(packages, { wants("tools", "1"), wants("shapes", "0.3") }, mirrored) ==
           picks_t{ "shapes 0.3.0", "tools 1.0.0" });
