@@ -10447,6 +10447,68 @@ TEST_CASE("a loop's Get, Set, and Call follow the thread rules for what each cop
                     "'Screen.Draw', which is @MainThread" });
 }
 
+TEST_CASE(
+    "a Property an Extend adds beside a Private one of its name is a loop's member of its own",
+    "[sema]") {
+    // Each has a copy, as lowering makes them, so each meets the loop's Where lines.
+    const std::vector<fb::library_file_t> gauge{
+        {
+            .path = "gauge.fb",
+            .text = "Import std.core\n"
+                    "Public Class Gauge\n"
+                    "    Field level: Int\n"
+                    "    Property Level: Int\n"
+                    "        Get => level\n"
+                    "        Set(value)\n"
+                    "            level = value\n"
+                    "        End Set\n"
+                    "    End Property\n"
+                    "    Public New()\n"
+                    "    End New\n"
+                    "End Class\n",
+        },
+    };
+    const std::string_view extended = "Import std.core\n"
+                                      "Import \"./gauge\"\n"
+                                      "Extend Gauge\n"
+                                      "    Property Level: String\n"
+                                      "        Get => \"text\"\n"
+                                      "        Set(value)\n"
+                                      "        End Set\n"
+                                      "    End Property\n"
+                                      "End Extend\n"
+                                      "Local g = Gauge()\n";
+    const std::string string_level =
+        "Gauge: Gauge's Property 'Level' is String, which doesn't implement Numeric, as this loop "
+        "needs";
+    const errors_t refused{ string_level };
+    CHECK(errors_with(std::format("{}For Property p: P In Gauge\n"
+                                  "    Where p Has Set\n"
+                                  "    Where P: Numeric\n"
+                                  "    p.Set(ByRef g, P.One())\n"
+                                  "End For",
+                                  extended),
+                      gauge) == refused);
+    CHECK(errors_with(std::format("{}For Property p: P In Gauge\n"
+                                  "    Where P: Numeric & Printable\n"
+                                  "    Print(p.Get(g) + P.One())\n"
+                                  "End For",
+                                  extended),
+                      gauge) == refused);
+    CHECK(errors_with(std::format("{}Function Bump<T>(ByRef value: T)\n"
+                                  "    For Property p: P In T\n"
+                                  "        Where p Has Set\n"
+                                  "        Where P: Numeric\n"
+                                  "        p.Set(ByRef value, P.One())\n"
+                                  "    End For\n"
+                                  "End Function\n"
+                                  "Bump(ByRef g)",
+                                  extended),
+                      gauge) ==
+          errors_t{ "Bump: 'Bump' needs each Property of Gauge that it can set to implement "
+                    "Numeric, but its Property 'Level' is String, which doesn't" });
+}
+
 TEST_CASE("a loop's inherited Properties have the types of the instance of the Class they're in",
           "[sema]") {
     const std::string_view base = "Import std.core\n"

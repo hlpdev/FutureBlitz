@@ -655,9 +655,6 @@ private:
         type_id_t type;
     };
 
-    /// The Func type a typed For Method loop's Where line gives, like "Func(A): Task<Response>",
-    /// the type parameters of the loop's own in it, A, which each Method binds, and the loop's
-    /// file, which decides what Extends it sees.
     /// A Property or Static Field a loop goes over, and the type it's a member of there: the
     /// loop's type, or for an inherited one, the instance of the Class it's in that that extends,
     /// whose type arguments its type has.
@@ -666,6 +663,9 @@ private:
         type_id_t level;
     };
 
+    /// The Func type a typed For Method loop's Where line gives, like "Func(A): Task<Response>",
+    /// the type parameters of the loop's own in it, A, which each Method binds, and the loop's
+    /// file, which decides what Extends it sees.
     struct method_pattern_t {
         type_id_t signature = type_id_t::INVALID;
         std::vector<type_id_t> fresh;
@@ -10965,8 +10965,10 @@ private:
     }
 
     /// A Struct's or Class's Properties a loop goes over, its own and inherited, or its own
-    /// Static Fields, or of those, the ones code at `settable` can set in one of `type`. Other
-    /// types have none.
+    /// Static Fields, or of those, the ones code at `settable` can set in one of `type`, as
+    /// lowering copies them: an Override takes the place of what it overrides, whether or not the
+    /// code can set it, and another Property of its name, like one an Extend adds beside a
+    /// Private one, is its own. Other types have none.
     [[nodiscard]] std::vector<reflected_member_t>
     reflected_members(const type_id_t type, const member_kind_t kind,
                       const std::optional<span_t> settable = std::nullopt) const {
@@ -10975,7 +10977,8 @@ private:
         }
 
         std::vector<reflected_member_t> found;
-        std::vector<std::string_view> names;
+        // What an Override found already, in a Class extending one, overrides.
+        std::unordered_set<symbol_id_t> overridden;
         for (type_id_t current = type; current != type_id_t::INVALID;
              current = is_class(current) ? base_of(current) : type_id_t::INVALID) {
             const auto declared = m_declared_types.find(definition_of(current));
@@ -10990,7 +10993,7 @@ private:
                     kind == member_kind_t::PROPERTY
                         ? member.kind == symbol_kind_t::PROPERTY && !member.modifiers.is_static
                         : member.kind == symbol_kind_t::GLOBAL;
-                if (!wanted || std::ranges::contains(names, member.name)) {
+                if (!wanted || overridden.contains(id)) {
                     continue;
                 }
 
@@ -11001,8 +11004,11 @@ private:
                     continue;
                 }
 
-                // One the code can't set still takes the place of what it overrides.
-                names.push_back(member.name);
+                for (std::optional<symbol_id_t> base = member.overrides; base;
+                     base = m_analysis.symbols[index(*base)].overrides) {
+                    overridden.insert(*base);
+                }
+
                 if (!settable || settable_at(id, *settable, type)) {
                     found.push_back({ .symbol = id, .level = current });
                 }
