@@ -719,26 +719,26 @@ parsing its 108 modules took 25 ms and sema 70 ms, and the rest went to asking t
 4,500 real paths, 600 canonical ones, and 1,800 statuses and comparisons, at a tenth to half a
 millisecond each on Windows, for the 200 or so paths a check has. So:
 
-- **The disk cache** (`fb/disk.hpp`): `disk_cache_t` keeps what the front end asks the disk, where
-  a path really leads, what's at it, a folder's entries, and a source file's text, and
-  `disk::weakly_canonical`, `real_path`, `exists`, `is_regular_file`, `is_directory`,
-  `equivalent`, `entries`, `files_under`, and `read` answer through the one a `disk_scope_t`
-  puts in use on the thread, as std::filesystem does, or from the disk without one. Each run of
-  the front end has a scope of its own, so `fb check` and `fb build` ask the disk once a path
-  too; `check_request_t::disk` is the LSP's, which its checks share while the client watches the
-  files. The workspace empties it, and the one `file_key` asks through, when the client says
-  files changed, when a folder is added or removed, and when a document closes; an answer asked
-  for while it was emptied isn't kept (`disk_cache_t::remember`), so a check that began before a
-  change can't leave what it saw. fb-lsp asks the client to watch every file, `**/*`, as an
-  Embed's, a [native] library's, or a .fbi's change is the checks' too, and the checks share the
-  cache only once the client takes the registration, and then keep answers only about the client's
-  folders (`disk_cache_t::keep_only_under`). The packages a check reads outside them, a path
-  dependency's, are watched too when the client's watchers can have folders of their own
-  (relativePatternSupport), each a RelativePattern of its own; without that, what's outside is
-  asked each time. A folder's deletion takes the files the workspace knows in it, and its creation
-  is read when a check asks. A changed .proto checks again what imports it, through the .proto's
-  module (`compilation_t::made_from`), and a package's fb.lock, library, or .fbi reads its
-  package again, as its project.toml does. A client that doesn't watch gets a cache for each
+- **The disk cache** (`fb/disk.hpp`): `disk_cache_t` keeps what the front end asks the disk, where a
+  path really leads, what's at it, a folder's entries, and a source file's text, and
+  `disk::weakly_canonical`, `real_path`, `exists`, `is_regular_file`, `is_directory`, `equivalent`,
+  `entries`, `files_under`, and `read` answer through the one a `disk_scope_t` puts in use on the
+  thread, as std::filesystem does, or from the disk without one. Each run of the front end has a
+  scope of its own, so `fb check` and `fb build` ask the disk once a path too;
+  `check_request_t::disk` is the LSP's, which its checks share while the client watches the files.
+  The workspace empties it, and the one `file_key` asks through, when the client says files changed,
+  when a folder is added or removed, and when a document closes; an answer asked for while it was
+  emptied isn't kept (`disk_cache_t::remember`), so a check that began before a change can't leave
+  what it saw. fb-lsp asks the client to watch every file, `**/*`, as an Embed's, a [native]
+  library's, or a .fbi's change is the checks' too, and the checks share the cache only once the
+  client takes the registration, and then keep answers only about the client's folders and std's,
+  which changes only with the toolchain (`disk_cache_t::keep_only_under`). The packages a check
+  reads outside them, a path dependency's, are watched too when the client's watchers can have
+  folders of their own (relativePatternSupport), each a RelativePattern of its own; without that,
+  what's outside is asked each time. A folder's deletion takes the files the workspace knows in it,
+  and its creation is read when a check asks. A changed .proto checks again what imports it, through
+  the .proto's module (`compilation_t::made_from`), and a package's fb.lock, library, or .fbi reads
+  its package again, as its project.toml does. A client that doesn't watch gets a cache for each
   check, which the disk can't change under.
 - **Only the roots' bodies.** fb-lsp publishes only a check's roots' diagnostics, so
   `analyze()` takes the files whose functions' bodies it checks (`file_set_t::root_bodies`);
