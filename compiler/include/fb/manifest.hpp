@@ -80,6 +80,18 @@ struct registry_entry_t {
 /// and which [registries] can name again, for a mirror.
 inline constexpr std::string_view default_registry = "futureblitz";
 
+/// A package's build step, its [build]: a program fb builds and runs before it compiles the
+/// package, whose .fb files are the package's modules, and whose other files their Embeds take.
+struct build_step_t {
+    /// Its main file, from the folder of its package: this one's, or `package`'s.
+    std::string program;
+    span_t program_span;
+    /// The dependency whose program it is, as [dependencies] names it, or nullopt for the
+    /// package's own.
+    std::optional<std::string> package;
+    std::optional<span_t> package_span;
+};
+
 /// What a package builds, as project.toml's `type` says.
 enum class package_type_t : std::uint8_t {
     /// A program, from its main file.
@@ -107,6 +119,8 @@ struct manifest_t {
     std::vector<native_t> natives;
     /// `[format] width`: the line width `fb fmt` formats its code to.
     std::optional<std::uint32_t> format_width;
+    /// [build], its build step, if it has one.
+    std::optional<build_step_t> build;
     /// What a registry shows of it, which `fb publish` needs some of: a line about it, its
     /// license as an SPDX expression, the files of its license and its readme, when they aren't
     /// LICENSE and README.md, its repository's, home page's, and documentation's URLs, and its

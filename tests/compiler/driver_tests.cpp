@@ -1946,6 +1946,170 @@ TEST_CASE("a package in a folder of any name links its C libraries", "[driver]")
     packages.remove();
 }
 
+/// A build step's program, which makes made.fb, with what it read and what it was given, and
+/// data/first.txt, the first of names.txt's lines, says it read names.txt, and warns.
+constexpr std::string_view generate_program =
+    "Import std.core\n"
+    "Import std.io\n"
+    "Import std.os\n"
+    "Local out = Path(Env.Get(\"FB_BUILD_OUT\") ?? \"\")\n"
+    "Local folder = Path(Env.Get(\"FB_BUILD_FOLDER\") ?? \"\")\n"
+    "Local names = Try File.ReadLines(folder / \"names.txt\")\n"
+    "Local given = (Env.Get(\"FB_BUILD_PACKAGE\") ?? \"\") + \" \" + "
+    "(Env.Get(\"FB_BUILD_MODE\") ?? \"\")\n"
+    "Local quote = \"\\\"\"\n"
+    "Try Dir.CreateAll(out / \"data\")\n"
+    "Try File.WriteText(out / \"made.fb\", \"Public Const COUNT = {names.Count}\\n\" +\n"
+    "    \"Public Function Given(): String => {quote}{given}{quote}\\n\")\n"
+    "Try File.WriteText(out / \"data/first.txt\", names[0])\n"
+    "Print(\"fb:rerun-if-changed=names.txt\")\n"
+    "Print(\"fb:warning=made {names.Count} names\")\n";
+
+/// Builds the package in `folder` and runs it, giving what it printed, or its first message.
+std::string build_and_run(const packages_t& packages, const std::string& folder) {
+    const std::expected<fb::compilation_t, std::string> game = fb::compile_file(packages / folder);
+    if (!game) {
+        return game.error();
+    }
+
+    if (game->diagnostics.has_errors()) {
+        return packages.messages(*game).front();
+    }
+
+    std::filesystem::path program = packages / (folder + "/build/" + folder);
+    program += fb::executable_extension;
+    const fb::mir_module_t module = fb::lower(game->ast, game->analysis);
+    const std::expected<fb::process_result_t, std::string> ran =
+        fb::build_program(module, *game, program, fb::build_mode_t::DEBUG).and_then([&] {
+            return fb::run_process(program, {});
+        });
+    return ran ? ran->output : ran.error();
+}
+
+TEST_CASE("a package's build step makes modules and the files they embed, before its build",
+          "[driver]") {
+    const packages_t packages;
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\n\n"
+                                       "[build]\nprogram = \"tools/generate.fb\"\n");
+    packages.write("app/tools/generate.fb", generate_program);
+    packages.write("app/names.txt", "ann\nbo\n");
+    packages.write("app/main.fb", "Import std.core\n"
+                                  "Import app.made\n"
+                                  "Print(\"{Given()} {COUNT}\")\n"
+                                  "Print(EmbedText(\"data/first.txt\"))\n");
+    const std::expected<fb::compilation_t, std::string> built = fb::compile_file(packages / "app");
+    REQUIRE(built);
+    CHECK(packages.messages(*built) ==
+          std::vector<std::string>{
+              "app/project.toml: \"tools/generate.fb\": app's build step says: made 2 names" });
+    CHECK(build_and_run(packages, "app") == "app debug 2\nann\n");
+
+    // Its files are in the build folder, out of the package's, and it runs again only once what
+    // it said it read changes.
+    const std::filesystem::path out =
+        packages / std::format("app/build/steps/{}/debug/app/out", fb::build_target());
+    CHECK(std::filesystem::is_regular_file(out / "made.fb"));
+    CHECK_FALSE(std::filesystem::exists(packages / "app/made.fb"));
+    std::filesystem::remove(out / "data/first.txt");
+    packages.write("app/other.txt", "not read");
+    const std::expected<fb::compilation_t, std::string> kept = fb::compile_file(packages / "app");
+    REQUIRE(kept);
+    CHECK(packages.messages(*kept) ==
+          std::vector<std::string>{ "app/main.fb: \"data/first.txt\": \"data/first.txt\" isn't a "
+                                    "file: there's nothing at app/data/first.txt" });
+    packages.write("app/names.txt", "cy\n");
+    CHECK(build_and_run(packages, "app") == "app debug 1\ncy\n");
+
+    // A library's check, fb test's build, and fb doc's have them too.
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\ntype = "
+                                       "\"library\"\n\n[build]\nprogram = \"tools/generate.fb\"\n");
+    packages.write("app/main.fb", "Import app.made\nPublic Function Twice(): Int => COUNT * 2\n");
+    for (const auto& compiled :
+         { fb::compile_file(packages / "app"), fb::compile_tests(packages / "app"),
+           fb::compile_docs(packages / "app") }) {
+        REQUIRE(compiled);
+        CHECK_FALSE(compiled->diagnostics.has_errors());
+    }
+
+    packages.remove();
+}
+
+TEST_CASE("a dependency's build step runs for the program, and a step's program can be a "
+          "dependency's",
+          "[driver]") {
+    const packages_t packages;
+    // tools has the program, which names makes its modules with, and the game uses names.
+    packages.write("tools/project.toml", "[project]\nname = \"tools\"\nversion = \"1.0.0\"\ntype = "
+                                         "\"library\"\n");
+    packages.write("tools/generate.fb", generate_program);
+    packages.write("tools/shared.fb", "Public Function Unused(): Int => 0\n");
+    packages.write("names/project.toml",
+                   "[project]\nname = \"names\"\nversion = \"1.0.0\"\ntype = \"library\"\n\n"
+                   "[dependencies]\ntools = { path = \"../tools\" }\n\n"
+                   "[build]\nprogram = \"generate.fb\"\npackage = \"tools\"\n");
+    packages.write("names/names.txt", "dee\neve\nfay\n");
+    packages.write("game/project.toml", "[project]\nname = \"game\"\nversion = \"1.0.0\"\n\n"
+                                        "[dependencies]\nnames = { path = \"../names\" }\n");
+    packages.write("game/main.fb", "Import std.core\n"
+                                   "Import names.made\n"
+                                   "Print(\"{Given()} {COUNT}\")\n");
+    CHECK(build_and_run(packages, "game") == "names debug 3\n");
+    // The game's build folder has it, for the game's builds.
+    CHECK(std::filesystem::is_regular_file(
+        packages / std::format("game/build/steps/{}/debug/names/out/made.fb", fb::build_target())));
+
+    // [build]'s package is one of [dependencies].
+    packages.write("names/project.toml",
+                   "[project]\nname = \"names\"\nversion = \"1.0.0\"\ntype = \"library\"\n\n"
+                   "[build]\nprogram = \"generate.fb\"\npackage = \"tools\"\n");
+    CHECK(build_and_run(packages, "game") ==
+          "names/project.toml: \"tools\": [build]'s package is one of [dependencies], whose "
+          "program the build step is, and there's no tools there");
+    packages.remove();
+}
+
+TEST_CASE("a build step that doesn't build, fails, or makes a package's own file is an error",
+          "[driver]") {
+    const packages_t packages;
+    const auto with_program = [&](const std::string_view program) {
+        packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\n\n"
+                                           "[build]\nprogram = \"generate.fb\"\n");
+        packages.write("app/generate.fb", program);
+        packages.write("app/main.fb", "Import std.core\nPrint(\"main\")\n");
+    };
+
+    with_program("Import std.core\nPrint(missing)\n");
+    CHECK(build_and_run(packages, "app")
+              .starts_with("app/project.toml: \"generate.fb\": app's build step, generate.fb, "
+                           "doesn't build:\n  "));
+    CHECK(build_and_run(packages, "app").contains("'missing' isn't declared"));
+
+    with_program("Import std.core\nImport std.os\nPrint(\"what went wrong\")\nProcess.Exit(3)\n");
+    CHECK(build_and_run(packages, "app") ==
+          "app/project.toml: \"generate.fb\": app's build step, generate.fb, failed with exit "
+          "code 3:\n  what went wrong");
+
+    with_program("Import std.core\nImport std.io\nImport std.os\n"
+                 "Try File.WriteText(Path(Env.Get(\"FB_BUILD_OUT\") ?? \"\") / \"main.fb\", "
+                 "\"\")\n");
+    CHECK(build_and_run(packages, "app") ==
+          "app/project.toml: \"generate.fb\": app's build step made main.fb, which its folder "
+          "has too; a step's files go beside the package's own");
+
+    // And [build] needs its program, a .fb file in the package's folder.
+    packages.write("app/project.toml",
+                   "[project]\nname = \"app\"\nversion = \"1.0.0\"\n\n[build]\npackage = \"x\"\n");
+    CHECK(build_and_run(packages, "app") ==
+          "app/project.toml: build: [build] needs the program its build step runs, like program "
+          "= \"tools/generate.fb\"");
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\n\n"
+                                       "[build]\nprogram = \"../generate.fb\"\n");
+    CHECK(build_and_run(packages, "app") ==
+          "app/project.toml: \"../generate.fb\": [build]'s program is a .fb file in its package's "
+          "folder, like \"tools/generate.fb\", not \"../generate.fb\"");
+    packages.remove();
+}
+
 TEST_CASE("a system library the linker can't find is an error at its project.toml line",
           "[driver]") {
     const packages_t packages;

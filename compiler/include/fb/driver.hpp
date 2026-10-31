@@ -185,14 +185,28 @@ resolve_import(std::string_view target, bool quoted, std::string_view importer);
                                     std::vector<library_file_t> library,
                                     build_mode_t mode = build_mode_t::DEBUG);
 
+/// Which of a compilation's packages' build steps run before it, each after the steps of the
+/// packages it depends on.
+enum class build_steps_t : std::uint8_t {
+    /// Each that's out of date, as fb build, run, test, check, and doc have them.
+    RUN,
+    /// Only one that has never run; the others' files are their last run's, as the LSP has
+    /// them while code is typed.
+    MISSING,
+    /// None, and none's files are in the build, as for a build step's own program.
+    SKIP,
+};
+
 /// Like compile(), with the files on disk: the standard library's in std/, and the program's
 /// own. `path` is a .fb file, whose folder the program's own paths start from, unless a
 /// project.toml in its folder or above makes it part of that package, or a package's folder,
 /// whose project.toml names its main file. A package's dependencies' files come from their
 /// folders. Fails when the main file or the standard library can't be read, or a folder has no
-/// project.toml; a project.toml's mistakes are the compilation's diagnostics.
+/// project.toml; a project.toml's mistakes are the compilation's diagnostics, as a build step's
+/// are, which run first as `steps` says.
 [[nodiscard]] std::expected<compilation_t, std::string>
-compile_file(const std::filesystem::path& path, build_mode_t mode = build_mode_t::DEBUG);
+compile_file(const std::filesystem::path& path, build_mode_t mode = build_mode_t::DEBUG,
+             build_steps_t steps = build_steps_t::RUN);
 
 /// For fb test: the package that `path` is the folder of, or that a .fb file at `path` is in,
 /// like compile_file(), with each of its .fb files a module, the main file's too, whose
@@ -245,6 +259,8 @@ struct check_request_t {
     /// them, in a package of their own: for the LSP's references and renames, which find and
     /// change the names their code uses, in the doc comments.
     bool examples = false;
+    /// Which build steps run first: while code is typed, only one that never ran.
+    build_steps_t build_steps = build_steps_t::MISSING;
 };
 
 /// For the LSP, which checks only the files an edit touches: `request`'s files, each a module of

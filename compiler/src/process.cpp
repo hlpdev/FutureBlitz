@@ -1,5 +1,6 @@
 #include "fb/process.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstdio>
@@ -12,6 +13,7 @@
 #include <string_view>
 #include <system_error>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #ifdef _WIN32
@@ -100,6 +102,46 @@ std::string last_error() {
     return std::format("Windows error {}", GetLastError());
 }
 
+/// This process's environment, with `environment`'s variables in place of those of their names,
+/// which Windows compares without letter case, as CreateProcessW takes it: each "name=value" and
+/// a NUL, then another NUL.
+std::wstring environment_block(const environment_t environment) {
+    std::vector<std::wstring> entries;
+    std::vector<std::wstring> names;
+    for (const auto& [name, value] : environment) {
+        names.push_back(widen(name));
+        entries.push_back(widen(name) + L"=" + widen(value));
+    }
+
+    wchar_t* strings = GetEnvironmentStringsW();
+    for (const wchar_t* at = strings; at != nullptr && *at != L'\0';
+         at += std::wstring_view(at).size() + 1) {
+        // A name like "=C:", a drive's folder, starts with its '='.
+        const std::wstring_view entry(at);
+        const std::wstring_view name = entry.substr(0, entry.find(L'=', 1));
+        const bool replaced = std::ranges::any_of(names, [&](const std::wstring& other) {
+            return CompareStringOrdinal(name.data(), static_cast<int>(name.size()), other.data(),
+                                        static_cast<int>(other.size()), TRUE) == CSTR_EQUAL;
+        });
+        if (!replaced) {
+            entries.emplace_back(entry);
+        }
+    }
+
+    if (strings != nullptr) {
+        FreeEnvironmentStringsW(strings);
+    }
+
+    std::wstring block;
+    for (const std::wstring& entry : entries) {
+        block += entry;
+        block += L'\0';
+    }
+
+    block += L'\0';
+    return block;
+}
+
 /// Swallows Ctrl+C and Ctrl+Break, which the program run in this terminal gets too. A handler,
 /// unlike ignoring them outright, isn't something the program inherits.
 BOOL WINAPI ignore_interrupt(const DWORD event) {
@@ -110,8 +152,9 @@ BOOL WINAPI ignore_interrupt(const DWORD event) {
 
 std::expected<process_result_t, std::string>
 run_process(const std::filesystem::path& program, std::span<const std::string> arguments,
-            const std::optional<std::string_view> input) {
+            const std::optional<std::string_view> input, const environment_t environment) {
     std::wstring command = command_line(program, arguments);
+    std::wstring block = environment.empty() ? std::wstring() : environment_block(environment);
     SECURITY_ATTRIBUTES security{
         .nLength = sizeof(SECURITY_ATTRIBUTES),
         .lpSecurityDescriptor = nullptr,
@@ -146,8 +189,11 @@ run_process(const std::filesystem::path& program, std::span<const std::string> a
     startup.hStdOutput = write_end;
     startup.hStdError = write_end;
     PROCESS_INFORMATION process{};
-    const BOOL started = CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE,
-                                        CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process);
+    const DWORD flags = CREATE_NO_WINDOW | (environment.empty() ? 0 : CREATE_UNICODE_ENVIRONMENT);
+    const BOOL started =
+        CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE, flags,
+                       environment.empty() ? nullptr : static_cast<void*>(block.data()), nullptr,
+                       &startup, &process);
     CloseHandle(write_end); // the child has its own copy now
     // The input goes in from a thread of its own while the output is read here, so neither
     // side waits on a full pipe for the other. Closing it ends the child's input.
@@ -297,7 +343,8 @@ bool open_pipe(std::array<int, 2>& ends) {
 /// written a program's input.
 std::expected<pid_t, std::string> spawn(const std::filesystem::path& program,
                                         const std::span<const std::string> arguments,
-                                        const posix_spawn_file_actions_t* actions) {
+                                        const posix_spawn_file_actions_t* actions,
+                                        const environment_t environment = {}) {
     // posix_spawn takes non-const strings, so it gets copies.
     std::string path = program.string();
     std::vector<std::string> copies(arguments.begin(), arguments.end());
@@ -307,6 +354,28 @@ std::expected<pid_t, std::string> spawn(const std::filesystem::path& program,
     }
 
     argv.push_back(nullptr);
+    // This process's environment, with `environment`'s variables in place of those of their
+    // names.
+    std::vector<std::string> entries;
+    for (const auto& [name, value] : environment) {
+        entries.push_back(name + "=" + value);
+    }
+
+    for (char** at = environ; !environment.empty() && *at != nullptr; ++at) {
+        const std::string_view entry(*at);
+        const std::string_view name = entry.substr(0, entry.find('='));
+        if (std::ranges::none_of(environment,
+                                 [&](const auto& variable) { return variable.first == name; })) {
+            entries.emplace_back(entry);
+        }
+    }
+
+    std::vector<char*> envp;
+    for (std::string& entry : entries) {
+        envp.push_back(entry.data());
+    }
+
+    envp.push_back(nullptr);
     sigset_t defaults;
     sigemptyset(&defaults);
     for (const int signal_number : { SIGINT, SIGQUIT, SIGPIPE }) {
@@ -318,7 +387,8 @@ std::expected<pid_t, std::string> spawn(const std::filesystem::path& program,
     posix_spawnattr_setsigdefault(&attributes, &defaults);
     posix_spawnattr_setflags(&attributes, static_cast<short>(POSIX_SPAWN_SETSIGDEF));
     pid_t pid = 0;
-    const int error = posix_spawn(&pid, path.c_str(), actions, &attributes, argv.data(), environ);
+    const int error = posix_spawn(&pid, path.c_str(), actions, &attributes, argv.data(),
+                                  environment.empty() ? environ : envp.data());
     posix_spawnattr_destroy(&attributes);
     if (error != 0) {
         return std::unexpected(std::format("couldn't run {}: {}", path, std::strerror(error)));
@@ -338,7 +408,7 @@ int wait_for(const pid_t pid) {
 
 std::expected<process_result_t, std::string>
 run_process(const std::filesystem::path& program, std::span<const std::string> arguments,
-            const std::optional<std::string_view> input) {
+            const std::optional<std::string_view> input, const environment_t environment) {
     std::unique_lock lock(spawning);
     std::array<int, 2> pipe_ends{};
     if (!open_pipe(pipe_ends)) {
@@ -367,7 +437,7 @@ run_process(const std::filesystem::path& program, std::span<const std::string> a
         posix_spawn_file_actions_addclose(&actions, input_ends[1]);
     }
 
-    const std::expected<pid_t, std::string> pid = spawn(program, arguments, &actions);
+    const std::expected<pid_t, std::string> pid = spawn(program, arguments, &actions, environment);
     posix_spawn_file_actions_destroy(&actions);
     lock.unlock();
     // Reading only ends once every copy of the write end is closed, and the child has its own.

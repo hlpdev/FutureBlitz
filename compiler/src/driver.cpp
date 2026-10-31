@@ -10,6 +10,7 @@
 #include "fb/lockfile.hpp"
 #include "fb/lower.hpp"
 #include "fb/manifest.hpp"
+#include "fb/package_archive.hpp"
 #include "fb/packages.hpp"
 #include "fb/parser.hpp"
 #include "fb/process.hpp"
@@ -35,11 +36,13 @@
 #include <iterator>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <random>
 #include <ranges>
 #include <set>
 #include <span>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -104,6 +107,12 @@ struct package_t {
     /// program, which it has in place of .fb files.
     std::filesystem::path interface;
     std::vector<library_file_t> modules;
+    /// Its build step's out/ folder, once the step has run, whose files are the package's too,
+    /// where its own folder has none of their paths: its .fb files are modules, and Embed takes
+    /// the rest.
+    std::filesystem::path generated;
+    /// Its build step's own program, by its path in the program, which isn't one of its modules.
+    std::string build_program;
 };
 
 /// A file the compiler makes, in memory: a module of a doc comment's example, which messages show
@@ -217,9 +226,20 @@ std::filesystem::path disk_path(const file_set_t& files, const std::string_view 
     }
 
     if (const package_t* package = package_named(files, path)) {
-        return path == package->name
-                   ? package->root
-                   : package->root / path_from_utf8(path.substr(package->prefix.size()));
+        if (path == package->name) {
+            return package->root;
+        }
+
+        // What its build step made is where its own folder has nothing.
+        const std::filesystem::path relative = path_from_utf8(path.substr(package->prefix.size()));
+        std::error_code error;
+        if (!package->generated.empty() &&
+            !std::filesystem::exists(package->root / relative, error) &&
+            std::filesystem::exists(package->generated / relative, error)) {
+            return package->generated / relative;
+        }
+
+        return package->root / relative;
     }
 
     return files.root.value_or(std::filesystem::path()) / path_from_utf8(path);
@@ -365,17 +385,31 @@ std::vector<std::string> folder_files(const file_set_t& files, const std::string
         return found;
     }
 
-    std::error_code error;
-    for (auto entry = std::filesystem::directory_iterator(disk_path(files, folder), error);
-         !error && entry != std::filesystem::directory_iterator(); entry.increment(error)) {
-        std::error_code ignored;
-        if (entry->is_regular_file(ignored) && entry->path().extension() == ".fb") {
-            found.push_back(prefix + to_utf8(entry->path().filename()));
+    // A package's folder, and the one its build step made of that path.
+    std::vector<std::filesystem::path> folders{ disk_path(files, folder) };
+    if (const package_t* package = package_named(files, folder);
+        package != nullptr && !package->generated.empty()) {
+        folders.push_back(folder == package->name
+                              ? package->generated
+                              : package->generated /
+                                    path_from_utf8(folder.substr(package->prefix.size())));
+    }
+
+    for (const std::filesystem::path& listed : folders) {
+        std::error_code error;
+        for (auto entry = std::filesystem::directory_iterator(listed, error);
+             !error && entry != std::filesystem::directory_iterator(); entry.increment(error)) {
+            std::error_code ignored;
+            if (entry->is_regular_file(ignored) && entry->path().extension() == ".fb") {
+                found.push_back(prefix + to_utf8(entry->path().filename()));
+            }
         }
     }
 
     // The order the folder lists them in varies, and the program shouldn't.
     std::ranges::sort(found);
+    const auto [first, last] = std::ranges::unique(found);
+    found.erase(first, last);
     return found;
 }
 
@@ -1497,6 +1531,15 @@ private:
             return std::nullopt;
         }
 
+        // What its build step made is the package's too.
+        if (package && !m_files.packages.empty() && !m_files.packages[*package].generated.empty()) {
+            const std::optional<std::filesystem::path> made =
+                real_path(m_files.packages[*package].generated);
+            if (made && is_under(*real, *made)) {
+                return std::nullopt;
+            }
+        }
+
         return real;
     }
 
@@ -1975,17 +2018,34 @@ public:
     package_loader_t(compilation_t& compilation, const build_mode_t mode, const bool program)
         : m_compilation(compilation), m_mode(mode), m_program(program) {}
 
-    /// The packages, the main one, in `folder`, first. nullopt after an error.
-    std::optional<std::vector<package_t>> run(const std::filesystem::path& folder) {
+    /// The packages, the main one, in `folder`, first. nullopt after an error. Their registry
+    /// packages are where the fb.lock in `locked`, `folder` without it, says.
+    std::optional<std::vector<package_t>>
+    run(const std::filesystem::path& folder,
+        const std::optional<std::filesystem::path>& locked = std::nullopt) {
         std::vector<std::size_t> chain;
         // The program's registry packages are where fb.lock beside its project.toml says.
-        if (std::ifstream lock(folder / "fb.lock", std::ios::binary); lock) {
+        const std::filesystem::path& lock_folder = locked.value_or(folder);
+        if (std::ifstream lock(lock_folder / "fb.lock", std::ios::binary); lock) {
             const std::string text{ std::istreambuf_iterator<char>(lock),
                                     std::istreambuf_iterator<char>() };
-            m_lockfile = read_lockfile(text, folder);
+            m_lockfile = read_lockfile(text, lock_folder);
         }
 
-        if (!load(folder, nullptr, chain, nullptr) || m_failed) {
+        // A registry's package in the cache is the one fb.lock has, from its registry.
+        const locked_package_t* cached = nullptr;
+        if (locked && m_lockfile && *m_lockfile) {
+            for (const locked_package_t& package : m_lockfile->value().packages) {
+                std::error_code ignored;
+                if (std::filesystem::equivalent(
+                        package_cache_folder(package.source, package.name, package.version), folder,
+                        ignored)) {
+                    cached = &package;
+                }
+            }
+        }
+
+        if (!load(folder, nullptr, chain, cached) || m_failed) {
             return std::nullopt;
         }
 
@@ -1995,6 +2055,11 @@ public:
     /// The main package's project.toml, once run() has read it.
     [[nodiscard]] const manifest_t& main() const {
         return m_manifests.front();
+    }
+
+    /// Each package's project.toml, in the order run() gives the packages.
+    [[nodiscard]] const std::vector<manifest_t>& manifests() const {
+        return m_manifests;
     }
 
     /// The main package's project.toml's file, once it's loaded.
@@ -2191,8 +2256,9 @@ private:
             return std::nullopt;
         }
 
+        // The main package is a registry's for a build step's program from the cache.
         if (locked != nullptr && manifest->version != locked->version) {
-            fail(named->range_span,
+            fail(named != nullptr ? named->range_span : manifest->name_span,
                  "the cache's {} in '{}' is v{}, but fb.lock says v{}; deleting that folder "
                  "lets fb build fetch it again",
                  manifest->name, to_utf8(root), manifest->version, locked->version);
@@ -2216,6 +2282,10 @@ private:
         };
         for (const dependency_t& dependency : manifest->dependencies) {
             package.dependencies.push_back(dependency.name);
+        }
+
+        if (manifest->build && !manifest->build->package) {
+            package.build_program = package.prefix + manifest->build->program;
         }
 
         // The main file project.toml names has to be there. Without 'main' or 'type', a package
@@ -2830,7 +2900,21 @@ std::vector<std::string> library_files(const package_t& package) {
         }
     }
 
+    // And what its build step made, but not the step's own program.
+    for (auto entry = std::filesystem::recursive_directory_iterator(package.generated, error);
+         !package.generated.empty() && !error &&
+         entry != std::filesystem::recursive_directory_iterator();
+         entry.increment(error)) {
+        std::error_code ignored;
+        if (entry->is_regular_file(ignored) && entry->path().extension() == ".fb") {
+            files.push_back(package.prefix + program_path(package.generated, entry->path()));
+        }
+    }
+
+    std::erase(files, package.build_program);
     std::ranges::sort(files);
+    const auto [first, last] = std::ranges::unique(files);
+    files.erase(first, last);
     return files;
 }
 
@@ -2991,20 +3075,408 @@ void add_examples(compilation_t& compilation, file_set_t& files,
     }
 }
 
+std::expected<compilation_t, std::string>
+compile_package(const std::filesystem::path& folder,
+                const std::optional<std::filesystem::path>& main, build_mode_t mode,
+                purpose_t purpose, const check_request_t* request, build_steps_t steps,
+                const std::optional<std::filesystem::path>& locked);
+
+/// A build step's folder in the program's build folder, `root`'s build/: its compiled program,
+/// its stamp, and out/, the files it makes, steps/<target>/<mode>/<package>/.
+std::filesystem::path step_folder(const std::filesystem::path& root, const std::string& package,
+                                  const build_mode_t mode) {
+    return root / "build" / "steps" / path_from_utf8(build_target()) /
+           path_from_utf8(mode_folder(mode)) / path_from_utf8(package);
+}
+
+/// A path with each backslash as '/', as a build step may write one either way.
+std::string with_forward_slashes(std::string path) {
+    std::ranges::replace(path, '\\', '/');
+    return path;
+}
+
+/// A file's size and time, as a stamp's lines have it, or "missing".
+std::string file_stamp(const std::filesystem::path& path) {
+    std::error_code error;
+    const std::uintmax_t size = std::filesystem::file_size(path, error);
+    const std::filesystem::file_time_type time =
+        error ? std::filesystem::file_time_type() : std::filesystem::last_write_time(path, error);
+    return error ? std::string("missing")
+                 : std::format("{} {}", size, time.time_since_epoch().count());
+}
+
+/// The lines a stamp has for what a build step read, as `inputs` names it, from the package's
+/// folder `root`: each input, then each file under it, with its size and time. "*" is the
+/// package's own files, as its archives have them.
+std::vector<std::string> input_lines(const std::filesystem::path& root,
+                                     const std::vector<std::string>& inputs) {
+    std::vector<std::string> lines;
+    for (const std::string& input : inputs) {
+        lines.push_back("input " + input);
+        std::vector<std::filesystem::path> found;
+        std::error_code error;
+        const std::filesystem::path path = root / path_from_utf8(input);
+        if (input == "*") {
+            const package_files_t files = package_files(root);
+            for (const std::string& file : files.source) {
+                found.push_back(root / path_from_utf8(file));
+            }
+
+            for (const auto& [target, paths] : files.targets) {
+                for (const std::string& file : paths) {
+                    found.push_back(root / path_from_utf8(file));
+                }
+            }
+        } else if (std::filesystem::is_directory(path, error)) {
+            for (auto entry = std::filesystem::recursive_directory_iterator(path, error);
+                 !error && entry != std::filesystem::recursive_directory_iterator();
+                 entry.increment(error)) {
+                std::error_code ignored;
+                if (entry->is_regular_file(ignored)) {
+                    found.push_back(entry->path());
+                }
+            }
+        } else {
+            found.push_back(path);
+        }
+
+        std::ranges::sort(found);
+        for (const std::filesystem::path& file : found) {
+            lines.push_back(std::format("file {}\t{}", to_utf8(file), file_stamp(file)));
+        }
+    }
+
+    return lines;
+}
+
+/// What a build step's stamp says of its last run: the lines about its program, fb's version and
+/// each of its files, and what it read, as input_lines() makes them.
+struct step_stamp_t {
+    std::vector<std::string> program;
+    std::vector<std::string> inputs;
+};
+
+std::optional<step_stamp_t> read_stamp(const std::filesystem::path& path) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        return std::nullopt;
+    }
+
+    step_stamp_t stamp;
+    for (std::string line; std::getline(in, line);) {
+        (line.starts_with("input ") || line.starts_with("file ") ? stamp.inputs : stamp.program)
+            .push_back(line);
+    }
+
+    return stamp;
+}
+
+/// Whether a stamp's program lines are this fb's, of `program`, whose files are as they were.
+bool program_fresh(const step_stamp_t& stamp, const std::filesystem::path& program) {
+    if (stamp.program.size() < 2 ||
+        stamp.program[0] != std::format("fb {}", build_config::version) ||
+        stamp.program[1] != "program " + to_utf8(program)) {
+        return false;
+    }
+
+    return std::ranges::all_of(stamp.program | std::views::drop(2), [](const std::string& line) {
+        const std::size_t tab = line.find('\t');
+        return line.starts_with("source ") && tab != std::string::npos &&
+               file_stamp(path_from_utf8(line.substr(7, tab - 7))) == line.substr(tab + 1);
+    });
+}
+
+/// Holds a build step's folder for one run at a time: this process's threads take turns, and
+/// other processes, as fb-lsp and fb build at once, wait for the lock folder, which only one can
+/// make. One older than ten minutes was left by an fb that stopped.
+class step_lock_t {
+public:
+    explicit step_lock_t(std::filesystem::path folder)
+        : m_folder(std::move(folder)), m_held(std::unique_lock(steps_mutex())) {
+        const auto started = std::chrono::steady_clock::now();
+        std::error_code error;
+        while (!std::filesystem::create_directory(m_folder, error) && !error) {
+            const auto made = std::filesystem::last_write_time(m_folder, error);
+            if (!error &&
+                std::filesystem::file_time_type::clock::now() - made > std::chrono::minutes(10)) {
+                std::filesystem::remove_all(m_folder, error);
+            } else if (std::chrono::steady_clock::now() - started > std::chrono::minutes(10)) {
+                return;
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            error.clear();
+        }
+
+        m_locked = !error;
+    }
+
+    step_lock_t(const step_lock_t&) = delete;
+    step_lock_t& operator=(const step_lock_t&) = delete;
+    step_lock_t(step_lock_t&&) = delete;
+    step_lock_t& operator=(step_lock_t&&) = delete;
+
+    ~step_lock_t() {
+        if (m_locked) {
+            std::error_code ignored;
+            std::filesystem::remove_all(m_folder, ignored);
+        }
+    }
+
+    /// Whether it holds the folder, which it doesn't after waiting ten minutes for another fb.
+    [[nodiscard]] bool locked() const {
+        return m_locked;
+    }
+
+private:
+    static std::mutex& steps_mutex() {
+        static std::mutex mutex;
+        return mutex;
+    }
+
+    std::filesystem::path m_folder;
+    std::unique_lock<std::mutex> m_held;
+    bool m_locked = false;
+};
+
+/// A compilation's errors, one rendered line each, for a message that says another
+/// compilation's.
+std::string error_lines(const compilation_t& compilation) {
+    std::string lines;
+    for (const diagnostic_t& diagnostic : compilation.diagnostics.diagnostics()) {
+        if (diagnostic.severity == severity_t::ERROR) {
+            lines += "\n  " + render_short(diagnostic, compilation.sources);
+        }
+    }
+
+    return lines;
+}
+
+/// Builds and runs `package`'s build step, `step` in its project.toml, whose program is in the
+/// package `from`'s folder, when it's out of date, or for `steps` of MISSING, when it never ran,
+/// for a build of `mode` whose build folder is `root`'s, and gives the package its out/ folder.
+/// False after an error, which `compilation`'s diagnostics say at the step's [build].
+bool run_build_step(compilation_t& compilation, package_t& package, const build_step_t& step,
+                    const package_t& from, const std::filesystem::path& root,
+                    const build_mode_t mode, const build_steps_t steps) {
+    std::error_code error;
+    const std::filesystem::path folder = step_folder(root, package.name, mode);
+    const std::filesystem::path out = folder / "out";
+    const std::filesystem::path program =
+        std::filesystem::absolute(from.root / path_from_utf8(step.program), error);
+    const std::filesystem::path package_root = std::filesystem::absolute(package.root, error);
+    std::filesystem::create_directories(out, error);
+    if (error) {
+        compilation.diagnostics.error(step.program_span,
+                                      "can't make {}'s build step's folder {}: {}", package.name,
+                                      to_utf8(shown_disk_path(out)), error.message());
+        return false;
+    }
+
+    // A check while code is typed takes what a step's last run made, whatever's changed since.
+    const std::filesystem::path stamp_path = folder / "stamp";
+    if (steps == build_steps_t::MISSING && std::filesystem::is_regular_file(stamp_path, error)) {
+        package.generated = out;
+        return true;
+    }
+
+    const step_lock_t lock(folder / "lock");
+    if (!lock.locked()) {
+        compilation.diagnostics.error(step.program_span,
+                                      "another fb has run {}'s build step for ten minutes, in {}",
+                                      package.name, to_utf8(shown_disk_path(folder)));
+        return false;
+    }
+
+    std::filesystem::path executable = folder / "step";
+    executable += executable_extension;
+    const std::optional<step_stamp_t> stamp = read_stamp(stamp_path);
+    const bool program_kept = stamp && std::filesystem::is_regular_file(executable, error) &&
+                              program_fresh(*stamp, program);
+    std::vector<std::string> inputs;
+    if (stamp) {
+        for (const std::string& line : stamp->inputs) {
+            if (line.starts_with("input ")) {
+                inputs.push_back(line.substr(6));
+            }
+        }
+    }
+
+    const bool inputs_kept = stamp && input_lines(package_root, inputs) == stamp->inputs;
+    package.generated = out;
+    if (program_kept && inputs_kept) {
+        return true;
+    }
+
+    // Its program builds without build steps, so it can't use what one makes, as a program of
+    // its package, whose registry packages are the ones the build's fb.lock has, though a
+    // registry's package in the cache has no fb.lock of its own.
+    std::vector<std::string> program_lines = stamp ? stamp->program : std::vector<std::string>();
+    if (!program_kept) {
+        const std::expected<compilation_t, std::string> compiled =
+            compile_package(from.root, program, build_mode_t::DEBUG, purpose_t::BUILD, nullptr,
+                            build_steps_t::SKIP, root);
+        if (!compiled) {
+            compilation.diagnostics.error(step.program_span, "{}'s build step can't build: {}",
+                                          package.name, compiled.error());
+            return false;
+        }
+
+        if (compiled->diagnostics.has_errors()) {
+            compilation.diagnostics.error(step.program_span,
+                                          "{}'s build step, {}, doesn't build:{}", package.name,
+                                          step.program, error_lines(*compiled));
+            return false;
+        }
+
+        const mir_module_t module = lower(compiled->ast, compiled->analysis);
+        const std::expected<void, std::string> built =
+            module.error ? std::unexpected(module.error->message)
+                         : build_program(module, *compiled, executable, build_mode_t::DEBUG);
+        if (!built) {
+            compilation.diagnostics.error(step.program_span,
+                                          "{}'s build step, {}, doesn't build: {}", package.name,
+                                          step.program, built.error());
+            return false;
+        }
+
+        program_lines = { std::format("fb {}", build_config::version),
+                          "program " + to_utf8(program) };
+        std::vector<std::string> sources;
+        for (const std::filesystem::path& source : compiled->on_disk) {
+            if (!source.empty()) {
+                sources.push_back(
+                    std::format("source {}\t{}", to_utf8(source), file_stamp(source)));
+            }
+        }
+
+        std::ranges::sort(sources);
+        std::ranges::copy(sources, std::back_inserter(program_lines));
+    }
+
+    // It gets what it builds for, and where things go, in its environment, and no input.
+    const std::vector<std::pair<std::string, std::string>> environment{
+        { "FB_BUILD_PACKAGE", package.name },
+        { "FB_BUILD_FOLDER", to_utf8(package_root) },
+        { "FB_BUILD_OUT", to_utf8(out) },
+        { "FB_BUILD_TARGET", std::string(build_target()) },
+        { "FB_BUILD_MODE", std::string(mode_folder(mode)) },
+    };
+    const std::expected<process_result_t, std::string> ran =
+        run_process(executable, {}, std::string_view(), environment);
+    if (!ran) {
+        compilation.diagnostics.error(step.program_span, "{}'s build step can't run: {}",
+                                      package.name, ran.error());
+        return false;
+    }
+
+    // Its lines that start "fb:" tell fb what it read and what to warn of.
+    std::vector<std::string> read;
+    std::string said;
+    std::istringstream lines(ran->output);
+    for (std::string line; std::getline(lines, line);) {
+        if (line.ends_with('\r')) {
+            line.pop_back();
+        }
+
+        if (line.starts_with("fb:rerun-if-changed=")) {
+            read.push_back(with_forward_slashes(line.substr(20)));
+        } else if (line.starts_with("fb:warning=")) {
+            compilation.diagnostics.warning(step.program_span, "{}'s build step says: {}",
+                                            package.name, line.substr(11));
+        } else {
+            said += "\n  " + line;
+        }
+    }
+
+    if (ran->exit_code != 0) {
+        compilation.diagnostics.error(
+            step.program_span, "{}'s build step, {}, failed with exit code {}{}", package.name,
+            step.program, ran->exit_code, said.empty() ? std::string() : ":" + said);
+        return false;
+    }
+
+    // What it makes is the package's, beside the package's own files, not over them.
+    for (auto entry = std::filesystem::recursive_directory_iterator(out, error);
+         !error && entry != std::filesystem::recursive_directory_iterator();
+         entry.increment(error)) {
+        std::error_code ignored;
+        const std::filesystem::path relative = entry->path().lexically_relative(out);
+        if (entry->is_regular_file(ignored) &&
+            std::filesystem::exists(package.root / relative, ignored)) {
+            compilation.diagnostics.error(
+                step.program_span,
+                "{}'s build step made {}, which its folder has too; a step's files go beside the "
+                "package's own",
+                package.name, to_utf8(relative));
+            return false;
+        }
+    }
+
+    // Without lines of what it read, it reads the package's files.
+    if (read.empty()) {
+        read.emplace_back("*");
+    }
+
+    std::ofstream written(stamp_path, std::ios::binary | std::ios::trunc);
+    for (const std::string& line : program_lines) {
+        written << line << '\n';
+    }
+
+    for (const std::string& line : input_lines(package_root, read)) {
+        written << line << '\n';
+    }
+
+    return true;
+}
+
+/// Runs the build steps of `packages`, whose project.toml's are `manifests`, each after the
+/// steps of the packages it depends on, as `steps` says, for a build of `mode` in the first's
+/// folder. A prebuilt package's step ran where it was built. False after an error.
+bool run_build_steps(compilation_t& compilation, std::vector<package_t>& packages,
+                     const std::vector<manifest_t>& manifests, const build_mode_t mode,
+                     const build_steps_t steps) {
+    std::vector<bool> seen(packages.size());
+    std::vector<std::size_t> order;
+    finish(packages, 0, seen, order);
+    for (const std::size_t index : order) {
+        const std::optional<build_step_t>& step = manifests[index].build;
+        if (!step || !packages[index].interface.empty()) {
+            continue;
+        }
+
+        const auto from = step->package
+                              ? std::ranges::find(packages, *step->package, &package_t::name)
+                              : packages.begin() + static_cast<std::ptrdiff_t>(index);
+        if (from == packages.end()) {
+            continue;
+        }
+
+        // A copy, as the step can't change the package it's from.
+        const package_t owner = *from;
+        if (!run_build_step(compilation, packages[index], *step, owner, packages.front().root, mode,
+                            steps)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 /// A package's program: its main file, given or its project.toml's, or for a library, its
 /// files, each a module of its own, so it's checked. For fb test and fb doc, each of its files
 /// is a module, the main file too, and for fb test, so is each file of its tests/ folder, in a
 /// package of its own, and each of its examples, in another. For check_files(), `request`
 /// names the files that are modules.
-std::expected<compilation_t, std::string>
-compile_package(const std::filesystem::path& folder,
-                const std::optional<std::filesystem::path>& main, const build_mode_t mode,
-                const purpose_t purpose = purpose_t::BUILD,
-                const check_request_t* request = nullptr) {
+std::expected<compilation_t, std::string> compile_package(
+    const std::filesystem::path& folder, const std::optional<std::filesystem::path>& main,
+    const build_mode_t mode, const purpose_t purpose = purpose_t::BUILD,
+    const check_request_t* request = nullptr, const build_steps_t steps = build_steps_t::RUN,
+    const std::optional<std::filesystem::path>& locked = std::nullopt) {
     const bool testing = purpose != purpose_t::BUILD;
     compilation_t compilation;
     package_loader_t reader(compilation, mode, main.has_value());
-    std::optional<std::vector<package_t>> packages = reader.run(folder);
+    std::optional<std::vector<package_t>> packages = reader.run(folder, locked);
     if (const std::optional<std::string>& unreadable = reader.unreadable()) {
         return std::unexpected(*unreadable);
     }
@@ -3016,6 +3488,12 @@ compile_package(const std::filesystem::path& folder,
         return std::move(compilation);
     };
     if (!packages) {
+        return stopped();
+    }
+
+    // A build step that fails leaves its package without what its code uses.
+    if (steps != build_steps_t::SKIP &&
+        !run_build_steps(compilation, *packages, reader.manifests(), mode, steps)) {
         return stopped();
     }
 
@@ -3454,14 +3932,16 @@ std::expected<compilation_t, std::string> check_files(const check_request_t& req
     }
 
     if (const std::optional<std::filesystem::path> root = find_package(first.parent_path())) {
-        return compile_package(*root, request.main, request.mode, purpose_t::CHECK, &request);
+        return compile_package(*root, request.main, request.mode, purpose_t::CHECK, &request,
+                               request.build_steps);
     }
 
     return compile_loose(first, request.mode, request.read, request.cache);
 }
 
 std::expected<compilation_t, std::string> compile_file(const std::filesystem::path& path,
-                                                       const build_mode_t mode) {
+                                                       const build_mode_t mode,
+                                                       const build_steps_t steps) {
     std::error_code error;
     if (const std::optional<std::string> unreadable = unreadable_std()) {
         return std::unexpected(*unreadable);
@@ -3474,7 +3954,7 @@ std::expected<compilation_t, std::string> compile_file(const std::filesystem::pa
                 to_utf8(path)));
         }
 
-        return compile_package(path, std::nullopt, mode);
+        return compile_package(path, std::nullopt, mode, purpose_t::BUILD, nullptr, steps);
     }
 
     if (std::filesystem::is_regular_file(path, error) &&
@@ -3489,7 +3969,7 @@ std::expected<compilation_t, std::string> compile_file(const std::filesystem::pa
         const std::filesystem::path folder =
             path.has_parent_path() ? path.parent_path() : std::filesystem::current_path(error);
         if (const std::optional<std::filesystem::path> root = find_package(folder)) {
-            return compile_package(*root, path, mode);
+            return compile_package(*root, path, mode, purpose_t::BUILD, nullptr, steps);
         }
     }
 

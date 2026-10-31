@@ -6,6 +6,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace fb {
 
@@ -17,12 +18,17 @@ struct process_result_t {
     std::string output;
 };
 
+/// Variables a program's environment has besides this process's, each by its name and value, in
+/// place of one of this process's of that name.
+using environment_t = std::span<const std::pair<std::string, std::string>>;
+
 /// Runs a program and collects what it prints to stdout and stderr. `arguments` come after the
 /// program's own name. With `input`, the program's stdin is that text, of any length, which ends
-/// there; without, it's this process's. Fails only when the program can't be started.
+/// there; without, it's this process's. Its environment is this process's, with `environment`'s
+/// variables. Fails only when the program can't be started.
 [[nodiscard]] std::expected<process_result_t, std::string>
 run_process(const std::filesystem::path& program, std::span<const std::string> arguments,
-            std::optional<std::string_view> input = std::nullopt);
+            std::optional<std::string_view> input = std::nullopt, environment_t environment = {});
 
 /// The program that's running, like fb, with its whole path. Empty when the system won't say.
 [[nodiscard]] std::filesystem::path current_executable();

@@ -290,6 +290,32 @@ TEST_CASE("a dependency with a path and a version builds from its folder", "[pac
     CHECK(world.run() == "physics 1.2.0 with shapes 0.3.4\n");
 }
 
+TEST_CASE("a build step's program can be a registry package's, which builds from the cache",
+          "[packages]") {
+    const world_t world;
+    // tools, from the registry, has the program, which uses shapes, from the registry too.
+    const std::string generate = "Import std.core\nImport std.io\nImport std.os\nImport shapes\n"
+                                 "Local out = Path(Env.Get(\"FB_BUILD_OUT\") ?? \"\")\n"
+                                 "Local quote = \"\\\"\"\n"
+                                 "Try File.WriteText(out / \"made.fb\", \"Public Function Made(): "
+                                 "String => {quote}made with {Version()}{quote}\\n\")\n";
+    world.sandbox.library("tools", "tools", "1.0.0", shapes_dependency,
+                          { { "generate.fb", generate }, { "tools.fb", "// tools\n" } });
+    world.sandbox.publish("tools", world.index);
+    world.sandbox.library("names", "names", "1.0.0",
+                          "tools = { version = \"1\", registry = \"local\" }\n\n[build]\npackage = "
+                          "\"tools\"\nprogram = \"generate.fb\"\n",
+                          { { "names.fb", "// names\n" } });
+    world.game("names = { path = \"../names\" }\n");
+    world.sandbox.write("game/main.fb", "Import std.core\nImport names.made\nPrint(Made())\n");
+    said_t said;
+    const std::expected<fb::sync_result_t, std::string> synced = world.sync(said);
+    INFO((synced ? std::string() : synced.error()));
+    REQUIRE(synced);
+    CHECK(said.lines == std::vector<std::string>{ "Adding shapes v0.3.4", "Adding tools v1.0.0" });
+    CHECK(world.run() == "made with shapes 0.3.4\n");
+}
+
 TEST_CASE("an unresolvable range says why, before anything's written", "[packages]") {
     const world_t world;
     world.game("physics = { version = \"7\", registry = \"local\" }\n");

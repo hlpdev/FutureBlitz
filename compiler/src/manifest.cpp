@@ -89,6 +89,8 @@ public:
                 read_natives(*key, *node, manifest);
             } else if (name == "format") {
                 read_format(*key, *node, manifest);
+            } else if (name == "build") {
+                read_build(*key, *node, manifest);
             } else if (name == "registries") {
                 read_registries(*key, *node, manifest);
             } else {
@@ -100,6 +102,16 @@ public:
         if (!project) {
             fail({ .file = m_file.id() },
                  "project.toml needs a [project] table, with the package's name and version");
+        }
+
+        // [dependencies] can come after the [build] that names one of them.
+        if (manifest.build && manifest.build->package &&
+            std::ranges::find(manifest.dependencies, *manifest.build->package,
+                              &dependency_t::name) == manifest.dependencies.end()) {
+            fail(*manifest.build->package_span,
+                 "[build]'s package is one of [dependencies], whose program the build step is, "
+                 "and there's no {} there",
+                 *manifest.build->package);
         }
 
         // [registries] can come after the dependencies that name its registries.
@@ -283,6 +295,10 @@ private:
                 } else if (text) {
                     manifest.main = with_slashes(*text);
                 }
+            } else if (name == "build") {
+                fail(span_of(field.source()),
+                     "a build step is a table of its own, [build], with the program it runs, "
+                     "like program = \"tools/generate.fb\"");
             } else {
                 m_diagnostics.warning(span_of(field.source()), "[project] doesn't use '{}'", name);
             }
@@ -327,6 +343,58 @@ private:
             }
 
             manifest.format_width = static_cast<std::uint32_t>(*width);
+        }
+    }
+
+    /// [build]: the program a build step runs, the package's own or a dependency's.
+    void read_build(const toml::key& key, const toml::node& node, manifest_t& manifest) {
+        const toml::table* table = node.as_table();
+        if (table == nullptr) {
+            fail(span_of(key.source()),
+                 "'build' is a table, [build], with the program its build step runs");
+            return;
+        }
+
+        build_step_t step;
+        bool named = false;
+        bool failed = false;
+        for (const auto& [key_of_field, node_of_field] : in_order(*table)) {
+            const toml::key& field = *key_of_field;
+            const toml::node& value = *node_of_field;
+            if (field.str() == "program") {
+                named = true;
+                const std::optional<std::string> text =
+                    string_of(field, value, "\"tools/generate.fb\"");
+                step.program_span = span_of(value.source());
+                if (text && !is_package_file(*text)) {
+                    fail(step.program_span,
+                         "[build]'s program is a .fb file in its package's folder, like "
+                         "\"tools/generate.fb\", not \"{}\"",
+                         *text);
+                }
+
+                failed = failed || !text || !is_package_file(*text);
+                step.program = with_slashes(text.value_or(""));
+            } else if (field.str() == "package") {
+                const std::optional<std::string> text = string_of(field, value, "\"tools\"");
+                step.package_span = span_of(value.source());
+                failed = failed || !text;
+                step.package = text;
+            } else {
+                m_diagnostics.warning(span_of(field.source()), "[build] doesn't use '{}'",
+                                      field.str());
+            }
+        }
+
+        if (!named) {
+            fail(span_of(key.source()),
+                 "[build] needs the program its build step runs, like program = "
+                 "\"tools/generate.fb\"");
+            return;
+        }
+
+        if (!failed) {
+            manifest.build = std::move(step);
         }
     }
 
