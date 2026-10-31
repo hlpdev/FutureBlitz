@@ -29,6 +29,7 @@ Cloudflare. Nothing is hosted yet; this is the plan.
 | Address | What |
 |---|---|
 | `futureblitz.dev` | The landing page, `/learn`, `/docs`, `/std`, `/download` |
+| `www.futureblitz.dev` | A redirect to the same path on `futureblitz.dev`, for good (futureblitz-web's `workers/www`) |
 | `pkg.futureblitz.dev` | The package site: search, package pages, accounts, the dashboard, and `/api/v1` |
 | `index.futureblitz.dev` | The sparse index fb reads: one file per package, cached at the edge |
 | `dl.futureblitz.dev` | Package archives and fb's own releases, immutable, from R2 |
