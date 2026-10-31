@@ -24,6 +24,10 @@ TEST_CASE("a recursive FileWatcher past inotify's watches says which setting say
     CHECK(fb_io_error_kind(fb::runtime::too_many_watches) == 0);
     CHECK(take(fb_io_error_message(fb::runtime::too_many_watches)) ==
           "it holds more folders than inotify watches, as fs.inotify.max_user_watches says");
+    // One that isn't recursive says so of inotify alone.
+    CHECK(fb_io_error_kind(fb::runtime::no_watches_left) == 0);
+    CHECK(take(fb_io_error_message(fb::runtime::no_watches_left)) ==
+          "inotify watches as many as fs.inotify.max_user_watches lets it");
 }
 
 #ifdef _WIN32

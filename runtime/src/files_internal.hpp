@@ -22,6 +22,10 @@ namespace fb::runtime {
 /// watches, whose message names the setting that says how many.
 constexpr std::int64_t too_many_watches = -5001;
 
+/// The error a FileWatcher that isn't recursive gives on Linux when inotify watches as many as
+/// it's let, whose message names the setting that says how many.
+constexpr std::int64_t no_watches_left = -5002;
+
 /// A file written atomically: a new temporary file beside the one a path leads to, which
 /// commit() puts onto the disk and renames over that file, so it holds either all that was
 /// written or what it held before. The temporary file goes with this unless it was committed.
