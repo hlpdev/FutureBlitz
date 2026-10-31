@@ -55,6 +55,9 @@ SITE_ENV=staging npx pnpm@9.15.0 build && npx wrangler deploy --env staging   # 
 npx pnpm@9.15.0 build && npx wrangler deploy                                  # production, from the production branch
 ```
 
+On Windows, `npx wrangler` may not find it; the workspace's own is
+`../../workers/api/node_modules/.bin/wrangler`, used in its place.
+
 Production's deploy is public: only with the user's yes, from a checkout of `production`
 (`git worktree add ../futureblitz-web-production production`). Afterwards,
 `curl -fsS https://futureblitz.dev/download/ | grep -o "FutureBlitz [0-9.]*"` shows its version,
