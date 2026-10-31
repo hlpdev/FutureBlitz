@@ -44,6 +44,20 @@ patched libuv, the sibling, a folder removed and made again while the loop's bus
 while it's busy and a folder made then, and a folder's own change beside its same-named folder,
 each failing with the watcher before.
 
+From the check of those fixes: ext4 gives a folder removed and made again the old one's inode,
+so a `subfolder_t` whose own handle tells of its going (IN_DELETE_SELF, IN_MOVE_SELF, or
+IN_IGNORED, an `own_event()` with UV_RENAME) is `gone`, which `replaced()` is true for. A
+nameless event has `relist()` start the watcher's `relisting` uv_check, which lists the folder
+once the loop has read all it has, after its poll phase, where it listed at once and dropped a
+second overflow in the same turn. On Linux, a known name now a folder without a handle, as a file
+a folder took the place of in one batch, is adopted, and the watcher's own watch at inotify's
+limit is `too_many_watches` too. fb_runtime_tests links MinGW's UCRT, as libuv and the bundled
+C libraries are built for it, with libstdc++ and libgcc linked in, as their DLLs use msvcrt, so it
+links and runs with CLion's MinGW, which files_tests.cpp's files.cpp had broken. Tests: the WSL
+harness, now on ext4 in WSL's home, 40 rounds of a folder made again while the loop's busy, a
+file that a folder took the place of, 40,000 files as the loop reads a first overflow's events,
+and the root's watch at the limit, the first three failing with the watcher before.
+
 Reflection that sets (2026-10-31): a For Property's `p.Set(ByRef value, x)` calls the
 Property's Set, through the Method table for a Class (`accessor_of()`), and on a Struct's
 variable, and a For Static Field's `s.Set(x)` stores the Static Field, an instance's for a
