@@ -314,6 +314,9 @@ How it's built (2026-10-29):
   its own, with what they import, and no other file. The open documents' texts are read in place
   of the disk's. Sema checks a compilation's modules whole, as it does a build's, so what makes it
   incremental is what a check loads: an edit of a file that few others import loads few modules.
+  A package's build step (spec 11) runs in a check only when it never ran, and otherwise its
+  last run's files are the ones checked, which `fb build`, `run`, `test`, `check`, and `doc`
+  bring up to date, so typing never runs a program.
 - **An edit** checks the edited file once there's been no other edit for 150 ms, on a thread for
   edited documents, and publishes its diagnostics. Then, 400 ms after, a thread for the rest
   checks the files that import it, directly or not, as the graph of the checks before says, one

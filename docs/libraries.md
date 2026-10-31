@@ -125,7 +125,11 @@ engine = { version = "0.4", link = "beside" }        # engine.dll beside space-g
 - The registry is at futureblitz.dev, designed in [website.md](website.md), with a sparse index of
   each package's versions and each archive's SHA-256.
 - A package's archives hold project.toml, a license, a readme, and its .fb source, or its prebuilt
-  `.fblib` per target and mode (with the .fbi), and its natives per target.
+  `.fblib` per target and mode (with the .fbi), and its natives per target. A package with a
+  build step (spec 11) ships its `[build]` and its program's source, but not what the step made,
+  which is under build/: a program that depends on it runs the step into its own build folder,
+  and a prebuilt package's step ran where it was built, its modules in its interface file. The
+  registry reads only `[project]` and `[dependencies]`.
 - `physics = "1.2"` means 1.2 or any later 1.x; `fb.lock` pins each package's exact version and
   hash; `fb add`, `fb update`, and `fb publish`; downloads go to a cache folder per user. Signing
   comes later.

@@ -90,6 +90,23 @@ FILE_RENAME_FLAG_POSIX_SEMANTICS)` (`replace_file()`), and falls back to libuv's
 where Windows or the disk doesn't have them, and the open handle reads on in the old file
 (fbengine's assets lane found it). tests/programs/io_file_atomic_open.fb.
 
+A package's build step, `[build]` with `program` and maybe `package` (`build_step_t` in
+manifest.hpp; `build` under [project] is an error that says so): before a build, check, test, or
+doc compiles, `run_build_steps()` runs each package's that's out of date, after its
+dependencies', into build/steps/<target>/<mode>/<package>/out/ of the package being built. A
+step's program builds as a program of its package, in debug, with `build_steps_t::SKIP` and the
+build's fb.lock (a registry package's in the cache loads as fb.lock's), and runs with
+`FB_BUILD_PACKAGE`, `FB_BUILD_FOLDER`, `FB_BUILD_OUT`, `FB_BUILD_TARGET`, and `FB_BUILD_MODE`
+(run_process() takes an environment now, CreateProcessW's block and posix_spawn's envp). Its
+stamp keeps fb's version, its program's files, and what it read, from `fb:rerun-if-changed=`
+lines or its package's files; `fb:warning=` lines are warnings. A package's `generated` folder
+is where `disk_path()` finds what its own folder doesn't have, which `folder_files()` and
+`library_files()` list and `linked_away()` takes as the package's; a step's file the package
+has too, a program that doesn't build, and an exit code other than 0 are errors at [build].
+`step_lock_t` takes turns, by a mutex and a lock folder. fb-lsp checks with
+`build_steps_t::MISSING`. Driver, manifest, packages (a registry package's program), and fb-lsp
+tests.
+
 ## 1.0.1
 
 (2026-10-30.) Linux's fb-bindgen read no header that includes `<stdint.h>`: release.yml gathered
