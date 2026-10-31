@@ -310,8 +310,12 @@ TEST_CASE("fb publish checks a path dependency's version is the registry's, and 
     sandbox.library("shapes_local", "shapes", "0.3.0", "",
                     { { "area.fb", version_code + "Public Function Extra(): Int => 1\n" } });
     for (const bool dry : { true, false }) {
-        std::vector<std::string> arguments{ "publish", fb::to_utf8(sandbox / "physics"),
-                                            "--registry", index };
+        std::vector<std::string> arguments{
+            "publish",
+            fb::to_utf8(sandbox / "physics"),
+            "--registry",
+            index,
+        };
         if (dry) {
             arguments.emplace_back("--dry-run");
         }
@@ -327,8 +331,8 @@ TEST_CASE("fb publish checks a path dependency's version is the registry's, and 
     }
 
     CHECK_FALSE(std::filesystem::exists(sandbox / "registry/index/ph/ys/physics"));
-    const fb::process_result_t unverified = fb_run(
-        { "publish", fb::to_utf8(sandbox / "physics"), "--registry", index, "--no-verify" });
+    const fb::process_result_t unverified =
+        fb_run({ "publish", fb::to_utf8(sandbox / "physics"), "--registry", index, "--no-verify" });
     INFO(unverified.output);
     CHECK(unverified.exit_code == 0);
     CHECK_FALSE(unverified.output.contains("Verifying"));

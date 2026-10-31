@@ -1222,13 +1222,12 @@ private:
             }
         }
 
-        // And the types the language has by name, as Object and Scheduler, where nothing the code
-        // sees takes the name.
-        static constexpr std::array named_types{
-            "Object", "Scheduler", "Task", "Thread", "Channel", "Atomic", "Mutex", "Weak", "Ptr",
-        };
-        if (builtin_type(name) || m_builtins.contains(name) ||
-            std::ranges::contains(named_types, name)) {
+        // And the types the language has by name, as Object and Scheduler, and the ones it writes
+        // with a type, as Weak<T>, where nothing the code sees takes the name.
+        static constexpr std::array named{ "Object", "Scheduler", "Thread" };
+        static constexpr std::array generic{ "Task", "Channel", "Atomic", "Mutex", "Weak", "Ptr" };
+        if (builtin_type(name) || m_builtins.contains(name) || std::ranges::contains(named, name) ||
+            std::ranges::contains(generic, name)) {
             return found_t{ .path = std::string(name), .builtin = true };
         }
 
