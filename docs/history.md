@@ -124,7 +124,26 @@ is where `disk_path()` finds what its own folder doesn't have, which `folder_fil
 has too, a program that doesn't build, and an exit code other than 0 are errors at [build].
 `step_lock_t` takes turns, by a mutex and a lock folder. fb-lsp checks with
 `build_steps_t::MISSING`. Driver, manifest, packages (a registry package's program), and fb-lsp
-tests.
+tests. From 1.1's review: a step's inputs are read before it runs (`input_lines()`' `before`),
+and one written after its start is "changed", as Cargo counts it; inputs of 1 MB or less are
+hashed (FNV-1a), bigger ones are a size and a time in nanoseconds (`modified_time()`, as MinGW's
+std::filesystem rounds to seconds); the stamp's program lines have fb's commit (fb/commit.hpp,
+the compiler's now, so the stamp and `fb --version` agree), the build's fb.lock's hash, and the
+files the program embeds; a new program empties out/; a stamp is written to stamp.partial and
+renamed, and one without an input line is stale; `fb:rerun-if-changed=` folders leave out
+build/ and hidden files; a file the package has at a generated path is an error at every build
+(`apart()`). The lock is the system's (`file_lock_t`, LockFileEx and flock), which a crash or
+Ctrl+C lets go of, with no timeout and "Waiting for another fb's build step" while it waits, and
+`run_process()`' `process_life_t::TIED` ends the step with fb: a job that closes with fb on
+Windows, and on POSIX a process group of its own that SIGINT and SIGTERM end first. A failed
+run's stamp keeps its error and notes, which a check while code is typed gives again, checking
+the rest, until its inputs or program change; a check never runs a registry package's step,
+taking the workspace's build's files (`take_built()`, `check_request_t::workspace`) or warning
+to run fb build, and writes nothing in the cache. A failure's output and the program's errors
+are notes, a line each. `compile_file()`, `compile_tests()`, and `compile_docs()` take a
+status_t, so fb build, run, test, check, doc, and publish say "Running <package>'s build step".
+The VS Code extension declares untrusted workspaces unsupported. Driver, packages, and CLI
+tests, the last ending fb mid-step.
 
 A test's stack trace ends at the test (the input lane's review found it): a @MainThread test's
 trace went on to main, which runs the tests, and named it top-level code at the line of the last

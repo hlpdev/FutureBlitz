@@ -130,7 +130,9 @@ engine = { version = "0.4", link = "beside" }        # engine.dll beside space-g
   `.fblib` per target and mode (with the .fbi), and its natives per target. A package with a
   build step (spec 11) ships its `[build]` and its program's source, but not what the step made,
   which is under build/: a program that depends on it runs the step into its own build folder,
-  and a prebuilt package's step ran where it was built, its modules in its interface file. The
+  so building it runs the package's program on the machine that builds, as Cargo's build scripts
+  do, and a prebuilt package's step ran where it was built, its modules in its interface file.
+  fb-lsp never runs a registry package's step, and takes what the program's build made. The
   registry reads only `[project]` and `[dependencies]`.
 - `physics = "1.2"` means 1.2 or any later 1.x; `fb.lock` pins each package's exact version and
   hash; `fb add`, `fb update`, and `fb publish`; downloads go to a cache folder per user. Signing

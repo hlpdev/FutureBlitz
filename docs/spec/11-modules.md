@@ -243,20 +243,39 @@ program = "cook.fb"
   files: a `.fb` file there is a module of the package, `out/res.fb` the package's `res` module,
   and the other files are what Embed, EmbedText, and EmbedFolder take, by their paths in the
   package, from the package's own code or the made modules'. A path the package's folder has
-  too is an error. The folder stays from one run to the next, so a step can do only what's new.
+  too is an error, at every build, whether the step ran or not. The folder stays from one run to
+  the next, so a step can do only what's new, but it's emptied when the step's program is built
+  again, as when fb or the program's files change, so a step that keeps its files between runs
+  takes out itself the ones it no longer makes.
 - A line it prints `fb:rerun-if-changed=<path>` names a file or folder it read, from its
-  package's folder or whole; `fb:warning=<text>` is a warning at its `[build]` line. Its other
-  output is shown only when it fails.
-- It runs again when what it read changes, or its program's files do, or fb's version does: a
-  file or folder `fb:rerun-if-changed` named, or without one, any of its package's files, as its
-  archive has them. Otherwise its last run's files are the build's.
+  package's folder or whole, a folder's files without the package's build/ folder or hidden
+  files and folders; `fb:warning=<text>` is a warning at its `[build]` line. Its other output is
+  shown only when it fails, a line of the error's notes each.
+- It runs again when what it read changes, or its program does: a file or folder
+  `fb:rerun-if-changed` named, or without one, any of its package's files, as its archive has
+  them; its program's files and the files they embed; the build's fb.lock, as `fb update` changes
+  it; and fb, its version or the commit it's built from. A file of 1 MB or less changes when its
+  bytes do, and a bigger one when its size or time does. What it read is read before it runs, so
+  a file saved while it runs makes it run again next time. Otherwise its last run's files are
+  the build's.
 - Each package's step runs before its package compiles, after those of the packages it depends
-  on, and a dependency's runs for the build that uses it, into that build's folder. A prebuilt
-  package's step ran where it was built, whose modules are in its interface file.
-- `fb build`, `run`, `test`, `check`, and `doc` run the steps that are out of date, and the editor
-  runs one that never ran, and otherwise checks with its last run's files, which those commands
-  bring up to date. A step that doesn't build, or that ends with an exit code other than 0, is an
-  error at its `[build]` line, with its errors or its output, and the package isn't compiled.
+  on, and a dependency's runs for the build that uses it, into that build's folder, so building a
+  package whose dependency has a `[build]` runs that dependency's program on the machine that
+  builds, as Cargo's build scripts do. A prebuilt package's step ran where it was built, whose
+  modules are in its interface file.
+- `fb build`, `run`, `test`, `check`, and `doc` run the steps that are out of date, each saying
+  `Running <package>'s build step`. One fb at a time runs a step, by a lock that the system lets
+  go of when the fb holding it ends, and another waits for it, as long as it takes, saying
+  `Waiting for another fb's build step`. A step ends when the fb that runs it does, however fb
+  ends. A step that doesn't build, or that ends with an exit code other than 0, is an error at
+  its `[build]` line, with its errors or its output, and the package isn't compiled.
+- The editor runs the step of one of the workspace's packages, or of their path dependencies,
+  only when it never ran, or its last run failed and what that run read, or its program, has
+  changed since, and otherwise checks with its last run's files, which those commands bring up to
+  date, and gives a failed run's error again, checking the rest of the package with what the
+  step's folder has. It never runs a registry package's step, and writes nothing in the cache: it
+  takes the files a build of one of the workspace's packages made for it, or says to run
+  `fb build`.
 
 ## Libraries
 
