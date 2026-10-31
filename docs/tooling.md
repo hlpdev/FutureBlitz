@@ -620,6 +620,42 @@ for the ones marked as only sometimes there:
   Extend of every array, `T[]`. Two Extends of one type in a module share their path, as
   overloads do.
 
+## M11: the IDE (planned 2026-10-31)
+
+Writing FutureBlitz in VS Code should feel as CLion, Rider, and IntelliJ do: errors the moment
+they're typed, completion that knows what goes there and imports it, quick fixes for most errors,
+inspections, refactorings, project.toml as a file the editor understands, and AI assistants that
+know the language (the user, 2026-10-31). Everything here is the compiler's and fb-lsp's, so
+`fb check` reports the same errors, warnings, and fixes the editor shows.
+
+**Latency budgets**, on a release build, for a file in a large package (std's own folder, and a
+program of a few hundred files), measured at the 95th percentile:
+
+| What | Budget |
+|---|---|
+| A syntax error shown, from the keystroke | 50 ms |
+| A type error shown, from the last keystroke | 300 ms |
+| Completion, hover, signature help, highlights | 100 ms |
+| The quick fixes at a position | 100 ms |
+| A rename or find references across the package | 1 s |
+
+**Steps**:
+
+| | Step | Done when |
+|---|---|---|
+| 0 | **Measure.** A benchmark of fb-lsp over its messages (tests/lsp), on std and a generated large package: each request's time from the edit, at the 50th and 95th percentile, written as a report CI keeps; and a check that fails when a budget is missed | the report shows where today's time goes, and the budgets are checked |
+| 1 | **Errors as typed.** Each change parses the file alone at once and publishes its syntax errors with no wait; the full check follows at its pause, and its errors replace them. The parser recovers at each statement and block, so one missing `End` or `)` doesn't hide the rest of the file's errors; tests of recovery for each block and each kind of broken line | a syntax error shows within 50 ms, and a file with three unrelated syntax errors shows all three |
+| 2 | **Completion that knows.** Names from every module the file can import (its package's, std's, its dependencies'), not only those it imports, with the Import added when one is chosen; ranked by the type expected where the cursor is, then by scope and use; an Enum's members where an Enum is expected; named arguments; the members a Class can override and an Interface's to implement, written out with their signatures; keywords only where they can go; postfix completions (`.if`, `.ifnull`, `.for`, `.not`, `.try`, `.local`); completion on a word as it's typed, not only after `.` | each kind has a test of what's offered and in what order, and choosing an unimported name adds its Import |
+| 3 | **The editor's basics.** Inlay hints (a Local's inferred type, parameter names at calls, each a setting); highlighting a symbol's other uses; folding by blocks, comments, and Import groups; expanding a selection by syntax; go to type definition and to implementations; call and type hierarchies; code lenses for references; run and debug for each `@Test` and main file in VS Code's Testing panel and the gutter | each request has tests, and the extension's Testing panel runs and debugs a package's tests |
+| 4 | **Quick fixes.** Every error that has a likely fix offers it, from the compiler: import the module that declares an unknown name (and `fb add` the registry package that has it, when one does); "did you mean" for a misspelled name; add `Try`, `Try?`, or a Throws; create the Function, Method, Field, Property, Local, or Enum member a use names, with its types from the use; implement an Interface's members or an Abstract Class's; add a missing `End`; a conversion with `As`; a Null check or `?` for nullability; make a declaration Public or Package for a use that can't see it; add `@MainThread`; wrap in `Unsafe`; add a missing Return; fix a keyword's case | each fix has a test that applies it and checks the file compiles |
+| 5 | **Inspections.** Warnings, with fixes, from the compiler: unused Locals, parameters, Imports, and Private members; unreachable code; a name that shadows another; a redundant `As` or `?`; a condition that's always True or False. `fb check` and `fb build` show them; project.toml's `[lints]` turns each off or makes it an error | each inspection has tests of when it warns and when it doesn't, and std builds with none |
+| 6 | **Refactorings.** Extract a Local, a Function, or a Method from a selection (with its parameters and its result worked out); inline a Local or a Function; change a signature (add, remove, rename, and reorder parameters, updating every call); organize Imports (sorted, unused ones removed), on save if asked | each refactoring has tests over std-sized code that check the result compiles and behaves the same |
+| 7 | **project.toml.** fb-lsp serves project.toml too: completion and hover for its keys and values from what fb reads, the errors fb gives for it as you type, package names completed from the registry's search, versions from its index, hover with a package's description and newest version, quick fixes to update a dependency or add what `fb publish` needs; offline, from the cache | completing a dependency's name and version against a test registry works, and every project.toml error fb has shows in the editor |
+| 8 | **AI that knows FutureBlitz.** `fb mcp`, an MCP server over stdio, gives any assistant tools to search the spec and std's reference (fb doc's JSON), look up the project's symbols, check a file or a snippet and read its errors, and format code; the VS Code extension offers it to Copilot through VS Code's MCP and language-model tool APIs, so agent mode uses it without setup; `fb new` writes an AGENTS.md with a short primer on the language and `fb mcp`, which Copilot, Claude Code, and Cursor read | an assistant given only `fb mcp` writes a program that compiles from a one-line request, in a test with a scripted client |
+| 9 | **Loose ends and the review**, with the budgets met, and FutureBlitz 1.2 released | every step's done-when holds, the budgets pass, and the release is out |
+
+Each step lands with its docs: this file, the extension's README, and the website's tooling pages.
+
 ## Not in M8
 
 The package manager and the registry (M10); the website (M9); the IDE (the engine phase).
