@@ -11,3 +11,12 @@ an earlier mount's folder under a later file stays a file
   KindOf gives NOT_A_DIRECTORY, so nothing, read: NOT_A_DIRECTORY, listed: NOT_A_DIRECTORY, exists: False, later: NOT_A_DIRECTORY
   [five], as a later mount under it
   KindOf gives NOT_A_DIRECTORY, so nothing, read: NOT_A_DIRECTORY, listed: NOT_A_DIRECTORY, exists: False
+a still later mount makes the file's place a folder again, but the file still cuts off
+what earlier mounts have there, which is nothing
+  nothing, read: NOT_FOUND, listed: NOT_FOUND, later: NOT_FOUND
+  data has: deep
+  DIRECTORY, read: IS_A_DIRECTORY, listed: a folder, a has: c.txt
+  nothing, read: NOT_FOUND, listed: NOT_FOUND, later: NOT_FOUND
+  [two]
+  nothing, read: NOT_FOUND, listed: NOT_FOUND, later: NOT_FOUND
+  seven later: a file, maps has: seven.txt

@@ -239,13 +239,20 @@ Public Class Vfs
     /// The bytes of the file at `path`. One that no mount has throws an IOError of NOT_FOUND, a
     /// folder one of IS_A_DIRECTORY, a path under a file one of NOT_A_DIRECTORY, and a path above
     /// the root one of INVALID_PATH. What KindOf says is a folder is one, though an earlier mount
-    /// has a file there: a later mount at it or under it, or a later mount's folder there; and a
-    /// later mount's file on the way to it hides what an earlier one has under it.
+    /// has a file there: a later mount at it or under it, or a later mount's folder there. A
+    /// mount's file on the way to it cuts off what earlier mounts have under it, as it does for
+    /// KindOf and Entries: a path there throws NOT_A_DIRECTORY, or NOT_FOUND where a later mount
+    /// makes that file's place a folder again.
     Public Method ReadBytes(path: Path): UInt8[] Throws IOError
         Local names = Try Checked(path, "read")
         For i = Mounts.Count - 1 To 0 Step -1
             If Holds(Mounts[i], names) Then Throw FolderError(path)
-            If Try Through(Mounts[i], names) Then Throw UnderFileError(path)
+            Local cut = Try FileOnTheWay(Mounts[i], names)
+            If cut > 0
+                If Try FolderAfter(Mounts, i, names[0..cut]) Then Throw NotRead(path)
+                Throw UnderFileError(path)
+            End If
+
             Local inner = Inside(Mounts[i], names)
             If inner == Null Then Continue
             Local bytes = Try Mounts[i].Source.Read(inner)
@@ -258,14 +265,20 @@ Public Class Vfs
         Throw Try Unread(path)
     End Method
 
-    /// ReadBytes's Async twin, which reads a folder's files without blocking the main thread. It
-    /// reads the mounts there were when it began, whatever's mounted while it waits.
+    /// ReadBytes's Async twin, which reads a folder's files, and asks a folder on the disk what's
+    /// on the way to them, without blocking the main thread. It reads the mounts there were when
+    /// it began, whatever's mounted while it waits.
     Public Async Method ReadBytesAsync(path: Path): UInt8[] Throws IOError
         Local names = Try Checked(path, "read")
         Local mounts = Mounts.Clone()
         For i = mounts.Count - 1 To 0 Step -1
             If Holds(mounts[i], names) Then Throw FolderError(path)
-            If Try Through(mounts[i], names) Then Throw UnderFileError(path)
+            Local cut = Try Await FileOnTheWayAsync(mounts[i], names)
+            If cut > 0
+                If Try Await FolderAfterAsync(mounts, i, names[0..cut]) Then Throw NotRead(path)
+                Throw UnderFileError(path)
+            End If
+
             Local inner = Inside(mounts[i], names)
             If inner == Null Then Continue
             Local folder = mounts[i].Source As? FolderSource
@@ -287,7 +300,8 @@ Public Class Vfs
             End If
         End For
 
-        Throw Try Unread(path)
+        // A folder at the path in any mount threw already, so it's nothing.
+        Throw NotRead(path)
     End Method
 
     /// The file's bytes as text, with U+FFFD for each one that doesn't start well-formed UTF-8.
@@ -311,9 +325,10 @@ Public Class Vfs
     End Method
 
     /// What's at `path`: a file or a folder some mount has, or a folder a mount is in or at, or
-    /// Null. What two mounts have is the last one's, as Entries finds it. A path under a later
-    /// mount's file, which hides what an earlier one has there, throws an IOError of
-    /// NOT_A_DIRECTORY, as a path through a file on the disk does.
+    /// Null. What two mounts have is the last one's, as Entries finds it. A mount's file on the way
+    /// to it cuts off what earlier mounts have there: a path under it throws an IOError of
+    /// NOT_A_DIRECTORY, as a path through a file on the disk does, unless a later mount makes the
+    /// file's place a folder again, where it's Null.
     Public Method KindOf(path: Path): FileKind? Throws IOError
         Local names = NamesOf(path.Text)
         If names == Null Then Return Null
@@ -324,7 +339,11 @@ Public Class Vfs
                 Return FileKind.DIRECTORY
             End If
 
-            If Try Through(Mounts[i], names) Then Throw UnderFileError(path)
+            Local cut = Try FileOnTheWay(Mounts[i], names)
+            If cut > 0
+                If Try FolderAfter(Mounts, i, names[0..cut]) Then Return Null
+                Throw UnderFileError(path)
+            End If
 
             Local inner = Inside(Mounts[i], names)
             If inner == Null Then Continue
@@ -413,9 +432,10 @@ Public Class Vfs
     End Method
 
     /// What's in the folder at `names`, by name, from every mount, the last one's first, and the
-    /// mounts in it; or Null when it isn't a folder.
+    /// mounts in it; or Null when it isn't a folder. A mount's file at the folder's place, or on
+    /// the way to it, cuts off what earlier mounts have there.
     Method Listed(names: String[]): Map<String, FileKind>? Throws IOError
-        Local found = Under(names)
+        Local found = names.Count == 0
         Local listed = Map<String, FileKind>()
         For i = Mounts.Count - 1 To 0 Step -1
             Local at = Mounts[i].At
@@ -427,12 +447,17 @@ Public Class Vfs
                 Continue
             End If
 
+            If (Try FileOnTheWay(Mounts[i], names)) > 0 Then Break
             Local inner = Inside(Mounts[i], names)
             If inner == Null Then Continue
             // A mount's root is a folder, though its source has nothing there.
             If inner == "" Then found = True
             Local items = Try Mounts[i].Source.List(inner)
-            If items == Null Then Continue
+            If items == Null
+                If inner != "" && (Try Mounts[i].Source.KindAt(inner)) == FileKind.FILE Then Break
+                Continue
+            End If
+
             found = True
             For item In items
                 If !listed.Contains(item.0) Then listed[item.0] = item.1
@@ -446,20 +471,42 @@ Public Class Vfs
     Method Unread(path: Path): IOError Throws IOError
         If (Try KindOf(path)) == FileKind.DIRECTORY Then Return FolderError(path)
 
-        Return IOError(IOErrorKind.NOT_FOUND, "can't read {path}: no mount of the Vfs has it",
-                       path.Text)
-    End Method
-
-    /// Whether a mount is below the folder at `names`, which makes it a folder.
-    Method Under(names: String[]): Bool
-        If names.Count == 0 Then Return True
-        For mounted In Mounts
-            If mounted.At.Count > names.Count && Starts(mounted.At, names) Then Return True
-        End For
-
-        Return False
+        Return NotRead(path)
     End Method
 End Class
+
+/// The IOError of reading a path no mount has anything at.
+Function NotRead(path: Path): IOError
+    Return IOError(IOErrorKind.NOT_FOUND, "can't read {path}: no mount of the Vfs has it",
+                   path.Text)
+End Function
+
+/// Whether a mount after `mounts[index]` makes the place `names` a folder: one at it or under it,
+/// or one with a folder there.
+Function FolderAfter(mounts: Mounted[], index: Int, names: String[]): Bool Throws IOError
+    For i = index + 1 Until mounts.Count
+        If Holds(mounts[i], names) Then Return True
+        Local inner = Inside(mounts[i], names)
+        If inner != Null && (Try mounts[i].Source.KindAt(inner)) == FileKind.DIRECTORY
+            Return True
+        End If
+    End For
+
+    Return False
+End Function
+
+/// FolderAfter's Async twin, which asks a folder on the disk without blocking the main thread.
+Async Function FolderAfterAsync(mounts: Mounted[], index: Int, names: String[]): Bool Throws IOError
+    For i = index + 1 Until mounts.Count
+        If Holds(mounts[i], names) Then Return True
+        Local inner = Inside(mounts[i], names)
+        If inner != Null && (Try Await KindAtAsync(mounts[i].Source, inner)) == FileKind.DIRECTORY
+            Return True
+        End If
+    End For
+
+    Return False
+End Function
 
 /// A Vfs path's names, or an IOError of INVALID_PATH for one that goes above its root, which
 /// can't be done what `doing` says.
@@ -519,15 +566,43 @@ Function Holds(mounted: Mounted, names: String[]): Bool
     Return mounted.At.Count >= names.Count && Starts(mounted.At, names)
 End Function
 
-/// Whether a mount has a file at a place on the way to `names`, inside the mount, which hides
-/// what's under it, as a file in a path does on the disk.
-Function Through(mounted: Mounted, names: String[]): Bool Throws IOError
+/// How many of `names` lead to a file a mount has on the way to them, inside the mount, which
+/// cuts off what earlier mounts have under it, as a file in a path does on the disk; 0 for none.
+Function FileOnTheWay(mounted: Mounted, names: String[]): Int Throws IOError
     For count = mounted.At.Count + 1 Until names.Count
         Local inner = Inside(mounted, names[0..count])
-        If inner != Null && (Try mounted.Source.KindAt(inner)) == FileKind.FILE Then Return True
+        If inner != Null && (Try mounted.Source.KindAt(inner)) == FileKind.FILE Then Return count
     End For
 
-    Return False
+    Return 0
+End Function
+
+/// FileOnTheWay's Async twin, which asks a folder on the disk without blocking the main thread.
+Async Function FileOnTheWayAsync(mounted: Mounted, names: String[]): Int Throws IOError
+    For count = mounted.At.Count + 1 Until names.Count
+        Local inner = Inside(mounted, names[0..count])
+        If inner != Null && (Try Await KindAtAsync(mounted.Source, inner)) == FileKind.FILE
+            Return count
+        End If
+    End For
+
+    Return 0
+End Function
+
+/// What KindAt says of `inner` in a mount's source, a folder on the disk's from its I/O, without
+/// blocking the main thread.
+Async Function KindAtAsync(source: VfsSource, inner: String): FileKind? Throws IOError
+    Local folder = source As? FolderSource
+    If folder == Null Then Return Try source.KindAt(inner)
+    If inner == "" Then Return FileKind.DIRECTORY
+    Local file = folder.OnDisk(inner)
+    If file == Null Then Return Null
+    Try
+        Return (Try Await File.MetadataAsync(file)).Kind
+    Catch e As IOError
+        If Missing(e) Then Return Null
+        Throw e
+    End Try
 End Function
 
 /// The IOError of a path under a file, which nothing can be at.
