@@ -2430,6 +2430,69 @@ TEST_CASE("fb test runs a package's examples, each a test named after its declar
     CHECK_FALSE(traced.output.contains("DocTest__Example"));
 }
 
+TEST_CASE("fb test's stack traces end at the test, and call a Global's initializer top-level code",
+          "[cli]") {
+    // A test on the main thread is called by the tests' main, as one on the pool is by a worker,
+    // and a trace leaves both out, not showing main at the line of the last Global it set, as
+    // std.text's.
+    const std::filesystem::path traced =
+        write_source("traces/traced.fb", "Import std.core\n"
+                                         "Import std.test\n"
+                                         "Import std.text\n"
+                                         "\n"
+                                         "Function Third(values: Int[]): Int\n"
+                                         "    Return values[2]\n"
+                                         "End Function\n"
+                                         "\n"
+                                         "@Test\n"
+                                         "@MainThread\n"
+                                         "Function OnTheMainThread()\n"
+                                         "    Print(Third([1, 2]))\n"
+                                         "End Function\n"
+                                         "\n"
+                                         "@Test\n"
+                                         "Function OnThePool()\n"
+                                         "    Print(Third([1]))\n"
+                                         "End Function\n");
+    // The traces show a file outside a package by its full path.
+    const auto full = [](const std::filesystem::path& path) {
+        std::string text = fb::to_utf8(path);
+        std::ranges::replace(text, '\\', '/');
+        return text;
+    };
+    const std::string file = full(traced);
+    for (const auto& [name, line] :
+         { std::pair("OnTheMainThread", 12), std::pair("OnThePool", 17) }) {
+        const fb::process_result_t ran =
+            fb_run({ "test", fb::to_utf8(traced), "--filter", name, "--color", "never" });
+        INFO(ran.output);
+        CHECK(ran.exit_code == 1);
+        CHECK(ran.output.contains(std::format("    at Third ({}:6)\n", file)));
+        CHECK(ran.output.contains(std::format("    at {} ({}:{})\n", name, file, line)));
+        CHECK_FALSE(ran.output.contains("top-level code"));
+    }
+
+    // Setting the Globals is top-level code, which runs before the tests.
+    const std::filesystem::path global =
+        write_source("traces/global.fb", "Import std.core\n"
+                                         "Import std.test\n"
+                                         "\n"
+                                         "Function Third(values: Int[]): Int\n"
+                                         "    Return values[2]\n"
+                                         "End Function\n"
+                                         "\n"
+                                         "Global third = Third([1, 2])\n"
+                                         "\n"
+                                         "@Test\n"
+                                         "Function Runs()\n"
+                                         "End Function\n");
+    const fb::process_result_t set = fb_run({ "test", fb::to_utf8(global), "--color", "never" });
+    INFO(set.output);
+    CHECK(set.exit_code == 1);
+    CHECK(set.output.contains(std::format("    at Third ({}:5)\n", full(global))));
+    CHECK(set.output.contains(std::format("    at top-level code ({}:8)\n", full(global))));
+}
+
 TEST_CASE("fb doc writes a package's public API as JSON, and warns about its doc comments",
           "[cli]") {
     const std::filesystem::path documented = copied_package("documented");
