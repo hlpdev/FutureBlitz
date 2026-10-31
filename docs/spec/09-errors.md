@@ -178,15 +178,15 @@ End Function
   It sees its file's Private names, as the file's other code does. `fb build` and `fb run` leave
   tests out, and the code only they reach; a library's binary and interface file leave the tests
   out.
-- Each example in the doc comments of a package's `.fb` files, a code block under `# Examples`
-  (see [01](01-lexical.md#doc-comments)), is a test of its own, named after its declaration, as
+- Each example in the doc comments of a package's `.fb` files, a code block under `# Examples` (see
+  [01](01-lexical.md#doc-comments)), is a test of its own, named after its declaration, as
   `geometry.shapes.Circle.Grow (example)`, and its second `(example 2)`. It's a module of a package
-  of its own, `<name>.doctests`, which depends on the package and what it depends on, so it uses
-  the package as a reader's code would, but sees its Package names too, as the package's own
-  files do, so a Package declaration's example runs; a file's Private names stay its own. It has `Import std.core`,
-  `Import std.test`, and an Import of its declaration's module, unless it writes them itself, and
-  writes any other Import at its top, as a file does; its declarations, like a Struct that
-  implements an Interface, go outside its test, and its other code is the test's body. Its
+  of its own, `<name>.doctests`, which depends on the package and what it depends on, so it uses the
+  package as a reader's code would, but sees its Package names too, as the package's own files do,
+  so a Package declaration's example runs; a file's Private names stay its own. It has `Import
+  std.core`, `Import std.test`, and an Import of its declaration's module, unless it writes them
+  itself, and writes any other Import at its top, as a file does; its declarations, like a Struct
+  that implements an Interface, go outside its test, and its other code is the test's body. Its
   failures, panics, and stack traces show its lines in the doc comment. `fb test std` runs the
   standard library's examples. For a `.fb` file outside a package, `fb test` runs that file's
   examples, each a module beside it that imports it by its path, as `Import "./geometry"`, so it
@@ -195,9 +195,11 @@ End Function
   depends on the package and on what it depends on, so their tests import it as another package
   would. They see its Package names too, as its own files do, so a test checks what the package
   keeps to itself without making it Public, but not a file's Private names, or a dependency's
-  Package ones; Public stays what other packages use. They import each other by their paths. A package
-  builds without its tests/ folder, so its own files don't import them. A tests/ folder with a
-  project.toml of its own is a package of its own, which `fb test` leaves alone.
+  Package ones; Public stays what other packages use. A prebuilt library's tests see only its Public
+  names, which its interface file has, and a name they don't see says so. They import each other by
+  their paths. A package builds without its tests/ folder, so its own files don't import them. A
+  tests/ folder with a project.toml of its own is a package of its own, which `fb test` leaves
+  alone.
 - A test build has each of the package's `.fb` files, and runs the tests in place of the main
   file's top-level code, once the Globals are set; another main file's top-level code, as a
   tool's in the package can have, is left out too. The tests run in parallel, on as many threads

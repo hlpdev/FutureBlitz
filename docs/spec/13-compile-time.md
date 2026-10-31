@@ -175,13 +175,13 @@ End Function
   checks: `Describe(p)` needs each of `p`'s fields to be Printable. A type parameter's fields
   meet a constraint only when one of its own loops says so.
 - The field has `f.Name`, `f.Index`, `f.Get(value)`, which gives an `F`, `f.Set(ByRef value, x)`,
-  `f.Has(A)`, and `f.Attribute(A)`, which gives an `A?`, for an Attribute `A`. `f` isn't a value
-  of its own. A ReadOnly Field changes only in its Class's New, so `f.Set` on one is an error
-  where the loop's copy for it is made, and so is `f.Set` on a Field that the loop's code
-  couldn't assign by name: a Private one outside its file, a Package one outside its package,
-  and a Protected one outside its file and the code of the Classes extending its Class. What a
-  type keeps to itself, like the memory a std.ffi Buffer owns, stays as its own code has it,
-  while `f.Get` still reads every Field.
+  `f.Has(A)`, and `f.Attribute(A)`, which gives an `A?`, for an Attribute `A`. `f` isn't a value of
+  its own. A ReadOnly Field changes only in its Class's New, so `f.Set` on one is an error where the
+  loop's copy for it is made, and so is `f.Set` on a Field that the loop's code couldn't assign by
+  name: a Private one outside its file, a Package one outside its package and its tests, and a
+  Protected one outside its file and the code of the Classes extending its Class. What a type keeps
+  to itself, like the memory a std.ffi Buffer owns, stays as its own code has it, while `f.Get`
+  still reads every Field.
 - `For Method m In T` goes over the Methods of a Struct or Class that take nothing, give nothing,
   and throw nothing (the inherited ones first, each in the place of what it overrides), but not
   Destroy, Unsafe, or ByRef Methods, or Async ones, which give a Task. `m.Call(value)` calls it,

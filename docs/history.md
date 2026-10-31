@@ -69,13 +69,21 @@ program's. `As?` and `As` convert to and from a type parameter that's a Class's,
 it, making one, and showing one. Struct values aren't Objects, and an Interface's value becomes
 one only with `As?`, since it can be an array's. Interface files write it as `Object`, and
 fb-lsp completes it. tests/programs/objects.fb keeps any Class's object in a holder and gets it
-back typed; panic_object_cast.fb panics on the wrong Class.
+back typed; panic_object_cast.fb panics on the wrong Class. From 1.1's review: an interface file
+refuses to write the built-in Object or Scheduler where the module's own type of that name, or
+an imported one, would hide it (`builtin_name()`); only a type or Alias of the name takes the
+built-in's place, not a Function; beside a declared Object, a message names "the built-in
+Object"; `[Object]`, `[Scheduler]`, `[Task]`, `[Weak]`, and the language's other named types
+are built-in links in doc comments; a Class constraint's error leaves out the array hint for
+Object; and "every B is an Object".
 
 A package's tests see its Package members: the tests/ folder's package, `<name>.tests`, and the
 doc examples', `<name>.doctests`, are its tests in the module table (`add_tests()` and
 `sees_package()`), which sema's `sees()` and `can_use()` and fb-lsp's completion use, while
 Private names stay their files' and Public what other packages see. The tested package's
-tests/ folder calls a Package Function.
+tests/ folder calls a Package Function. From the review: `f.Set` changes a Package Field in the
+package's tests too, and a prebuilt library's tests, which see only its Public names, say so
+where a name isn't declared (`module_table_t::tested()`).
 
 std.math's `Mat4.Perspective` and `Mat4.Orthographic` panic, with their values, for values
 whose matrix isn't finite, which they gave as Inf before: a field of view, an aspect, or a

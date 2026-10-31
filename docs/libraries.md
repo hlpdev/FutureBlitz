@@ -26,7 +26,9 @@ them is designed here and in [website.md](website.md), and built in M10.
 5. **Interface files.** A prebuilt library comes with an interface file: its Public declarations,
    and the bodies of its generic, @Inline, and Const code, which callers compile themselves (like
    C++ headers with templates, or Swift's .swiftinterface). The rest is only in the binary, so a
-   library can be closed source.
+   library can be closed source, and its tests/ folder's tests see only its Public names. A
+   built-in type a module's own type of that name hides, as its own Object would hide the
+   built-in, can't be written in it, which the build says.
 6. **Exact-version ABI.** A program is built against one exact build of each library. Each binary
    carries an ABI hash, and linking or loading a mismatched one is an error that names both builds.
    Layouts and Method tables can change freely between versions.
