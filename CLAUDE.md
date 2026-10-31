@@ -42,7 +42,10 @@ Await, Wait(), and the end of top-level code, and a loop of a program's own or a
 `Scheduler.Main.Step()`. docs/milestones.md's Deferred work lists everything left for later.
 v1.0.0 is released (2026-10-30), with winget's manifest in review. Phase 2, the engine, is planned
 in docs/engine.md: fbengine's packages, in the public repo hlpdev/fbengine, in milestones E0 to
-E14; E0, its setup, is done (2026-10-31), and E1, app and input, is next.
+E14; E0, its setup, is done (2026-10-31), and E1, app and input, is next. M11, the IDE (errors as
+typed, completion that imports, quick fixes, inspections, refactorings, project.toml in the
+editor, `fb mcp`), is planned in docs/tooling.md with its latency budgets; step 0, measuring, is
+first.
 
 ## History
 Each milestone's steps, in detail (what each added, by name, and each review's fixes), are in
