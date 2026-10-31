@@ -1,0 +1,36 @@
+name: Idea
+description: Something the language, std, fb, or the editor support could do.
+labels: [feature, needs-triage]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where
+      options:
+        - The language
+        - std
+        - fb's commands
+        - Packages and the registry
+        - fb-lsp or the VS Code extension
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What it's for
+      description: What you're trying to do, and what makes it hard today.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: How it could work. For the language or std, a sketch of the code you'd write helps.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Other ways
+      description: What you've tried instead, or how another language does it.

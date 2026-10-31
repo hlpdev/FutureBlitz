@@ -1,0 +1,42 @@
+name: The package registry
+description: A problem with pkg.futureblitz.dev, its API, an account, or publishing.
+labels: [area/packages, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A package that's malicious, or breaks the package policy, is reported on the package site
+        instead, at https://pkg.futureblitz.dev/policies/report. A vulnerability goes to the
+        Security tab, privately.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where
+      options:
+        - pkg.futureblitz.dev
+        - Signing in, an account, or a token
+        - Publishing, yanking, or owners
+        - Trusted publishing from GitHub Actions
+        - fb add, update, or search reaching the registry
+        - Something else
+    validations:
+      required: true
+  - type: input
+    id: package
+    attributes:
+      label: Package
+      description: The package and version, if it's about one.
+      placeholder: name 1.2.0
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what happened, and what you expected, with fb's or the page's errors.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: fb --version
+      description: If fb was part of it.
+      placeholder: fb 1.0.1 (abc1234, windows-x64)

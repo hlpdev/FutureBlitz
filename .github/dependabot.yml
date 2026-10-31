@@ -1,0 +1,25 @@
+# Version updates once a month, each ecosystem's in one pull request, as each runs CI on all three
+# OSes; security updates come as soon as there's an advisory.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /editors/vscode
+    schedule:
+      interval: monthly
+    groups:
+      vscode:
+        patterns: ["*"]
+    labels: [dependencies, area/vscode]
+    commit-message:
+      prefix: editors/vscode
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+    labels: [dependencies, area/ci]
+    commit-message:
+      prefix: ci

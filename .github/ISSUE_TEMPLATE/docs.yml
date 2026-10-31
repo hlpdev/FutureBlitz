@@ -1,0 +1,19 @@
+name: Docs or the site
+description: A mistake, a gap, or something unclear in the docs or on futureblitz.dev.
+labels: [docs, needs-triage]
+body:
+  - type: input
+    id: page
+    attributes:
+      label: Page
+      description: The page's address, or the file in this repository.
+      placeholder: https://futureblitz.dev/docs/latest/...
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What's wrong
+      description: What it says, and what it should say, or what's missing.
+    validations:
+      required: true

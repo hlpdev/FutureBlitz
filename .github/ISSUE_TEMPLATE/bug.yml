@@ -1,0 +1,72 @@
+name: Bug
+description: fb, std, fb-lsp, or the VS Code extension does something wrong.
+labels: [bug, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting it. A vulnerability goes to the Security tab instead, privately, as
+        SECURITY.md says.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where
+      options:
+        - The compiler (an error, a crash, or the wrong code)
+        - The runtime, or a program as it runs
+        - std
+        - fb's commands (build, run, test, fmt, doc, new)
+        - Packages (add, update, publish, fb.lock)
+        - fb-lsp
+        - The VS Code extension
+        - Installing or updating FutureBlitz
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what happened, and what you expected.
+    validations:
+      required: true
+  - type: textarea
+    id: program
+    attributes:
+      label: A program that shows it
+      description: The smallest .fb program, or project, that does it, if there is one.
+      placeholder: |
+        ```fb
+        Print("Hello, world!")
+        ```
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: fb's errors, the program's output, or a stack trace.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: fb --version
+      placeholder: fb 1.0.1 (abc1234, windows-x64)
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options:
+        - Windows x64
+        - Windows arm64
+        - Linux x64
+        - Linux arm64
+        - macOS arm64
+        - macOS x64
+    validations:
+      required: true
+  - type: input
+    id: os-version
+    attributes:
+      label: OS version
+      placeholder: Windows 11 24H2, Ubuntu 24.04, macOS 15.5
