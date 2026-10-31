@@ -146,7 +146,19 @@ are notes, a line each. `compile_file()`, `compile_tests()`, and `compile_docs()
 status_t, so fb build, run, test, check, doc, and publish say "Running <package>'s build step".
 The VS Code extension declares untrusted workspaces unsupported. Importing a package's folder
 leaves its step's program out (`folder_files()`), as `library_files()` did. Driver, packages,
-and CLI tests, the last ending fb mid-step.
+and CLI tests, the last ending fb mid-step. From the check of those fixes: the stamp is taken out
+before the program builds, out/ empties, or the step runs, as Cargo deletes a fingerprint, so an
+fb that's ended mid-step leaves none to trust; a message or note of several lines, as lld's or
+render_short()'s, is a note a line (`lines_of()`), and a stamp with a line read_stamp() doesn't
+know is stale; a file line names its file normal, with '/'s (`stamped_name()`), so the `*` walk
+and a folder's agree, and a file a walk before the run had that's gone keeps its line, and one
+it would have had that's new is "changed" (`in_package_files()`); an embed's source line is
+whole; a clash is a failure, with its stamp; a failure to empty out/ is one. A tied program is
+waited for, then its job or group is ended, then its output is drained, so what it left can't
+keep fb waiting; SIGHUP and SIGQUIT end it too, on Linux it starts through a fork with
+PR_SET_PDEATHSIG and a session of its own (`spawn_tied()`), so SIGKILL ends it as well, and on
+macOS posix_spawn's POSIX_SPAWN_SETSID gives it no terminal. Driver tests of each, the CLI test
+ending fb by each signal, and a check of process.cpp on Linux by hand.
 
 A test's stack trace ends at the test (the input lane's review found it): a @MainThread test's
 trace went on to main, which runs the tests, and named it top-level code at the line of the last

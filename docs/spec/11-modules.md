@@ -266,9 +266,16 @@ program = "cook.fb"
 - `fb build`, `run`, `test`, `check`, and `doc` run the steps that are out of date, each saying
   `Running <package>'s build step`. One fb at a time runs a step, by a lock that the system lets
   go of when the fb holding it ends, and another waits for it, as long as it takes, saying
-  `Waiting for another fb's build step`. A step ends when the fb that runs it does, however fb
-  ends. A step that doesn't build, or that ends with an exit code other than 0, is an error at
-  its `[build]` line, with its errors or its output, and the package isn't compiled.
+  `Waiting for another fb's build step`. A step ends when the fb that runs it does: on Windows
+  and Linux however fb ends, and on macOS when fb ends by a signal it can catch, as Ctrl+C, a
+  closed terminal, or SIGTERM do, though an fb ended by SIGKILL there leaves its step running.
+  What a step leaves running when it ends ends with it, on every OS, so nothing it started keeps
+  fb waiting. A step has no terminal: on Linux and macOS it runs in a session of its own, so a
+  program it runs that asks on /dev/tty fails at once. An fb that ends while a step builds or
+  runs leaves no stamp of it, so the next build runs it again. A step that doesn't build, or
+  that ends with an exit code other than 0, or whose files clash with its package's, is an error
+  at its `[build]` line, with its errors or its output a line each, and the package isn't
+  compiled.
 - The editor runs the step of one of the workspace's packages, or of their path dependencies,
   only when it never ran, or its last run failed and what that run read, or its program, has
   changed since, and otherwise checks with its last run's files, which those commands bring up to
