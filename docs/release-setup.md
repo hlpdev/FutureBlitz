@@ -35,8 +35,9 @@ gh variable set NAME -R hlpdev/FutureBlitz --body value
 | `R2_SECRET_ACCESS_KEY` | secret | publish.yml | R2 |
 | `R2_BUCKET` | variable | publish.yml | the bucket dl.futureblitz.dev serves |
 
-Without the Azure ones, a dispatch's Windows files are unsigned, with a warning; without
-REPO_SIGNING_KEY, its .rpms are, and publish.yml's linux job refuses them. A pushed tag's release
+A dispatch's Windows files are never signed, so a run by hand spends none of Azure's signing
+quota; a tag's sign every executable and DLL the release installs. Without REPO_SIGNING_KEY, a
+dispatch's .rpms are unsigned, and publish.yml's linux job refuses them. A pushed tag's release
 needs both, as the download page says its files are signed, and release.yml fails before it
 drafts anything without them. Each publish.yml job says which secret it lacks.
 
