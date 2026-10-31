@@ -94,6 +94,29 @@ runs the installed release's fb-bindgen on tools/release/libc.h, a header of `<s
 macOS's SDK, from `xcrun`, already had every header theirs include. A cli test whose name began
 with `--`, which Catch2 took as an option, so ctest never ran it, is "a --registry folder ...".
 
+## E4, the scene
+
+Steps 1 to 12, with E5 step 1's CPU half (2026-10-31, the scene lane, landed at a74f435). Worlds
+hold a tree of entities, found by name, shown and hidden, copied with their children and shared
+geometry, and freed, each a game's object attached with `SetData`; transforms are local and world,
+moved, turned, pointed, and converted between entities. Cameras are perspective (vertical field of
+view) or orthographic, with viewports, render order, projecting points both ways, and a draw
+projection of reversed depth in Vulkan's clip space. Lights, the ambient light, and fog are data.
+Geometry is built in code with two UV sets, welded, merged, and flipped, with the primitive shapes;
+materials are data with texture layers, blends, lightmaps, and order. Visibility gives in view and
+line of sight; collisions sweep ellipsoids against meshes, boxes, spheres, ground planes, and
+terrains, with stop, slide, and step-up, a max slope, and a skin a mover never gets 0.001 past over
+200 long seeded walks, never frozen with a way out; picks are lines and spheres by pick mode, from a
+World, an entity, or a camera. Sprites face the camera as billboards, fixed, or upright;
+`UpdateWorld`, `CaptureWorld` and tweened matrices, and `FixedStep` give logic at a fixed rate drawn
+between its steps; ground planes, mirrors, fading by distance, mesh intersection, and terrains of
+heights made and changed in code. What each camera draws is extracted, culled, faded, tweened, and
+sorted, so drawing never reads the live scene. Eight reviews' findings were all fixed with tests,
+among them the leaving root of a sweep that started inside an edge or corner, edges skipped moving
+away from a plane, a squeezed mover pushed through a wall, a tall mover launched over a ledge,
+movers frozen at exactly their radius from an edge, picks through a mesh's seams, collisions
+depending on a mesh's edit history, and the camera and sprites untweened in what cameras draw.
+
 ## E9, fbengine_audio
 
 Steps 1 to 3, 5, and 6, and step 4 on positions (2026-10-31, the audio lane, landed at 5d7e461).
