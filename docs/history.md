@@ -3,6 +3,59 @@
 What each milestone and step added, by name, and each review's fixes, as CLAUDE.md kept
 them while each was built. Newest first.
 
+## 1.2
+
+Reflection that sets (2026-10-31): a For Property's `p.Set(ByRef value, x)` calls the
+Property's Set, through the Method table for a Class (`accessor_of()`), and on a Struct's
+variable, and a For Static Field's `s.Set(x)` stores the Static Field, an instance's for a
+generic type's. lower.cpp's `unsettable()` says why a copy's Set can't change its member, for
+f.Set, p.Set, and s.Set alike: a ReadOnly Field or Static Field, a Property without a Set of its
+own or of what it overrides, or visibility. Its Protected check goes by the Class whose code the
+loop is in (`stmt_info_t::within`, from sema's `class_at()`), where it took m_self before, so a
+Static Method of a Class extending another can f.Set its Protected Field, as it can assign it by
+name. `Where p Has Set` (sema's `picks_set()`, `stmt_info_t::picks_settable`) picks the ones the
+loop's code can set (`settable_at()`, on `setter_of()` and `can_use()`), and `Where f Has Set`
+the Fields, by their `field_symbol()`s, and none of a T?'s; `bound_t::settable`,
+the loop's place, carries the pick in a generic loop's constraints, which `covers()` says
+another loop says when it goes over all of them or picks them in the same file and Class;
+`settable_text()` names the pick in errors, and another Where line on a For Property's or For
+Static Field's variable is an error that says which one they take. Sema's `reflected_members()`
+gives the members' symbols, which `reflected_types()` reads. From its own check: a loop's
+`p.Get`, `p.Set`, `s.Get`, `s.Set`, and `m.Call` weren't in the thread rules, so work on another
+thread could use a Static Field or call a @MainThread Method through one. Each is a
+`reflected_use_t` in `m_reflected_uses`, which an overload's trial takes back, and
+check_threads()'s `note_reflected_uses()` turns them into what the code runs: over a type, its
+members, and over a type parameter, the members of each type a call, an instance, or an
+Interface's conformance, for Self, gives it, or gives a type parameter given to it, as a call of
+an Interface's Method reaches each implementation. `note_thread_use()` takes the code it's for.
+Tests: sema's p.Set and s.Set, the pick and its constraints over a type and a type parameter,
+and the thread rules over a type, a type parameter, and one given through another; mir's errors
+at the copies and the picks that leave them out, an Override that uses its base's Set, and a
+Static Method's f.Set; tests/programs/reflection_setters.
+
+From 1.2's review of it: `reflected_members()` gives each member with the level it's on
+(`reflected_member_t`), whose type arguments `reflected_types()` substitutes, as before Sets,
+so `Derived Extends Base<Int>`'s inherited `Item: T` is an Int again; an Override the code can't
+set still takes the place of what it overrides. `note_reflected_uses()` binds a call's own type
+arguments, its last, to each function that runs in its place, what overrides it and what
+implements an Interface's Method (`instead`), so a loop in `Resetter.Visit<T>` reached through
+`Visitor`'s is the thread rules' too; a loop that picks the ones it can set runs only those
+there, Gets too; and one over a T?'s Properties, Static Fields, or Methods runs nothing there,
+nor, in `collect_loop_bounds()`, bounds anything, as a For Field one with `Where f Has Set`
+doesn't. A Protected member that isn't Static is settable, by `settable_at()`'s `through` and
+lower's `unsettable()`'s, only in a value of the code's own Class or one extending it, as by
+name, which f.Set didn't keep before either. Tests: sema's inherited generic Properties, over a
+generic Class too, the Interface's and its by-name twin's chains, a Get in a picking loop, and a
+T?'s loops; mir's Protected Sets through a plain base and a Mine; and reflection_setters'
+inherited Holder<Int>.
+
+From the check of those fixes: `reflected_members()` takes members as lowering copies them, an
+Override in the place of what it overrides, settable or not (`overridden`), and another Property
+of its name as its own, where it went by names, so an Extend's `Property Level: String` beside a
+Private `Level: Int` in another file met none of the loop's Where lines, and lowering's copy of it
+made LLVM IR that doesn't check, with the pick or without it, as in 1.0.0. Tests: sema's three,
+the pick, a Get loop without it, and through a generic Bump<T>, each refused for the String.
+
 ## M11, the IDE
 
 Step 0, measuring (2026-10-31): tests/lsp/bench_tests.cpp, fb-lsp's benchmark, hidden from ctest
@@ -336,7 +389,13 @@ scheduler's run_until slept 1 ms with sleep_for while a timer was due, which Win
 sleeps on a thread's high-resolution waitable timer (CreateWaitableTimerExW with
 CREATE_WAITABLE_TIMER_HIGH_RESOLUTION), or before Windows 10 1803 with winmm's timeBeginPeriod(1),
 loaded then, for the sleep alone; run_until and fb_time_sleep use it. tests/programs/
-time_realwait.fb waits and sleeps a millisecond 100 times, each under 300 ms.
+time_realwait.fb waits and sleeps a millisecond 100 times, each under 1 s, which still catches
+Windows' tick (1.56 s): a loaded macOS runner took 795 ms, over the 300 ms it first had.
+
+A write to a child's closed stdin is EPIPE on every OS, as "broken pipe" (master's macOS CI found
+it): macOS's stdio pipes are socketpairs, where libuv gives ENOTCONN, "socket is not connected",
+which process.cpp's `write_error()` takes as EPIPE, as it does Windows' UV_EOF. os_process's
+"during:" line on macOS CI is its test.
 
 A TGA that ends before its pixels do is an IOError of INVALID_DATA (fbengine's GPU review found
 it): stb_image read what's past the end as 0s, so an 18-byte header of a 16384 by 16384 image
@@ -369,6 +428,10 @@ runs the installed release's fb-bindgen on tools/release/libc.h, a header of `<s
 `<stddef.h>`, `<stdint.h>`, and `<string.h>`. Windows' MinGW-w64 and winpthreads headers, and
 macOS's SDK, from `xcrun`, already had every header theirs include. A cli test whose name began
 with `--`, which Catch2 took as an option, so ctest never ran it, is "a --registry folder ...".
+After it, as futureblitz.dev still said 1.0.0: the launch check checks the download page's
+version and apt's and dnf's repositories for both CPUs; futureblitz-web's `production` branch is
+production's, the newest release's docs, apart from master's, staging's; and the `release` and
+`site` skills, in .claude/skills/, are a release's and the site's steps.
 
 ## E2 and E3, the GPU core and 2D
 

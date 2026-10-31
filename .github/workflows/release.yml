@@ -10,11 +10,11 @@
 # while the runtime and std's bundled libraries, and glibc 2.28's pieces that programs link, come
 # from a manylinux_2_28 container (AlmaLinux 8), so the programs fb builds run on glibc 2.28.
 #
-# Windows: fb's executables, the MSI, and setup.exe are signed with Azure Artifact Signing when
-# the AZURE_* secrets and variables are set (docs/release-setup.md), and left unsigned, with a
-# warning, when none are. Linux: the .rpms are signed with REPO_SIGNING_KEY when it's set. A
-# pushed v<version> tag, whose draft the download page describes, needs both: without them it
-# fails before anything's drafted.
+# Windows: for a pushed tag, every executable and DLL a release installs, the MSI, and setup.exe
+# are signed with Azure Artifact Signing (its AZURE_* secrets and variables, docs/release-setup.md);
+# a run by hand leaves them unsigned, so it spends none of the signing quota. Linux: the .rpms
+# are signed with REPO_SIGNING_KEY when it's set. A pushed v<version> tag, whose draft the
+# download page describes, needs both: without them it fails before anything's drafted.
 name: Release
 
 on:
@@ -233,7 +233,8 @@ jobs:
           diff <(ls "stage/$RELEASE/bin") <(ls destdir/futureblitz/bin)
           destdir/futureblitz/bin/fb --version
 
-      # Windows' signing: all of the secrets and variables, or none, which leaves it unsigned.
+      # Windows' signing, only for a release's tag, so a run by hand spends none of the signing
+      # account's quota: all of the secrets and variables, or none, which leaves it unsigned.
       - name: Signing (Windows)
         if: runner.os == 'Windows'
         shell: bash
@@ -249,19 +250,21 @@ jobs:
           for value in "$TENANT" "$CLIENT" "$SECRET" "$ENDPOINT" "$ACCOUNT" "$PROFILE"; do
             if [ -n "$value" ]; then set=$((set + 1)); fi
           done
-          if [ "$set" = 6 ]; then
-            echo "SIGN=true" >> "$GITHUB_ENV"
-          elif [ "$set" = 0 ] && [ "${GITHUB_REF#refs/tags/v}" != "$GITHUB_REF" ]; then
-            echo "::error::A release's Windows files are signed, and the Azure signing secrets aren't set (docs/release-setup.md)"
-            exit 1
-          elif [ "$set" = 0 ]; then
-            echo "::warning::The Azure signing secrets aren't set, so fb's executables, the MSI, and setup.exe are unsigned"
-          else
+          if [ "$set" != 0 ] && [ "$set" != 6 ]; then
             echo "::error::Only $set of the 6 Azure signing secrets and variables are set (docs/release-setup.md)"
+            exit 1
+          elif [ "${GITHUB_REF#refs/tags/v}" = "$GITHUB_REF" ]; then
+            echo "::notice::Only a release's tag signs, so this run's Windows files are unsigned"
+          elif [ "$set" = 6 ]; then
+            echo "SIGN=true" >> "$GITHUB_ENV"
+          else
+            echo "::error::A release's Windows files are signed, and the Azure signing secrets aren't set (docs/release-setup.md)"
             exit 1
           fi
 
-      - name: Sign fb's executables
+      # Every executable and DLL in the release's folder, LLVM's too, so nothing it puts on a
+      # machine is unsigned, which Defender's checks of new files (winget's validation's) go by.
+      - name: Sign the release's executables and DLLs
         if: runner.os == 'Windows' && env.SIGN == 'true'
         uses: azure/artifact-signing-action@v2
         with:
@@ -271,10 +274,9 @@ jobs:
           endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
           signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
           certificate-profile-name: ${{ vars.AZURE_SIGNING_PROFILE }}
-          files: |
-            ${{ github.workspace }}\stage\${{ env.RELEASE }}\bin\fb.exe
-            ${{ github.workspace }}\stage\${{ env.RELEASE }}\bin\fb-lsp.exe
-            ${{ github.workspace }}\stage\${{ env.RELEASE }}\bin\fb-bindgen.exe
+          files-folder: ${{ github.workspace }}\stage\${{ env.RELEASE }}
+          files-folder-filter: exe,dll
+          files-folder-recurse: true
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
@@ -392,15 +394,18 @@ jobs:
         shell: pwsh
         run: |
           $files = @("dist\$env:RELEASE.msi", "dist\$env:RELEASE-setup.exe") +
-            @('fb', 'fb-lsp', 'fb-bindgen' | ForEach-Object { "stage\$env:RELEASE\bin\$_.exe" })
+            @(Get-ChildItem "stage\$env:RELEASE" -Recurse -File -Include *.exe, *.dll |
+              ForEach-Object { $_.FullName })
           foreach ($file in $files) {
             $signature = Get-AuthenticodeSignature -LiteralPath $file
             if ($signature.Status -ne 'Valid') { throw "$file's signature is $($signature.Status)" }
           }
           $unpacked = "$env:RUNNER_TEMP\signed"
           Expand-Archive -LiteralPath "dist\$env:RELEASE.zip" -DestinationPath $unpacked
-          $fb = Get-AuthenticodeSignature -LiteralPath "$unpacked\$env:RELEASE\bin\fb.exe"
-          if ($fb.Status -ne 'Valid') { throw "the archive's fb.exe is $($fb.Status)" }
+          foreach ($file in Get-ChildItem $unpacked -Recurse -File -Include *.exe, *.dll) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
+            if ($signature.Status -ne 'Valid') { throw "the archive's $($file.Name) is $($signature.Status)" }
+          }
 
       - name: Archive
         if: runner.os != 'Windows'
@@ -932,4 +937,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "FutureBlitz $VERSION" \
-            --notes "FutureBlitz $VERSION. See the README's Installing." dist/*
+            --notes "FutureBlitz $VERSION. To install or update, see [Installing](https://github.com/hlpdev/FutureBlitz#installing) in the README." dist/*

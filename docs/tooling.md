@@ -27,9 +27,11 @@ other people can install and use every day in an editor. Step 0 settled what was
    .deb, and .rpm installers, and as the VS Code extension's .vsix; from there, when the user
    says, to winget, a Homebrew tap, apt and dnf repositories on dl.futureblitz.dev, and the
    Marketplace and Open VSX (the user, 2026-10-30). Self-update waits for M10.
-8. **Windows is signed, macOS isn't.** fb's executables, the MSI, and setup.exe are signed with
-   Azure Artifact Signing once its secrets are set (the user, 2026-10-30). macOS stays unsigned:
-   the install script and Homebrew download with curl, which Gatekeeper doesn't stop.
+8. **Windows is signed, macOS isn't.** Every executable and DLL a release installs (LLVM's lld,
+   LLVM-C, and libclang too), the MSI, and setup.exe are signed with Azure Artifact Signing once its
+   secrets are set (the user, 2026-10-30; every DLL, 2026-11-01, after winget's Defender check
+   failed on unsigned ones), and only for a release's tag, never a run by hand. macOS stays
+   unsigned: the install script and Homebrew download with curl, which Gatekeeper doesn't stop.
 9. **Stack traces from fb's own table**, in every binary, debug and release, so a player's
    crash names its lines with no debug files shipped.
 10. **CodeLLDB on every OS**, which bundles its own lldb, with one script of fb's that shows

@@ -9,7 +9,6 @@
 | **Re-exports** | A package can't hand on another package's names, so there's no umbrella package. Proposed: `Public Import X`, which gives the importer X's Public names too |
 | **Asset system details** | Direction locked in [assets.md](assets.md); details in the engine phase |
 | **Running ordinary functions at compile time** | `Const Function`s already do, on M3 step 10's MIR interpreter. Proposed: also run other functions when the compiler can prove they're pure (no I/O, globals, or allocation); what's left is that proof |
-| **Setting reflected members** | `p.Get(value)` and `s.Get()` read a Property or Static Field. Proposed: `p.Set(value, x)`, with a Where line like `Where p: Settable` to pick the ones with a Set or that aren't ReadOnly |
 
 ## Spec details to settle while implementing
 
