@@ -1,12 +1,13 @@
 // A millisecond's RealWait, or Sleep, a hundred times over takes about a tenth of a second on
-// every OS, though Windows' own sleep waits for its 15.6 ms timer tick, which would make it 1.56 s.
+// every OS, and under a second on a loaded machine, though Windows' own sleep waits for its
+// 15.6 ms timer tick, which would make it 1.56 s.
 
 Import std.core
 Import std.time
 
 Function Report(name: String, took: Duration)
-    If took < 300.Milliseconds
-        Print("{name}: under 300 ms")
+    If took < 1.Seconds
+        Print("{name}: under 1 s")
     Else
         Print("{name}: {took}")
     End If

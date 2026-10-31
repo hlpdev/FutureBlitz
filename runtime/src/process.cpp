@@ -959,10 +959,10 @@ std::vector<uv_buf_t> buffers_of(std::string& bytes) {
     return buffers;
 }
 
-/// A write's result: on Windows, libuv gives a pipe whose child has gone UV_EOF, which is EPIPE,
-/// as it is elsewhere.
+/// A write's result, with the error for a pipe whose child has gone EPIPE on every OS: libuv
+/// gives UV_EOF on Windows, and ENOTCONN on macOS, whose stdio pipes are socketpairs.
 int write_error(const int status) {
-    return status == UV_EOF ? UV_EPIPE : status;
+    return status == UV_EOF || status == UV_ENOTCONN ? UV_EPIPE : status;
 }
 
 /// Writes to the child's stdin on the loop's thread, and answers the waiter once the bytes have
