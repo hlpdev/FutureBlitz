@@ -21,6 +21,7 @@
 #include <random>
 #include <ranges>
 #include <set>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -852,8 +853,10 @@ bool is_of_kind(const std::string_view path, const std::string_view marker) {
 
 /// A marker's checksum, or empty when it isn't there.
 std::string read_marker(const std::filesystem::path& path) {
-    std::ifstream in(path, std::ios::binary);
-    return { std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>() };
+    const std::ifstream in(path, std::ios::binary);
+    std::ostringstream text;
+    text << in.rdbuf();
+    return std::move(text).str();
 }
 
 /// Removes what an fb stopped partway through unpacking `folder` left beside it: its partial

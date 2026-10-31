@@ -48,9 +48,14 @@ bool for_servers(PCCERT_CONTEXT certificate) {
         return GetLastError() == static_cast<DWORD>(CRYPT_E_NOT_FOUND);
     }
 
+    // Windows gives at least the list's header, and a smaller size is one there's no list in.
+    if (size < sizeof(CERT_ENHKEY_USAGE)) {
+        return false;
+    }
+
     std::vector<std::byte> buffer(size);
     auto* usage = reinterpret_cast<PCERT_ENHKEY_USAGE>(buffer.data());
-    if (CertGetEnhancedKeyUsage(certificate, 0, usage, &size) == FALSE) {
+    if (usage == nullptr || CertGetEnhancedKeyUsage(certificate, 0, usage, &size) == FALSE) {
         return false;
     }
 

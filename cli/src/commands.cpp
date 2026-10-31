@@ -38,6 +38,7 @@
 #include <optional>
 #include <ranges>
 #include <span>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -818,9 +819,10 @@ struct report_record_t {
 /// A report's records: each is "<kind> <index> <length>" on a line, -1 for no test, then that
 /// many bytes of text, and a line break. One the executable didn't finish writing is left out.
 std::vector<report_record_t> read_report(const std::filesystem::path& path) {
-    std::ifstream file(path, std::ios::binary);
-    const std::string text{ std::istreambuf_iterator<char>(file),
-                            std::istreambuf_iterator<char>() };
+    const std::ifstream file(path, std::ios::binary);
+    std::ostringstream read;
+    read << file.rdbuf();
+    const std::string text = std::move(read).str();
     std::vector<report_record_t> records;
     std::size_t at = 0;
     while (at < text.size()) {

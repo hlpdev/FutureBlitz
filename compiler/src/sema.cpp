@@ -13521,9 +13521,9 @@ private:
 
             // Only a type of its name takes a built-in type's place, as spec 06 says, not a
             // Function or a Global.
-            const bool typed = std::ranges::any_of(found, [&](const symbol_id_t id) {
-                return symbol(id).kind == symbol_kind_t::TYPE ||
-                       symbol(id).kind == symbol_kind_t::ALIAS;
+            const bool typed = std::ranges::any_of(found, [&](const symbol_id_t each) {
+                return symbol(each).kind == symbol_kind_t::TYPE ||
+                       symbol(each).kind == symbol_kind_t::ALIAS;
             });
             if (named->name == "Scheduler" && !typed) {
                 if (!named->arguments.empty()) {

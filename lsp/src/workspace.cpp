@@ -24,6 +24,7 @@
 #include <mutex>
 #include <optional>
 #include <set>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -55,7 +56,9 @@ std::optional<std::string> read_disk(const std::filesystem::path& path) {
         return std::nullopt;
     }
 
-    return std::string{ std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>() };
+    std::ostringstream text;
+    text << file.rdbuf();
+    return std::move(text).str();
 }
 
 /// Whether an entry of a folder is a link, which a walk doesn't follow.

@@ -22,6 +22,7 @@
 #include <iterator>
 #include <map>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -48,12 +49,14 @@ std::optional<std::string> read_bytes(const std::filesystem::path& path) {
         return std::nullopt;
     }
 
-    std::string text{ std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>() };
+    // Through its buffer, as a release build's GCC can follow.
+    std::ostringstream text;
+    text << file.rdbuf();
     if (file.bad()) {
         return std::nullopt;
     }
 
-    return text;
+    return std::move(text).str();
 }
 
 /// Formats the files `fb fmt` finds, each to its package's width.

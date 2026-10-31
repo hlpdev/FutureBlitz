@@ -166,6 +166,19 @@ void note_disk_path(compilation_t& compilation, const file_id_t id, std::filesys
     compilation.on_disk[index] = std::move(path);
 }
 
+/// A file's bytes, read through its buffer, as a release build's GCC can follow, or nullopt when
+/// it can't be opened.
+std::optional<std::string> bytes_of(const std::filesystem::path& path) {
+    const std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        return std::nullopt;
+    }
+
+    std::ostringstream bytes;
+    bytes << in.rdbuf();
+    return std::move(bytes).str();
+}
+
 /// A file's text on disk, or `read`'s in place of it, when it has one. nullopt when it can't be
 /// read.
 std::optional<std::string> read_disk(const std::filesystem::path& where,
@@ -181,12 +194,7 @@ std::optional<std::string> read_disk(const std::filesystem::path& where,
         return std::nullopt;
     }
 
-    std::ifstream file(where, std::ios::binary);
-    if (!file) {
-        return std::nullopt;
-    }
-
-    return std::string{ std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>() };
+    return bytes_of(where);
 }
 
 /// The generated file at `path`, a path in the program, if there's one.
@@ -2032,10 +2040,8 @@ public:
         std::vector<std::size_t> chain;
         // The program's registry packages are where fb.lock beside its project.toml says.
         const std::filesystem::path& lock_folder = locked.value_or(folder);
-        if (std::ifstream lock(lock_folder / "fb.lock", std::ios::binary); lock) {
-            const std::string text{ std::istreambuf_iterator<char>(lock),
-                                    std::istreambuf_iterator<char>() };
-            m_lockfile = read_lockfile(text, lock_folder);
+        if (const std::optional<std::string> text = bytes_of(lock_folder / "fb.lock")) {
+            m_lockfile = read_lockfile(*text, lock_folder);
         }
 
         // A registry's package in the cache is the one fb.lock has, from its registry.
@@ -2429,9 +2435,7 @@ private:
             return;
         }
 
-        std::ifstream file(interface, std::ios::binary);
-        const std::string text{ std::istreambuf_iterator<char>(file),
-                                std::istreambuf_iterator<char>() };
+        const std::string text = bytes_of(interface).value_or("");
         const std::optional<interface_header_t> header = read_interface_header(text);
         std::optional<std::vector<library_file_t>> modules = interface_modules(text);
         if (!header || !modules) {
@@ -2599,9 +2603,7 @@ private:
             return;
         }
 
-        std::ifstream in(file, std::ios::binary);
-        const std::string bytes{ std::istreambuf_iterator<char>(in),
-                                 std::istreambuf_iterator<char>() };
+        const std::string bytes = bytes_of(file).value_or("");
         const std::expected<std::string, library_problem_t> recorded =
             dynamic_library_name(bytes, target);
         const bool windows = target.starts_with("windows");
@@ -2784,9 +2786,11 @@ private:
             names.push_back(std::move(text));
         }
 
-        std::string listed = names.front();
-        for (std::size_t i = 1; i < names.size(); ++i) {
-            listed += std::format("{}{}", i + 1 == names.size() ? ", or " : ", ", names[i]);
+        std::string listed;
+        for (std::size_t i = 0; i < names.size(); ++i) {
+            listed += i == 0
+                          ? names[i]
+                          : std::format("{}{}", i + 1 == names.size() ? ", or " : ", ", names[i]);
         }
 
         if (path != native.path) {
@@ -3113,18 +3117,6 @@ std::string fnv1a(const std::string_view bytes) {
     }
 
     return std::format("{:016x}", hash);
-}
-
-/// A file's bytes, read through its buffer, or nullopt when it can't be opened.
-std::optional<std::string> bytes_of(const std::filesystem::path& path) {
-    const std::ifstream in(path, std::ios::binary);
-    if (!in) {
-        return std::nullopt;
-    }
-
-    std::ostringstream bytes;
-    bytes << in.rdbuf();
-    return std::move(bytes).str();
 }
 
 /// What a stamp keeps of a file: for one of 1 MB or less, its size and its bytes' hash, which an
@@ -4452,15 +4444,12 @@ std::expected<std::vector<library_file_t>, std::string> standard_library() {
     library.reserve(paths.size());
     for (const std::filesystem::path& path : paths) {
         std::string name = "std/" + to_utf8(path.lexically_relative(folder));
-        std::ifstream file(path, std::ios::binary);
-        if (!file) {
+        std::optional<std::string> text = bytes_of(path);
+        if (!text) {
             return std::unexpected(std::format("cannot open '{}'", name));
         }
 
-        library.push_back({
-            .path = std::move(name),
-            .text = { std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>() },
-        });
+        library.push_back({ .path = std::move(name), .text = std::move(*text) });
     }
 
     return library;
@@ -4559,12 +4548,7 @@ read_prebuilt_binary(const std::filesystem::path& interface,
                      const std::vector<package_build_t>& builds) {
     std::filesystem::path path = interface;
     path.replace_extension(".fblib");
-    const auto read = [](const std::filesystem::path& file) {
-        std::ifstream in(file, std::ios::binary);
-        return in ? std::optional(std::string{ std::istreambuf_iterator<char>(in),
-                                               std::istreambuf_iterator<char>() })
-                  : std::nullopt;
-    };
+    const auto read = bytes_of;
     const std::optional<std::string> text = read(interface);
     const std::optional<std::string> bytes = read(path);
     const std::string shown = to_utf8(shown_disk_path(path));

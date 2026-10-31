@@ -129,18 +129,25 @@ std::vector<std::uint8_t> deflated(const std::span<const std::uint8_t> data, con
     return out;
 }
 
-/// Appends a chunk: its data's size, its type, its data, and the CRC of its type and data.
+/// Appends a chunk: its data's size, its type, its data, which is `head` and then `data`, and
+/// the CRC of its type and data.
 void chunk(std::vector<std::uint8_t>& out, const std::string_view type,
-           const std::span<const std::uint8_t> data) {
-    put_big(out, static_cast<std::uint32_t>(data.size()), 4);
+           const std::span<const std::uint8_t> head, const std::span<const std::uint8_t> data) {
+    put_big(out, static_cast<std::uint32_t>(head.size() + data.size()), 4);
     const std::size_t start = out.size();
     out.insert(out.end(), type.begin(), type.end());
+    out.insert(out.end(), head.begin(), head.end());
     out.insert(out.end(), data.begin(), data.end());
     const std::span<const std::uint8_t> covered = std::span(out).subspan(start);
     put_big(
         out,
         static_cast<std::uint32_t>(::crc32(0, covered.data(), static_cast<uInt>(covered.size()))),
         4);
+}
+
+void chunk(std::vector<std::uint8_t>& out, const std::string_view type,
+           const std::span<const std::uint8_t> data) {
+    chunk(out, type, {}, data);
 }
 
 /// The signature and the IHDR chunk of an image of 8 bits a channel, not interlaced.
@@ -162,13 +169,18 @@ void data_chunks(std::vector<std::uint8_t>& out, const std::string_view type,
     std::size_t at = 0;
     do {
         const std::size_t size = std::min(chunk_bytes, data.size() - at);
-        std::vector<std::uint8_t> part;
+        std::array<std::uint8_t, 4> number{};
+        std::span<const std::uint8_t> head;
         if (sequence != nullptr) {
-            put_big(part, (*sequence)++, 4);
+            const std::uint32_t next = (*sequence)++;
+            for (std::size_t i = 0; i < number.size(); ++i) {
+                number.at(i) = static_cast<std::uint8_t>(next >> ((number.size() - 1 - i) * 8));
+            }
+
+            head = number;
         }
-        part.insert(part.end(), data.begin() + static_cast<std::ptrdiff_t>(at),
-                    data.begin() + static_cast<std::ptrdiff_t>(at + size));
-        chunk(out, type, part);
+
+        chunk(out, type, head, data.subspan(at, size));
         at += size;
     } while (at < data.size());
 }

@@ -143,9 +143,14 @@ build_archive(const std::filesystem::path& root, std::string file,
                         file, megabytes(unpacked), megabytes(most_unpacked)));
     }
 
-    built_archive_t archive{ .file = std::move(file), .bytes = std::move(*bytes), .paths = paths };
-    archive.ref = { .sha256 = sha256_hex(archive.bytes), .size = archive.bytes.size() };
-    return archive;
+    // Made whole, which a release build's GCC follows, where it doesn't a ref set after.
+    archive_ref_t ref{ .sha256 = sha256_hex(*bytes), .size = bytes->size() };
+    return built_archive_t{
+        .file = std::move(file),
+        .bytes = std::move(*bytes),
+        .ref = std::move(ref),
+        .paths = paths,
+    };
 }
 
 /// Checks a prebuilt target's builds: debug's and release's .fblib and .fbi, each naming the
