@@ -142,8 +142,9 @@ taking the workspace's build's files (`take_built()`, `check_request_t::workspac
 to run fb build, and writes nothing in the cache. A failure's output and the program's errors
 are notes, a line each. `compile_file()`, `compile_tests()`, and `compile_docs()` take a
 status_t, so fb build, run, test, check, doc, and publish say "Running <package>'s build step".
-The VS Code extension declares untrusted workspaces unsupported. Driver, packages, and CLI
-tests, the last ending fb mid-step.
+The VS Code extension declares untrusted workspaces unsupported. Importing a package's folder
+leaves its step's program out (`folder_files()`), as `library_files()` did. Driver, packages,
+and CLI tests, the last ending fb mid-step.
 
 A test's stack trace ends at the test (the input lane's review found it): a @MainThread test's
 trace went on to main, which runs the tests, and named it top-level code at the line of the last
@@ -151,6 +152,15 @@ Global it set, as std/text/humanize.fb:138, since the calls that run the tests h
 their own. A test build's main sets the Globals in top-level code of their own, `(globals)`, so
 main itself has no place and a trace leaves it out, as it does a worker's frames, and a panic in
 a Global's initializer is still at top-level code (`m_top_level` in lower.cpp). A CLI test.
+
+A release build without warnings (the M11 lane found them): GCC 15's -O3 warned of a null
+pointer in reading a whole file through `std::istreambuf_iterator`, so source.cpp, fmt.cpp,
+commands.cpp, package_archive.cpp, workspace.cpp, and driver.cpp (`bytes_of()`) read through
+`rdbuf()`. And of its false positives elsewhere: evaluate.cpp's format results are made in place
+(`std::in_place`), registry_api.cpp's archive is made whole, format.cpp says what a comment with
+no code after it is indented to, png.cpp's chunks take the sequence number as a head of their own
+in place of a vector of it and the data, and tls_roots.cpp checks the key usage's size first.
+sema.cpp's lambda in resolve_type no longer shadows `id`, from 1.1's Object fixes.
 
 ## 1.0.1
 
