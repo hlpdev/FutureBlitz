@@ -112,7 +112,7 @@ TEST_CASE("fb's package commands say what they take", "[cli-packages]") {
     CHECK(fb_run({ "help", "owner" }).output.contains("needs no token"));
 }
 
-TEST_CASE("--registry's folder has to be a registry's, and a host's name needs its https://",
+TEST_CASE("a --registry folder has to be a registry's, and a host's name needs its https://",
           "[cli-packages]") {
     // m10-edges-7: every command says a folder without config.json is no registry, and a name
     // like a host's that's no folder is most likely a URL that lost its scheme.
