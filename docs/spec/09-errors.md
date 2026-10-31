@@ -135,15 +135,16 @@ panic: index 5 is out of range for 3 elements at app.fb:12:17
     at top-level code (app.fb:25)
 ```
 
-- A panic's trace, and an uncaught error's, has a line for each call of the program's code that
-  it's in, the innermost first: `    at <function> (<file>:<line>)`, with the file named as the
-  panic names it. A Method or Property is `Class.Method`, a generic Function's instance names its
-  type arguments, a function value's code and a Parallel For's body are named by where they're
-  written, as `Parallel For at app.fb:9:5`, a function of another module than the program's
-  main one has its module first, and a module's top-level code is `top-level code`. A call whose
-  line a release build loses, as when it merges calls on several lines into one, is
-  `    at <function> (<file>)`. The runtime's frames, the C code's, and those of the code the
-  compiler makes itself are left out.
+- A panic's trace, and an uncaught error's, has a line for each call of the program's code that it's
+  in, the innermost first: `    at <function> (<file>:<line>)`, with the file named as the panic
+  names it. A Method or Property is `Class.Method`, a generic Function's instance names its type
+  arguments, a function value's code and a Parallel For's body are named by where they're written,
+  as `Parallel For at app.fb:9:5`, a function of another module than the program's main one has its
+  module first, and a module's top-level code is `top-level code`. A call whose line a release build
+  loses, as when it merges calls on several lines into one, is `    at <function> (<file>)`. The
+  runtime's frames, the C code's, and those of the code the compiler makes itself are left out, as
+  the code that runs a test build's tests is, so a test's trace ends at the test, on the main thread
+  or a worker; the Globals it sets before them are top-level code.
 - It shows the innermost 100 places, then `    and more calls, which aren't shown` when the
   stack goes on.
 - An uncaught error's trace is where it was first thrown, the Throw that set its Place, though a

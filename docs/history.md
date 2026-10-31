@@ -126,6 +126,13 @@ has too, a program that doesn't build, and an exit code other than 0 are errors 
 `build_steps_t::MISSING`. Driver, manifest, packages (a registry package's program), and fb-lsp
 tests.
 
+A test's stack trace ends at the test (the input lane's review found it): a @MainThread test's
+trace went on to main, which runs the tests, and named it top-level code at the line of the last
+Global it set, as std/text/humanize.fb:138, since the calls that run the tests have no place of
+their own. A test build's main sets the Globals in top-level code of their own, `(globals)`, so
+main itself has no place and a trace leaves it out, as it does a worker's frames, and a panic in
+a Global's initializer is still at top-level code (`m_top_level` in lower.cpp). A CLI test.
+
 ## 1.0.1
 
 (2026-10-30.) Linux's fb-bindgen read no header that includes `<stdint.h>`: release.yml gathered
