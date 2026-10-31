@@ -350,8 +350,8 @@ The compiler checks every `Spawn` capture, `Parallel For` body, and channel send
   Sendable`, which stands for one, and so are the Structs, tuples, and fixed arrays whose fields
   and elements all are, and a `T?` of any of them. A Ptr or CString isn't, since nothing keeps
   what it points at for another thread.
-- Classes, arrays, other function values, and other `Weak<T>`s aren't, since an object's
-  refcount isn't atomic: an object stays on the thread that made it. Neither is a Struct that
+- Classes, arrays, `Object`, other function values, and other `Weak<T>`s aren't, since an
+  object's refcount isn't atomic: an object stays on the thread that made it. Neither is a Struct that
   holds one.
 - Generic code says a type parameter is Sendable with a constraint, `<T: Sendable>`, and an
   instance like `Box<Int>` is Sendable when its fields are.

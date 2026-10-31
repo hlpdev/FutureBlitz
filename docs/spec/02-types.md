@@ -69,6 +69,7 @@ Composite and special types:
 | `Func(A, B): R` | function type | [05](05-functions.md) |
 | `Ptr<T>` | raw pointer (unsafe/FFI) | [08](08-memory.md) |
 | `Weak<T>` | weak reference | [08](08-memory.md) |
+| `Object` | any Class's object | [06](06-user-types.md#object) |
 
 ## Declarations
 
@@ -227,7 +228,8 @@ If owner != Null Then owner.Notify("hi")   // owner is User here
 ## Conversions
 
 - Only **lossless** conversions happen implicitly (e.g. `Int32` → `Int64`, `Int32` →
-  `Float64`, `Float32` → `Float64`, `T` → `T?`).
+  `Float64`, `Float32` → `Float64`, `T` → `T?`), and an object's to a Class its Class
+  extends, an Interface it implements, and `Object` (see [06](06-user-types.md)).
 - A `String` converts to std.io's `Path` wherever one is expected, and to a `Path?`: a call
   makes the Path with its New, as the program runs, so `File.ReadText("save.dat")` reads
   naturally. It's a conversion in overloads, so one that takes the String exactly wins. A

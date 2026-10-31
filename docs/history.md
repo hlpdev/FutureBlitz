@@ -15,6 +15,18 @@ dependency with only a path as before, with how to add a version. `dependency_t`
 for where the range is written, apart from `path_span`, and `path_entry_span`. A path with a
 version can name a registry, as a path alone can't.
 
+A built-in `Object`, what every Class's object is: `builtin_interfaces_t::object`, an Interface
+without members that sema declares with its built-ins and resolves by the name when the module
+declares and imports none, which every Class implements (`implements()` and conformance_query_t)
+and a Class type parameter converts to; lowering adds it to every Class's table but a closure's
+or cell's, and codegen names its fb_interface_t `fb.(Object).interface`, apart from any
+program's. `As?` and `As` convert to and from a type parameter that's a Class's, as `Is` did;
+`Weak<Object>` and `[Weak x]` of one; and errors for listing it, extending it, a constraint of
+it, making one, and showing one. Struct values aren't Objects, and an Interface's value becomes
+one only with `As?`, since it can be an array's. Interface files write it as `Object`, and
+fb-lsp completes it. tests/programs/objects.fb keeps any Class's object in an entity and gets it
+back typed; panic_object_cast.fb panics on the wrong Class.
+
 ## 1.0.1
 
 (2026-10-30.) Linux's fb-bindgen read no header that includes `<stdint.h>`: release.yml gathered

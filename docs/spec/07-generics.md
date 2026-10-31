@@ -183,8 +183,11 @@ End Function
 ```
 
 - Under it, `Weak<T>` and `[Weak x]` take a T, as they take a Class (see
-  [08](08-memory.md#cycles)), and so do RefEquals, `x Is C`, and `Case c As C`, either way round:
-  `x Is T` tests for each instance's Class.
+  [08](08-memory.md#cycles)), and so do RefEquals, `x Is C`, `x As? C`, `x As C`, and `Case c As
+  C`, either way round: `x Is T` tests for each instance's Class, and `x As? T` gives an object
+  as each instance's Class, or Null. A T converts to an `Object` (see
+  [06](06-user-types.md#object)), which is how a library keeps any Class's object and gives it
+  back typed.
 - A Class meets it, an instance of a generic Class, and a Shared Class. Nothing else does: not a
   Struct, tuple, fixed array, or built-in type, which are values; not a String, a T[], or a
   function value, which refer to something that isn't a Class's object; not an Interface, whose

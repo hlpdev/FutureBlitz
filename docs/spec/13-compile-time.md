@@ -292,8 +292,8 @@ Local loaded = Try Load<Settings>(saved)        // and makes a Settings from aga
   ParseError. A Class whose Load fails before every Field is filled is let go of without its
   Destroy, which could see a Field with no zero that's still null. A Class is saved as its own
   type's Fields, whatever Class extends it, and an Abstract one can't be loaded. A Func, an
-  Interface's object, a tuple, a fixed array, a Weak, a Ptr, a Task, and the other types like
-  them can't be converted.
+  Interface's object, an Object, a tuple, a fixed array, a Weak, a Ptr, a Task, and the other
+  types like them can't be converted.
 - Load also reads a number or a Bool from a String that reads as one, like "8080" or "true", as
   a command line's and an environment's values are; an integer from a whole Double, and a
   Double from an integer; and a Bool from the integer 0 or 1, as SQLite and others keep one.

@@ -224,6 +224,47 @@ End Class
   when none of them takes a call's arguments and the Function does: an iterator's Next can call
   the program's `Max(a, b)` by name, though Iterator<T> gives it a Max.
 
+## Object
+
+`Object` is what every Class's object is: a built-in Interface without members, which every
+Class implements without listing it. A library keeps an object of any Class as one, and gives
+it back as the type it's asked for:
+
+```vb
+Class Entity
+    Field data: Object?
+
+    Method SetData(value: Object?)
+        data = value
+    End Method
+
+    Method Data<T: Class>(): T? => data As? T
+End Class
+
+entity.SetData(Guard("Ann"))
+Print(entity.Data<Npc>()?.Name ?? "none")     // Ann, as a Guard is an Npc
+Print(entity.Data<Door>() == Null)            // True
+```
+
+- An object of any Class converts to an `Object`, and so does a type parameter's that's a
+  Class's, `Where T: Class`. `x As? C` gives it back as a Class or an Interface, or `Null` when it
+  isn't one, `x As C` panics then ("expected Npc, found Door"), and `x Is C` and `Case c As C`
+  test it. `As?` and `As` convert to and from a type parameter that's a Class's too, checking
+  each instance's Class. An Interface's value converts to an Object only with `As?` or `As`,
+  since it can be an array's.
+- Nothing else is an Object: not a Struct, tuple, number, String, array, function value, Task,
+  or Channel. A Struct is a value, copied where it goes, so it's never an Object, as it's never
+  an Interface's value: one put in an object would be a copy, which the program's changes to
+  the Struct wouldn't reach, and `As?` would give back another copy. A Class that holds it is
+  one.
+- It has no members and no `==`, as an Interface's value has none: `RefEquals` tells whether two
+  are the same object. Otherwise it's a reference like any: it counts its owners, `Object?` can
+  be Null, a `Weak<Object>` refers to one without keeping it, and it isn't Sendable, since a
+  Class's objects stay on the thread that made them.
+- No type lists it, no Interface extends it, an Extend can't add to it, and it isn't a
+  constraint: `Where T: Class` says a type is a Class. A type that a module declares or imports
+  by the name takes its place there, as one named Scheduler does.
+
 ## Properties
 
 ```vb
