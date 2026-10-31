@@ -13,9 +13,11 @@ uses what any library can, Extern blocks over its C API, `@MainThread`, and the 
 
 fbengine is its own engine, not a modern copy of Blitz3D's: it follows std.math (right-handed,
 Y up, -Z forward, radians) and loads modern formats only. Its features have to cover everything
-SCP: Containment Breach needs, checked at E14, so a 1-to-1 remake can be built on it later; the
-remake is a separate project, with its own converters for the game's code and assets, tied to
-neither the engine nor the language (the user, 2026-10-31).
+SCP: Containment Breach Ultimate Edition v5 (the same game as SCP: Containment Breach Remastered)
+needs, checked at E14, so a remake indistinguishable to play can be built on it later; the remake
+is a separate project, with a clean codebase of its own, nothing like the original's, and its own
+converters for the game's assets, tied to neither the engine nor the language (the user,
+2026-10-31).
 
 ## Packages
 
