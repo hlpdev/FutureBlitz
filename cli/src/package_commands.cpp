@@ -621,9 +621,19 @@ bool published_path_versions(const console_t& console, const options_t& options,
             return false;
         }
 
-        if (std::ranges::none_of(*versions, [&](const index_entry_t& entry) {
-                return entry.version == folder->version && !entry.yanked;
-            })) {
+        // A yanked version can't be published again, so it's undone or the folder moves on.
+        const auto found = std::ranges::find(*versions, folder->version, &index_entry_t::version);
+        if (found != versions->end() && found->yanked) {
+            console.error(std::format(
+                "{} builds with {} v{} from its folder, '{}', which the registry has yanked, so "
+                "no one could build the published package; undo the yank with `fb yank {}@{} "
+                "--undo`, or give the folder a new version and publish that first",
+                manifest.name, dependency.name, folder->version, dependency.path, dependency.name,
+                folder->version));
+            return false;
+        }
+
+        if (found == versions->end()) {
             console.error(std::format(
                 "{} builds with {} v{} from its folder, '{}', which the registry doesn't have, so "
                 "no one could build the published package; publish {} v{} first",

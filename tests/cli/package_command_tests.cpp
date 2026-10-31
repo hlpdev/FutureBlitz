@@ -271,12 +271,6 @@ TEST_CASE("fb publish, add, search, and yank work with a registry on disk", "[cl
     CHECK(fb_run({ "update", "nope" }).output.contains("fb.lock has no package nope to update"));
 }
 
-// Against a registry's real API, which FB_TEST_REGISTRY names by its index's URL, like
-// http://index.localhost:8787/ for futureblitz-web's workers/api under `wrangler dev`, and
-// FB_TEST_REGISTRY_TOKEN gives a token of, with the publish scopes: one computer logs in with it,
-// publishes two packages, and searches for them, and another, with a cache of its own, adds one
-// and builds with it. Without FB_TEST_REGISTRY, it's skipped, so the tests stay offline. A
-// registry's versions are forever, so each run's packages have names of their own.
 TEST_CASE("fb publish checks a path dependency's version is the registry's, and builds the "
           "archive from the registry's packages",
           "[cli-packages]") {
@@ -337,8 +331,32 @@ TEST_CASE("fb publish checks a path dependency's version is the registry's, and 
     CHECK(unverified.exit_code == 0);
     CHECK_FALSE(unverified.output.contains("Verifying"));
     CHECK(unverified.output.contains("Published physics v1.2.0"));
+
+    // A yanked version can't be published again, so the message says what can be done instead.
+    const fb::process_result_t yanked = fb_run({ "yank", "shapes@0.3.0", "--registry", index });
+    INFO(yanked.output);
+    REQUIRE(yanked.exit_code == 0);
+    sandbox.library(
+        "physics", "physics", "1.3.0",
+        "shapes = { path = \"../shapes_local\", version = \"0.3\", registry = "
+        "\"local\" }\n",
+        { { "world.fb", "Import shapes\nPublic Function Uses(): String => Version()\n" } });
+    const fb::process_result_t withdrawn =
+        fb_run({ "publish", fb::to_utf8(sandbox / "physics"), "--registry", index });
+    INFO(withdrawn.output);
+    CHECK(withdrawn.exit_code == 1);
+    CHECK(withdrawn.output.contains(
+        "physics builds with shapes v0.3.0 from its folder, '../shapes_local', which the "
+        "registry has yanked, so no one could build the published package; undo the yank with "
+        "`fb yank shapes@0.3.0 --undo`, or give the folder a new version and publish that first"));
 }
 
+// Against a registry's real API, which FB_TEST_REGISTRY names by its index's URL, like
+// http://index.localhost:8787/ for futureblitz-web's workers/api under `wrangler dev`, and
+// FB_TEST_REGISTRY_TOKEN gives a token of, with the publish scopes: one computer logs in with it,
+// publishes two packages, and searches for them, and another, with a cache of its own, adds one
+// and builds with it. Without FB_TEST_REGISTRY, it's skipped, so the tests stay offline. A
+// registry's versions are forever, so each run's packages have names of their own.
 TEST_CASE("fb publishes to a registry's API, and another computer adds and builds",
           "[cli-packages]") {
     const std::optional<std::string> index = fb::environment_variable("FB_TEST_REGISTRY");
