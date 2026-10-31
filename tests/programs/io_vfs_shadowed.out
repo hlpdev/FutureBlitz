@@ -1,0 +1,10 @@
+a later mount at the file's place
+  DIRECTORY, read: IS_A_DIRECTORY, listed: a folder, later: IS_A_DIRECTORY
+  [one]
+a later mount under it
+  DIRECTORY, read: IS_A_DIRECTORY, listed: a folder, later: IS_A_DIRECTORY
+a later mount's folder at it, in memory and on the disk
+  DIRECTORY, read: IS_A_DIRECTORY, listed: a folder, later: IS_A_DIRECTORY
+  DIRECTORY, read: IS_A_DIRECTORY, listed: a folder, later: IS_A_DIRECTORY
+an earlier mount's folder under a later file stays a file
+  FILE, read: a file, listed: NOT_A_DIRECTORY, later: a file

@@ -1,0 +1,70 @@
+// A later mount at a place, or under it, makes the place a folder for every call, though an
+// earlier mount has a file there, and so does a later mount's folder there: KindOf, Entries, and
+// the reads, Async or not, all say so. Everything on the disk is in a temporary folder.
+Import std.core
+Import std.io
+
+Local temp = Try TempDir("fb-vfs-shadowed-")
+Local root = temp.Path
+
+// What each way of asking says of `path`.
+Function Says(vfs: Vfs, path: String): String
+    Local kind = Try? vfs.KindOf(path)
+    Local read = "a file"
+    Try
+        vfs.ReadText(path)
+    Catch e As IOError
+        read = "{e.Kind}"
+    End Try
+
+    Local listed = "a folder"
+    Try
+        vfs.Entries(path)
+    Catch e As IOError
+        listed = "{e.Kind}"
+    End Try
+
+    Return "{kind == Null ? "nothing" : "{kind}"}, read: {read}, listed: {listed}"
+End Function
+
+Async Function ReadsLater(vfs: Vfs, path: String): String
+    Try
+        Await vfs.ReadTextAsync(path)
+    Catch e As IOError
+        Return "{e.Kind}"
+    End Try
+
+    Return "a file"
+End Function
+
+Print("a later mount at the file's place")
+Local at = Vfs()
+at.MountEmbedded("", {"data": "the file".Bytes})
+at.MountEmbedded("data", {"one.txt": "one".Bytes})
+Print("  {Says(at, "data")}, later: {Await ReadsLater(at, "data")}")
+Print("  [{Try at.ReadText("data/one.txt")}]")
+
+Print("a later mount under it")
+Local under = Vfs()
+under.MountEmbedded("", {"data": "the file".Bytes})
+under.MountEmbedded("data/sub", {"two.txt": "two".Bytes})
+Print("  {Says(under, "data")}, later: {Await ReadsLater(under, "data")}")
+
+Print("a later mount's folder at it, in memory and on the disk")
+Local inside = Vfs()
+inside.MountEmbedded("", {"data": "the file".Bytes})
+inside.MountEmbedded("", {"data/three.txt": "three".Bytes})
+Print("  {Says(inside, "data")}, later: {Await ReadsLater(inside, "data")}")
+Try Dir.CreateAll(root / "game" / "data")
+Local disk = Vfs()
+disk.MountEmbedded("", {"data": "the file".Bytes})
+disk.MountFolder("", root / "game")
+Print("  {Says(disk, "data")}, later: {Await ReadsLater(disk, "data")}")
+
+Print("an earlier mount's folder under a later file stays a file")
+Local over = Vfs()
+over.MountEmbedded("data", {"four.txt": "four".Bytes})
+over.MountEmbedded("", {"data": "the file".Bytes})
+Print("  {Says(over, "data")}, later: {Await ReadsLater(over, "data")}")
+
+Try temp.Close()

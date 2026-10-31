@@ -237,14 +237,20 @@ Public Class Vfs
     End Method
 
     /// The bytes of the file at `path`. One that no mount has throws an IOError of NOT_FOUND, a
-    /// folder one of IS_A_DIRECTORY, and a path above the root one of INVALID_PATH.
+    /// folder one of IS_A_DIRECTORY, and a path above the root one of INVALID_PATH. What KindOf
+    /// says is a folder is one, though an earlier mount has a file there: a later mount at it or
+    /// under it, or a later mount's folder there.
     Public Method ReadBytes(path: Path): UInt8[] Throws IOError
         Local names = Try Checked(path, "read")
         For i = Mounts.Count - 1 To 0 Step -1
+            If Holds(Mounts[i], names) Then Throw FolderError(path)
             Local inner = Inside(Mounts[i], names)
             If inner == Null Then Continue
             Local bytes = Try Mounts[i].Source.Read(inner)
             If bytes != Null Then Return bytes
+            If (Try Mounts[i].Source.KindAt(inner)) == FileKind.DIRECTORY
+                Throw FolderError(path)
+            End If
         End For
 
         Throw Try Unread(path)
@@ -256,18 +262,23 @@ Public Class Vfs
         Local names = Try Checked(path, "read")
         Local mounts = Mounts.Clone()
         For i = mounts.Count - 1 To 0 Step -1
+            If Holds(mounts[i], names) Then Throw FolderError(path)
             Local inner = Inside(mounts[i], names)
             If inner == Null Then Continue
             Local folder = mounts[i].Source As? FolderSource
             If folder == Null
                 Local bytes = Try mounts[i].Source.Read(inner)
                 If bytes != Null Then Return bytes
+                If (Try mounts[i].Source.KindAt(inner)) == FileKind.DIRECTORY
+                    Throw FolderError(path)
+                End If
             Else
                 Local file = folder.OnDisk(inner)
-                If inner == "" || file == Null Then Continue
+                If file == Null Then Continue
                 Try
                     Return Await File.ReadBytesAsync(file)
                 Catch e As IOError
+                    If e.Kind == IOErrorKind.IS_A_DIRECTORY Then Throw FolderError(path)
                     If !Missing(e) Then Throw e
                 End Try
             End If
@@ -426,10 +437,7 @@ Public Class Vfs
 
     /// The IOError for a read of a path no mount has a file at: a folder's, or a missing one's.
     Method Unread(path: Path): IOError Throws IOError
-        If (Try KindOf(path)) == FileKind.DIRECTORY
-            Return IOError(IOErrorKind.IS_A_DIRECTORY, "can't read {path}: it's a folder",
-                           path.Text)
-        End If
+        If (Try KindOf(path)) == FileKind.DIRECTORY Then Return FolderError(path)
 
         Return IOError(IOErrorKind.NOT_FOUND, "can't read {path}: no mount of the Vfs has it",
                        path.Text)
@@ -497,6 +505,16 @@ End Function
 Function Inside(mounted: Mounted, names: String[]): String?
     If !Starts(names, mounted.At) Then Return Null
     Return Joined(names[mounted.At.Count..names.Count])
+End Function
+
+/// Whether a mount is at the place `names` or under it, which makes that a folder.
+Function Holds(mounted: Mounted, names: String[]): Bool
+    Return mounted.At.Count >= names.Count && Starts(mounted.At, names)
+End Function
+
+/// The IOError of reading the folder at `path`.
+Function FolderError(path: Path): IOError
+    Return IOError(IOErrorKind.IS_A_DIRECTORY, "can't read {path}: it's a folder", path.Text)
 End Function
 
 /// Whether `names` starts with all of `prefix`.
