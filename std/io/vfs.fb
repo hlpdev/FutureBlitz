@@ -237,13 +237,15 @@ Public Class Vfs
     End Method
 
     /// The bytes of the file at `path`. One that no mount has throws an IOError of NOT_FOUND, a
-    /// folder one of IS_A_DIRECTORY, and a path above the root one of INVALID_PATH. What KindOf
-    /// says is a folder is one, though an earlier mount has a file there: a later mount at it or
-    /// under it, or a later mount's folder there.
+    /// folder one of IS_A_DIRECTORY, a path under a file one of NOT_A_DIRECTORY, and a path above
+    /// the root one of INVALID_PATH. What KindOf says is a folder is one, though an earlier mount
+    /// has a file there: a later mount at it or under it, or a later mount's folder there; and a
+    /// later mount's file on the way to it hides what an earlier one has under it.
     Public Method ReadBytes(path: Path): UInt8[] Throws IOError
         Local names = Try Checked(path, "read")
         For i = Mounts.Count - 1 To 0 Step -1
             If Holds(Mounts[i], names) Then Throw FolderError(path)
+            If Try Through(Mounts[i], names) Then Throw UnderFileError(path)
             Local inner = Inside(Mounts[i], names)
             If inner == Null Then Continue
             Local bytes = Try Mounts[i].Source.Read(inner)
@@ -263,6 +265,7 @@ Public Class Vfs
         Local mounts = Mounts.Clone()
         For i = mounts.Count - 1 To 0 Step -1
             If Holds(mounts[i], names) Then Throw FolderError(path)
+            If Try Through(mounts[i], names) Then Throw UnderFileError(path)
             Local inner = Inside(mounts[i], names)
             If inner == Null Then Continue
             Local folder = mounts[i].Source As? FolderSource
@@ -308,7 +311,9 @@ Public Class Vfs
     End Method
 
     /// What's at `path`: a file or a folder some mount has, or a folder a mount is in or at, or
-    /// Null. What two mounts have is the last one's, as Entries finds it.
+    /// Null. What two mounts have is the last one's, as Entries finds it. A path under a later
+    /// mount's file, which hides what an earlier one has there, throws an IOError of
+    /// NOT_A_DIRECTORY, as a path through a file on the disk does.
     Public Method KindOf(path: Path): FileKind? Throws IOError
         Local names = NamesOf(path.Text)
         If names == Null Then Return Null
@@ -318,6 +323,8 @@ Public Class Vfs
             If Mounts[i].At.Count > names.Count && Starts(Mounts[i].At, names)
                 Return FileKind.DIRECTORY
             End If
+
+            If Try Through(Mounts[i], names) Then Throw UnderFileError(path)
 
             Local inner = Inside(Mounts[i], names)
             If inner == Null Then Continue
@@ -510,6 +517,23 @@ End Function
 /// Whether a mount is at the place `names` or under it, which makes that a folder.
 Function Holds(mounted: Mounted, names: String[]): Bool
     Return mounted.At.Count >= names.Count && Starts(mounted.At, names)
+End Function
+
+/// Whether a mount has a file at a place on the way to `names`, inside the mount, which hides
+/// what's under it, as a file in a path does on the disk.
+Function Through(mounted: Mounted, names: String[]): Bool Throws IOError
+    For count = mounted.At.Count + 1 Until names.Count
+        Local inner = Inside(mounted, names[0..count])
+        If inner != Null && (Try mounted.Source.KindAt(inner)) == FileKind.FILE Then Return True
+    End For
+
+    Return False
+End Function
+
+/// The IOError of a path under a file, which nothing can be at.
+Function UnderFileError(path: Path): IOError
+    Return IOError(IOErrorKind.NOT_A_DIRECTORY, "there's nothing at {path}: it's under a file",
+                   path.Text)
 End Function
 
 /// The IOError of reading the folder at `path`.

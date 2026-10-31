@@ -8,3 +8,6 @@ a later mount's folder at it, in memory and on the disk
   DIRECTORY, read: IS_A_DIRECTORY, listed: a folder, later: IS_A_DIRECTORY
 an earlier mount's folder under a later file stays a file
   FILE, read: a file, listed: NOT_A_DIRECTORY, later: a file
+  KindOf gives NOT_A_DIRECTORY, so nothing, read: NOT_A_DIRECTORY, listed: NOT_A_DIRECTORY, exists: False, later: NOT_A_DIRECTORY
+  [five], as a later mount under it
+  KindOf gives NOT_A_DIRECTORY, so nothing, read: NOT_A_DIRECTORY, listed: NOT_A_DIRECTORY, exists: False
