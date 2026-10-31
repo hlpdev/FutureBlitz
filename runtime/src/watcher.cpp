@@ -519,14 +519,36 @@ void forget(watcher_t& watcher, const std::string_view key, std::vector<event_t>
 /// as when libuv drops events it had no room for and says only that something changed: what
 /// went, what's in a folder before it, then what came, a folder before what's in it.
 std::vector<event_t> rescanned(watcher_t& watcher) {
+#ifdef __linux__
+    // Events lost on Linux may be a folder's own, as one removed and made again, whose handle
+    // is then dead, so each folder is watched again, before it's listed, as adopt() does.
+    std::set<std::string, std::less<>> keys;
+    if (watcher.recursive) {
+        unwatch_subfolders(watcher, "");
+        std::vector<std::string> pending{ "" };
+        while (!pending.empty()) {
+            const std::string folder = std::move(pending.back());
+            pending.pop_back();
+            watch_subfolder(watcher, folder);
+            std::vector<std::string> inside;
+            for (const std::string& name : names_in(real_in(watcher, folder), &inside)) {
+                keys.emplace(name.empty() ? folder : key_of(folder, name));
+            }
+
+            for (const std::string& name : inside) {
+                pending.push_back(key_of(folder, name));
+            }
+        }
+    } else {
+        keys = listing_of(watcher);
+    }
+#else
     std::set<std::string, std::less<>> keys = listing_of(watcher);
+#endif
     std::vector<event_t> events;
     for (const std::string& key : std::views::reverse(watcher.known)) {
         if (!key.empty() && !keys.contains(key)) {
             events.push_back({ .kind = EVENT_REMOVED, .path = path_in(watcher, key) });
-#ifdef __linux__
-            unwatch_subfolders(watcher, key);
-#endif
         }
     }
 
@@ -537,15 +559,6 @@ std::vector<event_t> rescanned(watcher_t& watcher) {
     }
 
     watcher.known = std::move(keys);
-#ifdef __linux__
-    if (watcher.recursive) {
-        for (const std::string& key : watcher.known) {
-            if (!key.empty() && is_folder(real_in(watcher, key))) {
-                watch_subfolder(watcher, key);
-            }
-        }
-    }
-#endif
     return events;
 }
 
@@ -778,7 +791,8 @@ void start_watching(uv_loop_t* loop, void* context) {
             uv_fs_event_start(&watcher.handle, watcher_t::on_event, watcher.path.c_str(), flags);
 #ifdef __linux__
         if (error == UV_ENOSPC) {
-            error = fb::runtime::too_many_watches;
+            error =
+                watcher.recursive ? fb::runtime::too_many_watches : fb::runtime::no_watches_left;
         }
 #endif
         if (error == 0) {

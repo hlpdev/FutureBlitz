@@ -1560,6 +1560,10 @@ fb_string_t* fb_io_error_message(const std::int64_t error) {
         return string_of("it holds more bytes than the read takes");
     }
 
+    if (error == fb::runtime::no_watches_left) {
+        return string_of("inotify watches as many as fs.inotify.max_user_watches lets it");
+    }
+
     if (error == fb::runtime::too_many_watches) {
         return string_of("it holds more folders than inotify watches, as "
                          "fs.inotify.max_user_watches says");

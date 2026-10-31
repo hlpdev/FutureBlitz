@@ -109,6 +109,20 @@ if(patched EQUAL -1)
   string(REPLACE "${finding}" "${telling}${finding}" text "${text}")
   file(WRITE "${inotify}" "${text}")
 endif()
+# And a folder's IN_ISDIR doesn't make its event a rename, as its own change of attributes, as a
+# touch or a chmod, would be, which a FileWatcher takes as the folder's going.
+set(renaming [=[      if (e->mask & ~(IN_ATTRIB|IN_MODIFY))]=])
+set(renamed [=[      if (e->mask & ~(IN_ATTRIB|IN_MODIFY|IN_ISDIR))]=])
+string(FIND "${text}" "${renamed}" patched)
+if(patched EQUAL -1)
+  string(FIND "${text}" "${renaming}" first)
+  string(FIND "${text}" "${renaming}" last REVERSE)
+  if(first EQUAL -1 OR NOT first EQUAL last)
+    message(FATAL_ERROR "libuv's unix/linux.c doesn't tell inotify's renames as it did")
+  endif()
+  string(REPLACE "${renaming}" "${renamed}" text "${text}")
+  file(WRITE "${inotify}" "${text}")
+endif()
 set(FB_LIBUV_VERSION ${FB_LIBUV_VERSION} PARENT_SCOPE)
 # Its notices, in one file: libuv's license, then those of the code it has from Joyent's libuv,
 # FreeBSD's tree.h, and ISC's inet.c, whose texts are at the top of those files.
