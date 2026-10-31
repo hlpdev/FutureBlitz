@@ -3,6 +3,18 @@
 What each milestone and step added, by name, and each review's fixes, as CLAUDE.md kept
 them while each was built. Newest first.
 
+## 1.1.0
+
+(2026-10-31.) Dependencies with both a path and a version, `fbengine = { path = "../fbengine",
+version = "0.1" }`, as Cargo has them: a build uses the folder, which has to be at a version the
+range takes, and isn't locked, though its own registry dependencies are; a package from the
+registry uses the range; and `fb publish` writes the archive's project.toml without the path
+(`published_manifest()` takes out its key and value, in an inline table with its comma, or its
+line, a table's or a dotted key's, and reads the result back as the same manifest), refusing a
+dependency with only a path as before, with how to add a version. `dependency_t` has `range_span`
+for where the range is written, apart from `path_span`, and `path_entry_span`. A path with a
+version can name a registry, as a path alone can't.
+
 ## 1.0.1
 
 (2026-10-30.) Linux's fb-bindgen read no header that includes `<stdint.h>`: release.yml gathered

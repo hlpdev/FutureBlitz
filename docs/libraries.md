@@ -141,7 +141,12 @@ pre-release after a `-`, like `1.0.0-beta.2`, ordered as semver orders them. Bui
 isn't taken, since two versions that differ only there would be one version to the registry.
 
 **Ranges**, as Cargo's, which `[dependencies]` gives as text, `physics = "1.2"`, or as
-`version` in a table, `physics = { version = "1.2", link = "beside" }`:
+`version` in a table, `physics = { version = "1.2", link = "beside" }`. A table with a `path`
+too, `physics = { path = "../physics", version = "1.2" }`, is a local package that's published as
+well, as packages developed together in one repository are: builds use its folder, whose version
+has to be in the range, it isn't in fb.lock (its own registry dependencies are), and `fb publish`
+writes only the range into the published project.toml, as Cargo does, so builds of the published
+package take the registry's:
 
 | Range | Means |
 |---|---|
@@ -310,7 +315,8 @@ tools = { version = "2", registry = "company" }
   name the registry takes (not `std`, `fb`, `futureblitz`, `apt`, `rpm`, or `releases`, even with
   `_`s), with a description of one line, at most 300 characters as the registry counts them, in
   UTF-16, a license that's an SPDX expression, a license file, and a readme in UTF-8 under 1 MB;
-  only versioned dependencies; paths the archive can hold; the size limits, a target's 200 MB only
+  only versioned dependencies, a dependency with a path and a version going into the archive's
+  project.toml without its path, and one with only a path refused; paths the archive can hold; the size limits, a target's 200 MB only
   for a registry on disk, since one on the network raises it per package, and each archive's
   20,000 files and 8 times its limit unpacked; and for a prebuilt package each target's debug and release builds and
   their .fbi agreeing. `--dry-run` stops there and lists each archive's files; otherwise it checks

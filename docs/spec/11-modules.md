@@ -117,7 +117,8 @@ zstd = { static = "libs/zstd" }
   default, so a program ships as a single binary; a package can bring dynamic ones too (see
   [Native libraries](#native-libraries)).
 
-A dependency can also be a local package, by its folder from the project.toml's:
+A dependency can also be a local package, by its folder from the project.toml's, with a range
+too when it's published:
 
 ```toml
 [project]
@@ -127,6 +128,7 @@ main = "main.fb"                    # the default
 
 [dependencies]
 geometry = { path = "../geometry" }
+engine = { path = "../engine", version = "0.1" }    # its folder here, 0.1 once published
 ```
 
 - `[project]` needs `name`, an identifier other than `std`, and `version`, three numbers like
@@ -147,9 +149,13 @@ geometry = { path = "../geometry" }
   URLs; `keywords`, at most five, each lowercase letters, digits, and `-`, not starting with `-`,
   at most 32 long; and `fb`, the range of fb's versions the package builds with, like `">=1.2"`.
 - A dependency is a package from a registry, by a range of its versions, `geometry = "1.2"` or
-  `geometry = { version = "1.2" }`, or a local one by its folder, `{ path = "../geometry" }`, but
-  not both; `registry = "company"` takes it from a registry `[registries]` names rather than
-  futureblitz.dev. `[registries]` names each by its index, `company = { index =
+  `geometry = { version = "1.2" }`, a local one by its folder, `{ path = "../geometry" }`, or a
+  local one that's published too, by both, `{ path = "../geometry", version = "1.2" }`, as
+  packages developed together in one repository are: a build uses its folder, whose version has to
+  be in the range, and `fb publish` writes only the range into the published package's
+  project.toml, so builds of the published package take the registry's. `registry = "company"`
+  takes it from a registry `[registries]` names rather than futureblitz.dev; a dependency with
+  only a path takes none. `[registries]` names each by its index, `company = { index =
   "https://packages.example.com/index/" }`, or a folder, a registry on disk; its names are
   identifiers, and `futureblitz` is futureblitz.dev's, which it can name again for a mirror. A
   range's forms, the resolver, fb.lock, and the cache folder are the package manager's, which
