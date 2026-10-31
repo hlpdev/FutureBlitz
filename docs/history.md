@@ -5,6 +5,26 @@ them while each was built. Newest first.
 
 ## 1.2
 
+A recursive FileWatcher (2026-10-31): `FileWatcher(path, recursive: True)` and its `Recursive`
+Field; `fb_io_watcher_new` takes `recursive`. watcher.cpp's `known` holds keys, a name or a path
+from the folder with '/'s ("art/hero.png"), which `listing_of()` lists through the tree, not
+through links, and `told()` takes from each handle's events, as `on_event` did: a folder that came
+is `adopt()`ed, its tree learned as CREATED events, folders before what's in them, and one that
+went is `forget()`ten, as REMOVED events, what's in a folder before it. `rescanned()` gives what
+went first, deepest first, then what came, and `listed()` lists the folder a key's in, by its key.
+Windows and macOS start the handle with `UV_FS_EVENT_RECURSIVE`, Windows' '\'s becoming '/'s; on
+Linux, where libuv leaves the flag out, each folder has a `subfolder_t` handle of its own, which
+holds the watcher, made before the folder's listed (`watch_subfolder()`) and closed with the
+folders in it (`unwatch_subfolders()`), and `close_handle()` closes them all; a folder that
+inotify refuses for its limits (ENOSPC, ENOMEM) when the watcher's made is its error
+(`watcher_t::unwatched`), while one it can't read is left out. Tests:
+tests/programs/io_watch_recursive, in folders there, folders that come one in another, a folder
+renamed, one moved in, the renamed and moved-in ones' new files, a folder removed with what's in
+it, and a watcher that isn't recursive telling of nothing deeper. Linux's handles were checked by
+hand in WSL, with libuv and watcher.cpp built by gcc under ASan and UBSan, through the same steps,
+a folder made again where one went, a folder it can't read, and inotify's limit, by
+`--wrap=inotify_add_watch`, the loop closing with none left.
+
 Reflection that sets (2026-10-31): a For Property's `p.Set(ByRef value, x)` calls the
 Property's Set, through the Method table for a Class (`accessor_of()`), and on a Struct's
 variable, and a For Static Field's `s.Set(x)` stores the Static Field, an instance's for a

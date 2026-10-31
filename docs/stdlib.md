@@ -824,7 +824,14 @@ std/io/.
   `CHANGED`, or `REMOVED`, and `Path`), Null once it's closed. It tells what came and went by the
   names it knows are there, since OSes call those differently, so a rename is the old name's
   REMOVED and the new name's CREATED, and a file renamed over another is the other's CHANGED.
-  `Close` drops what it hasn't given.
+  `Close` drops what it hasn't given. `FileWatcher(path, recursive: True)` watches the folders in
+  it too, and theirs, the ones that come later as well, not through links, and an event's `Path`
+  is the watcher's joined with where it is from there; a folder that comes brings a CREATED for
+  each thing in it, which an OS doesn't tell of for a folder moved in, and one that goes a
+  REMOVED for each it had. Windows and macOS watch the tree as one, through libuv's recursive
+  flag (ReadDirectoryChangesW's subtree, FSEvents), and on Linux, whose inotify watches a folder
+  at a time, the runtime watches each folder, adding them as they come; a tree with more folders
+  than inotify's limit is an IOError there.
 - A virtual file system: a `Vfs` mounts sources at points in a tree of its own (`Mount`,
   `MountFolder`, `MountEmbedded`, `Unmount`) and reads them as files are read (`ReadBytes`,
   `ReadText`, `ReadLines`, each with an Async twin, `KindOf`, `Exists`, `DirExists`, `Entries`,
