@@ -129,6 +129,7 @@ jobs:
       - name: Benchmark
         env:
           FB_LSP_BENCH_REPORT: lsp-bench
+          FB_LSP_BENCH_ENFORCE: 1
         run: build/tests/fb_lsp_tests "[bench]"
 
       - name: Summary

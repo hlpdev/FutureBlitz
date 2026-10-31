@@ -2,6 +2,8 @@
 
 #include "fb/process.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -20,15 +22,32 @@ namespace {
 /// The cache in use on this thread, if any.
 thread_local disk_cache_t* current = nullptr;
 
-/// What `ask` gives for `key`, from the cache in use, which asks once.
+/// What `ask` gives for `key`, about `path`, from the cache in use, which asks once about a path
+/// it keeps answers about.
 template <typename Value, typename Ask>
 Value remembered(std::unordered_map<disk_cache_t::key_t, Value> disk_cache_t::* answers,
-                 const disk_cache_t::key_t& key, Ask ask) {
-    if (current == nullptr) {
+                 const disk_cache_t::key_t& key, const std::filesystem::path& path, Ask ask) {
+    if (current == nullptr || !current->keeps(path)) {
         return ask();
     }
 
     return current->remember(answers, key, std::move(ask));
+}
+
+/// How keeps() compares a path: absolute, without "." or "..", with '/'s, and in one letter case
+/// where the disk ignores it.
+std::string comparable(const std::filesystem::path& path) {
+    std::string text = path.lexically_normal().generic_string();
+#if defined(_WIN32) || defined(__APPLE__)
+    std::ranges::transform(text, text.begin(), [](const unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+#endif
+    while (text.size() > 1 && text.ends_with('/')) {
+        text.pop_back();
+    }
+
+    return text;
 }
 
 /// Two paths as one key, apart by a character no path has.
@@ -41,6 +60,34 @@ disk_cache_t::key_t pair_key(const std::filesystem::path& first,
 }
 
 } // namespace
+
+void disk_cache_t::keep_only_under(const std::vector<std::filesystem::path>& folders) {
+    std::vector<std::string> compared;
+    for (const std::filesystem::path& folder : folders) {
+        compared.push_back(comparable(folder));
+    }
+
+    clear();
+    const std::scoped_lock lock(mutex);
+    watched = std::move(compared);
+}
+
+bool disk_cache_t::keeps(const std::filesystem::path& path) {
+    if (!path.is_absolute()) {
+        return !watched;
+    }
+
+    const std::string compared = comparable(path);
+    const std::scoped_lock lock(mutex);
+    if (!watched) {
+        return true;
+    }
+
+    return std::ranges::any_of(*watched, [&](const std::string& folder) {
+        return compared == folder ||
+               (compared.starts_with(folder) && compared[folder.size()] == '/');
+    });
+}
 
 void disk_cache_t::clear() {
     const std::scoped_lock lock(mutex);
@@ -72,25 +119,46 @@ disk_scope_t::~disk_scope_t() {
 namespace disk {
 
 std::filesystem::path weakly_canonical(const std::filesystem::path& path, std::error_code& error) {
-    auto [canonical, canonical_error] = remembered(&disk_cache_t::canonical, path.native(), [&] {
+    const auto ask = [&] {
         std::error_code asked;
         std::filesystem::path found = std::filesystem::weakly_canonical(path, asked);
         return std::pair(std::move(found), asked);
-    });
+    };
+    if (current == nullptr || !current->keeps(path)) {
+        auto [canonical, canonical_error] = ask();
+        error = canonical_error;
+        return canonical;
+    }
+
+    // Not where a link leads out of the folders it keeps answers about.
+    auto [canonical, canonical_error] =
+        current->remember(&disk_cache_t::canonical, path.native(), ask,
+                          [](const std::pair<std::filesystem::path, std::error_code>& found) {
+                              return current->keeps(found.first);
+                          });
     error = canonical_error;
     return canonical;
 }
 
 std::optional<std::filesystem::path> real_path(const std::filesystem::path& path) {
-    return remembered(&disk_cache_t::real, path.native(), [&] { return fb::real_path(path); });
+    if (current == nullptr || !current->keeps(path)) {
+        return fb::real_path(path);
+    }
+
+    return current->remember(
+        &disk_cache_t::real, path.native(), [&] { return fb::real_path(path); },
+        [](const std::optional<std::filesystem::path>& found) {
+            return !found || current->keeps(*found);
+        });
 }
 
 std::filesystem::file_type type(const std::filesystem::path& path, std::error_code& error) {
-    const disk_cache_t::status_t status = remembered(&disk_cache_t::statuses, path.native(), [&] {
-        std::error_code asked;
-        const std::filesystem::file_status found = std::filesystem::status(path, asked);
-        return disk_cache_t::status_t{ .type = found.type(), .error = asked };
-    });
+    const disk_cache_t::status_t status =
+        remembered(&disk_cache_t::statuses, path.native(), path, [&] {
+            std::error_code asked;
+            const std::filesystem::file_status found = std::filesystem::status(path, asked);
+            return disk_cache_t::status_t{ .type = found.type(), .error = asked };
+        });
     error = status.error;
     return status.type;
 }
@@ -116,18 +184,21 @@ bool is_directory(const std::filesystem::path& path, std::error_code& error) {
 
 bool equivalent(const std::filesystem::path& first, const std::filesystem::path& second,
                 std::error_code& error) {
-    auto [same, same_error] = remembered(&disk_cache_t::equivalent, pair_key(first, second), [&] {
-        std::error_code asked;
-        const bool found = std::filesystem::equivalent(first, second, asked);
-        return std::pair(found, asked);
-    });
+    // Kept only when both are where it keeps answers about.
+    auto [same, same_error] =
+        remembered(&disk_cache_t::equivalent, pair_key(first, second),
+                   current != nullptr && !current->keeps(second) ? second : first, [&] {
+                       std::error_code asked;
+                       const bool found = std::filesystem::equivalent(first, second, asked);
+                       return std::pair(found, asked);
+                   });
     error = same_error;
     return same;
 }
 
 std::shared_ptr<const std::vector<disk_entry_t>> entries(const std::filesystem::path& folder,
                                                          std::error_code& error) {
-    auto [found, found_error] = remembered(&disk_cache_t::entries, folder.native(), [&] {
+    auto [found, found_error] = remembered(&disk_cache_t::entries, folder.native(), folder, [&] {
         std::vector<disk_entry_t> listed;
         std::error_code asked;
         for (auto entry = std::filesystem::directory_iterator(folder, asked);
@@ -148,7 +219,7 @@ std::shared_ptr<const std::vector<disk_entry_t>> entries(const std::filesystem::
 }
 
 std::vector<std::filesystem::path> files_under(const std::filesystem::path& folder) {
-    return remembered(&disk_cache_t::files_under, folder.native(), [&] {
+    return remembered(&disk_cache_t::files_under, folder.native(), folder, [&] {
         std::vector<std::filesystem::path> found;
         std::error_code error;
         for (auto entry = std::filesystem::recursive_directory_iterator(folder, error);
@@ -166,7 +237,7 @@ std::vector<std::filesystem::path> files_under(const std::filesystem::path& fold
 
 std::optional<std::string> read(const std::filesystem::path& path) {
     const std::shared_ptr<const std::optional<std::string>> text =
-        remembered(&disk_cache_t::texts, path.native(), [&] {
+        remembered(&disk_cache_t::texts, path.native(), path, [&] {
             std::error_code error;
             if (!std::filesystem::is_regular_file(path, error)) {
                 return std::make_shared<const std::optional<std::string>>();

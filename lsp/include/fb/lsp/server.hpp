@@ -52,8 +52,14 @@ private:
     std::optional<int> m_exit;
     /// The client's initializationOptions.formatOnSave: whether a save formats the document.
     bool m_format_on_save = false;
-    /// Whether the client watches files for the server when it asks.
+    /// Whether the client watches files for the server when it asks, and whether a watcher can
+    /// have a folder of its own, a RelativePattern.
     bool m_watches = false;
+    bool m_relative = false;
+    /// The registrations of watchers the client hasn't answered, by their requests' ids: the
+    /// folders of RelativePattern ones, or none for the client's folders'.
+    std::map<std::string, std::vector<std::filesystem::path>> m_registering;
+    std::mutex m_watch_mutex;
     std::vector<std::filesystem::path> m_folders;
     /// The requests the server sent the client, by id.
     std::int64_t m_next_request = 1;
@@ -65,6 +71,10 @@ private:
     std::unique_ptr<workspace_t> m_workspace;
 
     void send(const json_t& message);
+    /// Asks the client to watch every file of `folders`, or of its own folders when it's empty.
+    void register_watchers(const std::vector<std::filesystem::path>& folders);
+    /// The client's answer to one of the server's own requests.
+    void answered(const json_t& response);
     void respond(const json_t& id, json_t result);
     void fail(const json_t& id, error_code_t code, const std::string& message);
     void publish(const published_t& published);

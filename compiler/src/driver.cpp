@@ -1138,6 +1138,14 @@ private:
         std::string module =
             entry.failed ? failed_proto_module(entry.file, shown) : generate_proto(entry.file);
         const file_id_t file = m_compilation.sources.add(shown + ".fb", std::move(module));
+        if (m_files.root) {
+            std::error_code ignored;
+            const auto at = static_cast<std::size_t>(std::to_underlying(file));
+            m_compilation.made_from.resize(std::max(m_compilation.made_from.size(), at + 1));
+            m_compilation.made_from[at] =
+                std::filesystem::absolute(disk_path(m_files, path), ignored);
+        }
+
         const std::size_t index = m_loaded.size();
         m_loaded.push_back(
             { .path = path, .file = file, .imported_at = imported_at, .proto = &entry });
@@ -3502,6 +3510,11 @@ std::filesystem::path compilation_t::disk_path(const file_id_t id) const {
 std::filesystem::path compilation_t::interface_path(const file_id_t id) const {
     const auto index = static_cast<std::size_t>(std::to_underlying(id));
     return index < in_interface.size() ? in_interface[index] : std::filesystem::path();
+}
+
+std::filesystem::path compilation_t::made_from_path(const file_id_t id) const {
+    const auto index = static_cast<std::size_t>(std::to_underlying(id));
+    return index < made_from.size() ? made_from[index] : std::filesystem::path();
 }
 
 std::expected<compilation_t, std::string> check_files(const check_request_t& request) {

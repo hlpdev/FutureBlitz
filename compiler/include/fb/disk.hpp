@@ -47,9 +47,18 @@ struct disk_cache_t {
     std::unordered_map<key_t, std::shared_ptr<const std::optional<std::string>>> texts;
     /// How many times it was emptied, so an answer asked for before it last was isn't kept.
     std::uint64_t clears = 0;
+    /// The folders it keeps answers about, as keeps() compares them, when it keeps only some.
+    std::optional<std::vector<std::string>> watched;
 
     /// Forgets everything, as the disk may have changed.
     void clear();
+
+    /// Keeps answers only about paths in `folders` from now, as the LSP's cache does about the
+    /// folders whose changes the client says, and forgets the rest.
+    void keep_only_under(const std::vector<std::filesystem::path>& folders);
+
+    /// Whether it keeps answers about `path`: one in a folder it was told of, or any without.
+    [[nodiscard]] bool keeps(const std::filesystem::path& path);
 
     /// What `ask` gives for `key` among `answers`: the answer kept, or `ask`'s, which is kept
     /// unless the cache was emptied while it asked, as the disk may have changed since. The
@@ -57,6 +66,13 @@ struct disk_cache_t {
     template <typename Value, typename Ask>
     Value remember(std::unordered_map<key_t, Value> disk_cache_t::* answers, const key_t& key,
                    Ask ask) {
+        return remember(answers, key, std::move(ask), [](const Value&) { return true; });
+    }
+
+    /// remember(), keeping only an answer `keep` says it can.
+    template <typename Value, typename Ask, typename Keep>
+    Value remember(std::unordered_map<key_t, Value> disk_cache_t::* answers, const key_t& key,
+                   Ask ask, Keep keep) {
         std::uint64_t asked_at = 0;
         {
             const std::scoped_lock lock(mutex);
@@ -68,8 +84,13 @@ struct disk_cache_t {
             asked_at = clears;
         }
 
-        // Asked without the lock, so one slow answer doesn't hold up another thread's.
+        // Asked without the lock, so one slow answer doesn't hold up another thread's, and
+        // `keep` too, which may ask keeps().
         Value value = ask();
+        if (!keep(value)) {
+            return value;
+        }
+
         const std::scoped_lock lock(mutex);
         if (clears != asked_at) {
             return value;

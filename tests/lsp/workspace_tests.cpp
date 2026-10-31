@@ -1,6 +1,7 @@
 #include "client.hpp"
 #include "fb/build_config.hpp"
 #include "fb/driver.hpp"
+#include "fb/interface.hpp"
 #include "fb/lsp/protocol.hpp"
 #include "fb/lsp/workspace.hpp"
 #include "fb/process.hpp"
@@ -535,4 +536,261 @@ TEST_CASE("fb-lsp talks JSON-RPC over its stdin and stdout", "[lsp]") {
                each["params"]["diagnostics"].size() == 1;
     });
     CHECK(published);
+}
+
+namespace {
+
+/// The messages of the diagnostics published last for `uri`, or none when none were.
+std::vector<std::string> last_messages(const client_t& client, const std::string& uri) {
+    std::vector<std::string> found;
+    for (const json_t& message : client.notifications()) {
+        if (message.value("method", "") == "textDocument/publishDiagnostics" &&
+            message["params"]["uri"] == uri) {
+            found = messages_of(message["params"]["diagnostics"]);
+        }
+    }
+
+    return found;
+}
+
+/// Whether each of `uris` has the diagnostics in `client` that a client starting now gives, with
+/// `folders` and `main` open with `text`.
+bool as_fresh(const client_t& client, const std::vector<std::filesystem::path>& folders,
+              const std::string& main, const std::string& text,
+              const std::vector<std::string>& uris) {
+    client_t fresh({ .folders = folders, .watches = true });
+    fresh.open(main, text);
+    fresh.settle();
+    return std::ranges::all_of(uris, [&](const std::string& uri) {
+        return last_messages(client, uri) == last_messages(fresh, uri);
+    });
+}
+
+/// Says to the server that the client saw `uri` made (1), changed (2), or deleted (3).
+void saw(client_t& client, const std::string& uri, const int type) {
+    client.notify("workspace/didChangeWatchedFiles",
+                  { { "changes", json_t::array({ { { "uri", uri }, { "type", type } } }) } });
+}
+
+/// The watchers of the registrations the server asked the client for.
+std::vector<json_t> watchers_asked(const client_t& client) {
+    std::vector<json_t> found;
+    for (const json_t& message : client.notifications()) {
+        if (message.value("method", "") == "client/registerCapability") {
+            found.push_back(message["params"]["registrations"][0]["registerOptions"]["watchers"]);
+        }
+    }
+
+    return found;
+}
+
+} // namespace
+
+TEST_CASE("the client is asked to watch every file, and trusted to once it says it does", "[lsp]") {
+    const bool answers = GENERATE(false, true);
+    const folder_t folder({
+        { "project.toml", "[project]\nname = \"asked\"\nversion = \"0.1.0\"\n" },
+        { "main.fb", "Import std.core\nImport \"./extra\"\nPrint(Extra())\n" },
+    });
+    client_t client({ .folders = { folder.root() }, .watches = true, .answers = answers });
+    const std::string main = folder.uri("main.fb");
+    const std::string text = read_file(folder.path("main.fb"));
+    client.open(main, text);
+    client.settle();
+    CHECK(watchers_asked(client) ==
+          std::vector<json_t>{ json_t::array({ { { "globPattern", "**/*" } } }) });
+
+    // Until the client takes the registration, the checks don't share what they know.
+    folder.write("extra.fb", "Import std.core\nPublic Function Extra(): Int => 1\n");
+    client.change(main, text + "\n");
+    client.settle();
+    CHECK(client.diagnostics(main).empty() == !answers);
+}
+
+TEST_CASE("files no Import names, made or changed, are read again once the client says so",
+          "[lsp]") {
+    // A file an Embed names, made after a check, and the config a Const Function reads, fixed.
+    const folder_t folder({
+        { "project.toml", "[project]\nname = \"embeds\"\nversion = \"0.1.0\"\n" },
+        { "config.txt", "bad" },
+        {
+            "main.fb",
+            "Import std.core\nConst Greeting = EmbedText(\"hello.txt\")\n"
+            "Const Function Checked(text: String): Int\n"
+            "    If text != \"ok\" Then Panic(\"the config isn't ok\")\n    Return 1\n"
+            "End Function\nConst C = Checked(EmbedText(\"config.txt\"))\nPrint(Greeting)\n"
+            "Print(C)\n",
+        },
+    });
+    client_t client({ .folders = { folder.root() }, .watches = true });
+    const std::string main = folder.uri("main.fb");
+    const std::string text = read_file(folder.path("main.fb"));
+    client.open(main, text);
+    client.settle();
+    REQUIRE(client.diagnostics(main).size() == 2);
+
+    folder.write("hello.txt", "hi");
+    saw(client, folder.uri("hello.txt"), 1);
+    folder.write("config.txt", "ok");
+    saw(client, folder.uri("config.txt"), 2);
+    client.change(main, text + "\n");
+    client.settle();
+    CHECK(client.diagnostics(main).empty());
+    CHECK(as_fresh(client, { folder.root() }, main, text + "\n", { main }));
+}
+
+TEST_CASE("a folder of modules moved in is read once the client says it was made", "[lsp]") {
+    const folder_t folder({
+        { "project.toml", "[project]\nname = \"moved\"\nversion = \"0.1.0\"\n" },
+        { "main.fb", "Import std.core\nImport \"./parts/wheel\"\nPrint(Wheel())\n" },
+    });
+    client_t client({ .folders = { folder.root() }, .watches = true });
+    const std::string main = folder.uri("main.fb");
+    const std::string text = read_file(folder.path("main.fb"));
+    client.open(main, text);
+    client.settle();
+    REQUIRE(!client.diagnostics(main).empty());
+
+    // The client says the folder was made, not each file in it.
+    folder.write("parts/wheel.fb", "Import std.core\nPublic Function Wheel(): Int => 4\n");
+    saw(client, folder.uri("parts"), 1);
+    client.change(main, text + "\n");
+    client.settle();
+    CHECK(client.diagnostics(main).empty());
+    CHECK(as_fresh(client, { folder.root() }, main, text + "\n", { main }));
+}
+
+TEST_CASE("a package outside the client's folders is watched with a folder of its own, or not "
+          "kept",
+          "[lsp]") {
+    const bool relative = GENERATE(false, true);
+    const folder_t folder({
+        { "lib/project.toml", "[project]\nname = \"lib\"\nversion = \"0.1.0\"\n" },
+        { "lib/shapes.fb", "Import std.core\nPublic Function Area(): Int => 4\n" },
+        {
+            "app/project.toml",
+            "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n"
+            "[dependencies]\nlib = { path = \"../lib\" }\n",
+        },
+        { "app/main.fb", "Import std.core\nImport lib.shapes\nPrint(Area())\n" },
+    });
+    client_t client({
+        .folders = { folder.path("app") },
+        .watches = true,
+        .relative_patterns = relative,
+    });
+    const std::string main = folder.uri("app/main.fb");
+    const std::string text = read_file(folder.path("app/main.fb"));
+    client.open(main, text);
+    client.settle();
+    REQUIRE(client.diagnostics(main).empty());
+
+    // A client whose watchers can have folders of their own is asked to watch lib's too.
+    const std::vector<json_t> asked = watchers_asked(client);
+    const bool lib_watched = std::ranges::any_of(asked, [&](const json_t& watchers) {
+        return watchers[0]["globPattern"].is_object() &&
+               fb::lsp::path_of(watchers[0]["globPattern"]["baseUri"].get<std::string>()) ==
+                   fb::lsp::path_of(folder.uri("lib"));
+    });
+    CHECK(lib_watched == relative);
+    folder.write("lib/shapes.fb", "Import std.core\nPublic Function Size(): Int => 4\n");
+    if (relative) {
+        saw(client, folder.uri("lib/shapes.fb"), 2);
+    }
+
+    client.change(main, text + "\n");
+    client.settle();
+    CHECK(!client.diagnostics(main).empty());
+    CHECK(as_fresh(client, { folder.path("app") }, main, text + "\n", { main }));
+}
+
+TEST_CASE("a .proto changed on disk checks again what imports it", "[lsp]") {
+    // The .proto main.fb imports, or one that one imports.
+    const bool inner = GENERATE(false, true);
+    const std::string login = "syntax = \"proto3\";\n\nimport \"name.proto\";\n\n"
+                              "message Login {\n  string user = 1;\n  Name name = 2;\n}\n";
+    const folder_t folder({
+        { "project.toml", "[project]\nname = \"protos\"\nversion = \"0.1.0\"\n" },
+        { "name.proto", "syntax = \"proto3\";\n\nmessage Name {\n  string first = 1;\n}\n" },
+        { "login.proto", login },
+        {
+            "main.fb",
+            "Import std.core\nImport \"./login.proto\"\nLocal l = Login(user: \"a\")\n"
+            "Print(l.user)\n",
+        },
+    });
+    client_t client({ .folders = { folder.root() }, .watches = true });
+    const std::string main = folder.uri("main.fb");
+    const std::string text = read_file(folder.path("main.fb"));
+    client.open(main, text);
+    client.settle();
+    REQUIRE(client.diagnostics(main).empty());
+
+    if (inner) {
+        folder.write("name.proto",
+                     "syntax = \"proto3\";\n\nmessage Name {\n  strin first = 1;\n}\n");
+        saw(client, folder.uri("name.proto"), 2);
+    } else {
+        std::string renamed = login;
+        renamed.replace(renamed.find("user"), 4, "person");
+        folder.write("login.proto", renamed);
+        saw(client, folder.uri("login.proto"), 2);
+    }
+
+    client.settle();
+    CHECK(!client.diagnostics(main).empty());
+    CHECK(as_fresh(client, { folder.root() }, main, text, { main }));
+}
+
+TEST_CASE("a package's library or fb.lock changed on disk reads its package again", "[lsp]") {
+    const std::string target(fb::build_target());
+#ifdef _WIN32
+    const std::string library = "dyncalc.dll";
+#elifdef __APPLE__
+    const std::string library = "libdyncalc.dylib";
+#else
+    const std::string library = "libdyncalc.so";
+#endif
+    const folder_t folder({
+        {
+            "calc/project.toml",
+            "[project]\nname = \"calc\"\nversion = \"0.1.0\"\n\n"
+            "[native]\ndyncalc = { dynamic = \"native/{target}/dyncalc\" }\n",
+        },
+        {
+            "calc/calc.fb",
+            "Package Extern \"C\" Lib \"dyncalc\"\n    Function dc_add(a: Int32, b: Int32): Int32\n"
+            "End Extern\nPublic Function Add(a: Int32, b: Int32): Int32 => dc_add(a, b)\n",
+        },
+        {
+            "app/project.toml",
+            "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n"
+            "[dependencies]\ncalc = { path = \"../calc\" }\n",
+        },
+        { "app/main.fb", "Import std.core\nImport calc\nPrint(Add(2, 3))\n" },
+    });
+    client_t client({ .folders = { folder.root() }, .watches = true });
+    const std::string main = folder.uri("app/main.fb");
+    const std::string text = read_file(folder.path("app/main.fb"));
+    client.open(main, text);
+    client.settle();
+    const std::vector<std::string> uris{ main, folder.uri("calc/project.toml"),
+                                         folder.uri("app/project.toml") };
+    const std::vector<std::string> before = last_messages(client, uris[1]);
+
+    // A build of the C library writes it.
+    const std::string built = "calc/native/" + target + "/" + library;
+    folder.write(built, "not a library");
+    saw(client, folder.uri(built), 1);
+    client.settle();
+    CHECK(last_messages(client, uris[1]) != before);
+    CHECK(as_fresh(client, { folder.root() }, main, text, uris));
+
+    // And fb.lock, which says which packages a build has, is read with its package.
+    const std::size_t checked = checks(client);
+    folder.write("app/fb.lock", "# fb.lock\n");
+    saw(client, folder.uri("app/fb.lock"), 1);
+    client.settle();
+    CHECK(checks(client) > checked);
+    CHECK(as_fresh(client, { folder.root() }, main, text, uris));
 }

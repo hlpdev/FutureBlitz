@@ -32,9 +32,6 @@
 namespace fb::lsp {
 namespace {
 
-/// The LSP's WatchKind for a deletion.
-constexpr int watch_delete = 4;
-
 /// The file a request's textDocument names. nullopt for a URI that isn't a file's.
 std::optional<std::filesystem::path> document_path(const json_t& params) {
     return path_of(params.at("textDocument").at("uri").get<std::string>());
@@ -112,6 +109,81 @@ void apply_change(std::string& text, const json_t& change, const positions_t& po
 server_t::server_t(send_t send, const options_t options) : m_send(std::move(send)) {
     m_workspace = std::make_unique<workspace_t>(
         [this](const published_t& published) { publish(published); }, options.workspace);
+    // The folders of packages the checks found outside the client's, which only a watcher of
+    // their own sees.
+    m_workspace->on_outside([this](const std::vector<std::filesystem::path>& folders) {
+        if (m_watches && m_relative) {
+            register_watchers(folders);
+        }
+    });
+}
+
+void server_t::register_watchers(const std::vector<std::filesystem::path>& folders) {
+    json_t watchers = json_t::array();
+    if (folders.empty()) {
+        watchers.push_back({ { "globPattern", "**/*" } });
+    }
+
+    for (const std::filesystem::path& folder : folders) {
+        watchers.push_back(
+            { { "globPattern", { { "baseUri", uri_of(folder) }, { "pattern", "**/*" } } } });
+    }
+
+    std::string id;
+    {
+        const std::scoped_lock lock(m_watch_mutex);
+        id = std::format("fb-{}", m_next_request++);
+        m_registering[id] = folders;
+    }
+
+    send({
+        { "jsonrpc", "2.0" },
+        { "id", id },
+        { "method", "client/registerCapability" },
+        {
+            "params",
+            {
+                {
+                    "registrations",
+                    json_t::array({
+                        {
+                            { "id", id },
+                            { "method", "workspace/didChangeWatchedFiles" },
+                            { "registerOptions", { { "watchers", std::move(watchers) } } },
+                        },
+                    }),
+                },
+            },
+        },
+    });
+}
+
+void server_t::answered(const json_t& response) {
+    if (!response.contains("id") || !response["id"].is_string()) {
+        return;
+    }
+
+    std::optional<std::vector<std::filesystem::path>> folders;
+    {
+        const std::scoped_lock lock(m_watch_mutex);
+        const auto found = m_registering.find(response["id"].get<std::string>());
+        if (found == m_registering.end()) {
+            return;
+        }
+
+        if (!response.contains("error")) {
+            folders = std::move(found->second);
+        }
+
+        m_registering.erase(found);
+    }
+
+    // The checks share what they know of the disk only where the client said it watches.
+    if (folders && folders->empty()) {
+        m_workspace->watched(true);
+    } else if (folders) {
+        m_workspace->watching(*folders);
+    }
 }
 
 void server_t::send(const json_t& message) {
@@ -157,6 +229,7 @@ void server_t::handle(const json_t& message) {
 
     // A response to one of the server's own requests.
     if (!message.contains("method")) {
+        answered(message);
         return;
     }
 
@@ -291,45 +364,7 @@ void server_t::notified(const std::string& method, const json_t& params) {
     if (method == "initialized") {
         // The client watches the files, for changes made outside it, like a git checkout.
         if (m_watches) {
-            send({
-                { "jsonrpc", "2.0" },
-                { "id", std::format("fb-{}", m_next_request++) },
-                { "method", "client/registerCapability" },
-                {
-                    "params",
-                    {
-                        {
-                            "registrations",
-                            json_t::array({
-                                {
-                                    { "id", "fb-files" },
-                                    { "method", "workspace/didChangeWatchedFiles" },
-                                    {
-                                        "registerOptions",
-                                        {
-                                            {
-                                                "watchers",
-                                                json_t::array({
-                                                    { { "globPattern", "**/*.fb" } },
-                                                    { { "globPattern", "**/project.toml" } },
-                                                    { { "globPattern", "**/fb.lock" } },
-                                                    { { "globPattern", "**/*.proto" } },
-                                                    // A folder's deletion, whose files the
-                                                    // patterns above might not be told of.
-                                                    {
-                                                        { "globPattern", "**/*" },
-                                                        { "kind", watch_delete },
-                                                    },
-                                                }),
-                                            },
-                                        },
-                                    },
-                                },
-                            }),
-                        },
-                    },
-                },
-            });
+            register_watchers({});
         }
 
         m_workspace->add_folders(m_folders);
@@ -421,6 +456,7 @@ json_t server_t::initialize(const json_t& params) {
     const json_t watching =
         object_at(object_at(capabilities, "workspace"), "didChangeWatchedFiles");
     const bool watches = watching.value("dynamicRegistration", false);
+    const bool relative = watching.value("relativePatternSupport", false);
     const bool format_on_save =
         object_at(params, "initializationOptions").value("formatOnSave", false);
 
@@ -444,7 +480,7 @@ json_t server_t::initialize(const json_t& params) {
     // open, so the threads that publish read the positions' unit only after it's set.
     m_positions.unit = utf8 ? column_unit_t::UTF8 : column_unit_t::UTF16;
     m_watches = watches;
-    m_workspace->watched(watches);
+    m_relative = relative;
     m_format_on_save = format_on_save;
     m_folders = std::move(folders);
     m_initialized = true;

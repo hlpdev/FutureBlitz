@@ -326,6 +326,26 @@ workspace_t::~workspace_t() {
 void workspace_t::watched(const bool watches) {
     const std::scoped_lock lock(m_mutex);
     m_watched = watches;
+    rewatch();
+}
+
+void workspace_t::on_outside(watch_t watch) {
+    const std::scoped_lock lock(m_mutex);
+    m_watch = std::move(watch);
+}
+
+void workspace_t::watching(const std::vector<std::filesystem::path>& folders) {
+    const std::scoped_lock lock(m_mutex);
+    std::ranges::copy(folders, std::back_inserter(m_watched_outside));
+    rewatch();
+}
+
+void workspace_t::rewatch() {
+    std::vector<std::filesystem::path> folders = m_folders;
+    folders.push_back(std_folder());
+    std::ranges::copy(m_watched_outside, std::back_inserter(folders));
+    m_disk.keep_only_under(folders);
+    forget_file_keys();
 }
 
 void workspace_t::disk_changed() {
@@ -336,6 +356,12 @@ void workspace_t::disk_changed() {
 void workspace_t::add_folders(const std::vector<std::filesystem::path>& folders) {
     std::unique_lock lock(m_mutex);
     disk_changed();
+    // Its folders are the cache's too, once it's told them.
+    const auto told = [this] {
+        if (m_watched) {
+            rewatch();
+        }
+    };
     for (const std::filesystem::path& folder : folders) {
         std::error_code error;
         const std::filesystem::path absolute =
@@ -375,6 +401,7 @@ void workspace_t::add_folders(const std::vector<std::filesystem::path>& folders)
         }
     }
 
+    told();
     lock.unlock();
     m_work.notify_all();
 }
@@ -388,6 +415,10 @@ void workspace_t::remove_folders(const std::vector<std::filesystem::path>& folde
             std::filesystem::weakly_canonical(std::filesystem::absolute(folder, error), error));
         std::erase_if(m_folders,
                       [&](const std::filesystem::path& each) { return file_key(each) == key; });
+    }
+
+    if (m_watched) {
+        rewatch();
     }
 
     // The units that aren't the workspace's now aren't checked whole, and what's published for
@@ -591,6 +622,26 @@ void workspace_t::changed_on_disk(const std::vector<std::filesystem::path>& path
             const bool exists = std::filesystem::is_regular_file(path, error);
             if (path.filename() == "project.toml") {
                 changed_manifest(path, exists);
+                continue;
+            }
+
+            // A package's fb.lock, a library its project.toml names, or its prebuilt interface
+            // file: what the package is made of, as its project.toml says.
+            const std::string extension = to_utf8(path.extension());
+            if (path.filename() == "fb.lock" || extension == ".dll" || extension == ".so" ||
+                extension == ".dylib" || extension == ".a" || extension == ".lib" ||
+                extension == ".fbi") {
+                if (const std::optional<std::filesystem::path> root =
+                        find_package(path.parent_path())) {
+                    changed_manifest(*root / "project.toml", true);
+                }
+
+                continue;
+            }
+
+            // A .proto's module, which the files that import it are checked again for.
+            if (extension == ".proto") {
+                m_dependents[key] = steady_t::now() + m_options.dependents_delay;
                 continue;
             }
 
@@ -920,6 +971,28 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
         m_exports[job.unit][path] = std::move(names);
     }
 
+    // The folders of packages it read outside the client's, which only a watcher of their own
+    // sees.
+    if (compilation && m_watched && m_watch) {
+        std::vector<std::filesystem::path> outside;
+        for (const module_t& module : compilation->ast.modules().modules()) {
+            const std::filesystem::path path = compilation->disk_path(module.file);
+            if (path.empty() || module.path.starts_with("std/") || owns(path)) {
+                continue;
+            }
+
+            const std::filesystem::path root =
+                find_package(path.parent_path()).value_or(path.parent_path());
+            if (m_outside.insert(file_key(root)).second) {
+                outside.push_back(root);
+            }
+        }
+
+        if (!outside.empty()) {
+            m_watch(outside);
+        }
+    }
+
     m_history.push_back({
         .roots = job.roots,
         .modules = compilation ? compilation->ast.modules().size() : 0,
@@ -931,12 +1004,16 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
         m_history.erase(m_history.begin());
     }
 
-    // The modules it had, by key, and what each imports.
+    // The modules it had, by key, and what each imports. A .proto's module is the .proto's.
     std::map<std::string, file_id_t> files;
     if (compilation) {
+        const auto where = [&](const file_id_t file) {
+            std::filesystem::path path = compilation->disk_path(file);
+            return path.empty() ? compilation->made_from_path(file) : path;
+        };
         const module_table_t& modules = compilation->ast.modules();
         for (const module_t& module : modules.modules()) {
-            const std::filesystem::path path = compilation->disk_path(module.file);
+            const std::filesystem::path path = where(module.file);
             if (path.empty()) {
                 continue;
             }
@@ -961,7 +1038,7 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
             imports.clear();
             for (const module_import_t& imported : module.imports) {
                 for (const module_id_t id : imported.modules) {
-                    const std::filesystem::path file = compilation->disk_path(modules.get(id).file);
+                    const std::filesystem::path file = where(modules.get(id).file);
                     if (!file.empty()) {
                         imports.insert(file_key(file));
                     }
@@ -1118,15 +1195,20 @@ std::set<std::string> workspace_t::dependents(const std::string& key) const {
         return candidates;
     }
 
+    // Through files no check has as a root, as a .proto another imports, or a package's outside
+    // the client's folders.
     std::set<std::string> found;
+    std::set<std::string> walked{ key };
     std::vector<std::string> work{ key };
     while (!work.empty()) {
         const std::string imported = work.back();
         work.pop_back();
         for (const auto& [file, imports] : m_imports) {
-            if (imports.contains(imported) && file != key && candidates.contains(file) &&
-                found.insert(file).second) {
+            if (imports.contains(imported) && walked.insert(file).second) {
                 work.push_back(file);
+                if (candidates.contains(file)) {
+                    found.insert(file);
+                }
             }
         }
     }

@@ -80,6 +80,24 @@ starting as the typed word does, so the list is incomplete. The extension turns 
 word-based suggestions off for .fb files. Tests: tests/lsp/completion_tests.cpp, each kind's
 items and order, and the completion test's keywords by place.
 
+Step 1's review fixes (2026-10-31, on dev/m11): fb-lsp registers one watcher, `**/*`, for every
+kind of change (`server_t::register_watchers`), and the checks share the disk cache only once the
+client answers the registration (`server_t::answered`), not from its capability alone. The cache
+keeps answers only about the client's folders (`disk_cache_t::keep_only_under` and `keeps`, and a
+`remember` whose `keep` turns down a real or canonical path that leads out of them, asked without
+the cache's lock); a package a check reads outside them gets a RelativePattern watcher of its own
+when the client has relativePatternSupport (`workspace_t::on_outside`, `watching`), and is asked
+each time without it. A changed .proto checks again what imports it, through the .proto its module
+is made from (`compilation_t::made_from`, `made_from_path`), and dependents are found through files
+no check has as a root; a package's fb.lock, library, or .fbi reads its package again. The
+benchmark's budgets are met with the 50th percentile in them and the 95th in one and a half times
+them, and a miss fails it only with `FB_LSP_BENCH_ENFORCE` set, which CI's lsp-bench job sets.
+decisions.md's first row for step 1 is marked superseded. Tests: the cache keeping only its
+folders' answers, the registration and its answer, an Embed's file made and a Const Function's
+config fixed, a folder of modules moved in, a path dependency outside the client's folders with and
+without its own watcher, a .proto changed directly and through another, a package's library and
+fb.lock, each against a check from nothing, and the budgets' rule.
+
 A string's escapes in their own color (2026-10-31, the user): fb-lsp's semantic tokens gave each
 string literal one `string` token, which VS Code colors over the grammar's
 `constant.character.escape`, so `\n` looked like the rest of the string. `string_pieces()` in

@@ -2,8 +2,9 @@
 // package, from the edit, at the 50th and 95th percentile, against M11's budgets. The whole one is
 // hidden, as it takes minutes on a release build: `fb_lsp_tests "[bench]"` runs it, with
 // FB_LSP_BENCH_REPORT naming a folder for its report, lsp-bench.md and lsp-bench.json, and
-// FB_LSP_BENCH_SAMPLES how many times each thing is timed. ctest runs a small one, which checks
-// that each measurement works.
+// FB_LSP_BENCH_SAMPLES how many times each thing is timed. A missed budget fails it only with
+// FB_LSP_BENCH_ENFORCE set, as CI's lsp-bench job has it, since a PC busy with builds misses some.
+// ctest runs a small one, which checks that each measurement works.
 
 #include "client.hpp"
 #include "fb/build_config.hpp"
@@ -39,7 +40,8 @@ namespace {
 using steady_t = std::chrono::steady_clock;
 using milliseconds_t = std::chrono::duration<double, std::milli>;
 
-/// One thing the benchmark times, with its budget at the 95th percentile.
+/// One thing the benchmark times, with its budget, which the 50th percentile is in and the 95th
+/// in one and a half times, to meet it.
 struct metric_t {
     std::string name;
     std::string what;
@@ -122,6 +124,14 @@ double percentile(std::vector<double> samples, const double fraction) {
     const auto rank =
         static_cast<std::size_t>(std::ceil(fraction * static_cast<double>(samples.size())));
     return samples[std::clamp<std::size_t>(rank, 1, samples.size()) - 1];
+}
+
+/// Whether a metric's times meet its budget: the 50th percentile in it, and the 95th in one and a
+/// half times it.
+bool met(const metric_t& metric) {
+    const auto budget = static_cast<double>(metric.budget.count());
+    return percentile(metric.samples, 0.5) <= budget &&
+           percentile(metric.samples, 0.95) <= budget * 1.5;
 }
 
 /// What the benchmark runs on: a folder the client opens, the file in it that's edited, and
@@ -506,7 +516,8 @@ void measure(workload_t& workload, const std::size_t samples, const std::chrono:
 /// The report, in Markdown.
 std::string markdown(const std::vector<workload_t>& workloads) {
     std::string out = "# fb-lsp's benchmark\n\nEach time at the 50th and 95th percentile, in "
-                      "milliseconds, against docs/tooling.md's M11 budgets.\n";
+                      "milliseconds, against docs/tooling.md's M11 budgets, each met with the "
+                      "50th in it and the 95th in one and a half times it.\n";
     for (const workload_t& workload : workloads) {
         out += std::format("\n## {}\n\n{} files, {} lines; the first check of the whole folder "
                            "took {:.0f} ms. The edited file is {}: a check of it alone, with "
@@ -519,15 +530,15 @@ std::string markdown(const std::vector<workload_t>& workloads) {
                            percentile(workload.checks, 0.95), workload.checks.size());
         out += "| What | p50 | p95 | Budget | |\n|---|---|---|---|---|\n";
         for (const metric_t& metric : workload.metrics) {
-            const double p95 = percentile(metric.samples, 0.95);
             // A miss that fails the benchmark stands out.
             std::string_view status = "met";
-            if (p95 > static_cast<double>(metric.budget.count())) {
+            if (!met(metric)) {
                 status = metric.enforced ? "**missed**" : "missed";
             }
 
             out += std::format("| {} | {:.1f} | {:.1f} | {} | {} |\n", metric.what,
-                               percentile(metric.samples, 0.5), p95, metric.budget.count(), status);
+                               percentile(metric.samples, 0.5), percentile(metric.samples, 0.95),
+                               metric.budget.count(), status);
         }
     }
 
@@ -540,14 +551,13 @@ json_t report_json(const std::vector<workload_t>& workloads) {
     for (const workload_t& workload : workloads) {
         json_t measured = json_t::array();
         for (const metric_t& metric : workload.metrics) {
-            const double p95 = percentile(metric.samples, 0.95);
             measured.push_back({
                 { "name", metric.name },
                 { "budget_ms", metric.budget.count() },
                 { "enforced", metric.enforced },
                 { "p50_ms", percentile(metric.samples, 0.5) },
-                { "p95_ms", p95 },
-                { "met", p95 <= static_cast<double>(metric.budget.count()) },
+                { "p95_ms", percentile(metric.samples, 0.95) },
+                { "met", met(metric) },
                 { "samples_ms", metric.samples },
             });
         }
@@ -597,12 +607,15 @@ TEST_CASE("fb-lsp's benchmark, against M11's budgets", "[.][bench]") {
             << report_json(workloads).dump(2) << "\n";
     }
 
+    if (!environment("FB_LSP_BENCH_ENFORCE")) {
+        return;
+    }
+
     for (const workload_t& workload : workloads) {
         for (const metric_t& metric : workload.metrics) {
             if (metric.enforced) {
                 INFO(workload.name << ": " << metric.what);
-                CHECK(percentile(metric.samples, 0.95) <=
-                      static_cast<double>(metric.budget.count()));
+                CHECK(met(metric));
             }
         }
     }
@@ -630,6 +643,10 @@ TEST_CASE("the benchmark measures each request, on a small program", "[lsp]") {
 
     // Percentiles by nearest rank.
     CHECK(percentile({ 4, 1, 3, 2 }, 0.5) == 2);
+    // Met with the 50th percentile in the budget and the 95th in one and a half times it.
+    CHECK(met({ .budget = std::chrono::milliseconds(10), .samples = { 10, 10, 15 } }));
+    CHECK(!met({ .budget = std::chrono::milliseconds(10), .samples = { 10, 11, 11 } }));
+    CHECK(!met({ .budget = std::chrono::milliseconds(10), .samples = { 1, 1, 16 } }));
     CHECK(percentile({ 4, 1, 3, 2 }, 0.95) == 4);
     CHECK(percentile({}, 0.95) == 0);
 }

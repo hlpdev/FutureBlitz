@@ -100,6 +100,45 @@ TEST_CASE("a disk cache keeps no answer it was emptied while asking for", "[disk
     CHECK(cache.texts.size() == 1);
 }
 
+TEST_CASE("a disk cache told which folders it watches keeps answers only about them", "[disk]") {
+    const std::filesystem::path folder = fb::temporary_path("disk", "");
+    std::filesystem::create_directories(folder / "watched");
+    std::filesystem::create_directories(folder / "watched-not");
+    const std::filesystem::path inside = folder / "watched" / "a.fb";
+    const std::filesystem::path outside = folder / "watched-not" / "a.fb";
+    write(inside, "one");
+    write(outside, "one");
+    fb::disk_cache_t cache;
+    CHECK(cache.keeps(outside));
+    cache.keep_only_under({ folder / "watched" / "" });
+    CHECK(cache.keeps(folder / "watched"));
+    CHECK(cache.keeps(inside));
+    CHECK(cache.keeps(folder / "watched" / "sub" / ".." / "a.fb"));
+    CHECK(!cache.keeps(outside));
+    CHECK(!cache.keeps(folder));
+    CHECK(!cache.keeps("a.fb"));
+    {
+        const fb::disk_scope_t scope(&cache);
+        CHECK(fb::disk::read(inside) == "one");
+        CHECK(fb::disk::read(outside) == "one");
+        write(inside, "two");
+        write(outside, "two");
+        CHECK(fb::disk::read(inside) == "one");
+        CHECK(fb::disk::read(outside) == "two");
+        CHECK(fb::disk::real_path(inside) == fb::real_path(inside));
+    }
+
+    // An answer its keep says leads elsewhere is the caller's alone.
+    const fb::disk_cache_t::key_t key = (folder / "watched" / "b.fb").native();
+    CHECK(*cache.remember(
+              &fb::disk_cache_t::texts, key,
+              [] { return std::make_shared<const std::optional<std::string>>("elsewhere"); },
+              [&](const auto&) { return cache.keeps(outside); }) == "elsewhere");
+    CHECK(!cache.texts.contains(key));
+    CHECK(*cache.texts.at(inside.native()) == "one");
+    fb::remove_temporary(folder);
+}
+
 TEST_CASE("a disk cache's answers are std::filesystem's", "[disk]") {
     const std::filesystem::path folder = fb::temporary_path("disk", "");
     std::filesystem::create_directories(folder / "sub");

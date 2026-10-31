@@ -83,9 +83,17 @@ client_t::client_t(options_t options)
 
     if (options.watches) {
         capabilities["workspace"] = {
-            { "didChangeWatchedFiles", { { "dynamicRegistration", true } } },
+            {
+                "didChangeWatchedFiles",
+                {
+                    { "dynamicRegistration", true },
+                    { "relativePatternSupport", options.relative_patterns },
+                },
+            },
         };
     }
+
+    m_answers = options.answers;
 
     m_initialized =
         request("initialize", {
@@ -95,6 +103,29 @@ client_t::client_t(options_t options)
                                   { "initializationOptions", options.initialization_options },
                               });
     notify("initialized", json_t::object());
+    answer_requests();
+}
+
+void client_t::answer_requests() {
+    if (!m_answers) {
+        return;
+    }
+
+    std::vector<json_t> asked;
+    {
+        const std::scoped_lock lock(m_mutex);
+        for (const json_t& message : m_received) {
+            if (message.contains("method") && message.contains("id") &&
+                !m_answered.contains(message["id"].dump())) {
+                m_answered.insert(message["id"].dump());
+                asked.push_back(message["id"]);
+            }
+        }
+    }
+
+    for (const json_t& id : asked) {
+        m_server.handle({ { "jsonrpc", "2.0" }, { "id", id }, { "result", nullptr } });
+    }
 }
 
 // A test fails when what its client says as it goes fails.
@@ -192,6 +223,7 @@ void client_t::mark(const std::string& uri) {
 
 void client_t::settle() {
     m_server.workspace().settle();
+    answer_requests();
 }
 
 json_t client_t::diagnostics(const std::string& uri) const {

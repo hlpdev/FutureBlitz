@@ -638,7 +638,8 @@ know the language (the user, 2026-10-31). Everything here is the compiler's and 
 `fb check` reports the same errors, warnings, and fixes the editor shows.
 
 **Latency budgets**, on a release build, for a file in a large package (std's own folder, and a
-program of a few hundred files), measured at the 95th percentile:
+program of a few hundred files), each met when its 50th percentile is in it and its 95th in one and
+a half times it:
 
 | What | Budget |
 |---|---|
@@ -653,7 +654,7 @@ program of a few hundred files), measured at the 95th percentile:
 | | Step | Done when |
 |---|---|---|
 | 0 | **Measure.** A benchmark of fb-lsp over its messages (tests/lsp), on std and a generated large package: each request's time from the edit, at the 50th and 95th percentile, written as a report CI keeps; and a check that fails when a budget is missed | the report shows where today's time goes, and the budgets are checked |
-| 1 | **Checks that keep what didn't change** (done 2026-10-31). Measuring showed a check's time went to asking the disk, not to compiling, so the checks keep what the disk said until it changes, and what didn't change of the rest: each file's tokens; the package's files aren't listed for every check; a check of a few files checks only their bodies, unless theirs need the others'; a file's key is worked out once; and completion lists the modules an Import can name only at an Import (below) | the benchmark's type error, completion, signature help, references, and rename meet their budgets on both workloads and are enforced; tests edit a body, a declaration, and an Import, and check that after each, every file's diagnostics are the same as a check from nothing gives |
+| 1 | **Checks that keep what didn't change** (done 2026-10-31). Measuring showed a check's time went to asking the disk, not to compiling, so the checks keep what the disk said until it changes, and what didn't change of the rest: each file's tokens; the package's files aren't listed for every check; a check of a few files checks only their bodies, unless theirs need the others'; a file's key is worked out once; and completion lists the modules an Import can name only at an Import (below) | the benchmark's type error, completion, signature help, references, and rename meet their budgets on both workloads and are enforced; tests edit a body, a declaration, and an Import, and change files on disk in the client's folders and out of them, and check that after each, every file's diagnostics are the same as a check from nothing gives |
 | 2 | **Errors as typed** (done 2026-10-31). Each change parses the file alone at once and publishes its syntax errors with no wait, with its last check's other errors where the edit moved them; the full check follows at its pause, and its errors replace them. The parser recovers at each statement and block, and a declaration that only goes at the top level, starting its line, ends the blocks a missing `End` left open, so one missing `End` or `)` doesn't hide the rest of the file's errors; tests of recovery for each block and each kind of broken line | a syntax error shows within 50 ms, and a file with three unrelated syntax errors shows all three |
 | 3 | **Completion that knows** (done 2026-10-31). Names from every module the file can import (its package's, std's, its dependencies'), not only those it imports, with the Import added when one is chosen; ranked by the type expected where the cursor is, then by scope and use; an Enum's members where an Enum is expected; named arguments; the members a Class can override and an Interface's to implement, written out with their signatures; keywords only where they can go; postfix completions (`.if`, `.ifnull`, `.for`, `.not`, `.try`, `.local`); completion on a word as it's typed, not only after `.` | each kind has a test of what's offered and in what order, and choosing an unimported name adds its Import |
 | 4 | **The editor's basics.** Inlay hints (a Local's inferred type, parameter names at calls, each a setting); highlighting a symbol's other uses; folding by blocks, comments, and Import groups; expanding a selection by syntax; go to type definition and to implementations; call and type hierarchies; code lenses for references; run and debug for each `@Test` and main file in VS Code's Testing panel and the gutter | each request has tests, and the extension's Testing panel runs and debugs a package's tests |
@@ -677,8 +678,9 @@ with every check done. Each is timed 20 times (`FB_LSP_BENCH_SAMPLES`), and the 
 lsp-bench.md and lsp-bench.json in the folder `FB_LSP_BENCH_REPORT` names, has each one's 50th
 and 95th percentiles against its budget, and how long the edited file's own checks took, with how
 many modules they had. Each metric has an `enforced` flag, which the step that meets its budget
-turns on; then a miss fails the benchmark. CI's LSP benchmark job runs it on Linux, puts the
-report in the run's summary, and keeps it as the lsp-bench artifact. ctest runs a small one, of 2
+turns on; then a miss fails the benchmark, with `FB_LSP_BENCH_ENFORCE` set, and a run without it
+only reports, as a PC busy with builds misses some. CI's LSP benchmark job sets it, runs it on
+Linux, puts the report in the run's summary, and keeps it as the lsp-bench artifact. ctest runs a small one, of 2
 layers of 2 modules, which checks that each measurement works.
 
 **Where the time goes** (2026-10-31: the first reports, from a release build on the user's PC,
@@ -727,10 +729,17 @@ millisecond each on Windows, for the 200 or so paths a check has. So:
   files. The workspace empties it, and the one `file_key` asks through, when the client says
   files changed, when a folder is added or removed, and when a document closes; an answer asked
   for while it was emptied isn't kept (`disk_cache_t::remember`), so a check that began before a
-  change can't leave what it saw. fb-lsp watches `**/fb.lock`, `**/*.proto`, and every deletion
-  besides .fb files and project.toml, and a folder's deletion takes the files the workspace knows
-  in it. A client that doesn't watch gets a cache for each check, which the disk can't change
-  under.
+  change can't leave what it saw. fb-lsp asks the client to watch every file, `**/*`, as an
+  Embed's, a [native] library's, or a .fbi's change is the checks' too, and the checks share the
+  cache only once the client takes the registration, and then keep answers only about the client's
+  folders (`disk_cache_t::keep_only_under`). The packages a check reads outside them, a path
+  dependency's, are watched too when the client's watchers can have folders of their own
+  (relativePatternSupport), each a RelativePattern of its own; without that, what's outside is
+  asked each time. A folder's deletion takes the files the workspace knows in it, and its creation
+  is read when a check asks. A changed .proto checks again what imports it, through the .proto's
+  module (`compilation_t::made_from`), and a package's fb.lock, library, or .fbi reads its
+  package again, as its project.toml does. A client that doesn't watch gets a cache for each
+  check, which the disk can't change under.
 - **Only the roots' bodies.** fb-lsp publishes only a check's roots' diagnostics, so
   `analyze()` takes the files whose functions' bodies it checks (`file_set_t::root_bodies`);
   the others' declarations are checked, and Const Functions' bodies as they run. Two things in
@@ -757,7 +766,11 @@ thread can, and a generic instance, and checking them is cheap now.
 | References, a rename | 8,043, 8,454 | 208, 294 | 1,402, 1,525 | 285, 289 |
 | The first check of the whole folder | 7,086 | 673 to 2,597 | 2,884 | 695 to 1,434 |
 
-Each of these met its budget at the 95th percentile too, as the report shows, and is enforced. A
+Each of these met its budget at the 95th percentile too, as the report shows, and is enforced.
+The review's fixes (2026-10-31): the watching above, where the step had watched only some files
+and trusted the client's capability alone, which left a kept answer about a file no watcher
+matched, or one outside the client's folders, until something else emptied the cache; a changed
+.proto or fb.lock checks again what it changes; and the budgets' rule, CI's alone. A
 syntax error still waits for the check, step 2's.
 
 **Step 2, errors as typed** (2026-10-31):

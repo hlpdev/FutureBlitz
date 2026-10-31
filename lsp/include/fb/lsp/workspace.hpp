@@ -109,6 +109,14 @@ public:
     /// the disk, which the workspace forgets then; without it, each check asks the disk itself.
     void watched(bool watches);
 
+    /// What asks the client to watch folders outside its own, which checks found packages in.
+    using watch_t = std::function<void(const std::vector<std::filesystem::path>&)>;
+    void on_outside(watch_t watch);
+
+    /// Folders besides the client's own whose files it says change, so what the checks know of
+    /// them can be shared too.
+    void watching(const std::vector<std::filesystem::path>& folders);
+
     /// The client's folders: each package in them, and std when it's among them.
     void add_folders(const std::vector<std::filesystem::path>& folders);
     /// Folders the client closed, whose files aren't the workspace's any more.
@@ -237,6 +245,11 @@ private:
     /// What the checks know of the disk, when the client says when files change.
     disk_cache_t m_disk;
     bool m_watched = false;
+    watch_t m_watch;
+    /// The keys of the folders outside the client's whose watchers were asked for, and those it
+    /// said it watches.
+    std::set<std::string> m_outside;
+    std::vector<std::filesystem::path> m_watched_outside;
     std::thread m_foreground;
     std::thread m_background;
 
@@ -244,6 +257,8 @@ private:
     void run_background();
     /// Forgets what the checks know of the disk, and the files' keys, as it may have changed.
     void disk_changed();
+    /// Tells the cache the folders it keeps answers about: those the client watches, and std's.
+    void rewatch();
     /// Publishes the syntax errors of `parsed`, a parse of the document `key` alone at `version`,
     /// with its last check's other diagnostics, when it has some, or what's published has.
     void show_syntax(const std::string& key, const std::filesystem::path& path,

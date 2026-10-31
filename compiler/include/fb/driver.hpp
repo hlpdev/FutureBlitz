@@ -109,6 +109,10 @@ struct compilation_t { // NOLINT(bugprone-exception-escape)
     /// disk, whose lines the module's are, where a tool can show its declarations, as the LSP's
     /// definitions do. Empty for the others.
     std::vector<std::filesystem::path> in_interface;
+    /// For each of `sources`' files fb makes from another, a .proto's module, that file on disk,
+    /// whose change changes the module, as a tool that checks again what imports it knows. Empty
+    /// for the others.
+    std::vector<std::filesystem::path> made_from;
     /// For fb test: the modules made of its package's doc comments' examples.
     std::vector<doc_test_t> doc_tests;
 
@@ -121,6 +125,9 @@ struct compilation_t { // NOLINT(bugprone-exception-escape)
 
     /// The interface file `id`'s file is a module of, or an empty path, as `in_interface` has it.
     [[nodiscard]] std::filesystem::path interface_path(file_id_t id) const;
+
+    /// The file on disk `id`'s file is made from, or an empty path, as `made_from` has it.
+    [[nodiscard]] std::filesystem::path made_from_path(file_id_t id) const;
 };
 
 /// A file a program can import besides its main file, by its path in the program: one of the

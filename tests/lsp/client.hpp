@@ -11,6 +11,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -60,8 +61,13 @@ public:
         /// The position encodings the client offers.
         std::vector<std::string> encodings;
         /// Whether it says it watches files, as VS Code does, so the server's checks share what
-        /// they know of the disk until it says files changed.
+        /// they know of the disk until it says files changed, and whether its watchers can have
+        /// folders of their own.
         bool watches = false;
+        bool relative_patterns = false;
+        /// Whether it answers the server's requests, as a client does: a registration of
+        /// watchers, which it takes.
+        bool answers = true;
     };
 
     explicit client_t(options_t options);
@@ -98,8 +104,11 @@ public:
         return m_texts.at(uri);
     }
 
-    /// Waits until the server's checks are done.
+    /// Waits until the server's checks are done, and answers its requests.
     void settle();
+
+    /// Answers the server's requests it hasn't yet.
+    void answer_requests();
 
     /// The diagnostics published last for a file, which some must have been.
     [[nodiscard]] json_t diagnostics(const std::string& uri) const;
@@ -137,6 +146,9 @@ private:
     std::vector<json_t> m_received;
     /// How many messages had come when each document last changed.
     std::map<std::string, std::size_t> m_changed_at;
+    /// The ids of the server's requests it answered.
+    std::set<std::string> m_answered;
+    bool m_answers = true;
     std::map<std::string, std::string> m_texts;
     std::map<std::string, std::int64_t> m_versions;
     std::int64_t m_next_id = 1;
