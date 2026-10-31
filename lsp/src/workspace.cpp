@@ -104,6 +104,86 @@ private:
     std::size_t m_after = 0;
 };
 
+/// The Public names each module of a check declares at its top level, by its path in the program,
+/// each with the name an Import gives the module.
+std::vector<std::pair<std::string, std::vector<export_t>>>
+exports_of(const compilation_t& compilation) {
+    const ast_t& ast = compilation.ast;
+    const analysis_t& analysis = compilation.analysis;
+    const std::set<stmt_id_t> top_level(ast.items().begin(), ast.items().end());
+    std::map<file_id_t, std::vector<export_t>> by_file;
+    for (const symbol_t& symbol : analysis.symbols) {
+        if (symbol.span.empty() || symbol.owner != type_id_t::INVALID || !symbol.declaration ||
+            !top_level.contains(*symbol.declaration) ||
+            symbol.modifiers.visibility != visibility_t::PUBLIC) {
+            continue;
+        }
+
+        std::string_view kind;
+        switch (symbol.kind) {
+        case symbol_kind_t::FUNCTION:
+            kind = "Function";
+            break;
+        case symbol_kind_t::ALIAS:
+            kind = "Alias";
+            break;
+        case symbol_kind_t::GLOBAL:
+            kind = "Global";
+            break;
+        case symbol_kind_t::CONSTANT:
+            kind = "Const";
+            break;
+        case symbol_kind_t::TYPE:
+            switch (analysis.types.get(symbol.type).kind) {
+            case type_kind_t::CLASS:
+                kind = "Class";
+                break;
+            case type_kind_t::INTERFACE:
+                kind = "Interface";
+                break;
+            case type_kind_t::ENUM:
+                kind = "Enum";
+                break;
+            default:
+                kind = "Struct";
+                break;
+            }
+
+            break;
+        default:
+            continue;
+        }
+
+        std::vector<export_t>& names = by_file[symbol.span.file];
+        if (std::ranges::none_of(names,
+                                 [&](const export_t& name) { return name.name == symbol.name; })) {
+            names.push_back({ .name = std::string(symbol.name), .kind = std::string(kind) });
+        }
+    }
+
+    std::vector<std::pair<std::string, std::vector<export_t>>> found;
+    for (const module_t& module : ast.modules().modules()) {
+        if (module.name.empty() || module.name.contains('(')) {
+            continue;
+        }
+
+        // A std module in a folder is the folder's, as "std.collections" for its map.fb.
+        std::string imported = module.name;
+        if (module.path.starts_with("std/") && std::ranges::count(module.path, '/') > 1) {
+            imported = imported.substr(0, imported.rfind('.'));
+        }
+
+        std::vector<export_t> names = by_file[module.file];
+        for (export_t& name : names) {
+            name.module = imported;
+        }
+
+        found.emplace_back(module.path, std::move(names));
+    }
+
+    return found;
+}
+
 /// A file's text on disk, or nullopt when it can't be read.
 std::optional<std::string> read_disk(const std::filesystem::path& path) {
     std::ifstream file(path, std::ios::binary);
@@ -668,6 +748,28 @@ workspace_t::with_dependents(const std::filesystem::path& path) {
     return compilations;
 }
 
+std::vector<export_t> workspace_t::importable(const std::filesystem::path& path) {
+    std::vector<export_t> found;
+    {
+        const std::scoped_lock lock(m_mutex);
+        for (const auto& [module, names] : m_exports[unit_index(path)]) {
+            std::ranges::copy(names, std::back_inserter(found));
+        }
+    }
+
+    // std's modules that no check had, from the names they declare.
+    const std::scoped_lock lock(m_std_names.mutex);
+    for (const auto& [file, names] : m_std_names.files) {
+        for (const std_name_t& name : names.names) {
+            if (name.extended.empty() && !name.array_method) {
+                found.push_back({ .name = name.name, .module = name.module, .kind = name.kind });
+            }
+        }
+    }
+
+    return found;
+}
+
 unit_t workspace_t::unit_of(const std::filesystem::path& path) {
     const std::scoped_lock lock(m_mutex);
     return m_units[unit_index(path)];
@@ -806,8 +908,18 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
         result ? std::make_shared<const compilation_t>(std::move(*result)) : nullptr;
     const auto took =
         std::chrono::duration_cast<std::chrono::milliseconds>(steady_t::now() - start);
+    // What its modules declare that others can import, for completion, found unlocked.
+    std::vector<std::pair<std::string, std::vector<export_t>>> exported;
+    if (compilation) {
+        exported = exports_of(*compilation);
+    }
+
     lock.lock();
     --m_running;
+    for (auto& [path, names] : exported) {
+        m_exports[job.unit][path] = std::move(names);
+    }
+
     m_history.push_back({
         .roots = job.roots,
         .modules = compilation ? compilation->ast.modules().size() : 0,

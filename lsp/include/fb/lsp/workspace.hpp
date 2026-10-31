@@ -4,6 +4,7 @@
 #include "fb/disk.hpp"
 #include "fb/driver.hpp"
 #include "fb/format.hpp"
+#include "fb/lsp/features.hpp"
 #include "fb/source.hpp"
 
 #include <chrono>
@@ -143,6 +144,10 @@ public:
     /// The unit a file is in, which a check of it would cover.
     [[nodiscard]] unit_t unit_of(const std::filesystem::path& path);
 
+    /// The Public names of the modules the file at `path` can import, as the checks of its unit
+    /// found them, and std's.
+    [[nodiscard]] std::vector<export_t> importable(const std::filesystem::path& path);
+
     /// Every unit the workspace has: its folders' and those of the documents opened.
     [[nodiscard]] std::vector<unit_t> units() const;
 
@@ -226,6 +231,9 @@ private:
 
     /// By the open documents' keys.
     std::map<std::string, shown_t> m_shown;
+    /// The Public names each module declares, by its path in the program, by the unit whose
+    /// checks found them.
+    std::map<std::size_t, std::map<std::string, std::vector<export_t>>> m_exports;
     /// What the checks know of the disk, when the client says when files change.
     disk_cache_t m_disk;
     bool m_watched = false;

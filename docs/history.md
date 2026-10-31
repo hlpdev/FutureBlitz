@@ -63,6 +63,23 @@ three unrelated syntax errors each reported; and the LSP showing a syntax error 
 type error before any check, then the type error alone once fixed, an edit inside it dropping it,
 and nothing published for a change without one.
 
+Step 3, completion that knows (2026-10-31, on dev/m11): lsp/src/completion.cpp ranks each item
+(`rank_t`, a `sortText` of its rank and label), with what the code wants first (`expected()`: a
+call's argument's parameter, through features.cpp's new `call_at()`, which `signature_help` uses
+too, by name for a named argument; a typed initializer's or an assignment's variable; a Return's
+function; an `==`'s or `<>`'s other side; `at_value()` takes a value the parser left missing at
+the next line as the word's), an Enum's members where one is wanted, True, False, and Null where
+they fit, the names of the parameters a call doesn't give yet, the keywords of where the word is
+(`place_t`: the top level, a type's members, a function's statements, an expression), postfix
+completions after a value's `.` (`add_postfix`: if, not, ifnull, for, try, local), the Methods a
+Struct or Class can override or implement (`add_overrides`, without its own, Static, Final, or
+Destroy ones, and an Interface's default as an Override), and the names of modules the file doesn't
+import with the Import they add (`add_unimported`, from `workspace_t::importable`: each check's
+modules' Public names, `exports_of`, and std's, whose `std_name_t` has a `kind` now), only those
+starting as the typed word does, so the list is incomplete. The extension turns VS Code's
+word-based suggestions off for .fb files. Tests: tests/lsp/completion_tests.cpp, each kind's
+items and order, and the completion test's keywords by place.
+
 A string's escapes in their own color (2026-10-31, the user): fb-lsp's semantic tokens gave each
 string literal one `string` token, which VS Code colors over the grammar's
 `constant.character.escape`, so `\n` looked like the rest of the string. `string_pieces()` in

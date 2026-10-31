@@ -83,11 +83,36 @@ rename_conflict(std::span<const std::shared_ptr<const compilation_t>> compilatio
 /// Whether `name` has `query`'s letters in order, ignoring ASCII case.
 [[nodiscard]] bool fuzzy_match(std::string_view name, std::string_view query);
 
+/// A Public name a module declares at its top level, which another file can import the module
+/// for.
+struct export_t {
+    std::string name;
+    /// What an Import names to bring it in, like "std.collections" or "geo.shapes".
+    std::string module;
+    /// The keyword it's declared with, as std_name_t's.
+    std::string kind;
+};
+
+/// The innermost call whose parentheses a position is in: the call, which of its arguments the
+/// position is in, and the functions it can be, with the one it is, or the first that takes that
+/// many arguments.
+struct call_at_t {
+    expr_id_t call{};
+    std::uint32_t active = 0;
+    std::vector<symbol_id_t> candidates;
+    std::size_t chosen = 0;
+};
+
+/// The call at `offset`, nullopt when it's in none.
+[[nodiscard]] std::optional<call_at_t> call_at(const query_t& query, std::uint32_t offset);
+
 /// textDocument/completion at `offset` of `text`, the document as it is, whose last check is
 /// `query`: a member after a '.', a module after Import, or the names in scope and keywords.
-/// `modules` gives the modules an Import can name, which it asks for only at an Import.
+/// `modules` gives the modules an Import can name, which it asks for only at an Import, and
+/// `importable` the names the file could import a module for, which an item adds the Import of.
 [[nodiscard]] json_t completion(const query_t& query, std::uint32_t offset,
                                 const std::function<std::vector<std::string>()>& modules,
+                                const std::function<std::vector<export_t>()>& importable,
                                 const positions_t& positions);
 
 /// textDocument/signatureHelp for the call `offset` is in.

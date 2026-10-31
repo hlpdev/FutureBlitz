@@ -655,7 +655,7 @@ program of a few hundred files), measured at the 95th percentile:
 | 0 | **Measure.** A benchmark of fb-lsp over its messages (tests/lsp), on std and a generated large package: each request's time from the edit, at the 50th and 95th percentile, written as a report CI keeps; and a check that fails when a budget is missed | the report shows where today's time goes, and the budgets are checked |
 | 1 | **Checks that keep what didn't change** (done 2026-10-31). Measuring showed a check's time went to asking the disk, not to compiling, so the checks keep what the disk said until it changes, and what didn't change of the rest: each file's tokens; the package's files aren't listed for every check; a check of a few files checks only their bodies, unless theirs need the others'; a file's key is worked out once; and completion lists the modules an Import can name only at an Import (below) | the benchmark's type error, completion, signature help, references, and rename meet their budgets on both workloads and are enforced; tests edit a body, a declaration, and an Import, and check that after each, every file's diagnostics are the same as a check from nothing gives |
 | 2 | **Errors as typed** (done 2026-10-31). Each change parses the file alone at once and publishes its syntax errors with no wait, with its last check's other errors where the edit moved them; the full check follows at its pause, and its errors replace them. The parser recovers at each statement and block, and a declaration that only goes at the top level, starting its line, ends the blocks a missing `End` left open, so one missing `End` or `)` doesn't hide the rest of the file's errors; tests of recovery for each block and each kind of broken line | a syntax error shows within 50 ms, and a file with three unrelated syntax errors shows all three |
-| 3 | **Completion that knows.** Names from every module the file can import (its package's, std's, its dependencies'), not only those it imports, with the Import added when one is chosen; ranked by the type expected where the cursor is, then by scope and use; an Enum's members where an Enum is expected; named arguments; the members a Class can override and an Interface's to implement, written out with their signatures; keywords only where they can go; postfix completions (`.if`, `.ifnull`, `.for`, `.not`, `.try`, `.local`); completion on a word as it's typed, not only after `.` | each kind has a test of what's offered and in what order, and choosing an unimported name adds its Import |
+| 3 | **Completion that knows** (done 2026-10-31). Names from every module the file can import (its package's, std's, its dependencies'), not only those it imports, with the Import added when one is chosen; ranked by the type expected where the cursor is, then by scope and use; an Enum's members where an Enum is expected; named arguments; the members a Class can override and an Interface's to implement, written out with their signatures; keywords only where they can go; postfix completions (`.if`, `.ifnull`, `.for`, `.not`, `.try`, `.local`); completion on a word as it's typed, not only after `.` | each kind has a test of what's offered and in what order, and choosing an unimported name adds its Import |
 | 4 | **The editor's basics.** Inlay hints (a Local's inferred type, parameter names at calls, each a setting); highlighting a symbol's other uses; folding by blocks, comments, and Import groups; expanding a selection by syntax; go to type definition and to implementations; call and type hierarchies; code lenses for references; run and debug for each `@Test` and main file in VS Code's Testing panel and the gutter | each request has tests, and the extension's Testing panel runs and debugs a package's tests |
 | 5 | **Quick fixes.** Every error that has a likely fix offers it, from the compiler: import the module that declares an unknown name (and `fb add` the registry package that has it, when one does); "did you mean" for a misspelled name; add `Try`, `Try?`, or a Throws; create the Function, Method, Field, Property, Local, or Enum member a use names, with its types from the use; implement an Interface's members or an Abstract Class's; add a missing `End`; a conversion with `As`; a Null check or `?` for nullability; make a declaration Public or Package for a use that can't see it; add `@MainThread`; wrap in `Unsafe`; add a missing Return; fix a keyword's case | each fix has a test that applies it and checks the file compiles |
 | 6 | **Inspections.** Warnings, with fixes, from the compiler: unused Locals, parameters, Imports, and Private members; unreachable code; a name that shadows another; a redundant `As` or `?`; a condition that's always True or False. `fb check` and `fb build` show them; project.toml's `[lints]` turns each off or makes it an error | each inspection has tests of when it warns and when it doesn't, and std builds with none |
@@ -782,6 +782,43 @@ syntax error still waits for the check, step 2's.
 - The benchmark times each thing 20 times again, so its 95th percentile isn't one slow sample.
 
 A syntax error shows in under a millisecond on both workloads, and its budget is enforced.
+
+**Step 3, completion that knows** (2026-10-31), in lsp/src/completion.cpp:
+
+- **Ranks.** Each item has a `sortText` of its rank, then its label: what the code wants, the
+  Locals and parameters, what's near (the file's, Self's), what it imports, the built-ins, the
+  names of modules it doesn't import, and the keywords. What the code wants is the type of the
+  parameter of the call's argument the word is in (`call_at()`, which signature help shares, by
+  name for a named argument), of the variable a typed initializer or a plain assignment gives a
+  value, of what the function returns after Return, or of the other side of an `==` or `<>`;
+  a value of it, or what calling a function of it returns, ranks first, an Enum's members, as
+  `Color.RED`, are offered where it's an Enum, and True and False rank first where it's Bool and
+  Null where it's nullable. A value the parser found missing at the next line counts as where
+  the word is.
+- **Named arguments.** At the start of a call's argument, the names of the parameters it doesn't
+  give yet, by position or by name, as `times:`, which write `times: `.
+- **Keywords where they go.** At the start of a line: a top-level declaration's and a main
+  file's statements' outside every declaration, a member's in a Struct's, Class's, Interface's,
+  or Extend's body, and a statement's in a function's; after it, an expression's.
+- **Postfix completions.** After a value's `.`, on one line: `if` and `not` for a Bool, `ifnull`
+  for a nullable, `for` for an array or an Iterable, `try` for a call, and `local` for any, each
+  a snippet that replaces the value and the `.`, indented as its line.
+- **Overriding and implementing.** At the start of a line in a Struct's or Class's body, the
+  Methods of the Classes it extends that it can override, and those of the Interfaces its
+  declaration lists, and theirs, that it doesn't have, but for Static, Final, and Destroy ones,
+  each written out from its signature with `End Method`; one an Interface gives a default for
+  is an Override.
+- **Names to import.** The names of the modules the file could import but doesn't: the Public
+  top-level names each check's modules declare (`exports_of`, kept by unit,
+  `workspace_t::importable`) and std's (`std_name_t::kind` now says what each is), as the
+  word typed starts, ignoring case, so the list says it's incomplete and the editor asks again;
+  each adds `Import <module>` after the file's last Import, or at its start. A Package name of
+  its own package isn't offered yet.
+- **The editor.** The extension turns VS Code's word-based suggestions off for .fb files, so the
+  language server's are what's shown, and VS Code asks for completion as a word is typed.
+
+Each has a test of what's offered and in what order (tests/lsp/completion_tests.cpp), and the
+budgets still hold.
 
 ## Not in M8
 

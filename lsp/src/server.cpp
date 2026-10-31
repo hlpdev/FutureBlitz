@@ -681,7 +681,8 @@ json_t server_t::completion(const json_t& params) {
     // The modules an Import can name take a while to list, so only one being typed lists them.
     return lsp::completion(
         query, m_positions.offset(query.source(), params.at("position")),
-        [&] { return import_names(*path, *checked->compilation); }, m_positions);
+        [&] { return import_names(*path, *checked->compilation); },
+        [&] { return m_workspace->importable(*path); }, m_positions);
 }
 
 json_t server_t::signature_help(const json_t& params) {

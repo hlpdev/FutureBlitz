@@ -550,7 +550,7 @@ TEST_CASE("completion gives members, names in scope, modules, and keywords", "[l
               .contains("Squared"));
 
     // The names a function's code can use: its parameters and Locals before it, the file's own
-    // declarations, its Imports', and the keywords.
+    // declarations, its Imports', and the keywords an expression has.
     client.change(shapes, shapes_text);
     const std::set<std::string> names =
         labels(client.request("textDocument/completion", client.at(shapes, "Return total", 7)));
@@ -559,9 +559,18 @@ TEST_CASE("completion gives members, names in scope, modules, and keywords", "[l
     CHECK(names.contains("Length"));
     CHECK(names.contains("Point"));
     CHECK(names.contains("Print"));
-    CHECK(names.contains("Return"));
+    CHECK(names.contains("Null"));
+    CHECK(!names.contains("Return"));
     CHECK(names.contains("Object"));
     CHECK(!names.contains("by"));
+
+    // At the start of a line, a statement's.
+    const std::set<std::string> starting =
+        labels(client.request("textDocument/completion", client.at(shapes, "Return total")));
+    CHECK(starting.contains("Return"));
+    CHECK(starting.contains("If"));
+    CHECK(!starting.contains("Field"));
+    CHECK(!starting.contains("Class"));
 
     // In a Method, Self's members.
     const std::set<std::string> own =

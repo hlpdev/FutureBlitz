@@ -14,6 +14,13 @@ CodeLLDB. The design is in [docs/tooling.md](https://github.com/hlpdev/FutureBli
 
 ## Using it
 
+- **Completion** knows where it is: what the code wants there first (a call's argument's type,
+  an initializer's, a Return's, an Enum's members where one is wanted), the parameters' names a
+  call doesn't give yet, the keywords that go there, and the names of modules the file doesn't
+  import, which add the Import when chosen. After a value's `.`, `.if`, `.ifnull`, `.for`,
+  `.not`, `.try`, and `.local` write it into what they say, and in a Class's body, the Methods
+  it can override or implement are written out. VS Code's own word suggestions are off for .fb
+  files, so the language server's are what's shown.
 - **Run** and **Debug** are in the editor's title bar on a .fb file, and in the Command Palette as
   FutureBlitz: Run, FutureBlitz: Debug, and FutureBlitz: Run Tests. Each takes the open file's
   package, the folder with the project.toml above it, or the file itself without one.

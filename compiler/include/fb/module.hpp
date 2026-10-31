@@ -68,6 +68,9 @@ struct std_name_t {
     /// The built-in type an Extend adds it to, like "CString". Empty for a top-level name or a
     /// Method of T[].
     std::string extended;
+    /// The keyword it's declared with: "Function", "Class", "Struct", "Interface", "Attribute",
+    /// "Enum", "Alias", "Global", "Const", "Method", or "Property", as tools show it.
+    std::string kind;
 };
 
 /// A module's name from its path: "std/core/error.fb" is "std.core.error".

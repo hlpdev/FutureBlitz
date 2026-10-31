@@ -117,6 +117,7 @@
     "configurationDefaults": {
       "[futureblitz]": {
         "editor.formatOnSave": true,
+        "editor.wordBasedSuggestions": "off",
         "editor.tabSize": 4,
         "editor.insertSpaces": true,
         "editor.detectIndentation": false

@@ -12,10 +12,13 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <functional>
 #include <iterator>
+#include <limits>
 #include <optional>
 #include <ranges>
 #include <set>
@@ -43,16 +46,63 @@ enum class item_kind_t : std::uint8_t {
     PROPERTY = 10,
     ENUM = 13,
     KEYWORD = 14,
+    SNIPPET = 15,
     ENUM_MEMBER = 20,
     CONSTANT = 21,
     STRUCT = 22,
     TYPE_PARAMETER = 25,
 };
 
-/// Every keyword, as the lexer spells it.
-constexpr std::array keywords = {
-#define FB_KEYWORD(name, spelling) std::string_view(spelling),
-#include "fb/token_kinds.def"
+/// Where an item sorts among the others: what the code there wants first, then what's nearest
+/// it, and keywords last.
+enum class rank_t : std::uint8_t {
+    WANTED,
+    LOCAL,
+    NEAR,
+    IMPORTED,
+    BUILT_IN,
+    UNIMPORTED,
+    KEYWORD,
+};
+
+/// Where the word being typed is, which says the keywords that can go there.
+enum class place_t : std::uint8_t {
+    /// At the start of a line outside every declaration: declarations, and a main file's code.
+    TOP_LEVEL,
+    /// At the start of a line in a Struct's, Class's, Interface's, or Extend's body: members.
+    MEMBERS,
+    /// At the start of a line in a function's body: statements.
+    STATEMENT,
+    /// After the start of a line: an expression, or what goes on in one.
+    EXPRESSION,
+};
+
+/// The keywords an expression can have.
+constexpr std::array<std::string_view, 15> expression_keywords = {
+    "True",  "False", "Null", "Self", "Super", "New",  "Function", "Async",
+    "Await", "Try",   "As",   "Is",   "In",    "Then", "To",
+};
+
+/// The keywords a statement starts with, in a function's body or a main file's top level.
+constexpr std::array<std::string_view, 29> statement_keywords = {
+    "If",      "ElseIf", "Else",     "For",    "While",    "Repeat", "Until", "Loop",
+    "Select",  "Case",   "Default",  "Return", "Local",    "Const",  "Defer", "Throw",
+    "Try",     "Break",  "Continue", "Lock",   "Parallel", "Unsafe", "End",   "Catch",
+    "Finally", "Import", "Self",     "Super",  "Await",
+};
+
+/// The keywords a top-level declaration starts with.
+constexpr std::array<std::string_view, 18> declaration_keywords = {
+    "Function", "Class",  "Struct", "Interface", "Enum",    "Alias",
+    "Extend",   "Extern", "Global", "Public",    "Private", "Package",
+    "Async",    "Shared", "Final",  "Abstract",  "Const",   "Import",
+};
+
+/// The keywords a member of a type starts with.
+constexpr std::array<std::string_view, 18> member_keywords = {
+    "Field",  "Method",   "Property", "New",       "Operator", "Override",
+    "Static", "Public",   "Private",  "Protected", "Package",  "ReadOnly",
+    "Final",  "Abstract", "Async",    "Const",     "Where",    "End",
 };
 
 /// The types the language has by name besides the numbers, Bool, String, CString, and Char,
@@ -162,12 +212,26 @@ class items_t {
 public:
     explicit items_t(const query_t& query) : m_query(query) {}
 
-    void add(std::string label, const item_kind_t kind, std::string detail = {}) {
+    /// The type the code wants where the word is, whose values rank first.
+    void expect(const std::optional<type_id_t> type) {
+        m_expected = type;
+    }
+
+    [[nodiscard]] std::optional<type_id_t> expected() const {
+        return m_expected;
+    }
+
+    void add(std::string label, const item_kind_t kind, std::string detail = {},
+             const rank_t rank = rank_t::NEAR) {
         if (label.empty() || !m_labels.insert(label).second) {
             return;
         }
 
-        json_t item{ { "label", std::move(label) }, { "kind", static_cast<int>(kind) } };
+        json_t item{
+            { "label", label },
+            { "kind", static_cast<int>(kind) },
+            { "sortText", sort_text(rank, label) },
+        };
         if (!detail.empty()) {
             item["detail"] = std::move(detail);
         }
@@ -175,24 +239,38 @@ public:
         m_items.push_back(std::move(item));
     }
 
-    void add(const symbol_id_t id) {
+    void add(const symbol_id_t id, const rank_t rank = rank_t::NEAR) {
         const symbol_t& symbol = m_query.analysis().symbol(id);
         // An Operator's name isn't one code writes.
         if (symbol.name.empty() || !is_name_char(symbol.name.front()) || symbol.name == "_") {
             return;
         }
 
-        add(std::string(symbol.name), kind_of(symbol), m_query.signature(id));
+        add(std::string(symbol.name), kind_of(symbol), m_query.signature(id),
+            wanted(symbol) ? rank_t::WANTED : rank);
     }
 
-    void add_raw(json_t item) {
-        if (m_labels.insert(item["label"].get<std::string>()).second) {
+    /// An item made whole by the caller, which ranks it `rank`.
+    void add_raw(json_t item, const rank_t rank = rank_t::NEAR) {
+        const std::string label = item["label"].get<std::string>();
+        if (m_labels.insert(label).second) {
+            item["sortText"] = sort_text(rank, label);
             m_items.push_back(std::move(item));
         }
     }
 
+    /// The text an item sorts by: its rank, then its label.
+    [[nodiscard]] static std::string sort_text(const rank_t rank, const std::string_view label) {
+        return std::format("{}{}", static_cast<int>(rank), label);
+    }
+
+    /// Says the items are only some, so the editor asks again as the word grows.
+    void incomplete() {
+        m_incomplete = true;
+    }
+
     [[nodiscard]] json_t take() {
-        return { { "isIncomplete", false }, { "items", std::move(m_items) } };
+        return { { "isIncomplete", m_incomplete }, { "items", std::move(m_items) } };
     }
 
     /// The items that name types: types, type parameters, Aliases, and modules, before a '.'.
@@ -213,13 +291,44 @@ public:
             }
         }
 
-        return { { "isIncomplete", false }, { "items", std::move(types) } };
+        return { { "isIncomplete", m_incomplete }, { "items", std::move(types) } };
     }
 
 private:
     const query_t& m_query;
     std::unordered_set<std::string> m_labels;
     json_t m_items = json_t::array();
+    std::optional<type_id_t> m_expected;
+    bool m_incomplete = false;
+
+    /// Whether a value of `symbol`, or what calling it gives, is of the type the code wants, or
+    /// of the one a nullable it wants holds.
+    [[nodiscard]] bool wanted(const symbol_t& symbol) const {
+        switch (symbol.kind) {
+        case symbol_kind_t::FUNCTION:
+        case symbol_kind_t::BUILTIN_FUNCTION:
+        case symbol_kind_t::METHOD:
+        case symbol_kind_t::GLOBAL:
+        case symbol_kind_t::CONSTANT:
+        case symbol_kind_t::LOCAL:
+        case symbol_kind_t::PARAMETER:
+        case symbol_kind_t::LOOP_VARIABLE:
+        case symbol_kind_t::FIELD:
+        case symbol_kind_t::PROPERTY:
+            break;
+        default:
+            return false;
+        }
+
+        if (!m_expected || symbol.type == type_id_t::INVALID || symbol.type == type_id_t::NONE) {
+            return false;
+        }
+
+        const type_table_t& types = m_query.analysis().types;
+        return symbol.type == *m_expected ||
+               (types.get(*m_expected).kind == type_kind_t::NULLABLE &&
+                types.get(*m_expected).inner == symbol.type);
+    }
 
     [[nodiscard]] item_kind_t kind_of(const symbol_t& symbol) const {
         switch (symbol.kind) {
@@ -268,8 +377,9 @@ public:
         }
     }
 
-    /// The members of the expression before the '.' that ends at `dot`.
-    json_t members(const std::uint32_t dot) {
+    /// The members of the expression before the '.' that ends at `dot`, and for a value, the
+    /// postfix completions of it.
+    json_t members(const std::uint32_t dot, const positions_t& positions) {
         for (std::size_t i = 0; i < m_ast.expr_count(); ++i) {
             const expr_t& expr = m_ast.get(static_cast<expr_id_t>(i));
             const auto* member = std::get_if<member_expr_t>(&expr.node);
@@ -296,6 +406,7 @@ public:
                 add_statics(*builtin);
             } else {
                 add_instance_members(object.type);
+                add_postfix(member->object, positions);
             }
 
             break;
@@ -339,21 +450,28 @@ public:
         return m_items.take();
     }
 
-    /// The names in scope at the offset, and the keywords.
-    json_t names(const bool types_only) {
+    /// The names in scope at the offset, and the keywords that go at `place`. `before` is the
+    /// line's text before the word.
+    json_t names(const bool types_only, const place_t place, const std::string_view before,
+                 const std::vector<export_t>& importable = {}, const positions_t& positions = {}) {
+        if (!types_only) {
+            m_items.expect(expected(before));
+            add_wanted(before);
+        }
+
         add_locals();
         // The built-in types, by each name code writes them with.
         for (auto type = static_cast<std::uint32_t>(type_id_t::BOOL);
              type < static_cast<std::uint32_t>(type_id_t::BUILTIN_COUNT); ++type) {
             m_items.add(std::string(builtin_name(static_cast<type_id_t>(type))),
-                        item_kind_t::STRUCT, "built-in type");
+                        item_kind_t::STRUCT, "built-in type", rank_t::BUILT_IN);
         }
 
         for (std::size_t begin = 0; begin < built_in_types.size();) {
             const std::size_t end =
                 std::min(built_in_types.find(' ', begin), built_in_types.size());
             m_items.add(std::string(built_in_types.substr(begin, end - begin)), item_kind_t::STRUCT,
-                        "built-in type");
+                        "built-in type", rank_t::BUILT_IN);
             begin = end + 1;
         }
 
@@ -366,11 +484,13 @@ public:
                 }
 
                 for (const module_id_t from : imported.modules) {
-                    add_module_names(from, node->from ? std::optional(&node->names) : std::nullopt);
+                    add_module_names(from, node->from ? std::optional(&node->names) : std::nullopt,
+                                     rank_t::IMPORTED);
                 }
             }
         }
 
+        add_unimported(importable, positions);
         // Where a type is written, only what names one.
         if (types_only) {
             return m_items.take_types();
@@ -378,15 +498,47 @@ public:
 
         for (std::size_t i = 0; i < m_analysis.symbols.size(); ++i) {
             if (m_analysis.symbols[i].kind == symbol_kind_t::BUILTIN_FUNCTION) {
-                m_items.add(static_cast<symbol_id_t>(i));
+                m_items.add(static_cast<symbol_id_t>(i), rank_t::BUILT_IN);
             }
         }
 
-        for (const std::string_view keyword : keywords) {
-            m_items.add(std::string(keyword), item_kind_t::KEYWORD);
+        if (place == place_t::MEMBERS) {
+            add_overrides();
         }
 
+        add_keywords(place);
         return m_items.take();
+    }
+
+    /// Where the offset is, when `starts_line` says only spaces come before the word on its line:
+    /// in the innermost declaration around it.
+    [[nodiscard]] place_t place(const bool starts_line) const {
+        if (!starts_line) {
+            return place_t::EXPRESSION;
+        }
+
+        place_t found = place_t::TOP_LEVEL;
+        std::uint32_t smallest = std::numeric_limits<std::uint32_t>::max();
+        for (std::size_t i = 0; i < m_ast.stmt_count(); ++i) {
+            const stmt_t& statement = m_ast.get(static_cast<stmt_id_t>(i));
+            if (statement.span.file != m_query.file() || statement.span.begin >= m_offset ||
+                m_offset > statement.span.end || statement.span.length() >= smallest) {
+                continue;
+            }
+
+            if (std::holds_alternative<function_stmt_t>(statement.node)) {
+                found = place_t::STATEMENT;
+            } else if (std::holds_alternative<type_stmt_t>(statement.node) ||
+                       std::holds_alternative<extend_stmt_t>(statement.node)) {
+                found = place_t::MEMBERS;
+            } else {
+                continue;
+            }
+
+            smallest = statement.span.length();
+        }
+
+        return found;
     }
 
 private:
@@ -396,6 +548,539 @@ private:
     std::uint32_t m_offset;
     items_t m_items;
     std::unordered_set<stmt_id_t> m_top_level;
+
+    /// Whether the offset is in, or at the end of, `span` of this file.
+    [[nodiscard]] bool around(const span_t span) const {
+        return span.file == m_query.file() && span.begin <= m_offset && m_offset <= span.end;
+    }
+
+    /// Whether the value `id` is where the word is: around it, or missing, which the parser puts
+    /// at the next token, though that's on another line.
+    [[nodiscard]] bool at_value(const expr_id_t id) const {
+        const span_t span = m_ast.get(id).span;
+        if (around(span)) {
+            return true;
+        }
+
+        if (!std::holds_alternative<error_expr_t>(m_ast.get(id).node) ||
+            span.file != m_query.file() || span.begin < m_offset) {
+            return false;
+        }
+
+        const std::string_view between =
+            m_query.source().text().substr(m_offset, span.begin - m_offset);
+        return between.find_first_not_of(" \t\r\n") == std::string_view::npos;
+    }
+
+    /// The type the code wants where the offset is, when it says: the other side of an == or <>
+    /// it's on the right of, the parameter of the call's argument it's in, the variable whose
+    /// written type an initializer or an assignment gives a value, or what the function a
+    /// Return is in returns. `before` is the line's text before the word.
+    [[nodiscard]] std::optional<type_id_t> expected(const std::string_view before) const {
+        const auto known = [](const type_id_t type) -> std::optional<type_id_t> {
+            if (type == type_id_t::INVALID || type == type_id_t::NONE) {
+                return std::nullopt;
+            }
+
+            return type;
+        };
+
+        // The innermost comparison it's the right side of.
+        std::optional<expr_id_t> compared;
+        for (std::size_t i = 0; i < m_ast.expr_count(); ++i) {
+            const expr_t& expr = m_ast.get(static_cast<expr_id_t>(i));
+            const auto* binary = std::get_if<binary_expr_t>(&expr.node);
+            if (binary != nullptr &&
+                (binary->op == binary_op_t::EQUAL || binary->op == binary_op_t::NOT_EQUAL) &&
+                at_value(binary->right) &&
+                (!compared || expr.span.length() < m_ast.get(*compared).span.length())) {
+                compared = static_cast<expr_id_t>(i);
+            }
+        }
+
+        if (compared) {
+            return known(
+                m_analysis.expr(std::get<binary_expr_t>(m_ast.get(*compared).node).left).type);
+        }
+
+        if (const std::optional<call_at_t> call = call_at(m_query, m_offset)) {
+            const symbol_t& function = m_analysis.symbol(call->candidates[call->chosen]);
+            const auto& node = std::get<call_expr_t>(m_ast.get(call->call).node);
+            std::optional<symbol_id_t> parameter;
+            for (const argument_t& argument : node.arguments) {
+                if (!argument.name || !around(m_ast.get(argument.value).span)) {
+                    continue;
+                }
+
+                for (const symbol_id_t each : function.parameters) {
+                    if (m_analysis.symbol(each).name == argument.name->text) {
+                        parameter = each;
+                    }
+                }
+            }
+
+            if (!parameter && call->active < function.parameters.size()) {
+                parameter = function.parameters[call->active];
+            } else if (!parameter && !function.parameters.empty() &&
+                       m_analysis.symbol(function.parameters.back()).variadic) {
+                parameter = function.parameters.back();
+            }
+
+            if (!parameter) {
+                return std::nullopt;
+            }
+
+            const symbol_t& given = m_analysis.symbol(*parameter);
+            const type_id_t type = given.type;
+            if (given.variadic && type != type_id_t::INVALID &&
+                m_analysis.types.get(type).kind == type_kind_t::ARRAY) {
+                return known(m_analysis.types.get(type).inner);
+            }
+
+            return known(type);
+        }
+
+        // "Return" before the word: what the innermost function around it returns.
+        if (left_trimmed(before) == "Return ") {
+            if (const std::optional<symbol_id_t> function = innermost_function()) {
+                return known(m_analysis.symbol(*function).type);
+            }
+        }
+
+        for (std::size_t i = 0; i < m_ast.stmt_count(); ++i) {
+            const auto id = static_cast<stmt_id_t>(i);
+            const stmt_node_t& node = m_ast.get(id).node;
+            if (const auto* variable = std::get_if<variable_stmt_t>(&node);
+                variable != nullptr && variable->type && variable->value &&
+                at_value(*variable->value) && m_analysis.stmt(id).symbol) {
+                return known(m_analysis.symbol(*m_analysis.stmt(id).symbol).type);
+            }
+
+            if (const auto* assign = std::get_if<assign_stmt_t>(&node);
+                assign != nullptr && !assign->op && at_value(assign->value)) {
+                return known(m_analysis.expr(assign->target).type);
+            }
+
+            if (const auto* returned = std::get_if<return_stmt_t>(&node);
+                returned != nullptr && returned->value && at_value(*returned->value)) {
+                if (const std::optional<symbol_id_t> function = innermost_function()) {
+                    return known(m_analysis.symbol(*function).type);
+                }
+            }
+        }
+
+        return std::nullopt;
+    }
+
+    /// The Function, Method, or New the offset is in, if any.
+    [[nodiscard]] std::optional<symbol_id_t> innermost_function() const {
+        std::optional<symbol_id_t> found;
+        std::uint32_t smallest = std::numeric_limits<std::uint32_t>::max();
+        for (std::size_t i = 0; i < m_ast.stmt_count(); ++i) {
+            const auto id = static_cast<stmt_id_t>(i);
+            const stmt_t& statement = m_ast.get(id);
+            if (std::holds_alternative<function_stmt_t>(statement.node) && around(statement.span) &&
+                statement.span.length() < smallest && m_analysis.stmt(id).symbol) {
+                found = m_analysis.stmt(id).symbol;
+                smallest = statement.span.length();
+            }
+        }
+
+        return found;
+    }
+
+    /// What the code wants that isn't a name in scope: the members of an Enum it wants, and the
+    /// names of the parameters of the call it starts an argument of.
+    void add_wanted(const std::string_view before) {
+        const std::optional<type_id_t> type = m_items.expected();
+        if (type && m_analysis.types.get(*type).kind == type_kind_t::ENUM) {
+            const std::string shown = m_query.type_name(*type);
+            for (std::size_t i = 0; i < m_analysis.symbols.size(); ++i) {
+                const auto id = static_cast<symbol_id_t>(i);
+                if (m_query.enum_of(id) == *type) {
+                    m_items.add(shown + "." + std::string(m_analysis.symbol(id).name),
+                                item_kind_t::ENUM_MEMBER, m_query.signature(id), rank_t::WANTED);
+                }
+            }
+        }
+
+        // At the start of an argument: the names of the parameters the call doesn't give yet.
+        const std::string_view written = before.substr(0, before.find_last_not_of(" \t") + 1);
+        if (!written.ends_with('(') && !written.ends_with(',')) {
+            return;
+        }
+
+        const std::optional<call_at_t> call = call_at(m_query, m_offset);
+        if (!call) {
+            return;
+        }
+
+        // The arguments before the word without a name give the parameters in order.
+        const auto& node = std::get<call_expr_t>(m_ast.get(call->call).node);
+        const auto positional = static_cast<std::size_t>(
+            std::ranges::count_if(node.arguments, [&](const argument_t& each) {
+                const span_t span = m_ast.get(each.value).span;
+                return !each.name && span.end < m_offset && !around(span);
+            }));
+        const symbol_t& function = m_analysis.symbol(call->candidates[call->chosen]);
+        for (std::size_t k = 0; k < function.parameters.size(); ++k) {
+            const symbol_t& parameter = m_analysis.symbol(function.parameters[k]);
+            const bool given =
+                k < positional || std::ranges::any_of(
+                                      node.arguments,
+                                      [&](const argument_t& each) {
+                                          return each.name && each.name->text == parameter.name;
+                                      });
+            if (given || parameter.name.empty()) {
+                continue;
+            }
+
+            m_items.add_raw(
+                {
+                    { "label", std::string(parameter.name) + ":" },
+                    { "kind", static_cast<int>(item_kind_t::FIELD) },
+                    { "detail", m_query.type_name(parameter.type) },
+                    { "insertText", std::string(parameter.name) + ": " },
+                },
+                rank_t::LOCAL);
+        }
+    }
+
+    /// The postfix completions of the value `object`, written on one line before a '.': each
+    /// writes it into what its name says, `x.if` an If on it, by its type.
+    void add_postfix(const expr_id_t object, const positions_t& positions) {
+        const span_t span = m_ast.get(object).span;
+        const std::string_view value = m_query.source().slice(span);
+        const type_id_t type = m_analysis.expr(object).type;
+        if (value.contains('\n') || type == type_id_t::INVALID || type == type_id_t::NONE) {
+            return;
+        }
+
+        // The value as a snippet writes it, and the indentation of its line.
+        std::string escaped;
+        for (const char c : value) {
+            if (c == '$' || c == '}' || c == '\\') {
+                escaped += '\\';
+            }
+
+            escaped += c;
+        }
+
+        const std::string_view text = m_query.source().text();
+        const std::size_t line = text.rfind('\n', span.begin == 0 ? 0 : span.begin - 1);
+        const std::size_t line_start =
+            line == std::string_view::npos || span.begin == 0 ? 0 : line + 1;
+        const std::string_view indent =
+            text.substr(line_start, text.find_first_not_of(" \t", line_start) - line_start);
+        const json_t range = positions.range(
+            m_query.source(), { .file = m_query.file(), .begin = span.begin, .end = m_offset });
+        const auto add = [&](const std::string_view label, const std::string_view detail,
+                             const std::string& snippet) {
+            m_items.add_raw(
+                {
+                    { "label", label },
+                    { "kind", static_cast<int>(item_kind_t::SNIPPET) },
+                    { "detail", detail },
+                    { "filterText", std::string(value) + "." + std::string(label) },
+                    { "insertTextFormat", 2 },
+                    { "textEdit", { { "range", range }, { "newText", snippet } } },
+                },
+                rank_t::IMPORTED);
+        };
+        const std::string body = std::format("\n{}    $0\n{}", indent, indent);
+        const type_t& info = m_analysis.types.get(type);
+        if (type == type_id_t::BOOL) {
+            add("if", "If ... End If", std::format("If {}{}End If", escaped, body));
+            add("not", "!value", std::format("!{}", escaped));
+        }
+
+        if (info.kind == type_kind_t::NULLABLE) {
+            add("ifnull", "If ... == Null", std::format("If {} == Null{}End If", escaped, body));
+        }
+
+        const bool iterable = info.kind == type_kind_t::ARRAY ||
+                              info.kind == type_kind_t::FIXED_ARRAY ||
+                              (m_analysis.interfaces.iterable != type_id_t::INVALID &&
+                               owners_of(type).contains(m_analysis.interfaces.iterable));
+        if (iterable) {
+            add("for", "For ... In", std::format("For ${{1:each}} In {}{}End For", escaped, body));
+        }
+
+        if (std::holds_alternative<call_expr_t>(m_ast.get(object).node)) {
+            add("try", "Try value", std::format("Try {}", escaped));
+        }
+
+        add("local", "Local name = value", std::format("Local ${{1:name}} = {}", escaped));
+    }
+
+    /// In the body of the Struct or Class around the offset, the Methods it can write: those of
+    /// the Classes it extends, to override, and those of the Interfaces it implements that it
+    /// doesn't have yet, each written out with its signature.
+    void add_overrides() {
+        std::optional<stmt_id_t> declared;
+        std::uint32_t smallest = std::numeric_limits<std::uint32_t>::max();
+        for (std::size_t i = 0; i < m_ast.stmt_count(); ++i) {
+            const auto id = static_cast<stmt_id_t>(i);
+            const stmt_t& statement = m_ast.get(id);
+            if (std::holds_alternative<type_stmt_t>(statement.node) && around(statement.span) &&
+                statement.span.length() < smallest) {
+                declared = id;
+                smallest = statement.span.length();
+            }
+        }
+
+        // A type's symbol is the one it declares.
+        const auto symbol = std::ranges::find_if(m_analysis.symbols, [&](const symbol_t& each) {
+            return declared && each.kind == symbol_kind_t::TYPE && each.declaration == *declared;
+        });
+        if (symbol == m_analysis.symbols.end()) {
+            return;
+        }
+
+        const type_id_t type = symbol->type;
+        const type_table_t& types = m_analysis.types;
+        if (type == type_id_t::INVALID || types.get(type).kind == type_kind_t::INTERFACE) {
+            return;
+        }
+
+        // What it has of its own, by name and how many parameters, but for the copies of
+        // Interfaces' defaults it gets.
+        const auto has = [&](const symbol_t& wanted) {
+            return std::ranges::any_of(m_analysis.symbols, [&](const symbol_t& own) {
+                return own.owner == type && !own.default_method && own.kind == wanted.kind &&
+                       own.name == wanted.name && own.parameters.size() == wanted.parameters.size();
+            });
+        };
+        const std::string_view text = m_query.source().text();
+        const std::size_t line_start = text.rfind('\n', m_offset == 0 ? 0 : m_offset - 1);
+        const std::size_t begin = line_start == std::string_view::npos ? 0 : line_start + 1;
+        const std::string_view indent =
+            text.substr(begin, text.find_first_not_of(" \t", begin) - begin);
+        const auto add = [&](const symbol_id_t id, const bool overriding) {
+            const symbol_t& method = m_analysis.symbol(id);
+            if (method.kind != symbol_kind_t::METHOD || method.modifiers.is_static ||
+                method.modifiers.is_final || method.name == "Destroy" || has(method)) {
+                return;
+            }
+
+            // As a declaration writes it, without the type it's a member of before its name.
+            std::string signature = m_query.signature(id);
+            if (const std::size_t name = signature.find(std::string(method.name) + "(");
+                name != std::string::npos) {
+                const std::size_t start = signature.rfind(' ', name) + 1;
+                signature.erase(start, name - start);
+            }
+
+            const std::string head = (overriding ? "Override " : "") + signature;
+            m_items.add_raw(
+                {
+                    { "label", head },
+                    { "kind", static_cast<int>(item_kind_t::METHOD) },
+                    { "filterText", std::string(method.name) },
+                    { "insertTextFormat", 2 },
+                    { "insertText",
+                      std::format("{}\n{}    $0\n{}End Method", head, indent, indent) },
+                },
+                rank_t::WANTED);
+        };
+
+        // The Interfaces its declaration lists, not those every Class has without saying so, nor
+        // those the Classes it extends implement already.
+        std::vector<type_id_t> interfaces;
+        for (const type_expr_id_t written :
+             std::get<type_stmt_t>(m_ast.get(*declared).node).interfaces) {
+            std::string_view name = m_query.source().slice(m_ast.get(written).span);
+            name = name.substr(0, name.find('<'));
+            name = name.substr(name.rfind('.') == std::string_view::npos ? 0 : name.rfind('.') + 1);
+            for (const type_id_t interface : types.get(type).interfaces) {
+                std::string_view own = types.name(interface);
+                own = own.substr(0, own.find('<'));
+                if (own == name) {
+                    interfaces.push_back(interface);
+                }
+            }
+        }
+
+        std::set<type_id_t> seen;
+        for (type_id_t base = types.get(type).base; base != type_id_t::INVALID;
+             base = types.get(base).base) {
+            if (!seen.insert(base).second) {
+                break;
+            }
+
+            for (std::size_t i = 0; i < m_analysis.symbols.size(); ++i) {
+                if (m_analysis.symbols[i].owner == base ||
+                    m_analysis.symbols[i].owner == types.get(base).generic) {
+                    add(static_cast<symbol_id_t>(i), true);
+                }
+            }
+        }
+
+        // An Interface's Methods, and those of the Interfaces it extends: one without a default
+        // is implemented, and one with one overridden.
+        while (!interfaces.empty()) {
+            const type_id_t interface = interfaces.back();
+            interfaces.pop_back();
+            if (interface == type_id_t::INVALID || !seen.insert(interface).second) {
+                continue;
+            }
+
+            std::ranges::copy(types.get(interface).interfaces, std::back_inserter(interfaces));
+            const type_id_t generic = types.get(interface).generic;
+            for (std::size_t i = 0; i < m_analysis.symbols.size(); ++i) {
+                const symbol_t& member = m_analysis.symbols[i];
+                if (member.owner == interface ||
+                    (generic != type_id_t::INVALID && member.owner == generic)) {
+                    add(static_cast<symbol_id_t>(i), !member.modifiers.is_abstract);
+                }
+            }
+        }
+    }
+
+    /// The names of modules the file doesn't import, after the rest, each with the Import its
+    /// item adds after the file's Imports.
+    void add_unimported(const std::vector<export_t>& importable, const positions_t& positions) {
+        const std::optional<module_id_t> own = m_query.module();
+        if (!own) {
+            return;
+        }
+
+        // The modules it imports, as an Import names them, and its own.
+        const module_table_t& table = m_ast.modules();
+        std::set<std::string> imported{ table.get(*own).name };
+        for (const module_import_t& each : table.get(*own).imports) {
+            if (const auto* node = std::get_if<import_stmt_t>(&m_ast.get(each.statement).node)) {
+                imported.insert(node->target);
+            }
+
+            for (const module_id_t module : each.modules) {
+                imported.insert(table.get(module).name);
+            }
+        }
+
+        // After its last Import, or at its start.
+        std::uint32_t at = 0;
+        const std::string_view text = m_query.source().text();
+        for (const stmt_id_t item : m_ast.items()) {
+            const stmt_t& statement = m_ast.get(item);
+            if (statement.span.file == m_query.file() &&
+                std::holds_alternative<import_stmt_t>(statement.node) && statement.span.end >= at) {
+                const std::size_t line_end = text.find('\n', statement.span.end);
+                at = line_end == std::string_view::npos ? static_cast<std::uint32_t>(text.size())
+                                                        : static_cast<std::uint32_t>(line_end + 1);
+            }
+        }
+
+        // Only those that start as the word being typed does, as there are many, and the editor
+        // asks again as it's typed further.
+        std::uint32_t word = m_offset;
+        while (word > 0 && is_name_char(text[word - 1])) {
+            --word;
+        }
+
+        const std::string_view typed = text.substr(word, m_offset - word);
+        if (typed.empty()) {
+            return;
+        }
+
+        m_items.incomplete();
+        const json_t range =
+            positions.range(m_query.source(), { .file = m_query.file(), .begin = at, .end = at });
+        for (const export_t& name : importable) {
+            if (name.name.size() < typed.size() ||
+                !std::ranges::equal(std::string_view(name.name).substr(0, typed.size()), typed,
+                                    [](const char a, const char b) {
+                                        return std::tolower(static_cast<unsigned char>(a)) ==
+                                               std::tolower(static_cast<unsigned char>(b));
+                                    })) {
+                continue;
+            }
+
+            // std/core/'s are every file's.
+            if (imported.contains(name.module) || name.module.starts_with("std.core") ||
+                name.module == "std.collections.map") {
+                continue;
+            }
+
+            m_items.add_raw(
+                {
+                    { "label", name.name },
+                    { "kind", static_cast<int>(item_kind_of(name.kind)) },
+                    { "detail", std::format("{} from {}", name.kind, name.module) },
+                    {
+                        "additionalTextEdits",
+                        json_t::array(
+                            { { { "range", range },
+                                { "newText", std::format("Import {}\n", name.module) } } }),
+                    },
+                },
+                rank_t::UNIMPORTED);
+        }
+    }
+
+    /// The completion item kind of a declaration's keyword.
+    [[nodiscard]] static item_kind_t item_kind_of(const std::string_view kind) {
+        if (kind == "Class") {
+            return item_kind_t::CLASS;
+        }
+
+        if (kind == "Interface") {
+            return item_kind_t::INTERFACE;
+        }
+
+        if (kind == "Enum") {
+            return item_kind_t::ENUM;
+        }
+
+        if (kind == "Struct" || kind == "Attribute") {
+            return item_kind_t::STRUCT;
+        }
+
+        if (kind == "Alias") {
+            return item_kind_t::TYPE_PARAMETER;
+        }
+
+        if (kind == "Const") {
+            return item_kind_t::CONSTANT;
+        }
+
+        if (kind == "Global") {
+            return item_kind_t::VARIABLE;
+        }
+
+        return item_kind_t::FUNCTION;
+    }
+
+    /// The keywords that go at `place`, a value the code wants first.
+    void add_keywords(const place_t place) {
+        const auto add = [&](const std::string_view keyword) {
+            const std::optional<type_id_t> type = m_items.expected();
+            bool wanted = false;
+            if (type && (keyword == "True" || keyword == "False")) {
+                wanted = *type == type_id_t::BOOL;
+            } else if (type && keyword == "Null") {
+                wanted = m_analysis.types.get(*type).kind == type_kind_t::NULLABLE;
+            }
+
+            m_items.add(std::string(keyword), item_kind_t::KEYWORD, {},
+                        wanted ? rank_t::WANTED : rank_t::KEYWORD);
+        };
+        switch (place) {
+        case place_t::TOP_LEVEL:
+            std::ranges::for_each(declaration_keywords, add);
+            std::ranges::for_each(statement_keywords, add);
+            break;
+        case place_t::MEMBERS:
+            std::ranges::for_each(member_keywords, add);
+            break;
+        case place_t::STATEMENT:
+            std::ranges::for_each(statement_keywords, add);
+            break;
+        case place_t::EXPRESSION:
+            std::ranges::for_each(expression_keywords, add);
+            break;
+        }
+    }
 
     /// Whether code in this file can use a declaration of another module's file, with its
     /// visibility.
@@ -441,7 +1126,8 @@ private:
 
     /// A module's top-level names that this file sees, or those of `only`.
     void add_module_names(const module_id_t module,
-                          const std::optional<const std::vector<name_t>*> only) {
+                          const std::optional<const std::vector<name_t>*> only,
+                          const rank_t rank = rank_t::NEAR) {
         const file_id_t file = m_ast.modules().get(module).file;
         for (std::size_t i = 0; i < m_analysis.symbols.size(); ++i) {
             const symbol_t& symbol = m_analysis.symbols[i];
@@ -455,7 +1141,7 @@ private:
                 continue;
             }
 
-            m_items.add(static_cast<symbol_id_t>(i));
+            m_items.add(static_cast<symbol_id_t>(i), rank);
         }
     }
 
@@ -731,7 +1417,7 @@ private:
         std::vector<symbol_id_t> found;
         walk(m_ast.items(), found);
         for (const symbol_id_t id : found | std::views::reverse) {
-            m_items.add(id);
+            m_items.add(id, rank_t::LOCAL);
         }
     }
 
@@ -837,7 +1523,7 @@ std::set<std::string> visible_names(const query_t& query, const std::uint32_t of
     std::set<std::string> names;
     // Held, since a range-for keeps the temporaries of its range only from C++23's P2718 on,
     // which GCC 14 doesn't have: there, the items were read after they were freed.
-    const json_t found = completer_t(query, offset).names(false);
+    const json_t found = completer_t(query, offset).names(false, place_t::EXPRESSION, {});
     for (const json_t& item : found["items"]) {
         if (item["kind"].get<int>() != static_cast<int>(item_kind_t::KEYWORD)) {
             names.insert(item["label"].get<std::string>());
@@ -849,6 +1535,7 @@ std::set<std::string> visible_names(const query_t& query, const std::uint32_t of
 
 json_t completion(const query_t& query, const std::uint32_t offset,
                   const std::function<std::vector<std::string>()>& modules,
+                  const std::function<std::vector<export_t>()>& importable,
                   const positions_t& positions) {
     const std::string_view text = query.source().text();
     const std::uint32_t at =
@@ -889,10 +1576,11 @@ json_t completion(const query_t& query, const std::uint32_t offset,
     // "x." and "x?.".
     if (word > 0 && text[word - 1] == '.' && (word <= 1 || text[word - 2] != '.')) {
         const bool safe = word > 1 && text[word - 2] == '?';
-        return completer.members(word - (safe ? 2 : 1));
+        return completer.members(word - (safe ? 2 : 1), positions);
     }
 
-    return completer.names(names_type(before));
+    return completer.names(names_type(before), completer.place(before.empty()), before,
+                           importable(), positions);
 }
 
 } // namespace fb::lsp

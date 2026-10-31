@@ -1932,7 +1932,7 @@ private:
                                                   const std::string& module) {
         const stmt_node_t& node = ast.get(id).node;
         const auto named = [&](const std::string_view name, const modifiers_t& modifiers,
-                               const bool array_method = false,
+                               const std::string_view kind, const bool array_method = false,
                                const std::string_view extended = {}) {
             if (modifiers.visibility != visibility_t::PUBLIC) {
                 return std::vector<std_name_t>{};
@@ -1944,28 +1944,39 @@ private:
                     .module = module,
                     .array_method = array_method,
                     .extended = std::string(extended),
+                    .kind = std::string(kind),
                 },
             };
         };
 
         if (const auto* type = std::get_if<type_stmt_t>(&node)) {
-            return named(type->name.text, type->modifiers);
+            std::string_view kind = "Struct";
+            if (type->is_class) {
+                kind = "Class";
+            } else if (type->is_interface) {
+                kind = "Interface";
+            } else if (type->is_attribute) {
+                kind = "Attribute";
+            }
+
+            return named(type->name.text, type->modifiers, kind);
         }
 
         if (const auto* declared = std::get_if<enum_stmt_t>(&node)) {
-            return named(declared->name.text, declared->modifiers);
+            return named(declared->name.text, declared->modifiers, "Enum");
         }
 
         if (const auto* alias = std::get_if<alias_stmt_t>(&node)) {
-            return named(alias->name.text, alias->modifiers);
+            return named(alias->name.text, alias->modifiers, "Alias");
         }
 
         if (const auto* function = std::get_if<function_stmt_t>(&node)) {
-            return named(function->name.text, function->modifiers);
+            return named(function->name.text, function->modifiers, "Function");
         }
 
         if (const auto* variable = std::get_if<variable_stmt_t>(&node)) {
-            return named(variable->name.text, variable->modifiers);
+            return named(variable->name.text, variable->modifiers,
+                         variable->kind == variable_kind_t::CONSTANT ? "Const" : "Global");
         }
 
         const auto* extension = std::get_if<extend_stmt_t>(&node);
@@ -1986,11 +1997,13 @@ private:
         const std::string_view extended = type ? builtin_name(*type) : std::string_view();
         for (const stmt_id_t member : extension->members) {
             if (const auto* method = std::get_if<function_stmt_t>(&ast.get(member).node)) {
-                std::ranges::copy(named(method->name.text, method->modifiers, array, extended),
-                                  std::back_inserter(members));
+                std::ranges::copy(
+                    named(method->name.text, method->modifiers, "Method", array, extended),
+                    std::back_inserter(members));
             } else if (const auto* property = std::get_if<property_stmt_t>(&ast.get(member).node)) {
-                std::ranges::copy(named(property->name.text, property->modifiers, array, extended),
-                                  std::back_inserter(members));
+                std::ranges::copy(
+                    named(property->name.text, property->modifiers, "Property", array, extended),
+                    std::back_inserter(members));
             }
         }
 

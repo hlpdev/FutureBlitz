@@ -798,8 +798,7 @@ json_t workspace_symbols(const source_file_t& file, const std::string& uri,
     return out;
 }
 
-json_t signature_help(const query_t& query, const std::uint32_t offset,
-                      const positions_t& positions) {
+std::optional<call_at_t> call_at(const query_t& query, const std::uint32_t offset) {
     // The innermost call whose parentheses `offset` is in.
     const ast_t& ast = query.ast();
     const source_file_t& source = query.source();
@@ -825,7 +824,7 @@ json_t signature_help(const query_t& query, const std::uint32_t offset,
     }
 
     if (!best) {
-        return nullptr;
+        return std::nullopt;
     }
 
     const auto& call = std::get<call_expr_t>(ast.get(*best).node);
@@ -866,9 +865,9 @@ json_t signature_help(const query_t& query, const std::uint32_t offset,
         }
     }
 
-    const std::vector<symbol_id_t> candidates = overloads(query, call, resolved);
+    std::vector<symbol_id_t> candidates = overloads(query, call, resolved);
     if (candidates.empty()) {
-        return nullptr;
+        return std::nullopt;
     }
 
     // The one the call resolved to, or else the first that takes as many arguments as it has.
@@ -885,18 +884,36 @@ json_t signature_help(const query_t& query, const std::uint32_t offset,
         chosen = fits != candidates.end() ? static_cast<std::size_t>(fits - candidates.begin()) : 0;
     }
 
+    return call_at_t{
+        .call = *best,
+        .active = active,
+        .candidates = std::move(candidates),
+        .chosen = chosen,
+    };
+}
+
+json_t signature_help(const query_t& query, const std::uint32_t offset,
+                      const positions_t& positions) {
+    const std::optional<call_at_t> found = call_at(query, offset);
+    if (!found) {
+        return nullptr;
+    }
+
     json_t signatures = json_t::array();
-    for (const symbol_id_t function : candidates) {
+    for (const symbol_id_t function : found->candidates) {
         signatures.push_back(signature_information(query, function, positions));
     }
 
-    const std::size_t count = analysis.symbol(candidates[chosen]).parameters.size();
+    const std::size_t count =
+        query.analysis().symbol(found->candidates[found->chosen]).parameters.size();
     return {
         { "signatures", std::move(signatures) },
-        { "activeSignature", chosen },
+        { "activeSignature", found->chosen },
         {
             "activeParameter",
-            count == 0 ? 0 : std::min<std::uint32_t>(active, static_cast<std::uint32_t>(count - 1)),
+            count == 0
+                ? 0
+                : std::min<std::uint32_t>(found->active, static_cast<std::uint32_t>(count - 1)),
         },
     };
 }
