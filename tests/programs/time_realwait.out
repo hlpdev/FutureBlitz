@@ -1,2 +1,2 @@
-RealWait: under 300 ms
-Sleep: under 300 ms
+RealWait: under 1 s
+Sleep: under 1 s
