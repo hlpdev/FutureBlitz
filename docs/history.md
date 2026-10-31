@@ -82,8 +82,10 @@ doc examples', `<name>.doctests`, are its tests in the module table (`add_tests(
 `sees_package()`), which sema's `sees()` and `can_use()` and fb-lsp's completion use, while
 Private names stay their files' and Public what other packages see. The tested package's
 tests/ folder calls a Package Function. From the review: `f.Set` changes a Package Field in the
-package's tests too, and a prebuilt library's tests, which see only its Public names, say so
-where a name isn't declared (`module_table_t::tested()`).
+package's tests too, and a prebuilt library's tests, which see only what its interface file has,
+its Public names and the Package members of its Public types, say so where they use one of its
+top-level Package declarations, which each module's part of the interface file names in a
+`// package` line (`module_t::package_names`), and not for a typo.
 
 std.math's `Mat4.Perspective` and `Mat4.Orthographic` panic, with their values, for values
 whose matrix isn't finite, which they gave as Inf before: a field of view, an aspect, or a
@@ -175,6 +177,20 @@ it): stb_image read what's past the end as 0s, so an 18-byte header of a 16384 b
 decoded into a gigabyte of nothing. `tga_whole()` in stb.cpp walks the header, ID, and color map,
 then the pixels, uncompressed or by run-length packets, before stb_image reads it.
 tests/programs/image_tga_short.fb.
+
+The check of 1.1's fixes: for every built-in type's name, as for Object and Scheduler, only a type
+or an Alias takes the built-in's place (`is_typed()` in resolve_type), not a Function or a Global,
+and `Channel<Int>(4)` makes the built-in where only a Function that isn't generic has the name
+(`in_place_maker()`, `generic_function_named()`). Analysis records each module's types that hide a
+built-in by sema's own lookup (`builtin_hider()`, `analysis_t::builtin_hiders`), so an Import As,
+a From line that names something else, and another module's Private type don't, and the
+interface writer refuses Task, Channel, Thread, Ptr, Atomic, Mutex, and Weak there too, saying
+which module's type hides it. A Vfs mount's file at a place, or on the way to a path, cuts off what
+earlier mounts have there in the reads, KindOf, and listings alike (`FileOnTheWay()`), a path there
+NOT_FOUND where a later mount makes the file's place a folder again (`FolderAfter()`), and
+ReadBytesAsync asks a folder on the disk with MetadataAsync (`KindAtAsync()`). fb publish says a
+path dependency's yanked version is yanked, and how to go on. The error of a prebuilt library's
+tests says a name is Package only for one of its top-level Package declarations.
 
 ## 1.0.1
 

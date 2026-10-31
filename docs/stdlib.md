@@ -836,10 +836,13 @@ std/io/.
   mount is at or under, or where a later mount has a folder, is a folder for every call, though an
   earlier mount has a file there: `KindOf` and `Entries` say so, and `ReadBytes`, `ReadText`, and
   `ReadLines`, Async or not, throw an IOError of `IS_A_DIRECTORY`, as for any folder. And a
-  later mount's file on the way to a path hides what an earlier mount has under it, as a path
-  through a file on the disk is nothing: `KindOf`, `Entries`, and the reads throw
-  `NOT_A_DIRECTORY`, and `Exists` is False. Glob's patterns take `/`
-  or `\` between names, as its paths do. A `VfsSource` gives a file's bytes, what's at a path, and
+  mount's file at a place, or on the way to a path, cuts off what earlier mounts have there, as a
+  path through a file on the disk is nothing, in the reads, `KindOf`, and `Entries` alike: a path
+  under it throws `NOT_A_DIRECTORY`, and `Exists` is False, or where a still later mount makes the
+  file's place a folder again, it's nothing there, which the reads throw `NOT_FOUND` for, and a
+  listing of the folder has only the later mounts' names. `ReadBytesAsync` asks a folder on the
+  disk what's on the way to a path without blocking the main thread. Glob's patterns take `/` or
+  `\` between names, as its paths do. A `VfsSource` gives a file's bytes, what's at a path, and
   a folder's names: `FolderSource` reads a folder on the disk as it's asked, with nothing outside
   it (by Windows' rules a name with a `:` isn't there), and is Final, so its Async reads are its
   reads and a source that changes them wraps one; `EmbeddedSource` the `Map<String, UInt8[]>`

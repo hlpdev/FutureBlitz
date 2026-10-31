@@ -262,8 +262,15 @@ Print(session.Data<Invoice>() == Null)          // True
   be Null, a `Weak<Object>` refers to one without keeping it, and it isn't Sendable, since a
   Class's objects stay on the thread that made them.
 - No type lists it, no Interface extends it, an Extend can't add to it, and it isn't a
-  constraint: `Where T: Class` says a type is a Class. A type that a module declares or imports
-  by the name takes its place there, as one named Scheduler does.
+  constraint: `Where T: Class` says a type is a Class.
+- Object isn't a keyword, nor is any of the language's other types' names: Scheduler, Task,
+  Thread, Channel, Atomic, Mutex, Weak, and Ptr. A type or an Alias that a module declares, or
+  that an Import brings in without a qualifier, takes the built-in's place in that module's code,
+  but a Function or a Global of the name doesn't, and neither does one an Import As or a From
+  line that names something else keeps behind its name, or another module's Private one. A call
+  of the name with type arguments, as `Channel<Int>(4)`, makes the built-in where only a Function
+  that isn't generic has the name. A library's interface file can't write a built-in type where
+  its module's own or imported type of the name would take its place, which its build says.
 
 ## Properties
 

@@ -196,11 +196,12 @@ End Function
   depends on the package and on what it depends on, so their tests import it as another package
   would. They see its Package names too, as its own files do, so a test checks what the package
   keeps to itself without making it Public, but not a file's Private names, or a dependency's
-  Package ones; Public stays what other packages use. A prebuilt library's tests see only its Public
-  names, which its interface file has, and a name they don't see says so. They import each other by
-  their paths. A package builds without its tests/ folder, so its own files don't import them. A
-  tests/ folder with a project.toml of its own is a package of its own, which `fb test` leaves
-  alone.
+  Package ones; Public stays what other packages use. A prebuilt library's tests see only what its
+  interface file has: its Public names, and the Package Fields, Methods, and Properties of its
+  Public types, but not its top-level Package declarations, which the interface file names, so using
+  one says it's Package. They import each other by their paths. A package builds without its tests/
+  folder, so its own files don't import them. A tests/ folder with a project.toml of its own is a
+  package of its own, which `fb test` leaves alone.
 - A test build has each of the package's `.fb` files, and runs the tests in place of the main
   file's top-level code, once the Globals are set; another main file's top-level code, as a
   tool's in the package can have, is left out too. The tests run in parallel, on as many threads
