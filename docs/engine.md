@@ -11,10 +11,11 @@ The engine is packages built on top of FutureBlitz, never part of the language (
 uses what any library can, Extern blocks over its C API, `@MainThread`, and the main scheduler's
 `Scheduler.Main.Step()`, and a program uses it by importing its packages.
 
-Its goal: a good modern engine, on which SCP: Containment Breach is remade 1-to-1 at the end of
-phase 2, feeling nearly identical. fbengine copies none of Blitz3D's quirks: it follows std.math
-(right-handed, Y up, -Z forward, radians) and loads modern formats only; the remake converts its
-assets and reproduces what it needs in game code (the user, 2026-10-31).
+fbengine is its own engine, not a modern copy of Blitz3D's: it follows std.math (right-handed,
+Y up, -Z forward, radians) and loads modern formats only. Its features have to cover everything
+SCP: Containment Breach needs, checked at E14, so a 1-to-1 remake can be built on it later; the
+remake is a separate project, with its own converters for the game's code and assets, tied to
+neither the engine nor the language (the user, 2026-10-31).
 
 ## Packages
 
@@ -27,7 +28,7 @@ Released together, at one version (the user, 2026-10-30):
 | `fbengine_physics` | rigid bodies, shapes, joints, the character controller, triggers, casts | one DLL: Jolt |
 | `fbengine_ui` | a game's UI: widgets, layout, themes, focus; a debug UI and console | none, on fbengine's 2D |
 | `fbengine_video` | video into a texture, with its sound | one DLL: a decoder |
-| `fbengine_tools` | the cooker, pak files, typed references, and converters from legacy formats (.b3d, .x, .3ds) | none |
+| `fbengine_tools` | the cooker, pak files, and typed references | none |
 
 - The split is where a game can do without a part: a 2D game without Jolt and 3D, a server
   without a window, audio and physics without each other. The window, the GPU device, 2D, the
@@ -50,13 +51,13 @@ Tests never open a window: SDL's offscreen video, and Vulkan on lavapipe and Mol
 | **E5** | Drawing the scene: materials with layers and lightmaps, clustered lights, transparency, cameras into textures | a lightmapped, fogged, lit room with cameras rendering to textures matches its golden images |
 | **E6** | The modern renderer: PBR, shadows, HDR, post effects, particles, instancing, custom shaders | Khronos's glTF sample models match their references |
 | **E7** | Animation: skeletons, clips and blending, bones under game control, morph targets | skinned and morphing sample models match their reference frames |
-| **E8** | Assets: the VFS and paks, loaders, the cache, legacy converters, the cooker, typed references, hot reload | a game runs from cooked paks, reloads changed files in development, and the converters turn .b3d and .x into glTF |
+| **E8** | Assets: the VFS and paks, loaders, the cache, the cooker, typed references, hot reload | a game runs from cooked paks, and reloads changed files in development |
 | **E9** | Audio | tests mix to known buffers, and sounds follow entities |
 | **E10** | Physics | Jolt's samples stay stable, deterministic runs repeat, and bodies drive entities |
 | **E11** | UI | a sample game's menus, HUD, and console work by mouse, keyboard, and gamepad |
 | **E12** | Video | a video plays into a texture with its sound in sync |
 | **E13** | The editor | a scene is made, saved, played, and inspected in the editor |
-| **E14** | The proof: SCP:CB remade 1-to-1, and a modern showcase game | both run on Windows, Linux, and macOS |
+| **E14** | The proof: a sample for each engine feature SCP:CB needs, and a modern showcase game | all run on Windows, Linux, and macOS |
 
 The engine's docs are `fb doc`'s, on its packages' pages; futureblitz.dev's stay the language's.
 
