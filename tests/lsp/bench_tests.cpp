@@ -59,6 +59,7 @@ std::vector<metric_t> metrics() {
             .name = "syntax_error",
             .what = "a syntax error shown, from the keystroke",
             .budget = milliseconds(50),
+            .enforced = true,
         },
         {
             .name = "type_error",
@@ -578,7 +579,7 @@ std::optional<std::string> environment(const char* name) {
 } // namespace
 
 TEST_CASE("fb-lsp's benchmark, against M11's budgets", "[.][bench]") {
-    const std::size_t samples = std::stoul(environment("FB_LSP_BENCH_SAMPLES").value_or("10"));
+    const std::size_t samples = std::stoul(environment("FB_LSP_BENCH_SAMPLES").value_or("20"));
     const shape_t shape;
     const folder_t folder(program(shape));
     std::vector<workload_t> workloads{ program_workload(folder, shape), std_workload() };

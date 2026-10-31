@@ -40,7 +40,9 @@ struct disk_cache_t {
     std::unordered_map<key_t, std::optional<std::filesystem::path>> real;
     std::unordered_map<key_t, status_t> statuses;
     std::unordered_map<key_t, std::pair<bool, std::error_code>> equivalent;
-    std::unordered_map<key_t, std::pair<std::vector<disk_entry_t>, std::error_code>> entries;
+    std::unordered_map<key_t,
+                       std::pair<std::shared_ptr<const std::vector<disk_entry_t>>, std::error_code>>
+        entries;
     std::unordered_map<key_t, std::vector<std::filesystem::path>> files_under;
     std::unordered_map<key_t, std::shared_ptr<const std::optional<std::string>>> texts;
     /// How many times it was emptied, so an answer asked for before it last was isn't kept.
@@ -112,9 +114,10 @@ namespace disk {
                               const std::filesystem::path& second, std::error_code& error);
 
 /// A folder's entries, as std::filesystem::directory_iterator lists them, with the error that
-/// stopped it, if one did.
-[[nodiscard]] std::vector<disk_entry_t> entries(const std::filesystem::path& folder,
-                                                std::error_code& error);
+/// stopped it, if one did. The cache's list is shared, as a front end asks for a folder's for
+/// each Import.
+[[nodiscard]] std::shared_ptr<const std::vector<disk_entry_t>>
+entries(const std::filesystem::path& folder, std::error_code& error);
 
 /// The files under a folder, its folders' too, as std::filesystem::recursive_directory_iterator
 /// lists them, without following links to folders.

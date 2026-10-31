@@ -360,7 +360,9 @@ std::vector<std::string> folder_files(const file_set_t& files, const std::string
     }
 
     std::error_code error;
-    for (const disk_entry_t& entry : disk::entries(disk_path(files, folder), error)) {
+    const std::shared_ptr<const std::vector<disk_entry_t>> listed =
+        disk::entries(disk_path(files, folder), error);
+    for (const disk_entry_t& entry : *listed) {
         if (entry.file && entry.path.extension() == ".fb") {
             found.push_back(prefix + to_utf8(entry.path.filename()));
         }
@@ -1152,8 +1154,9 @@ private:
                                                             const std::string_view name) {
         std::optional<std::string> found;
         std::error_code error;
-        const std::vector<disk_entry_t> listed = disk::entries(folder, error);
-        for (const disk_entry_t& entry : listed) {
+        const std::shared_ptr<const std::vector<disk_entry_t>> listed =
+            disk::entries(folder, error);
+        for (const disk_entry_t& entry : *listed) {
             std::string entry_name = to_utf8(entry.path.filename());
             if (entry_name == name) {
                 return entry_name;
@@ -1169,7 +1172,7 @@ private:
             return found;
         }
 
-        for (const disk_entry_t& entry : listed) {
+        for (const disk_entry_t& entry : *listed) {
             std::error_code ignored;
             if (!is_link(entry.path) && disk::equivalent(entry.path, written, ignored)) {
                 return to_utf8(entry.path.filename());
@@ -1681,7 +1684,9 @@ private:
 
         std::optional<std::string> first;
         std::error_code error;
-        for (const disk_entry_t& entry : disk::entries(disk_path(m_files, folder), error)) {
+        const std::shared_ptr<const std::vector<disk_entry_t>> listed =
+            disk::entries(disk_path(m_files, folder), error);
+        for (const disk_entry_t& entry : *listed) {
             const std::string name = to_utf8(entry.path.filename());
             if (folded(to_utf8(entry.path.extension())) == ".fb" && !name.ends_with(".fb") &&
                 (!first || name < *first)) {
@@ -2456,7 +2461,7 @@ private:
             return disk::is_regular_file(root / path_from_utf8(manifest.main), error);
         }
 
-        return std::ranges::any_of(disk::entries(root, error), [&](const disk_entry_t& entry) {
+        return std::ranges::any_of(*disk::entries(root, error), [&](const disk_entry_t& entry) {
             return to_utf8(entry.path.filename()) == manifest.main && entry.file;
         });
     }

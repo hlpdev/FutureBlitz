@@ -48,6 +48,62 @@ bool inside(const std::string_view key, const std::string_view folder) {
            (key.starts_with(folder) && (folder.ends_with('/') || key[folder.size()] == '/'));
 }
 
+/// The text of a document parsed alone, as a compilation of its one file, whose diagnostics are
+/// its syntax errors.
+std::shared_ptr<compilation_t> parse_alone(const std::filesystem::path& path, std::string text) {
+    auto parsed = std::make_shared<compilation_t>();
+    parsed->file = parsed->sources.add(to_utf8(path), std::move(text));
+    parsed->on_disk.resize(static_cast<std::size_t>(std::to_underlying(parsed->file)) + 1);
+    parsed->on_disk.back() = path;
+    const source_file_t& file = parsed->sources.get(parsed->file);
+    std::vector<span_t> docs;
+    const std::vector<token_t> tokens =
+        lex(file, parsed->diagnostics, defined_symbols(build_mode_t::DEBUG), &docs);
+    parse_into(file, tokens, parsed->diagnostics, parsed->ast, false, docs);
+    return parsed;
+}
+
+/// Where the offsets of one text are in another, which an edit made of it: the same before
+/// what changed, moved by as much as it grew after it, and nowhere in it.
+class moved_t {
+public:
+    moved_t(const std::string_view from, const std::string_view to)
+        : m_grown(static_cast<std::int64_t>(to.size()) - static_cast<std::int64_t>(from.size())) {
+        const std::size_t shorter = std::min(from.size(), to.size());
+        while (m_before < shorter && from[m_before] == to[m_before]) {
+            ++m_before;
+        }
+
+        std::size_t after = 0;
+        while (after < shorter - m_before &&
+               from[from.size() - 1 - after] == to[to.size() - 1 - after]) {
+            ++after;
+        }
+
+        m_after = from.size() - after;
+    }
+
+    /// Where `span` of the first text is in the second, nullopt when the edit was in it.
+    [[nodiscard]] std::optional<span_t> operator()(span_t span) const {
+        if (span.end <= m_before) {
+            return span;
+        }
+
+        if (span.begin < m_after) {
+            return std::nullopt;
+        }
+
+        span.begin = static_cast<std::uint32_t>(span.begin + m_grown);
+        span.end = static_cast<std::uint32_t>(span.end + m_grown);
+        return span;
+    }
+
+private:
+    std::int64_t m_grown = 0;
+    std::size_t m_before = 0;
+    std::size_t m_after = 0;
+};
+
 /// A file's text on disk, or nullopt when it can't be read.
 std::optional<std::string> read_disk(const std::filesystem::path& path) {
     std::ifstream file(path, std::ios::binary);
@@ -305,15 +361,90 @@ void workspace_t::open(const std::filesystem::path& path, const std::int64_t ver
 
 void workspace_t::change(const std::filesystem::path& path, const std::int64_t version,
                          std::string text) {
+    // Its syntax errors show as it's typed, before the check that waits for the next keystroke.
+    const std::shared_ptr<compilation_t> parsed = parse_alone(path, text);
     {
         const std::scoped_lock lock(m_mutex);
         const std::string key = file_key(path);
         m_documents[key] = { .version = version, .text = std::move(text) };
         ++m_generation;
+        show_syntax(key, path, version, parsed);
         edited(key);
     }
 
     m_work.notify_all();
+}
+
+void workspace_t::show_syntax(const std::string& key, const std::filesystem::path& path,
+                              const std::int64_t version,
+                              const std::shared_ptr<compilation_t>& parsed) {
+    shown_t& shown = m_shown[key];
+    const bool syntax = !parsed->diagnostics.diagnostics().empty();
+    if (!syntax && !shown.syntax) {
+        return;
+    }
+
+    // Its check's other diagnostics, where the edits since moved them, but for those an edit
+    // was in, and their labels in its own text.
+    std::vector<diagnostic_t> others;
+    if (shown.compilation) {
+        const moved_t moved(shown.text, parsed->source().text());
+        for (const diagnostic_t* other : shown.others) {
+            const std::optional<span_t> span = moved(other->span);
+            if (!span) {
+                continue;
+            }
+
+            diagnostic_t carried = *other;
+            carried.span = { .file = parsed->file, .begin = span->begin, .end = span->end };
+            carried.fixes.clear();
+            std::erase_if(carried.labels, [&](label_t& label) {
+                const std::optional<span_t> at =
+                    label.span.file == other->span.file ? moved(label.span) : std::nullopt;
+                if (at) {
+                    label.span = { .file = parsed->file, .begin = at->begin, .end = at->end };
+                }
+
+                return !at;
+            });
+            others.push_back(std::move(carried));
+        }
+    }
+
+    for (diagnostic_t& other : others) {
+        parsed->diagnostics.report(std::move(other));
+    }
+
+    parsed->diagnostics.sort();
+    published_t published{ .path = path, .version = version, .compilation = parsed };
+    for (const diagnostic_t& diagnostic : parsed->diagnostics.diagnostics()) {
+        published.diagnostics.push_back(&diagnostic);
+    }
+
+    // A check of an older text doesn't replace it, as it's newer.
+    m_published[key] = m_generation;
+    shown.syntax = syntax;
+    m_publish(published);
+}
+
+void workspace_t::note_shown(const std::string& key, const std::string& text,
+                             const std::shared_ptr<const compilation_t>& compilation,
+                             const std::vector<const diagnostic_t*>& diagnostics) {
+    // The check's syntax errors are those of a parse of its text alone, which a quick parse
+    // shows itself.
+    const std::shared_ptr<compilation_t> parsed = parse_alone(std::filesystem::path(), text);
+    const std::vector<diagnostic_t>& syntax = parsed->diagnostics.diagnostics();
+    shown_t& shown = m_shown[key];
+    shown = { .compilation = compilation, .text = text, .syntax = !syntax.empty() };
+    for (const diagnostic_t* diagnostic : diagnostics) {
+        const bool parse = std::ranges::any_of(syntax, [&](const diagnostic_t& found) {
+            return found.span.begin == diagnostic->span.begin &&
+                   found.span.end == diagnostic->span.end && found.message == diagnostic->message;
+        });
+        if (!parse) {
+            shown.others.push_back(diagnostic);
+        }
+    }
 }
 
 void workspace_t::edited(const std::string& key) {
@@ -328,6 +459,7 @@ void workspace_t::close(const std::filesystem::path& path) {
         const std::string key = file_key(path);
         m_documents.erase(key);
         m_latest.erase(key);
+        m_shown.erase(key);
         m_edited.erase(key);
         ++m_generation;
         // Its text on disk may differ from what was checked, and a file outside the workspace has
@@ -773,6 +905,10 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
                     diagnostics.diagnostics.push_back(&diagnostic);
                 }
             }
+        }
+
+        if (document != m_documents.end()) {
+            note_shown(key, texts.at(key), compilation, diagnostics.diagnostics);
         }
 
         m_publish(diagnostics);

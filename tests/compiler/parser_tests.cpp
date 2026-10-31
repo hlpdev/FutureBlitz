@@ -493,6 +493,80 @@ TEST_CASE("an End for an outer block also closes the inner one", "[parser]") {
           std::vector<std::string>{ "29-32: expected 'End If', found 'End While'" });
 }
 
+TEST_CASE("a declaration that starts its line ends the blocks whose End is missing", "[parser]") {
+    // The Function after one without its End Function is at the top level, as it would be with it.
+    parsed_t parsed = parse_text("Function A()\n    b()\nFunction B()\n    c()\nEnd Function");
+    CHECK(parsed.dump ==
+          parse_text("Function A()\n    b()\nEnd Function\nFunction B()\n    c()\nEnd Function")
+              .dump);
+    CHECK(parsed.errors ==
+          std::vector<std::string>{ "21-29: expected 'End Function', found 'Function'" });
+
+    // Every block that's open ends there, though only the innermost's is reported, as one error
+    // a place is.
+    parsed = parse_text("Function A()\n    If x\n        b()\nFunction B()\nEnd Function");
+    CHECK(parsed.dump ==
+          parse_text("Function A()\n    If x\n        b()\n    End If\nEnd Function\n"
+                     "Function B()\nEnd Function")
+              .dump);
+    CHECK(parsed.errors ==
+          std::vector<std::string>{ "34-42: expected 'End If', found 'Function'" });
+
+    // A Class's, before a Function, a Struct, a Global, an Enum, an Alias, an Extend, an Extern
+    // block, an Attribute, and a Const Function.
+    for (const std::string_view next : {
+             "Function F()\nEnd Function",
+             "Struct S\nEnd Struct",
+             "Global g = 1",
+             "Enum E\n    A\nEnd Enum",
+             "Alias Meters = Int",
+             "Extend Int\nEnd Extend",
+             "Extern \"C\"\nEnd Extern",
+             "Attribute Note",
+             "Const Function K(): Int => 1",
+         }) {
+        INFO(next);
+        parsed = parse_text(std::format("Class C\n    Field X: Int\n{}", next));
+        CHECK(parsed.dump ==
+              parse_text(std::format("Class C\n    Field X: Int\nEnd Class\n{}", next)).dump);
+        CHECK(parsed.errors.size() == 1);
+        CHECK(parsed.errors.front().contains("expected 'End Class', found "));
+    }
+
+    // With its attributes and modifiers.
+    parsed = parse_text("Function A()\n    b()\n@Test\nPublic Function B()\nEnd Function");
+    CHECK(parsed.errors == std::vector<std::string>{ "21-22: expected 'End Function', found '@'" });
+
+    // An indented one is in the block, which analysis reports, and so is any statement that
+    // can be in a block, though it starts its line.
+    parsed = parse_text("Function A()\n    Function B()\n    End Function\nEnd Function");
+    CHECK(parsed.errors.empty());
+    parsed = parse_text("If a\nb()\nLocal c = 1\nEnd If");
+    CHECK(parsed.errors.empty());
+
+    // An Extern block's Functions are its own.
+    parsed = parse_text("Extern \"C\"\nFunction Abs(n: Int32): Int32 = \"abs\"\nEnd Extern");
+    CHECK(parsed.errors.empty());
+}
+
+TEST_CASE("a file's unrelated syntax errors are each reported", "[parser]") {
+    const parsed_t parsed = parse_text("Function A(): Int\n"
+                                       "    Local x = (1 +\n"
+                                       "    Return x\n"
+                                       "End Function\n"
+                                       "Function B(): Int\n"
+                                       "    Local y = 1 2\n"
+                                       "    Return y\n"
+                                       "End Function\n"
+                                       "Function C(): Int\n"
+                                       "    Return Foo(1,\n"
+                                       "End Function\n");
+    REQUIRE(parsed.errors.size() == 3);
+    CHECK(parsed.errors[0].ends_with("expected an expression, found 'Return'"));
+    CHECK(parsed.errors[1].ends_with("expected end of line, found integer literal"));
+    CHECK(parsed.errors[2].ends_with("expected an expression, found newline"));
+}
+
 TEST_CASE("a wrong End that closes nothing else is taken as the block's End", "[parser]") {
     const parsed_t parsed = parse_text("If a\n    b()\nEnd While\nx = 1");
     CHECK(parsed.dump == "(if a (block (call b)))\n(= x (int 1))");

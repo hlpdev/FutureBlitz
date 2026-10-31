@@ -39,17 +39,17 @@ TEST_CASE("a disk cache answers as the disk did when it was first asked, until i
         const fb::disk_scope_t scope(&cache);
         CHECK(!fb::disk::exists(file, error));
         CHECK(!fb::disk::read(file));
-        CHECK(fb::disk::entries(folder, error).empty());
+        CHECK(fb::disk::entries(folder, error)->empty());
         write(file, "two");
         CHECK(!fb::disk::exists(file, error));
         CHECK(!fb::disk::is_regular_file(file, error));
         CHECK(!fb::disk::read(file));
-        CHECK(fb::disk::entries(folder, error).empty());
+        CHECK(fb::disk::entries(folder, error)->empty());
 
         cache.clear();
         CHECK(fb::disk::is_regular_file(file, error));
         CHECK(fb::disk::read(file) == "two");
-        const std::vector<fb::disk_entry_t> entries = fb::disk::entries(folder, error);
+        const std::vector<fb::disk_entry_t> entries = *fb::disk::entries(folder, error);
         REQUIRE(entries.size() == 1);
         CHECK(entries.front().path.filename() == "a.fb");
         CHECK(entries.front().file);

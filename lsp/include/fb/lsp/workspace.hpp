@@ -212,6 +212,20 @@ private:
     std::vector<check_record_t> m_history;
     /// What std's modules declare, which every check needs, and only the first works out.
     std_names_cache_t m_std_names;
+    /// What a check published for an open document, with the text it read, so a parse of the
+    /// document alone, as it's typed, can show its syntax errors with the check's other
+    /// diagnostics, where the edits since have moved them.
+    struct shown_t {
+        std::shared_ptr<const compilation_t> compilation;
+        std::string text;
+        /// The check's diagnostics of the document, but for those a parse of its text gives.
+        std::vector<const diagnostic_t*> others;
+        /// Whether what's published for the document now has syntax errors.
+        bool syntax = false;
+    };
+
+    /// By the open documents' keys.
+    std::map<std::string, shown_t> m_shown;
     /// What the checks know of the disk, when the client says when files change.
     disk_cache_t m_disk;
     bool m_watched = false;
@@ -222,6 +236,14 @@ private:
     void run_background();
     /// Forgets what the checks know of the disk, and the files' keys, as it may have changed.
     void disk_changed();
+    /// Publishes the syntax errors of `parsed`, a parse of the document `key` alone at `version`,
+    /// with its last check's other diagnostics, when it has some, or what's published has.
+    void show_syntax(const std::string& key, const std::filesystem::path& path,
+                     std::int64_t version, const std::shared_ptr<compilation_t>& parsed);
+    /// Notes what a check published for the open document `key`, which read `text`.
+    void note_shown(const std::string& key, const std::string& text,
+                    const std::shared_ptr<const compilation_t>& compilation,
+                    const std::vector<const diagnostic_t*>& diagnostics);
     /// Runs `job` with the lock unlocked, and takes in what it found. `foreground` checks are of
     /// edited documents.
     std::shared_ptr<const compilation_t> run_job(std::unique_lock<std::mutex>& lock,

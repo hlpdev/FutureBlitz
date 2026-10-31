@@ -315,8 +315,9 @@ How it's built (2026-10-29):
   of the disk's. Sema checks the declarations of every module a check loads, and only the roots'
   function bodies (M11's step 1), so an edit of a file that few others import loads few modules,
   and their bodies aren't checked again.
-- **An edit** checks the edited file once there's been no other edit for 150 ms, on a thread for
-  edited documents, and publishes its diagnostics. Then, 400 ms after, a thread for the rest
+- **An edit** is parsed at once, and its syntax errors published (M11's step 2), and it checks
+  the edited file once there's been no other edit for 150 ms, on a thread for edited documents,
+  and publishes its diagnostics. Then, 400 ms after, a thread for the rest
   checks the files that import it, directly or not, as the graph of the checks before says, one
   check for each unit they're in. Every file imports std/core/ and std.collections.map without
   saying so. A file with top-level code is the main file of its own check; one that's another
@@ -653,7 +654,7 @@ program of a few hundred files), measured at the 95th percentile:
 |---|---|---|
 | 0 | **Measure.** A benchmark of fb-lsp over its messages (tests/lsp), on std and a generated large package: each request's time from the edit, at the 50th and 95th percentile, written as a report CI keeps; and a check that fails when a budget is missed | the report shows where today's time goes, and the budgets are checked |
 | 1 | **Checks that keep what didn't change** (done 2026-10-31). Measuring showed a check's time went to asking the disk, not to compiling, so the checks keep what the disk said until it changes, and what didn't change of the rest: each file's tokens; the package's files aren't listed for every check; a check of a few files checks only their bodies, unless theirs need the others'; a file's key is worked out once; and completion lists the modules an Import can name only at an Import (below) | the benchmark's type error, completion, signature help, references, and rename meet their budgets on both workloads and are enforced; tests edit a body, a declaration, and an Import, and check that after each, every file's diagnostics are the same as a check from nothing gives |
-| 2 | **Errors as typed.** Each change parses the file alone at once and publishes its syntax errors with no wait; the full check follows at its pause, and its errors replace them. The parser recovers at each statement and block, so one missing `End` or `)` doesn't hide the rest of the file's errors; tests of recovery for each block and each kind of broken line | a syntax error shows within 50 ms, and a file with three unrelated syntax errors shows all three |
+| 2 | **Errors as typed** (done 2026-10-31). Each change parses the file alone at once and publishes its syntax errors with no wait, with its last check's other errors where the edit moved them; the full check follows at its pause, and its errors replace them. The parser recovers at each statement and block, and a declaration that only goes at the top level, starting its line, ends the blocks a missing `End` left open, so one missing `End` or `)` doesn't hide the rest of the file's errors; tests of recovery for each block and each kind of broken line | a syntax error shows within 50 ms, and a file with three unrelated syntax errors shows all three |
 | 3 | **Completion that knows.** Names from every module the file can import (its package's, std's, its dependencies'), not only those it imports, with the Import added when one is chosen; ranked by the type expected where the cursor is, then by scope and use; an Enum's members where an Enum is expected; named arguments; the members a Class can override and an Interface's to implement, written out with their signatures; keywords only where they can go; postfix completions (`.if`, `.ifnull`, `.for`, `.not`, `.try`, `.local`); completion on a word as it's typed, not only after `.` | each kind has a test of what's offered and in what order, and choosing an unimported name adds its Import |
 | 4 | **The editor's basics.** Inlay hints (a Local's inferred type, parameter names at calls, each a setting); highlighting a symbol's other uses; folding by blocks, comments, and Import groups; expanding a selection by syntax; go to type definition and to implementations; call and type hierarchies; code lenses for references; run and debug for each `@Test` and main file in VS Code's Testing panel and the gutter | each request has tests, and the extension's Testing panel runs and debugs a package's tests |
 | 5 | **Quick fixes.** Every error that has a likely fix offers it, from the compiler: import the module that declares an unknown name (and `fb add` the registry package that has it, when one does); "did you mean" for a misspelled name; add `Try`, `Try?`, or a Throws; create the Function, Method, Field, Property, Local, or Enum member a use names, with its types from the use; implement an Interface's members or an Abstract Class's; add a missing `End`; a conversion with `As`; a Null check or `?` for nullability; make a declaration Public or Package for a use that can't see it; add `@MainThread`; wrap in `Unsafe`; add a missing Return; fix a keyword's case | each fix has a test that applies it and checks the file compiles |
@@ -672,7 +673,7 @@ editing std.text.fuzzy, with the editor's own delays (150 ms, and 400 ms for wha
 edited file). An edit is timed from its didChange: to the publication of its diagnostics, for a
 syntax error and a type error; to the response, for completion after `.` and on a word, and
 signature help after `(`. Hover, the quick fixes at an error, references, and a rename are timed
-with every check done. Each is timed 10 times (`FB_LSP_BENCH_SAMPLES`), and the report,
+with every check done. Each is timed 20 times (`FB_LSP_BENCH_SAMPLES`), and the report,
 lsp-bench.md and lsp-bench.json in the folder `FB_LSP_BENCH_REPORT` names, has each one's 50th
 and 95th percentiles against its budget, and how long the edited file's own checks took, with how
 many modules they had. Each metric has an `enforced` flag, which the step that meets its budget
@@ -758,6 +759,29 @@ thread can, and a generic instance, and checking them is cheap now.
 
 Each of these met its budget at the 95th percentile too, as the report shows, and is enforced. A
 syntax error still waits for the check, step 2's.
+
+**Step 2, errors as typed** (2026-10-31):
+
+- **A parse as it's typed.** Each change parses the document alone (`parse_alone`), before the
+  check that waits for the next keystroke, and publishes it at once when it has syntax errors or
+  what's published has: its errors, with the last check's other diagnostics, moved where the edit
+  put them (`moved_t`, by what the two texts share before and after the edit), but for those the
+  edit was in, without their fixes and their labels in other files. The workspace keeps, for each
+  open document, what its last check published but for the diagnostics a parse of its text
+  gives (`shown_t`, `note_shown`), so a parse's errors replace the check's. A newer check's
+  diagnostics replace them all, and an older one's don't. A change that has no syntax error,
+  when none is shown, publishes nothing until its check, so what's shown doesn't flicker.
+- **Recovery.** The parser already went on at each statement and after a wrong End. A block whose
+  End is missing took in the rest of the file, though, so every declaration after it was reported
+  as one that only goes at the top level. Now a declaration that only goes there, a Function, a
+  Struct, Class, or Interface, an Enum, an Alias, an Extend, an Extern block, a Global, an
+  Attribute, or a Const Function, with any attributes and modifiers, at the start of its line,
+  ends the blocks open around it (`at_top_level_declaration`), each reporting its End there, one
+  error a place: fb fmt indents a block's code, and those declarations are an error in a block
+  anyway, so valid code is never read differently. An Extern block's Functions are its own.
+- The benchmark times each thing 20 times again, so its 95th percentile isn't one slow sample.
+
+A syntax error shows in under a millisecond on both workloads, and its budget is enforced.
 
 ## Not in M8
 

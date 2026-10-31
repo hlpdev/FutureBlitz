@@ -125,7 +125,8 @@ bool equivalent(const std::filesystem::path& first, const std::filesystem::path&
     return same;
 }
 
-std::vector<disk_entry_t> entries(const std::filesystem::path& folder, std::error_code& error) {
+std::shared_ptr<const std::vector<disk_entry_t>> entries(const std::filesystem::path& folder,
+                                                         std::error_code& error) {
     auto [found, found_error] = remembered(&disk_cache_t::entries, folder.native(), [&] {
         std::vector<disk_entry_t> listed;
         std::error_code asked;
@@ -139,7 +140,8 @@ std::vector<disk_entry_t> entries(const std::filesystem::path& folder, std::erro
             });
         }
 
-        return std::pair(std::move(listed), asked);
+        return std::pair(std::make_shared<const std::vector<disk_entry_t>>(std::move(listed)),
+                         asked);
     });
     error = found_error;
     return found;

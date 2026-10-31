@@ -45,6 +45,24 @@ file's diagnostics against a check from nothing. The test client can say it watc
 benchmark's does. `report_no_archive` no longer reads `names.front()`, which GCC's release build
 warned about.
 
+Step 2, errors as typed (2026-10-31, on dev/m11): `workspace_t::change` parses the document alone
+(`parse_alone`) before taking its lock, and `show_syntax` publishes its syntax errors at once,
+when it has some or what's published has, with the last check's other diagnostics moved where the
+edit put them (`moved_t`, by the texts' common start and end; one the edit was in is dropped, and
+fixes and other files' labels are left out); `note_shown` keeps, for each open document, what its
+last check published but for a parse's own diagnostics (`shown_t`), and a quick publication
+counts as the newest, so an older check doesn't replace it. The parser's `parse_block` ends where
+`at_top_level_declaration()` finds a declaration that only goes at the top level starting its
+line (a Function, a type, an Enum, an Alias, an Extend, an Extern block, a Global, an Attribute,
+or a Const Function, past attributes and modifiers), outside Extern blocks, so a missing End
+doesn't take in the rest of the file. The benchmark's syntax error went from 2,139 ms to 0.3, and
+is enforced; it times each thing 20 times again. Tests: a missing End Function, an If's in a
+Function, and a Class's before each kind of declaration, with attributes and modifiers; indented
+ones and other statements at a line's start staying in their block; an Extern block's Functions;
+three unrelated syntax errors each reported; and the LSP showing a syntax error and the moved
+type error before any check, then the type error alone once fixed, an edit inside it dropping it,
+and nothing published for a change without one.
+
 A string's escapes in their own color (2026-10-31, the user): fb-lsp's semantic tokens gave each
 string literal one `string` token, which VS Code colors over the grammar's
 `constant.character.escape`, so `\n` looked like the rest of the string. `string_pieces()` in

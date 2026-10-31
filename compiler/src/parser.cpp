@@ -595,7 +595,7 @@ private:
         }
 
         enter_layout();
-        while (!is_block_end(peek().kind)) {
+        while (!is_block_end(peek().kind) && !at_top_level_declaration()) {
             const std::size_t start = m_pos;
             block.push_back(parse_statement());
             finish_line(start);
@@ -604,6 +604,73 @@ private:
         leave_layout();
         --m_nesting;
         return block;
+    }
+
+    /// Whether the next statement declares what only goes at the top level, a Function, a type,
+    /// an Enum, an Alias, an Extend, an Extern block, a Global, or an Attribute, with any
+    /// attributes and modifiers before it, at the start of its line. That's what follows a block
+    /// whose End is missing, as a block's code is indented, so the blocks end there, each
+    /// reporting its End, rather than taking in the rest of the file. An Extern block's Functions
+    /// are its own.
+    [[nodiscard]] bool at_top_level_declaration() const {
+        const std::uint32_t begin = peek().span.begin;
+        if ((begin != 0 && m_file.text()[begin - 1] != '\n') ||
+            std::ranges::contains(m_blocks, token_kind_t::KW_EXTERN)) {
+            return false;
+        }
+
+        // Attributes, on lines of their own or before the declaration on its line.
+        std::size_t index = m_pos;
+        while (m_tokens[index].kind == token_kind_t::AT) {
+            ++index;
+            while (m_tokens[index].kind == token_kind_t::IDENTIFIER ||
+                   m_tokens[index].kind == token_kind_t::DOT) {
+                ++index;
+            }
+
+            if (m_tokens[index].kind == token_kind_t::LEFT_PAREN) {
+                std::size_t depth = 0;
+                for (; m_tokens[index].kind != token_kind_t::END_OF_FILE; ++index) {
+                    if (m_tokens[index].kind == token_kind_t::LEFT_PAREN) {
+                        ++depth;
+                    } else if (m_tokens[index].kind == token_kind_t::RIGHT_PAREN && --depth == 0) {
+                        ++index;
+                        break;
+                    }
+                }
+            }
+
+            while (m_tokens[index].kind == token_kind_t::NEWLINE) {
+                ++index;
+            }
+        }
+
+        modifiers_t ignored;
+        while (visibility_of(m_tokens[index].kind) ||
+               modifier_flag(ignored, m_tokens[index].kind) != nullptr) {
+            ++index;
+        }
+
+        switch (m_tokens[index].kind) {
+        case token_kind_t::KW_FUNCTION:
+            return m_tokens[index + 1].kind == token_kind_t::IDENTIFIER;
+        case token_kind_t::KW_CONST:
+            return modifiers_lead_to(index + 1, token_kind_t::KW_FUNCTION);
+        case token_kind_t::KW_STRUCT:
+        case token_kind_t::KW_CLASS:
+        case token_kind_t::KW_INTERFACE:
+        case token_kind_t::KW_ENUM:
+        case token_kind_t::KW_ALIAS:
+        case token_kind_t::KW_EXTEND:
+        case token_kind_t::KW_EXTERN:
+        case token_kind_t::KW_GLOBAL:
+            return true;
+        case token_kind_t::IDENTIFIER:
+            return text(m_tokens[index]) == "Attribute" &&
+                   m_tokens[index + 1].kind == token_kind_t::IDENTIFIER;
+        default:
+            return false;
+        }
     }
 
     /// The body of a block opened by `opening`, then its "End <keyword>".
