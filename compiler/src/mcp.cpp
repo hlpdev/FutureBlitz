@@ -36,12 +36,15 @@ namespace fb {
 
 namespace {
 
-using json = nlohmann::json;
+using json_t = nlohmann::json;
 
 /// MCP's versions this server speaks, the newest first, which it answers an initialize with when
 /// the client's isn't one of them.
-constexpr std::array<std::string_view, 3> protocol_versions{ "2025-06-18", "2025-03-26",
-                                                             "2024-11-05" };
+constexpr std::array<std::string_view, 3> protocol_versions{
+    "2025-06-18",
+    "2025-03-26",
+    "2024-11-05",
+};
 
 /// JSON-RPC's error codes.
 constexpr int parse_error = -32700;
@@ -75,9 +78,11 @@ std::string lowered(const std::string_view text) {
 }
 
 doc_entry_t entry_of(std::string title, std::string where, std::string text) {
-    doc_entry_t entry{ .title = std::move(title),
-                       .where = std::move(where),
-                       .text = std::move(text) };
+    doc_entry_t entry{
+        .title = std::move(title),
+        .where = std::move(where),
+        .text = std::move(text),
+    };
     entry.lower_title = lowered(entry.title);
     entry.lower_text = lowered(entry.text);
     return entry;
@@ -197,17 +202,15 @@ std::string excerpt_of(const std::string_view text, const std::size_t length) {
     return std::format("{}\n...", text.substr(0, end));
 }
 
-/// Words a search leaves out, which most of the docs have.
-constexpr std::array<std::string_view, 15> filler_words{ "a",  "an", "and", "the", "to",
-                                                         "of", "in", "is",  "it",  "how",
-                                                         "do", "i",  "can", "on",  "or" };
+/// Words a search leaves out, which most of the docs have, each between spaces.
+constexpr std::string_view filler_words = " a an and the to of in is it how do i can on or ";
 
 /// A search's words: its letters, digits, and '_'s, in lower case, without its filler.
 std::vector<std::string> words_of(const std::string_view query) {
     std::vector<std::string> words;
     std::string word;
     const auto add = [&] {
-        if (!word.empty() && !std::ranges::contains(filler_words, word)) {
+        if (!word.empty() && !filler_words.contains(std::format(" {} ", word))) {
             words.push_back(word);
         }
 
@@ -258,62 +261,102 @@ struct tool_result_t {
     bool error = false;
 };
 
-json text_result(const tool_result_t& result) {
-    return json{
-        { "content", json::array({ json{ { "type", "text" }, { "text", result.text } } }) },
+json_t text_result(const tool_result_t& result) {
+    return json_t{
+        { "content", json_t::array({ json_t{ { "type", "text" }, { "text", result.text } } }) },
         { "isError", result.error },
     };
 }
 
 /// A tool's description, for tools/list.
-json tool(const std::string_view name, const std::string_view description, json properties,
-          json required) {
-    return json{
+json_t tool(const std::string_view name, const std::string_view description, json_t properties,
+            json_t required) {
+    return json_t{
         { "name", name },
         { "description", description },
-        { "inputSchema", json{ { "type", "object" },
-                               { "properties", std::move(properties) },
-                               { "required", std::move(required) } } },
+        {
+            "inputSchema",
+            json_t{
+                { "type", "object" },
+                { "properties", std::move(properties) },
+                { "required", std::move(required) },
+            },
+        },
     };
 }
 
-json tools() {
-    return json::array({
+json_t tools() {
+    return json_t::array({
         tool("search_docs",
              "Searches FutureBlitz's language spec and its standard library's reference for the "
              "words given, like 'For loop', 'string split', or 'Map', and gives the sections and "
              "declarations that have them, best first.",
-             json{ { "query",
-                     json{ { "type", "string" }, { "description", "Words to search for" } } },
-                   { "limit", json{ { "type", "integer" },
-                                    { "description", "How many results, 6 unless it says" } } } },
-             json::array({ "query" })),
+             json_t{
+                 {
+                     "query",
+                     json_t{ { "type", "string" }, { "description", "Words to search for" } },
+                 },
+                 {
+                     "limit",
+                     json_t{
+                         { "type", "integer" },
+                         { "description", "How many results, 6 unless it says" },
+                     },
+                 },
+             },
+             json_t::array({ "query" })),
         tool("lookup",
              "Looks up a name in the package and the standard library, like 'Split', "
              "'std.collections.map.Map', or one of the package's own Functions, and gives each "
              "declaration of it: its first line, where it is, and its doc.",
-             json{ { "name", json{ { "type", "string" },
-                                   { "description", "The name, or a dotted path" } } } },
-             json::array({ "name" })),
+             json_t{
+                 {
+                     "name",
+                     json_t{
+                         { "type", "string" },
+                         { "description", "The name, or a dotted path" },
+                     },
+                 },
+             },
+             json_t::array({ "name" })),
         tool("check",
              "Checks FutureBlitz code for errors without building it, and gives each error and "
              "warning with its line, its fix when it has one, and its notes. With 'code' alone, it "
              "checks that as a program of its own; with 'file', that file of the package, with "
              "'code' as its text if it's given, though it isn't saved; with neither, the whole "
              "package.",
-             json{ { "code", json{ { "type", "string" }, { "description", "FutureBlitz code" } } },
-                   { "file", json{ { "type", "string" },
-                                   { "description", "A .fb file, from the package's folder" } } } },
-             json::array()),
+             json_t{
+                 { "code", json_t{ { "type", "string" }, { "description", "FutureBlitz code" } } },
+                 {
+                     "file",
+                     json_t{
+                         { "type", "string" },
+                         { "description", "A .fb file, from the package's folder" },
+                     },
+                 },
+             },
+             json_t::array()),
         tool("format",
              "Formats FutureBlitz code as fb fmt does, and gives it back, or the errors that keep "
              "it from being formatted. It writes nothing.",
-             json{ { "code", json{ { "type", "string" }, { "description", "FutureBlitz code" } } },
-                   { "file", json{ { "type", "string" },
-                                   { "description", "A .fb file, from the package's folder" } } },
-                   { "width", json{ { "type", "integer" },
-                                    { "description", "The line width, 100 unless it says" } } } },
-             json::array()),
+             json_t{
+                 { "code", json_t{ { "type", "string" }, { "description", "FutureBlitz code" } } },
+                 {
+                     "file",
+                     json_t{
+                         { "type", "string" },
+                         { "description", "A .fb file, from the package's folder" },
+                     },
+                 },
+                 {
+                     "width",
+                     json_t{
+                         { "type", "integer" },
+                         { "description", "The line width, 100 unless it says" },
+                     },
+                 },
+             },
+             json_t::array()),
     });
 }
 
@@ -353,7 +396,7 @@ namespace {
 
 /// What searches and lookups search: the spec's sections and std's declarations, and std's
 /// compilation, for its built-in functions.
-struct docs_t {
+struct docs_t { // NOLINT(bugprone-exception-escape)
     std::vector<doc_entry_t> entries;
     std::optional<compilation_t> standard;
     /// Why std's reference isn't among the entries, when it isn't.
@@ -371,7 +414,7 @@ docs_t load_docs() {
     diagnostic_bag_t warnings;
     const doc_package_t package = document(*compiled, true, build_mode_t::DEBUG, warnings);
     for (const doc_module_t& module : package.modules) {
-        std::string text = module.doc ? module.doc->markdown : std::string();
+        const std::string text = module.doc ? module.doc->markdown : std::string();
         docs.entries.push_back(entry_of(module.name, std::format("std/{}", module.file), text));
         add_items(module.items, docs.entries);
     }
@@ -403,7 +446,7 @@ struct mcp_server_t::state_t {
         return path.is_absolute() ? path : root / path;
     }
 
-    tool_result_t search(const json& arguments) {
+    tool_result_t search(const json_t& arguments) {
         const std::string query = arguments.at("query").get<std::string>();
         const auto limit = static_cast<std::size_t>(std::clamp(arguments.value("limit", 6), 1, 20));
         const std::vector<std::string> words = words_of(query);
@@ -436,8 +479,9 @@ struct mcp_server_t::state_t {
         std::ranges::stable_sort(scored, std::ranges::greater{},
                                  &std::pair<std::size_t, const doc_entry_t*>::first);
         if (scored.empty()) {
-            return { .text =
-                         std::format("Nothing in the spec or std's reference has '{}'.", query) };
+            return {
+                .text = std::format("Nothing in the spec or std's reference has '{}'.", query),
+            };
         }
 
         // Overloads, which share a title, are one result, in the order they're declared.
@@ -466,7 +510,7 @@ struct mcp_server_t::state_t {
         return { .text = text };
     }
 
-    tool_result_t lookup(const json& arguments) {
+    tool_result_t lookup(const json_t& arguments) {
         const std::string name = arguments.at("name").get<std::string>();
         if (name.empty()) {
             return { .text = "The name is empty.", .error = true };
@@ -549,15 +593,17 @@ struct mcp_server_t::state_t {
         }
 
         if (found == 0) {
-            return { .text = std::format("Nothing in the package or std is named '{}'; "
-                                         "search_docs searches by words.",
-                                         name) };
+            return {
+                .text = std::format("Nothing in the package or std is named '{}'; "
+                                    "search_docs searches by words.",
+                                    name),
+            };
         }
 
         return { .text = text };
     }
 
-    tool_result_t check(const json& arguments) {
+    [[nodiscard]] tool_result_t check(const json_t& arguments) const {
         const std::optional<std::string> code =
             arguments.contains("code") ? std::optional(arguments.at("code").get<std::string>())
                                        : std::nullopt;
@@ -568,14 +614,16 @@ struct mcp_server_t::state_t {
         if (file) {
             const std::filesystem::path path = resolved(*file);
             if (!code && !std::filesystem::is_regular_file(path)) {
-                return { .text = std::format("There's no file at {}.", to_utf8(path)),
-                         .error = true };
+                return {
+                    .text = std::format("There's no file at {}.", to_utf8(path)),
+                    .error = true,
+                };
             }
 
             check_request_t request{ .files = { path }, .main = path };
             if (code) {
                 request.read =
-                    [path, text = *code](
+                    [&path, &text = *code](
                         const std::filesystem::path& read) -> std::optional<std::string> {
                     std::error_code error;
                     if (std::filesystem::equivalent(read, path, error) ||
@@ -618,12 +666,13 @@ struct mcp_server_t::state_t {
             return { .text = "No errors or warnings." };
         }
 
-        return { .text =
-                     std::format("{} error{}, {} warning{}.\n\n{}", errors, errors == 1 ? "" : "s",
-                                 warnings, warnings == 1 ? "" : "s", text) };
+        return {
+            .text = std::format("{} error{}, {} warning{}.\n\n{}", errors, errors == 1 ? "" : "s",
+                                warnings, warnings == 1 ? "" : "s", text),
+        };
     }
 
-    tool_result_t format(const json& arguments) {
+    [[nodiscard]] tool_result_t format(const json_t& arguments) const {
         std::string path = "main.fb";
         std::string code;
         if (arguments.contains("code")) {
@@ -632,8 +681,10 @@ struct mcp_server_t::state_t {
             const std::filesystem::path file = resolved(arguments.at("file").get<std::string>());
             std::ifstream in(file, std::ios::binary);
             if (!in) {
-                return { .text = std::format("There's no file at {}.", to_utf8(file)),
-                         .error = true };
+                return {
+                    .text = std::format("There's no file at {}.", to_utf8(file)),
+                    .error = true,
+                };
             }
 
             code.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
@@ -660,7 +711,8 @@ struct mcp_server_t::state_t {
     }
 };
 
-mcp_server_t::mcp_server_t(std::filesystem::path root) : m_state(std::make_unique<state_t>()) {
+mcp_server_t::mcp_server_t(const std::filesystem::path& root)
+    : m_state(std::make_unique<state_t>()) {
     m_state->root = std::filesystem::absolute(root).lexically_normal();
 }
 
@@ -669,21 +721,22 @@ mcp_server_t& mcp_server_t::operator=(mcp_server_t&&) noexcept = default;
 mcp_server_t::~mcp_server_t() = default;
 
 std::optional<std::string> mcp_server_t::handle(const std::string_view line) {
-    const auto failed = [](const json& id, const int code, const std::string_view message) {
-        return json{
+    const auto failed = [](const json_t& id, const int code, const std::string_view message) {
+        return json_t{
             { "jsonrpc", "2.0" },
             { "id", id },
-            { "error", json{ { "code", code }, { "message", message } } }
-        }.dump(-1, ' ', false, json::error_handler_t::replace);
+            { "error", json_t{ { "code", code }, { "message", message } } },
+        }
+            .dump(-1, ' ', false, json_t::error_handler_t::replace);
     };
-    const json message = json::parse(line, nullptr, false);
+    const json_t message = json_t::parse(line, nullptr, false);
     if (message.is_discarded()) {
         return failed(nullptr, parse_error, "the message isn't JSON");
     }
 
     if (!message.is_object() || !message.contains("method") || !message.at("method").is_string()) {
-        return failed(message.is_object() ? message.value("id", json()) : json(), invalid_request,
-                      "the message isn't a JSON-RPC request");
+        return failed(message.is_object() ? message.value("id", json_t()) : json_t(),
+                      invalid_request, "the message isn't a JSON-RPC request");
     }
 
     const std::string method = message.at("method").get<std::string>();
@@ -692,11 +745,11 @@ std::optional<std::string> mcp_server_t::handle(const std::string_view line) {
         return std::nullopt;
     }
 
-    const json& id = message.at("id");
-    const json params = message.value("params", json::object());
-    const auto answered = [&](json result) {
-        return json{ { "jsonrpc", "2.0" }, { "id", id }, { "result", std::move(result) } }.dump(
-            -1, ' ', false, json::error_handler_t::replace);
+    const json_t& id = message.at("id");
+    const json_t params = message.value("params", json_t::object());
+    const auto answered = [&](json_t result) {
+        return json_t{ { "jsonrpc", "2.0" }, { "id", id }, { "result", std::move(result) } }.dump(
+            -1, ' ', false, json_t::error_handler_t::replace);
     };
     try {
         if (method == "initialize") {
@@ -706,25 +759,25 @@ std::optional<std::string> mcp_server_t::handle(const std::string_view line) {
 
             const std::string asked = params.value("protocolVersion", std::string());
             const bool known = std::ranges::contains(protocol_versions, asked);
-            return answered(json{
+            return answered(json_t{
                 { "protocolVersion", known ? asked : std::string(protocol_versions.front()) },
-                { "capabilities", json{ { "tools", json{ { "listChanged", false } } } } },
-                { "serverInfo", json{ { "name", "fb" }, { "version", build_config::version } } },
+                { "capabilities", json_t{ { "tools", json_t{ { "listChanged", false } } } } },
+                { "serverInfo", json_t{ { "name", "fb" }, { "version", build_config::version } } },
                 { "instructions", agents_primer() },
             });
         }
 
         if (method == "ping") {
-            return answered(json::object());
+            return answered(json_t::object());
         }
 
         if (method == "tools/list") {
-            return answered(json{ { "tools", tools() } });
+            return answered(json_t{ { "tools", tools() } });
         }
 
         if (method == "tools/call") {
             const std::string name = params.at("name").get<std::string>();
-            const json arguments = params.value("arguments", json::object());
+            const json_t arguments = params.value("arguments", json_t::object());
             if (name == "search_docs") {
                 return answered(text_result(m_state->search(arguments)));
             }
@@ -745,7 +798,7 @@ std::optional<std::string> mcp_server_t::handle(const std::string_view line) {
         }
 
         return failed(id, method_not_found, std::format("there's no method '{}'", method));
-    } catch (const json::exception& error) {
+    } catch (const json_t::exception& error) {
         return failed(id, invalid_params,
                       std::format("its params aren't what it takes: {}", error.what()));
     } catch (const std::exception& error) {

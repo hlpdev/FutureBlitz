@@ -552,23 +552,16 @@ TEST_CASE("fb mcp serves MCP over stdio, a message a line", "[cli]") {
     // A client's lines, one of them ending in "\r\n", one blank, and a notification, which has
     // no answer.
     const std::string program = "Import std.core\n\nFor i = 1 To 4\n  Print(i*i)\nEnd For\n";
+    const auto call = [&](const int id, const std::string_view tool) {
+        nlohmann::json request{ { "jsonrpc", "2.0" }, { "id", id }, { "method", "tools/call" } };
+        request["params"] = { { "name", tool }, { "arguments", { { "code", program } } } };
+        return request.dump();
+    };
     const std::string input = std::format(
         "{}\n{}\n\n{}\r\n{}\n{}\n",
         R"({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}})",
         R"({"jsonrpc":"2.0","method":"notifications/initialized"})",
-        R"({"jsonrpc":"2.0","id":2,"method":"tools/list"})",
-        nlohmann::json{
-            { "jsonrpc", "2.0" },
-            { "id", 3 },
-            { "method", "tools/call" },
-            { "params", { { "name", "check" }, { "arguments", { { "code", program } } } } } }
-            .dump(),
-        nlohmann::json{
-            { "jsonrpc", "2.0" },
-            { "id", 4 },
-            { "method", "tools/call" },
-            { "params", { { "name", "format" }, { "arguments", { { "code", program } } } } } }
-            .dump());
+        R"({"jsonrpc":"2.0","id":2,"method":"tools/list"})", call(3, "check"), call(4, "format"));
     const std::expected<fb::process_result_t, std::string> served =
         fb::run_process(FB_CLI, std::vector<std::string>{ "mcp", fb::to_utf8(folder) }, input);
     REQUIRE(served);

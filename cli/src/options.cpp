@@ -561,12 +561,15 @@ std::expected<void, std::string> parse_into(const std::span<const std::string_vi
         } else if (argument.starts_with('-')) {
             return std::unexpected(std::format("unknown option '{}'", argument));
         } else if (!options.input.empty()) {
-            return std::unexpected(std::format(
-                "unexpected argument '{}'; 'fb {}' takes {}", argument,
-                command_name(options.command),
-                options.command == command_t::NEW   ? "the new package's folder"
-                : options.command == command_t::MCP ? "the package's folder"
-                                                    : "one .fb file or package folder"));
+            std::string_view taken = "one .fb file or package folder";
+            if (options.command == command_t::NEW) {
+                taken = "the new package's folder";
+            } else if (options.command == command_t::MCP) {
+                taken = "the package's folder";
+            }
+
+            return std::unexpected(std::format("unexpected argument '{}'; 'fb {}' takes {}",
+                                               argument, command_name(options.command), taken));
         } else {
             options.input = path_from_utf8(argument);
         }

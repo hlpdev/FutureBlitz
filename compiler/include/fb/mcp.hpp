@@ -21,7 +21,7 @@ namespace fb {
 /// it, so what's saved since is what it sees.
 class mcp_server_t {
 public:
-    explicit mcp_server_t(std::filesystem::path root);
+    explicit mcp_server_t(const std::filesystem::path& root);
     mcp_server_t(const mcp_server_t&) = delete;
     mcp_server_t& operator=(const mcp_server_t&) = delete;
     mcp_server_t(mcp_server_t&&) noexcept;
