@@ -88,6 +88,25 @@ json_t object_at(const json_t& object, const char* key) {
     return json_t::object();
 }
 
+/// What a hierarchy's item is for, from its data, and the file it's in. nullopt for an item that
+/// isn't the server's.
+std::optional<std::pair<symbol_key_t, std::filesystem::path>> item_of(const json_t& item) {
+    const json_t data = item.value("data", json_t());
+    const std::optional<std::filesystem::path> path =
+        item.contains("uri") ? path_of(item["uri"].get<std::string>()) : std::nullopt;
+    if (!path || !data.is_object()) {
+        return std::nullopt;
+    }
+
+    return std::pair(
+        symbol_key_t{
+            .file = data.value("file", std::string()),
+            .begin = data.value("begin", std::uint32_t{ 0 }),
+            .name = data.value("name", std::string()),
+        },
+        *path);
+}
+
 /// `text` with one of didChange's contentChanges made.
 void apply_change(std::string& text, const json_t& change, const positions_t& positions) {
     const std::string replacement = change.at("text").get<std::string>();
@@ -114,6 +133,16 @@ server_t::server_t(send_t send, const options_t options) : m_send(std::move(send
     m_workspace->on_outside([this](const std::vector<std::filesystem::path>& folders) {
         if (m_watches && m_relative) {
             register_watchers(folders);
+        }
+    });
+    // Each file's @Test Functions, for the client's Testing panel.
+    m_workspace->on_tests([this](const tests_found_t& found) {
+        if (m_tests) {
+            this->send({
+                { "jsonrpc", "2.0" },
+                { "method", "fb/tests" },
+                { "params", tests_json(found) },
+            });
         }
     });
 }
@@ -348,6 +377,50 @@ std::optional<json_t> server_t::answer(const std::string& method, const json_t& 
         return m_format_on_save ? formatting(params) : json_t(json_t::array());
     }
 
+    if (method == "textDocument/foldingRange") {
+        return folding_ranges(params);
+    }
+
+    if (method == "textDocument/selectionRange") {
+        return selection_ranges(params);
+    }
+
+    if (method == "textDocument/documentHighlight") {
+        return document_highlights(params);
+    }
+
+    if (method == "textDocument/inlayHint") {
+        return inlay_hints(params);
+    }
+
+    if (method == "textDocument/typeDefinition") {
+        return type_definition(params);
+    }
+
+    if (method == "textDocument/implementation") {
+        return implementations(params);
+    }
+
+    if (method == "textDocument/prepareCallHierarchy" || method.starts_with("callHierarchy/")) {
+        return call_hierarchy(method, params);
+    }
+
+    if (method == "textDocument/prepareTypeHierarchy" || method.starts_with("typeHierarchy/")) {
+        return type_hierarchy(method, params);
+    }
+
+    if (method == "textDocument/codeLens") {
+        return code_lenses(params);
+    }
+
+    if (method == "codeLens/resolve") {
+        return resolve_code_lens(params);
+    }
+
+    if (method == "fb/tests") {
+        return tests();
+    }
+
     return std::nullopt;
 }
 
@@ -425,6 +498,27 @@ void server_t::notified(const std::string& method, const json_t& params) {
         return;
     }
 
+    // The client's settings, of which inlay hints' are the server's.
+    if (method == "workspace/didChangeConfiguration") {
+        set_inlay(
+            object_at(object_at(params, "settings"), "futureblitz").value("inlayHints", json_t()));
+        if (m_inlay_refresh) {
+            std::string id;
+            {
+                const std::scoped_lock lock(m_watch_mutex);
+                id = std::format("fb-{}", m_next_request++);
+            }
+
+            send({
+                { "jsonrpc", "2.0" },
+                { "id", id },
+                { "method", "workspace/inlayHint/refresh" },
+            });
+        }
+
+        return;
+    }
+
     if (method == "workspace/didChangeWorkspaceFolders") {
         const auto folders = [&](const char* which) {
             std::vector<std::filesystem::path> found;
@@ -457,8 +551,12 @@ json_t server_t::initialize(const json_t& params) {
         object_at(object_at(capabilities, "workspace"), "didChangeWatchedFiles");
     const bool watches = watching.value("dynamicRegistration", false);
     const bool relative = watching.value("relativePatternSupport", false);
-    const bool format_on_save =
-        object_at(params, "initializationOptions").value("formatOnSave", false);
+    const json_t options = object_at(params, "initializationOptions");
+    const bool format_on_save = options.value("formatOnSave", false);
+    set_inlay(options.value("inlayHints", json_t()));
+    m_tests = options.value("tests", false);
+    m_inlay_refresh =
+        object_at(object_at(capabilities, "workspace"), "inlayHint").value("refreshSupport", false);
 
     // The folders, or the one the client opened before it had several.
     std::vector<std::filesystem::path> folders;
@@ -515,6 +613,15 @@ json_t server_t::initialize(const json_t& params) {
                 },
                 { "codeActionProvider", { { "codeActionKinds", json_t::array({ "quickfix" }) } } },
                 { "documentFormattingProvider", true },
+                { "foldingRangeProvider", true },
+                { "selectionRangeProvider", true },
+                { "documentHighlightProvider", true },
+                { "inlayHintProvider", true },
+                { "typeDefinitionProvider", true },
+                { "implementationProvider", true },
+                { "callHierarchyProvider", true },
+                { "typeHierarchyProvider", true },
+                { "codeLensProvider", { { "resolveProvider", true } } },
                 {
                     "workspace",
                     {
@@ -824,6 +931,245 @@ json_t server_t::formatting(const json_t& params) {
 
     return lsp::formatting(source_file_t(file_id_t{}, to_utf8(*path), *text),
                            m_workspace->unit_of(*path).width, m_positions);
+}
+
+json_t server_t::folding_ranges(const json_t& params) {
+    const std::optional<std::filesystem::path> path = document_path(params);
+    const std::optional<std::string> text = path ? m_workspace->text(*path) : std::nullopt;
+    if (!text) {
+        return nullptr;
+    }
+
+    return lsp::folding_ranges(source_file_t(file_id_t{}, to_utf8(*path), *text));
+}
+
+json_t server_t::selection_ranges(const json_t& params) {
+    const std::optional<std::filesystem::path> path = document_path(params);
+    const std::optional<std::string> text = path ? m_workspace->text(*path) : std::nullopt;
+    if (!text) {
+        return nullptr;
+    }
+
+    const source_file_t file(file_id_t{}, to_utf8(*path), *text);
+    std::vector<std::uint32_t> offsets;
+    for (const json_t& position : params.at("positions")) {
+        offsets.push_back(m_positions.offset(file, position));
+    }
+
+    return lsp::selection_ranges(file, offsets, m_positions);
+}
+
+json_t server_t::document_highlights(const json_t& params) {
+    const std::optional<std::filesystem::path> path = document_path(params);
+    const std::optional<checked_t> checked = path ? m_workspace->checked(*path) : std::nullopt;
+    if (!checked) {
+        return nullptr;
+    }
+
+    const query_t query(*checked->compilation, checked->file);
+    return lsp::document_highlights(
+        query, m_positions.offset(query.source(), params.at("position")), m_positions);
+}
+
+json_t server_t::inlay_hints(const json_t& params) {
+    const std::optional<std::filesystem::path> path = document_path(params);
+    const std::optional<checked_t> checked = path ? m_workspace->checked(*path) : std::nullopt;
+    if (!checked) {
+        return nullptr;
+    }
+
+    const query_t query(*checked->compilation, checked->file);
+    const json_t& range = params.at("range");
+    const span_t span{
+        .file = checked->file,
+        .begin = m_positions.offset(query.source(), range.at("start")),
+        .end = m_positions.offset(query.source(), range.at("end")),
+    };
+    return lsp::inlay_hints(query, span, m_inlay, m_positions);
+}
+
+json_t server_t::type_definition(const json_t& params) {
+    const std::optional<std::filesystem::path> path = document_path(params);
+    const std::optional<checked_t> checked = path ? m_workspace->checked(*path) : std::nullopt;
+    if (!checked) {
+        return nullptr;
+    }
+
+    const query_t query(*checked->compilation, checked->file);
+    return lsp::type_definition(query, m_positions.offset(query.source(), params.at("position")),
+                                m_positions);
+}
+
+json_t server_t::implementations(const json_t& params) {
+    const std::optional<target_t> found = target(params);
+    if (!found) {
+        return json_t::array();
+    }
+
+    return lsp::implementations(found->compilations, found->key, m_positions);
+}
+
+json_t server_t::call_hierarchy(const std::string& method, const json_t& params) {
+    if (method == "textDocument/prepareCallHierarchy") {
+        const std::optional<std::filesystem::path> path = document_path(params);
+        const std::optional<checked_t> checked = path ? m_workspace->checked(*path) : std::nullopt;
+        if (!checked) {
+            return nullptr;
+        }
+
+        const query_t query(*checked->compilation, checked->file);
+        return prepare_call_hierarchy(
+            query, m_positions.offset(query.source(), params.at("position")), m_positions);
+    }
+
+    const std::optional<std::pair<symbol_key_t, std::filesystem::path>> item =
+        item_of(params.at("item"));
+    if (!item) {
+        return json_t::array();
+    }
+
+    // Who calls it is in the checks of its file and what imports it, and what it calls in its
+    // file's.
+    if (method == "callHierarchy/incomingCalls") {
+        return incoming_calls(m_workspace->with_dependents(item->second), item->first, m_positions);
+    }
+
+    if (method != "callHierarchy/outgoingCalls") {
+        throw std::invalid_argument("the server doesn't do " + method);
+    }
+
+    const std::optional<checked_t> checked = m_workspace->checked(item->second);
+    if (!checked) {
+        return json_t::array();
+    }
+
+    return outgoing_calls(query_t(*checked->compilation, checked->file), item->first,
+                          params["item"]["data"].value("top", false), m_positions);
+}
+
+json_t server_t::type_hierarchy(const std::string& method, const json_t& params) {
+    if (method == "textDocument/prepareTypeHierarchy") {
+        const std::optional<std::filesystem::path> path = document_path(params);
+        const std::optional<checked_t> checked = path ? m_workspace->checked(*path) : std::nullopt;
+        if (!checked) {
+            return nullptr;
+        }
+
+        const query_t query(*checked->compilation, checked->file);
+        return prepare_type_hierarchy(
+            query, m_positions.offset(query.source(), params.at("position")), m_positions);
+    }
+
+    const std::optional<std::pair<symbol_key_t, std::filesystem::path>> item =
+        item_of(params.at("item"));
+    if (!item) {
+        return json_t::array();
+    }
+
+    if (method == "typeHierarchy/subtypes") {
+        return subtypes(m_workspace->with_dependents(item->second), item->first, m_positions);
+    }
+
+    if (method != "typeHierarchy/supertypes") {
+        throw std::invalid_argument("the server doesn't do " + method);
+    }
+
+    const std::optional<checked_t> checked = m_workspace->checked(item->second);
+    if (!checked) {
+        return json_t::array();
+    }
+
+    return supertypes(query_t(*checked->compilation, checked->file), item->first, m_positions);
+}
+
+json_t server_t::code_lenses(const json_t& params) {
+    const std::optional<std::filesystem::path> path = document_path(params);
+    const std::optional<std::string> text = path ? m_workspace->text(*path) : std::nullopt;
+    if (!text) {
+        return nullptr;
+    }
+
+    const std::string uri = params.at("textDocument").at("uri").get<std::string>();
+    json_t lenses =
+        lsp::code_lenses(source_file_t(file_id_t{}, to_utf8(*path), *text), uri, m_positions);
+    // A program's main file runs and debugs from its top, as the editor's Run menu does.
+    const unit_t unit = m_workspace->unit_of(*path);
+    if (unit.kind == unit_t::kind_t::LOOSE || (unit.kind == unit_t::kind_t::PACKAGE && unit.main &&
+                                               file_key(*unit.main) == file_key(*path))) {
+        const json_t top{
+            { "start", { { "line", 0 }, { "character", 0 } } },
+            { "end", { { "line", 0 }, { "character", 0 } } },
+        };
+        for (const auto& [title, command] :
+             { std::pair("Debug", "futureblitz.debug"), std::pair("Run", "futureblitz.run") }) {
+            lenses.insert(lenses.begin(),
+                          json_t{
+                              { "range", top },
+                              { "command", { { "title", title }, { "command", command } } },
+                          });
+        }
+    }
+
+    return lenses;
+}
+
+json_t server_t::resolve_code_lens(json_t lens) {
+    const json_t data = lens.value("data", json_t());
+    if (!data.is_object() || lens.contains("command")) {
+        return lens;
+    }
+
+    const json_t found = references(
+        { { "textDocument", { { "uri", data.at("uri") } } }, { "position", data.at("position") } },
+        false);
+    const std::size_t count = found.size();
+    lens["command"] = {
+        { "title", count == 1 ? std::string("1 reference") : std::format("{} references", count) },
+        { "command", "futureblitz.showReferences" },
+        { "arguments", json_t::array({ data.at("uri"), data.at("position"), found }) },
+    };
+    return lens;
+}
+
+json_t server_t::tests() {
+    json_t out = json_t::array();
+    for (const tests_found_t& found : m_workspace->tests()) {
+        out.push_back(tests_json(found));
+    }
+
+    return out;
+}
+
+json_t server_t::tests_json(const tests_found_t& found) const {
+    json_t tests = json_t::array();
+    const compilation_t& compilation = *found.compilation;
+    for (const auto& [name, function] : found.tests) {
+        const symbol_t& symbol = compilation.analysis.symbol(function);
+        span_t whole = symbol.span;
+        if (symbol.declaration) {
+            const stmt_t& statement = compilation.ast.get(*symbol.declaration);
+            whole = {
+                .file = statement.span.file,
+                .begin = declaration_begin(statement),
+                .end = statement.span.end,
+            };
+        }
+
+        tests.push_back({
+            { "name", name },
+            { "label", std::string(symbol.name) },
+            { "range", m_positions.range(compilation.sources.get(whole.file), whole) },
+        });
+    }
+
+    return { { "uri", uri_of(found.path) }, { "tests", std::move(tests) } };
+}
+
+void server_t::set_inlay(const json_t& settings) {
+    if (settings.is_object()) {
+        m_inlay.types = settings.value("types", m_inlay.types);
+        m_inlay.parameters = settings.value("parameterNames", m_inlay.parameters);
+    }
 }
 
 std::vector<std::string> server_t::import_names(const std::filesystem::path& path,

@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <expected>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iterator>
 #include <map>
@@ -334,6 +335,23 @@ void workspace_t::on_outside(watch_t watch) {
     m_watch = std::move(watch);
 }
 
+void workspace_t::on_tests(tests_t tests) {
+    const std::scoped_lock lock(m_mutex);
+    m_tests_changed = std::move(tests);
+}
+
+std::vector<tests_found_t> workspace_t::tests() const {
+    const std::scoped_lock lock(m_mutex);
+    std::vector<tests_found_t> found;
+    for (const auto& [key, tests] : m_tests) {
+        if (!tests.tests.empty()) {
+            found.push_back(tests);
+        }
+    }
+
+    return found;
+}
+
 void workspace_t::watching(const std::vector<std::filesystem::path>& folders) {
     const std::scoped_lock lock(m_mutex);
     std::ranges::copy(folders, std::back_inserter(m_watched_outside));
@@ -346,6 +364,34 @@ void workspace_t::rewatch() {
     std::ranges::copy(m_watched_outside, std::back_inserter(folders));
     m_disk.keep_only_under(folders);
     forget_file_keys();
+}
+
+void workspace_t::note_tests(const std::string& key, const std::filesystem::path& path,
+                             const std::shared_ptr<const compilation_t>& compilation,
+                             const module_t& module) {
+    tests_found_t found{ .path = path, .compilation = compilation };
+    for (const test_function_t& test : compilation->analysis.tests) {
+        const symbol_t& function = compilation->analysis.symbol(test.function);
+        if (function.span.file == module.file) {
+            found.tests.emplace_back(std::format("{}.{}", module.name, function.name),
+                                     test.function);
+        }
+    }
+
+    const auto known = m_tests.find(key);
+    const bool same =
+        known == m_tests.end()
+            ? found.tests.empty()
+            : std::ranges::equal(
+                  known->second.tests, found.tests, [&](const auto& before, const auto& now) {
+                      return before.first == now.first &&
+                             known->second.compilation->analysis.symbol(before.second).span.begin ==
+                                 compilation->analysis.symbol(now.second).span.begin;
+                  });
+    m_tests[key] = found;
+    if (!same && m_tests_changed) {
+        m_tests_changed(found);
+    }
 }
 
 void workspace_t::disk_changed() {
@@ -667,6 +713,15 @@ void workspace_t::changed_on_disk(const std::vector<std::filesystem::path>& path
             } else {
                 m_imports.erase(key);
                 m_embeds.erase(key);
+                if (const auto tests = m_tests.find(key); tests != m_tests.end()) {
+                    tests->second.tests.clear();
+                    if (m_tests_changed) {
+                        m_tests_changed(tests->second);
+                    }
+
+                    m_tests.erase(tests);
+                }
+
                 m_published[key] = m_generation;
                 m_publish({ .path = path });
             }
@@ -1050,6 +1105,10 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
             recorded = generation;
             if (roots.contains(key)) {
                 m_embeds[key] = named;
+            }
+
+            if (owns(path)) {
+                note_tests(key, path, compilation, module);
             }
 
             std::set<std::string>& imports = m_imports[key];

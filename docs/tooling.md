@@ -657,7 +657,7 @@ a half times it:
 | 1 | **Checks that keep what didn't change** (done 2026-10-31). Measuring showed a check's time went to asking the disk, not to compiling, so the checks keep what the disk said until it changes, and what didn't change of the rest: each file's tokens; the package's files aren't listed for every check; a check of a few files checks only their bodies, unless theirs need the others'; a file's key is worked out once; and completion lists the modules an Import can name only at an Import (below) | the benchmark's type error, completion, signature help, references, and rename meet their budgets on both workloads and are enforced; tests edit a body, a declaration, and an Import, and change files on disk in the client's folders and out of them, and check that after each, every file's diagnostics are the same as a check from nothing gives |
 | 2 | **Errors as typed** (done 2026-10-31). Each change parses the file alone at once and publishes its syntax errors with no wait, with its last check's other errors where the edit moved them; the full check follows at its pause, and its errors replace them. The parser recovers at each statement and block, and a declaration that only goes at the top level, starting its line, ends the blocks a missing `End` left open, so one missing `End` or `)` doesn't hide the rest of the file's errors; tests of recovery for each block and each kind of broken line | a syntax error shows within 50 ms, and a file with three unrelated syntax errors shows all three |
 | 3 | **Completion that knows** (done 2026-10-31). Names from every module the file can import (its package's, std's, its dependencies'), not only those it imports, with the Import added when one is chosen; ranked by the type expected where the cursor is, then by scope and use; an Enum's members where an Enum is expected; named arguments; the members a Class can override and an Interface's to implement, written out with their signatures; keywords only where they can go; postfix completions (`.if`, `.ifnull`, `.for`, `.not`, `.try`, `.local`); completion on a word as it's typed, not only after `.` | each kind has a test of what's offered and in what order, and choosing an unimported name adds its Import |
-| 4 | **The editor's basics.** Inlay hints (a Local's inferred type, parameter names at calls, each a setting); highlighting a symbol's other uses; folding by blocks, comments, and Import groups; expanding a selection by syntax; go to type definition and to implementations; call and type hierarchies; code lenses for references; run and debug for each `@Test` and main file in VS Code's Testing panel and the gutter | each request has tests, and the extension's Testing panel runs and debugs a package's tests |
+| 4 | **The editor's basics** (done 2026-10-31). Inlay hints (a Local's inferred type, parameter names at calls, each a setting); highlighting a symbol's other uses; folding by blocks, comments, and Import groups; expanding a selection by syntax; go to type definition and to implementations; call and type hierarchies; code lenses for references; run and debug for each `@Test` and main file in VS Code's Testing panel and the gutter | each request has tests, and the extension's Testing panel runs and debugs a package's tests |
 | 5 | **Quick fixes.** Every error that has a likely fix offers it, from the compiler: import the module that declares an unknown name (and `fb add` the registry package that has it, when one does); "did you mean" for a misspelled name; add `Try`, `Try?`, or a Throws; create the Function, Method, Field, Property, Local, or Enum member a use names, with its types from the use; implement an Interface's members or an Abstract Class's; add a missing `End`; a conversion with `As`; a Null check or `?` for nullability; make a declaration Public or Package for a use that can't see it; add `@MainThread`; wrap in `Unsafe`; add a missing Return; fix a keyword's case | each fix has a test that applies it and checks the file compiles |
 | 6 | **Inspections.** Warnings, with fixes, from the compiler: unused Locals, parameters, Imports, and Private members; unreachable code; a name that shadows another; a redundant `As` or `?`; a condition that's always True or False. `fb check` and `fb build` show them; project.toml's `[lints]` turns each off or makes it an error | each inspection has tests of when it warns and when it doesn't, and std builds with none |
 | 7 | **Refactorings.** Extract a Local, a Function, or a Method from a selection (with its parameters and its result worked out); inline a Local or a Function; change a signature (add, remove, rename, and reorder parameters, updating every call); organize Imports (sorted, unused ones removed), on save if asked | each refactoring has tests over std-sized code that check the result compiles and behaves the same |
@@ -834,6 +834,51 @@ A syntax error shows in under a millisecond on both workloads, and its budget is
 
 Each has a test of what's offered and in what order (tests/lsp/completion_tests.cpp), and the
 budgets still hold.
+
+**Step 4, the editor's basics** (2026-10-31), in lsp/src/navigate.cpp, but for the code lenses'
+outline in features.cpp:
+
+- **Folding** (`folding_ranges`, the file parsed alone): each block from its first line to the
+  one before its End; an If's branches and Else, a Select's Cases and Default, and a Try's
+  Catches and Finally, each on its own; lambdas with bodies, and arrays and Maps over more than a
+  line; runs of `//` lines and comments over lines, as comments; each run of Import lines, as
+  imports; and each #If block.
+- **Expand Selection** (`selection_ranges`, the file parsed alone): from the word out, through
+  each expression, statement, declaration with its attributes, and block of statements around it,
+  to the file.
+- **Highlights** (`document_highlights`): the file's names of what's named at the cursor, a Write
+  where it's declared or assigned, a Read elsewhere.
+- **Inlay hints** (`inlay_hints`): the types of Locals without one written (but where a New's call
+  says it), a For In's variables, a Local that takes a tuple apart, and a lambda's parameters
+  without types; and each parameter's name before a call's argument, but for a named argument, a
+  variadic or one-letter parameter, an argument whose own name is the parameter's, and the one
+  argument of a function whose name ends with the parameter's. initializationOptions and
+  workspace/didChangeConfiguration's `futureblitz.inlayHints` turn `types` and `parameterNames`
+  off, and the server asks a client that can for them again.
+- **Type definition** (`type_definition`): the type of what's at the cursor, through T?, T[], and
+  Weak<T>.
+- **Implementations** (`implementations`, from the checks of the declaring file and what imports
+  it): an Interface's Structs and Classes, and the Classes extending those; a Class's subclasses; an
+  Interface member's implementations; and the Methods that override a Method or those.
+- **Call hierarchy** (`prepare_call_hierarchy`, `incoming_calls`, `outgoing_calls`): a Function,
+  Method, or declared New, whose item's data is its `symbol_key_t`; who calls it, functions and
+  files' top-level code, from the checks of its file and its dependents; and what it, or a file's
+  top-level code, calls, from its file's check.
+- **Type hierarchy** (`prepare_type_hierarchy`, `supertypes`, `subtypes`): a type's base Class and
+  the Interfaces its declaration lists, and the types that extend it or list it.
+- **Code lenses** (`code_lenses`, resolved by `codeLens/resolve`): a count of references at each
+  type, Function, Method, and Property, which `futureblitz.showReferences` opens; and Run and Debug
+  above a program's main file.
+- **The Testing panel**: fb-lsp sends each file's @Test Functions as the checks find them, by fb
+  test's names, `fb/tests` (when initializationOptions.tests asks), and answers an `fb/tests`
+  request with all of them. The extension's controller (editors/vscode/src/tests.ts) lists them by
+  file, runs a file's or a test's with `fb test --filter` and reads its output for each one's
+  result (`testOutcomes`), and debugs them by building the executable with `fb test -o`, new
+  here, which builds the tests without running them, and running it under CodeLLDB with fb's
+  script.
+
+Each request has tests (tests/lsp/navigate_tests.cpp); fb test -o has its CLI test, the output's
+parsing its unit tests, and the Testing panel its extension test, which CI runs.
 
 ## Not in M8
 

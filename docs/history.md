@@ -100,6 +100,25 @@ an EmbedFolder's file added, each without an edit, a folder of modules moved in,
 outside the client's folders with and without its own watcher, a .proto changed directly and through
 another, a package's library and fb.lock, each against a check from nothing, and the budgets' rule.
 
+Step 4, the editor's basics (2026-10-31, on dev/m11): lsp/src/navigate.cpp answers
+textDocument/foldingRange (`folding_ranges`: blocks, each If branch, Select Case, and Catch, multi-line
+lambdas, arrays, and Maps, runs of comments, Import runs, #If blocks), selectionRange
+(`selection_ranges`), documentHighlight (`document_highlights`, Writes and Reads), inlayHint
+(`inlay_hints`, types and parameter names, `inlay_options_t` from initializationOptions and
+didChangeConfiguration, with workspace/inlayHint/refresh), typeDefinition (`type_definition`),
+implementation (`implementations`), the call hierarchy (`prepare_call_hierarchy`, `incoming_calls`,
+`outgoing_calls`, with files' top-level code as callers) and the type hierarchy
+(`prepare_type_hierarchy`, `supertypes`, `subtypes`, by the Interfaces a declaration lists,
+`listed_interfaces`); features.cpp's `code_lenses` puts a reference count, which `codeLens/resolve`
+counts, at each declaration, and the server adds Run and Debug to a main file. `location_of` is
+features.hpp's now. The workspace keeps each file's @Test Functions (`tests_found_t`, `note_tests`)
+and the server sends them as `fb/tests`, and answers the request of that name. `fb test -o <path>`
+builds the tests' executable without running it. The extension adds the Testing panel
+(src/tests.ts's `FbTestController`, with fb.ts's `testOutcomes`, `testArguments`, and
+`moduleFilter`), `futureblitz.showReferences`, and the `futureblitz.inlayHints.types` and
+`parameterNames` settings. Tests: tests/lsp/navigate_tests.cpp, 12 cases; cli_tests.cpp's fb test
+-o; the extension's unit tests of the output's parsing, and its suite's Testing panel test.
+
 A string's escapes in their own color (2026-10-31, the user): fb-lsp's semantic tokens gave each
 string literal one `string` token, which VS Code colors over the grammar's
 `constant.character.escape`, so `\n` looked like the rest of the string. `string_pieces()` in

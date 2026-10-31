@@ -30,6 +30,14 @@ struct checked_t {
     file_id_t file{};
 };
 
+/// A file's @Test Functions, as a check found them: each one's name, as fb test gives it, and its
+/// symbol in the check.
+struct tests_found_t {
+    std::filesystem::path path;
+    std::shared_ptr<const compilation_t> compilation;
+    std::vector<std::pair<std::string, symbol_id_t>> tests;
+};
+
 /// What one compilation covers: a package, with its tests/ folder, the standard library, or a
 /// .fb file outside a package, with what it imports. Making its set can allocate, which
 /// clang-tidy reports as an exception escaping.
@@ -112,6 +120,14 @@ public:
     /// What asks the client to watch folders outside its own, which checks found packages in.
     using watch_t = std::function<void(const std::vector<std::filesystem::path>&)>;
     void on_outside(watch_t watch);
+
+    /// What's told each file of the client's folders whose @Test Functions a check found to have
+    /// changed, or that was deleted, with none.
+    using tests_t = std::function<void(const tests_found_t&)>;
+    void on_tests(tests_t tests);
+
+    /// The @Test Functions the checks found in each file of the client's folders.
+    [[nodiscard]] std::vector<tests_found_t> tests() const;
 
     /// Folders besides the client's own whose files it says change, so what the checks know of
     /// them can be shared too.
@@ -249,6 +265,9 @@ private:
     disk_cache_t m_disk;
     bool m_watched = false;
     watch_t m_watch;
+    tests_t m_tests_changed;
+    /// Each file's @Test Functions, by its key, as its latest check found them.
+    std::map<std::string, tests_found_t> m_tests;
     /// The keys of the folders outside the client's whose watchers were asked for, and those it
     /// said it watches.
     std::set<std::string> m_outside;
@@ -260,6 +279,11 @@ private:
     void run_background();
     /// Forgets what the checks know of the disk, and the files' keys, as it may have changed.
     void disk_changed();
+    /// Keeps the @Test Functions a check found in `module`, the file at `path` whose key is `key`,
+    /// and says so when their names or places changed.
+    void note_tests(const std::string& key, const std::filesystem::path& path,
+                    const std::shared_ptr<const compilation_t>& compilation,
+                    const module_t& module);
     /// Tells the cache the folders it keeps answers about: those the client watches, and std's.
     void rewatch();
     /// Publishes the syntax errors of `parsed`, a parse of the document `key` alone at `version`,

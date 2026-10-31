@@ -17,6 +17,14 @@ import { Found } from "./paths";
 
 export type ServerState = "disabled" | "missing" | "starting" | "running" | "failed";
 
+// The inlay hints fb-lsp gives, as futureblitz.inlayHints says.
+export function inlayHints(settings: vscode.WorkspaceConfiguration): { types: boolean; parameterNames: boolean } {
+    return {
+        types: settings.get<boolean>("inlayHints.types", true),
+        parameterNames: settings.get<boolean>("inlayHints.parameterNames", true),
+    };
+}
+
 // How many times a server that stopped is started again in RESTART_WINDOW before the client
 // gives up on it.
 const MAX_RESTARTS = 3;
@@ -111,8 +119,15 @@ export class ServerClient implements vscode.Disposable {
             ],
             // Saving formats through the editor's own editor.formatOnSave, which [futureblitz]
             // turns on and which asks textDocument/formatting; fb-lsp's willSaveWaitUntil, which
-            // this would turn on, would format each save a second time.
-            initializationOptions: { formatOnSave: false },
+            // this would turn on, would format each save a second time. fb-lsp sends each file's
+            // tests for the Testing panel, and the inlay hints the settings ask for, which it's
+            // told again as they change.
+            initializationOptions: {
+                formatOnSave: false,
+                tests: true,
+                inlayHints: inlayHints(vscode.workspace.getConfiguration("futureblitz")),
+            },
+            synchronize: { configurationSection: "futureblitz" },
             outputChannel: this.m_output,
             revealOutputChannelOn: RevealOutputChannelOn.Never,
             initializationFailedHandler: (error) => {

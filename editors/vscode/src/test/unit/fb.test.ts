@@ -11,12 +11,15 @@ import {
     findPackageRoot,
     lldbImportCommand,
     missingFbMessage,
+    moduleFilter,
     packageName,
     projectOf,
     relativeTarget,
     taskArguments,
     taskEnvironment,
     taskLabel,
+    testArguments,
+    testOutcomes,
 } from "../../fb";
 
 describe("taskEnvironment", () => {
@@ -152,4 +155,85 @@ test("relativeTarget", () => {
     assert.equal(relativeTarget(path.join("/w", "game"), "/w"), "game");
     assert.equal(relativeTarget(path.resolve("/w"), "/w"), ".");
     assert.equal(relativeTarget(path.resolve("/other", "x.fb"), "/w"), path.resolve("/other", "x.fb"));
+});
+
+describe("testOutcomes", () => {
+    test("fb test's line for each test, and what each failure said", () => {
+        const output = [
+            "   Compiling counted v0.1.0 (C:/counted)",
+            "     Running 4 tests",
+            "test counted.counting.Doubles ... ok",
+            "test counted.counting.Breaks ... FAILED",
+            "test counted.counting.Later ... skipped: not yet",
+            "test counted.trouble.Panics ... FAILED",
+            "",
+            "failures:",
+            "",
+            "---- the tests' program ----",
+            "leaked 1 object",
+            "",
+            "---- counted.counting.Breaks ----",
+            "expect failed: Twice(2) == 5 at counting.fb:9:5",
+            "  left: 4",
+            "  right: 5",
+            "",
+            "---- counted.trouble.Panics ----",
+            "panic: index 5 is out of range for 2 elements at trouble.fb:3:11",
+            "",
+            "test result: FAILED. 1 passed; 2 failed; 1 skipped; 0 filtered out; finished in 0.01s",
+        ].join("\r\n");
+        assert.deepEqual(
+            testOutcomes(output),
+            new Map([
+                ["counted.counting.Doubles", { state: "passed", messages: [] }],
+                [
+                    "counted.counting.Breaks",
+                    {
+                        state: "failed",
+                        messages: ["expect failed: Twice(2) == 5 at counting.fb:9:5", "  left: 4", "  right: 5"],
+                    },
+                ],
+                ["counted.counting.Later", { state: "skipped", messages: ["not yet"] }],
+                [
+                    "counted.trouble.Panics",
+                    { state: "failed", messages: ["panic: index 5 is out of range for 2 elements at trouble.fb:3:11"] },
+                ],
+            ]),
+        );
+    });
+
+    test("a test executable's own run, whose failures follow their tests' lines", () => {
+        const output = [
+            "test counted.counting.Breaks ... FAILED",
+            "    expect failed: Twice(2) == 5 at counting.fb:9:5",
+            "test counted.counting.Doubles ... ok",
+            "1 passed, 1 failed, 0 skipped",
+        ].join("\n");
+        assert.deepEqual(
+            testOutcomes(output),
+            new Map([
+                ["counted.counting.Breaks", { state: "failed", messages: ["expect failed: Twice(2) == 5 at counting.fb:9:5"] }],
+                ["counted.counting.Doubles", { state: "passed", messages: [] }],
+            ]),
+        );
+    });
+});
+
+test("testArguments runs a filter's tests, or builds their executable", () => {
+    assert.deepEqual(testArguments("C:/counted", undefined), ["test", "--color", "never", "C:/counted"]);
+    assert.deepEqual(testArguments("C:/counted", "counted.counting.Doubles", "C:/t/tests.exe"), [
+        "test",
+        "--color",
+        "never",
+        "--filter",
+        "counted.counting.Doubles",
+        "-o",
+        "C:/t/tests.exe",
+        "C:/counted",
+    ]);
+});
+
+test("moduleFilter picks a file's tests by their module", () => {
+    assert.equal(moduleFilter("game.shapes.Area"), "game.shapes.");
+    assert.equal(moduleFilter("Area"), "Area");
 });

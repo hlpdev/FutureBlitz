@@ -21,6 +21,18 @@ CodeLLDB. The design is in [docs/tooling.md](https://github.com/hlpdev/FutureBli
   `.not`, `.try`, and `.local` write it into what they say, and in a Class's body, the Methods
   it can override or implement are written out. VS Code's own word suggestions are off for .fb
   files, so the language server's are what's shown.
+- **Reading code**: inlay hints show the types of Locals, For variables, and lambda parameters
+  where none is written, and the parameters' names at a call's arguments (each a setting). A
+  name's other uses in its file are highlighted, reads and writes apart; blocks, each If branch,
+  Select Case, and Catch, runs of comments, and Import lines fold; Expand Selection grows by
+  expressions and statements. Go to Type Definition, Go to Implementations (an Interface's
+  Classes and Structs, a Class's subclasses, a Method's overrides), Show Call Hierarchy, and Show
+  Type Hierarchy work across the package, and a count of references sits above each type and
+  function.
+- **Tests**: the Testing panel lists each file's `@Test` Functions, and runs or debugs a file's or
+  one test's, with their buttons in the gutter too: a run is `fb test --filter`, and a debug run
+  builds the tests' executable with `fb test -o` and runs it under CodeLLDB. A program's main file
+  has Run and Debug above its first line.
 - **Run** and **Debug** are in the editor's title bar on a .fb file, and in the Command Palette as
   FutureBlitz: Run, FutureBlitz: Debug, and FutureBlitz: Run Tests. Each takes the open file's
   package, the folder with the project.toml above it, or the file itself without one.
@@ -62,6 +74,8 @@ CodeLLDB. The design is in [docs/tooling.md](https://github.com/hlpdev/FutureBli
 | `futureblitz.path` | fb; `${workspaceFolder}` and `~` are expanded |
 | `futureblitz.lspPath` | the language server |
 | `futureblitz.lsp.enabled` | start the language server; on by default |
+| `futureblitz.inlayHints.types` | show the types the code doesn't write; on by default |
+| `futureblitz.inlayHints.parameterNames` | show the parameters' names at calls; on by default |
 | `futureblitz.trace.server` | trace its messages in the FutureBlitz output |
 | `futureblitz.debug.lldbScript` | fb's `futureblitz.py`; beside fb, else the extension's copy |
 

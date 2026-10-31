@@ -200,3 +200,71 @@ export function relativeTarget(target: string, folder: string, paths: path.Platf
 
     return relative.startsWith("..") || paths.isAbsolute(relative) ? target : relative;
 }
+
+// A test's outcome, as fb test prints it (cli/src/commands.cpp's print_results and its failures),
+// or its executable does run alone (runtime/src/test.cpp).
+export interface TestOutcome {
+    state: "passed" | "failed" | "skipped";
+    // What a skip says, or each line its failures said.
+    messages: string[];
+}
+
+// Each test's outcome, by its name, from fb test's output: a "test <name> ... ok" line for each,
+// and for each one that failed, its own "---- <name> ----" section of what it said. A test
+// executable run alone says what failed in indented lines after the test's.
+export function testOutcomes(output: string): Map<string, TestOutcome> {
+    const outcomes = new Map<string, TestOutcome>();
+    let section: TestOutcome | undefined;
+    let indented: TestOutcome | undefined;
+    for (const line of output.split(/\r\n|\r|\n/)) {
+        const result = /^test (\S+) \.\.\. (ok|FAILED|skipped)(?:: (.*))?$/.exec(line);
+        if (result !== null) {
+            const state = result[2] === "ok" ? "passed" : result[2] === "FAILED" ? "failed" : "skipped";
+            const outcome: TestOutcome = { state, messages: result[3] === undefined ? [] : [result[3]] };
+            outcomes.set(result[1], outcome);
+            indented = state === "failed" ? outcome : undefined;
+            continue;
+        }
+
+        if (line.startsWith("---- ") && line.endsWith(" ----")) {
+            section = outcomes.get(line.slice(5, -5));
+            indented = undefined;
+            continue;
+        }
+
+        if (line === "") {
+            section = undefined;
+        } else if (section !== undefined) {
+            section.messages.push(line);
+        } else if (indented !== undefined && line.startsWith("    ")) {
+            indented.messages.push(line.slice(4));
+        } else {
+            indented = undefined;
+        }
+    }
+
+    return outcomes;
+}
+
+// fb's arguments to run a package's or a file's tests, those whose names have `filter` in them,
+// or with `output`, to build their executable there for a debugger.
+export function testArguments(target: string, filter: string | undefined, output?: string): string[] {
+    const args = ["test", "--color", "never"];
+    if (filter !== undefined && filter !== "") {
+        args.push("--filter", filter);
+    }
+
+    if (output !== undefined) {
+        args.push("-o", output);
+    }
+
+    args.push(target);
+    return args;
+}
+
+// What --filter takes for the tests of one file, whose names start with its module's: that
+// module's name and a '.', as "game.shapes." for game.shapes.Area.
+export function moduleFilter(name: string): string {
+    const dot = name.lastIndexOf(".");
+    return dot < 0 ? name : name.slice(0, dot + 1);
+}

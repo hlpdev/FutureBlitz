@@ -11,18 +11,26 @@ import { DEBUG_TYPE, FbDebugConfigurationProvider, defaultProgram } from "./debu
 import { FbCommand, relativeTarget } from "./fb";
 import { Found, currentEnvironment, findFb, findLldbScript, findLsp } from "./paths";
 import { FbTaskProvider, TASK_TYPE, runTask } from "./tasks";
+import { FbTestController } from "./tests";
 
 // What the extension tests reach through the extension's exports.
 export interface Api {
     server: ServerClient;
     tasks: FbTaskProvider;
     debug: FbDebugConfigurationProvider;
+    tests: FbTestController;
     locateFb: (folder: vscode.WorkspaceFolder | undefined) => Found;
     lldbScript: (folder: vscode.WorkspaceFolder | undefined) => string | undefined;
 }
 
 function settings(folder?: vscode.WorkspaceFolder): vscode.WorkspaceConfiguration {
     return vscode.workspace.getConfiguration("futureblitz", folder);
+}
+
+// An LSP Location, as a command's arguments have it.
+interface LspLocation {
+    uri: string;
+    range: { start: { line: number; character: number }; end: { line: number; character: number } };
 }
 
 function firstFolder(): vscode.WorkspaceFolder | undefined {
@@ -52,10 +60,13 @@ export function activate(context: vscode.ExtensionContext): Api {
     });
     const tasks = new FbTaskProvider(locateFb);
     const debug = new FbDebugConfigurationProvider({ tasks, locateFb, lldbScript });
+    const tests = new FbTestController({ locateFb, lldbScript });
+    server.onDidMakeClient((client) => tests.attach(client));
 
     context.subscriptions.push(
         output,
         server,
+        tests,
         vscode.tasks.registerTaskProvider(TASK_TYPE, tasks),
         vscode.debug.registerDebugConfigurationProvider(DEBUG_TYPE, debug),
         vscode.debug.registerDebugConfigurationProvider(
@@ -69,6 +80,28 @@ export function activate(context: vscode.ExtensionContext): Api {
         vscode.commands.registerCommand("futureblitz.showOutput", () => output.show(true)),
         vscode.commands.registerCommand("futureblitz.run", () => runCommand("run", tasks)),
         vscode.commands.registerCommand("futureblitz.test", () => runCommand("test", tasks)),
+        // A code lens's count of references, which fb-lsp's codeLens/resolve gives as JSON.
+        vscode.commands.registerCommand(
+            "futureblitz.showReferences",
+            (uri: string, position: { line: number; character: number }, locations: LspLocation[]) =>
+                vscode.commands.executeCommand(
+                    "editor.action.showReferences",
+                    vscode.Uri.parse(uri),
+                    new vscode.Position(position.line, position.character),
+                    locations.map(
+                        (location) =>
+                            new vscode.Location(
+                                vscode.Uri.parse(location.uri),
+                                new vscode.Range(
+                                    location.range.start.line,
+                                    location.range.start.character,
+                                    location.range.end.line,
+                                    location.range.end.character,
+                                ),
+                            ),
+                    ),
+                ),
+        ),
         vscode.commands.registerCommand("futureblitz.debug", () => {
             const folder = activeFolder();
             const program = defaultProgram(folder);
@@ -91,7 +124,7 @@ export function activate(context: vscode.ExtensionContext): Api {
     );
 
     void server.start();
-    return { server, tasks, debug, locateFb, lldbScript };
+    return { server, tasks, debug, tests, locateFb, lldbScript };
 }
 
 export function deactivate(): void {}

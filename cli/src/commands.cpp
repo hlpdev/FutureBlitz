@@ -324,6 +324,9 @@ std::string help_text(const std::optional<command_t> command, const style_t& sty
     } else if (command == command_t::DOC) {
         out += entry("-o, --output <path>",
                      "Where to write the JSON, or - for stdout (build/<name>.json, or std.json)");
+    } else if (command == command_t::TEST) {
+        out += entry("-o, --output <path>",
+                     "Build the tests' executable there without running it, as a debugger would");
     }
 
     if (command == command_t::DOC) {
@@ -1069,7 +1072,8 @@ runs_t run_tests(const console_t& console, const std::filesystem::path& program,
 
 /// `fb test`: builds the package's tests, those `--filter` names, into a test executable in a
 /// temporary folder, runs them, and says how each did, then how they all did, and deletes the
-/// folder. Returns 0 when none of them failed.
+/// folder. Returns 0 when none of them failed. With `-o`, it only builds the executable there,
+/// which run alone runs its tests and prints how each did, for a debugger to run.
 int test_command(const options_t& options) {
     const auto start = std::chrono::steady_clock::now();
     const console_t console(options.color);
@@ -1112,6 +1116,10 @@ int test_command(const options_t& options) {
             render_pretty(diagnostic, compilation.sources, console.diagnostics()));
         console.error(std::format("couldn't build {}'s tests because of 1 error", name));
         return compile_errors_exit_code;
+    }
+
+    if (options.output) {
+        return build(console, options, compilation, name, module, start);
     }
 
     // A folder of its own, so the executable is named after the package's tests.

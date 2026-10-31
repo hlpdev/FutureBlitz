@@ -135,4 +135,85 @@ struct call_at_t {
 [[nodiscard]] json_t formatting(const source_file_t& file, std::uint32_t width,
                                 const positions_t& positions);
 
+/// A Location in a compilation's file, or nullopt for one that isn't on disk. A prebuilt
+/// library's module is in its interface file, at the same lines, a module as a whole at its first.
+[[nodiscard]] std::optional<json_t> location_of(const compilation_t& compilation, span_t span,
+                                                const positions_t& positions);
+
+/// textDocument/codeLens, unresolved: one at each declaration's name, whose data is `uri` and its
+/// position, which codeLens/resolve counts the references of. Only the file is parsed.
+[[nodiscard]] json_t code_lenses(const source_file_t& file, const std::string& uri,
+                                 const positions_t& positions);
+
+/// textDocument/foldingRange: a file's blocks, an If's branches, a Select's Cases, and a Try's
+/// Catches each on its own, its lambdas, arrays, and Maps over more than a line, its runs of
+/// comments and of Imports, and its #If blocks, each from its first line to the one before its
+/// End. Only the file is parsed, so it's there before a check.
+[[nodiscard]] json_t folding_ranges(const source_file_t& file);
+
+/// textDocument/selectionRange: for each of `offsets`, what a selection there grows to, from its
+/// word out to the whole file through each expression, statement, and block around it. Only the
+/// file is parsed.
+[[nodiscard]] json_t selection_ranges(const source_file_t& file,
+                                      std::span<const std::uint32_t> offsets,
+                                      const positions_t& positions);
+
+/// textDocument/documentHighlight: the file's names of what's named at `offset`, each a Write
+/// where it's declared or assigned, and a Read elsewhere.
+[[nodiscard]] json_t document_highlights(const query_t& query, std::uint32_t offset,
+                                         const positions_t& positions);
+
+/// Which inlay hints the client wants, which its settings say.
+struct inlay_options_t {
+    /// The types of Locals, a For's variables, and a lambda's parameters, where none is written.
+    bool types = true;
+    /// The parameters' names at a call's arguments, but where the argument or the function says it.
+    bool parameters = true;
+};
+
+/// textDocument/inlayHint for the code that starts in `range`.
+[[nodiscard]] json_t inlay_hints(const query_t& query, span_t range, const inlay_options_t& options,
+                                 const positions_t& positions);
+
+/// textDocument/typeDefinition: where the type of what's at `offset` is declared, the T of a T?, a
+/// T[], or a Weak<T>. Null for a built-in type, or none.
+[[nodiscard]] json_t type_definition(const query_t& query, std::uint32_t offset,
+                                     const positions_t& positions);
+
+/// textDocument/implementation: in `compilations`, what implements or extends the Interface or
+/// Class `key` names, or implements or overrides the member it names, as Locations.
+[[nodiscard]] json_t
+implementations(std::span<const std::shared_ptr<const compilation_t>> compilations,
+                const symbol_key_t& key, const positions_t& positions);
+
+/// textDocument/prepareCallHierarchy: the Function, Method, or New named at `offset`, as a
+/// CallHierarchyItem whose data is its symbol_key_t. Null for anything else.
+[[nodiscard]] json_t prepare_call_hierarchy(const query_t& query, std::uint32_t offset,
+                                            const positions_t& positions);
+
+/// callHierarchy/incomingCalls: in `compilations`, the functions, and files' top-level code, that
+/// call `key`'s, each with where.
+[[nodiscard]] json_t
+incoming_calls(std::span<const std::shared_ptr<const compilation_t>> compilations,
+               const symbol_key_t& key, const positions_t& positions);
+
+/// callHierarchy/outgoingCalls: what `key`'s function calls, or with `top`, what its file's
+/// top-level code does, each with where, in `query`, a check of its file.
+[[nodiscard]] json_t outgoing_calls(const query_t& query, const symbol_key_t& key, bool top,
+                                    const positions_t& positions);
+
+/// textDocument/prepareTypeHierarchy: the Struct, Class, Interface, or Enum named at `offset`, as
+/// a TypeHierarchyItem whose data is its symbol_key_t. Null for anything else.
+[[nodiscard]] json_t prepare_type_hierarchy(const query_t& query, std::uint32_t offset,
+                                            const positions_t& positions);
+
+/// typeHierarchy/supertypes: the Class `key`'s type extends and the Interfaces it lists, in
+/// `query`, a check of its file.
+[[nodiscard]] json_t supertypes(const query_t& query, const symbol_key_t& key,
+                                const positions_t& positions);
+
+/// typeHierarchy/subtypes: in `compilations`, the types that extend `key`'s or list it.
+[[nodiscard]] json_t subtypes(std::span<const std::shared_ptr<const compilation_t>> compilations,
+                              const symbol_key_t& key, const positions_t& positions);
+
 } // namespace fb::lsp

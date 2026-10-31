@@ -96,6 +96,16 @@
           "default": true,
           "description": "Start the language server for diagnostics as you type, hovers, completion, and formatting."
         },
+        "futureblitz.inlayHints.types": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the types of Locals, For variables, and lambda parameters where none is written."
+        },
+        "futureblitz.inlayHints.parameterNames": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the parameters' names at a call's arguments, but where the argument or the function says it."
+        },
         "futureblitz.trace.server": {
           "type": "string",
           "enum": [
@@ -150,9 +160,20 @@
         "command": "futureblitz.test",
         "title": "Run Tests",
         "category": "FutureBlitz"
+      },
+      {
+        "command": "futureblitz.showReferences",
+        "title": "Show References",
+        "category": "FutureBlitz"
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "futureblitz.showReferences",
+          "when": "false"
+        }
+      ],
       "editor/title/run": [
         {
           "command": "futureblitz.run",

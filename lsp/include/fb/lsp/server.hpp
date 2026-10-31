@@ -1,5 +1,6 @@
 #pragma once
 
+#include "fb/lsp/features.hpp"
 #include "fb/lsp/protocol.hpp"
 #include "fb/lsp/query.hpp"
 #include "fb/lsp/workspace.hpp"
@@ -52,6 +53,13 @@ private:
     std::optional<int> m_exit;
     /// The client's initializationOptions.formatOnSave: whether a save formats the document.
     bool m_format_on_save = false;
+    /// The inlay hints the client's settings ask for, and whether it can be asked to ask for them
+    /// again once they change.
+    inlay_options_t m_inlay;
+    bool m_inlay_refresh = false;
+    /// The client's initializationOptions.tests: whether it's sent each file's @Test Functions as
+    /// the checks find them, as fb/tests.
+    bool m_tests = false;
     /// Whether the client watches files for the server when it asks, and whether a watcher can
     /// have a folder of its own, a RelativePattern.
     bool m_watches = false;
@@ -113,6 +121,24 @@ private:
     json_t semantic_tokens(const json_t& params);
     json_t code_actions(const json_t& params);
     json_t formatting(const json_t& params);
+    json_t folding_ranges(const json_t& params);
+    json_t selection_ranges(const json_t& params);
+    json_t document_highlights(const json_t& params);
+    json_t inlay_hints(const json_t& params);
+    json_t type_definition(const json_t& params);
+    json_t implementations(const json_t& params);
+    /// textDocument/prepareCallHierarchy, callHierarchy/incomingCalls, and outgoingCalls.
+    json_t call_hierarchy(const std::string& method, const json_t& params);
+    /// textDocument/prepareTypeHierarchy, typeHierarchy/supertypes, and subtypes.
+    json_t type_hierarchy(const std::string& method, const json_t& params);
+    json_t code_lenses(const json_t& params);
+    json_t resolve_code_lens(json_t lens);
+    /// fb/tests: every file's @Test Functions the checks have found.
+    json_t tests();
+    /// A file's @Test Functions, as fb/tests has them.
+    [[nodiscard]] json_t tests_json(const tests_found_t& found) const;
+    /// Takes the client's inlay hint settings, {"types", "parameterNames"}.
+    void set_inlay(const json_t& settings);
 
     /// The modules an Import in the file at `path` can name.
     std::vector<std::string> import_names(const std::filesystem::path& path,

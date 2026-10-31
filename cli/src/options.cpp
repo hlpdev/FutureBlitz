@@ -505,9 +505,10 @@ std::expected<void, std::string> parse_into(const std::span<const std::string_vi
         } else if (argument == "--release") {
             options.mode = build_mode_t::RELEASE;
         } else if (name == "-o" || name == "--output") {
-            if (options.command != command_t::BUILD && options.command != command_t::DOC) {
+            if (options.command != command_t::BUILD && options.command != command_t::TEST &&
+                options.command != command_t::DOC) {
                 return std::unexpected(
-                    std::format("'{}' only works with 'fb build' and 'fb doc'", name));
+                    std::format("'{}' only works with 'fb build', 'fb test', and 'fb doc'", name));
             }
 
             parsed = value().and_then(
