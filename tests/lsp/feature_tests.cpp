@@ -828,8 +828,13 @@ TEST_CASE("each of a diagnostic's suggestions is a code action, the likeliest pr
 }
 
 TEST_CASE("an inspection's warning has its lint's name, and what's unused is faded", "[lsp]") {
-    const folder_t folder({ { "project.toml", "[project]\nname = \"app\"\nversion = \"0.1.0\"\n"
-                                              "\n[lints]\nshadowed = \"error\"\n" } });
+    const folder_t folder({
+        {
+            "project.toml",
+            "[project]\nname = \"app\"\nversion = \"0.1.0\"\n"
+            "\n[lints]\nshadowed = \"error\"\n",
+        },
+    });
     const std::string uri = folder.uri("main.fb");
     const std::string text = "Import std.core\n"
                              "Global count = 0\n"

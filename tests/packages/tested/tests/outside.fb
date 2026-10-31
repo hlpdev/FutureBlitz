@@ -1,6 +1,6 @@
 // Tests that use the package as another package would, and what it depends on, seeing its
 // Package names too, as its own files do.
-Import std.core
+// Expect is std.test's, and the rest the modules' own.
 Import std.test
 Import tested.counting
 Import physics.vector

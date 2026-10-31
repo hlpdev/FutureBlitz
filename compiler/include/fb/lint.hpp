@@ -42,10 +42,11 @@ enum class lint_t : std::uint8_t {
     SELF_CYCLE,
 };
 
-/// How a lint's warnings are given.
+/// How a lint's warnings are given. A warning is the zero, which each lint has without
+/// [lints].
 enum class lint_level_t : std::uint8_t {
-    OFF,
     WARNING,
+    OFF,
     ERROR,
 };
 
@@ -69,11 +70,7 @@ struct lint_info_t {
 /// the standard library's and a registry's packages' have none, as their warnings aren't the
 /// program's to fix.
 struct lints_t {
-    std::array<lint_level_t, 13> levels = [] {
-        std::array<lint_level_t, 13> all{};
-        all.fill(lint_level_t::WARNING);
-        return all;
-    }();
+    std::array<lint_level_t, 13> levels{};
     /// Whether the inspections look at the code: they do for fb check, build, run, test, and
     /// the LSP, which have these from a project.toml, and don't for compile() in memory, unless
     /// it's asked.

@@ -306,16 +306,24 @@ TEST_CASE("an Import or a From line's name that nothing uses is reported", "[ins
     // The only Import of a module whose Extend gives a String an Interface, which the program
     // uses without naming anything of the module's, and which without it, isn't loaded.
     program_t extended{
-        { "test.fb",
-          "Import std.core\nImport \"./sized\"\nImport \"./extend\"\nPrint(SizeOf(\"abc\"))\n" },
-        { "sized.fb", "Public Interface Sized\n"
-                      "    Method Measure(): Int\n"
-                      "End Interface\n"
-                      "Public Function SizeOf<T: Sized>(x: T): Int => x.Measure()\n" },
-        { "extend.fb", "Import \"./sized\"\n"
-                       "Extend String Implements Sized\n"
-                       "    Method Measure(): Int => 3\n"
-                       "End Extend\n" },
+        {
+            "test.fb",
+            "Import std.core\nImport \"./sized\"\nImport \"./extend\"\nPrint(SizeOf(\"abc\"))\n",
+        },
+        {
+            "sized.fb",
+            "Public Interface Sized\n"
+            "    Method Measure(): Int\n"
+            "End Interface\n"
+            "Public Function SizeOf<T: Sized>(x: T): Int => x.Measure()\n",
+        },
+        {
+            "extend.fb",
+            "Import \"./sized\"\n"
+            "Extend String Implements Sized\n"
+            "    Method Measure(): Int => 3\n"
+            "End Extend\n",
+        },
     };
     CHECK(found(extended, fb::lint_t::UNUSED_IMPORT).empty());
     extended.at("test.fb") = "Import std.core\nImport \"./sized\"\nPrint(SizeOf(\"abc\"))\n";
@@ -404,7 +412,8 @@ TEST_CASE("a Private declaration nothing in its file uses is reported, with a fi
                 "Local named: Named = Cat()\n"
                 "Local routes = [Api2()]\n"
                 "Print(\"{Node().ToString()} {named.Name()} {routes.Count}\")\n",
-                fb::lint_t::UNUSED_PRIVATE) == found_t{});
+                fb::lint_t::UNUSED_PRIVATE)
+              .empty());
 }
 
 TEST_CASE("code nothing reaches is reported, from where it starts to its block's end",
@@ -582,7 +591,7 @@ TEST_CASE("the warnings about Null and Try have fixes, and every check gives the
                                 "Local text = \"a\"\n"
                                 "Print(text ?? \"b\")\n"
                                 "Print(text?.ToString() ?? \"\")\n";
-    CHECK(fixed(program, fb::lint_t::REDUNDANT_NULL, "'??'", "Remove the '??'")
+    CHECK(fixed(program, fb::lint_t::REDUNDANT_NULL, "'?\?'", "Remove the '?\?'")
               .contains("Print(text)\n"));
     const std::string out =
         fixed(program, fb::lint_t::REDUNDANT_NULL, "'?.'", "Change '?.' to '.'");
@@ -601,7 +610,7 @@ TEST_CASE("the warnings about Null and Try have fixes, and every check gives the
     }
 
     CHECK(lints == std::vector<std::string>{
-                       "redundant_null: 'text' can't be Null here, so '??' always gives it",
+                       "redundant_null: 'text' can't be Null here, so '?\?' always gives it",
                        "redundant_null: 'text' can't be Null here, so '?.' isn't needed",
                    });
 }

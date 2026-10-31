@@ -2,6 +2,7 @@
 // an Assert, and one exits; and one that leaks a cycle of Nodes, which fails it.
 Import std.core
 Import std.os
+// Panic, Assert, and Exit are std.core's and std.os's, so the tests need nothing of std.test's.
 
 Class Node
     Field next: Node?

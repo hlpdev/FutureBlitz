@@ -4482,7 +4482,7 @@ compile_loose(const std::filesystem::path& path, const build_mode_t mode,
                       .read = read,
                       .cache = cache,
                       .root_bodies = root_bodies,
-                      .lints = lints_t{},
+                      .lints = lints_t(),
                       .inspect = inspect,
                   },
                   to_utf8(path.filename()), mode);
@@ -4540,7 +4540,7 @@ std::expected<compilation_t, std::string> check_files(const check_request_t& req
                           .read = request.read,
                           .cache = request.cache,
                           .root_bodies = true,
-                          .std_lints = lints_t{},
+                          .std_lints = lints_t(),
                           .inspect = request.inspect,
                       },
                       "(std).fb", request.mode);

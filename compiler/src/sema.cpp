@@ -1095,8 +1095,8 @@ private:
     [[nodiscard]] fix_t without_try(const expr_id_t id, const try_expr_t& node) const {
         return { .span = { .file = span_of(id).file,
                            .begin = span_of(id).begin,
-                           .end = span_of(node.operand).begin },
-                 .replacement = "" };
+                           .end = span_of(node.operand).begin, },
+                 .replacement = "", };
     }
 
     symbol_t& symbol(const symbol_id_t id) {
@@ -16229,7 +16229,7 @@ private:
         return {
             .span = { .file = span.file,
                       .begin = static_cast<std::uint32_t>(start),
-                      .end = static_cast<std::uint32_t>(std::min(line_end + 1, text.size())) },
+                      .end = static_cast<std::uint32_t>(std::min(line_end + 1, text.size())), },
             .replacement = "",
         };
     }
@@ -16262,9 +16262,11 @@ private:
             return;
         }
 
-        const span_t code{ .file = start.span.file,
-                           .begin = start.span.begin,
-                           .end = m_ast.get(block.back()).span.end };
+        const span_t code{
+            .file = start.span.file,
+            .begin = start.span.begin,
+            .end = m_ast.get(block.back()).span.end,
+        };
         lint(lint_t::UNREACHABLE, code,
              "nothing reaches this code, as what comes before it always leaves")
             .with_suggestion("Remove the code nothing reaches", { removal(code) });
@@ -16301,7 +16303,7 @@ private:
     void report_shadowing(const symbol_id_t id) {
         const symbol_t& declared = symbol(id);
         if (declared.name.empty() || declared.name.front() == '_' || declared.name == "Self" ||
-            declared.span.length() == 0 || !inspecting(lint_t::SHADOWED, declared.span.file)) {
+            declared.span.empty() || !inspecting(lint_t::SHADOWED, declared.span.file)) {
             return;
         }
 
@@ -16355,7 +16357,7 @@ private:
             diagnostic_t& reported =
                 lint(lint_t::SHADOWED, declared.span,
                      "'{}' has the name of {}, which it hides here", declared.name, what);
-            if (seen.span.length() > 0) {
+            if (!seen.span.empty()) {
                 reported.with_label(seen.span, "declared here");
             }
 
@@ -16440,6 +16442,11 @@ private:
 
             return negative ? magnitude > other.magnitude : magnitude < other.magnitude;
         }
+
+        [[nodiscard]] bool operator<=(const whole_t& other) const {
+            const bool greater = other < *this;
+            return !greater;
+        }
     };
 
     /// A comparison of an integer with a literal past what its type holds, as "count < 0" for a
@@ -16467,9 +16474,11 @@ private:
 
         whole_t literal;
         if (const auto* number = std::get_if<std::int64_t>(&known->data)) {
-            literal = { .negative = *number < 0,
-                        .magnitude = *number < 0 ? 0 - static_cast<std::uint64_t>(*number)
-                                                 : static_cast<std::uint64_t>(*number) };
+            literal = {
+                .negative = *number < 0,
+                .magnitude = *number < 0 ? 0 - static_cast<std::uint64_t>(*number)
+                                         : static_cast<std::uint64_t>(*number),
+            };
         } else if (const auto* unsigned_number = std::get_if<std::uint64_t>(&known->data)) {
             literal = { .magnitude = *unsigned_number };
         } else {
@@ -16483,7 +16492,7 @@ private:
             is_signed_type
                 ? whole_t{ .negative = true, .magnitude = std::uint64_t{ 1 } << (bits - 1) }
                 : whole_t{};
-        const whole_t highest{ .magnitude = is_signed_type ? top >> 1 : top };
+        const whole_t highest{ .magnitude = is_signed_type ? top >> 1U : top };
 
         // As "value op literal", with the operator turned round when the literal comes first.
         binary_op_t op = node.op;
@@ -16509,20 +16518,20 @@ private:
         bool every = false;
         switch (op) {
         case binary_op_t::LESS:
-            never = !(lowest < literal);
+            never = literal <= lowest;
             every = highest < literal;
             break;
         case binary_op_t::LESS_EQUAL:
             never = literal < lowest;
-            every = !(literal < highest);
+            every = highest <= literal;
             break;
         case binary_op_t::GREATER:
-            never = !(literal < highest);
+            never = highest <= literal;
             every = literal < lowest;
             break;
         default:
             never = highest < literal;
-            every = !(lowest < literal);
+            every = literal <= lowest;
             break;
         }
 
@@ -16698,7 +16707,7 @@ private:
             const symbol_t& declared = m_analysis.symbols[i];
             const auto file = files.find(declared.span.file);
             if (file == files.end() || declared.name.empty() || declared.name.front() == '_' ||
-                declared.span.length() == 0) {
+                declared.span.empty()) {
                 continue;
             }
 
@@ -16706,10 +16715,12 @@ private:
             // what's at the top level.
             bool directives = false;
             if (!file->second.empty()) {
-                span_t scope{ .file = declared.span.file,
-                              .begin = 0,
-                              .end = static_cast<std::uint32_t>(
-                                  m_sources.get(declared.span.file).text().size()) };
+                span_t scope{
+                    .file = declared.span.file,
+                    .begin = 0,
+                    .end =
+                        static_cast<std::uint32_t>(m_sources.get(declared.span.file).text().size()),
+                };
                 for (const span_t body : bodies[declared.span.file]) {
                     if (body.begin <= declared.span.begin && declared.span.end <= body.end &&
                         body.length() < scope.length()) {
@@ -16851,8 +16862,8 @@ private:
                 renames.push_back({ .span = { .file = span.file,
                                               .begin = span.begin,
                                               .end = span.begin + static_cast<std::uint32_t>(
-                                                                      declared.name.size()) },
-                                    .replacement = renamed });
+                                                                      declared.name.size()), },
+                                    .replacement = renamed, });
             }
         }
 
@@ -16917,7 +16928,12 @@ private:
     /// one's, or one with no code yet, as Todo() is.
     void check_unused_parameters(const symbol_id_t id, const usage_t& usage) {
         const symbol_t& function = symbol(id);
-        const auto* node = std::get_if<function_stmt_t>(&m_ast.get(*function.declaration).node);
+        const std::optional<stmt_id_t> declaration = function.declaration;
+        if (!declaration) {
+            return;
+        }
+
+        const auto* node = std::get_if<function_stmt_t>(&m_ast.get(*declaration).node);
         if (node == nullptr || node->required || node->external || node->prebuilt ||
             node->kind == function_kind_t::OPERATOR || node->modifiers.is_abstract ||
             node->modifiers.is_override || function.modifiers.visibility == visibility_t::PUBLIC ||
@@ -16929,11 +16945,10 @@ private:
             return;
         }
 
-        const span_t body = m_ast.get(*function.declaration).span;
+        const span_t body = m_ast.get(*declaration).span;
         for (const symbol_id_t parameter : function.parameters) {
             const symbol_t& declared = symbol(parameter);
-            if (declared.name.empty() || declared.name.front() == '_' ||
-                declared.span.length() == 0) {
+            if (declared.name.empty() || declared.name.front() == '_' || declared.span.empty()) {
                 continue;
             }
 
@@ -16952,8 +16967,8 @@ private:
                 renames.push_back({ .span = { .file = span.file,
                                               .begin = span.begin,
                                               .end = span.begin + static_cast<std::uint32_t>(
-                                                                      declared.name.size()) },
-                                    .replacement = renamed });
+                                                                      declared.name.size()), },
+                                    .replacement = renamed, });
             }
 
             lint(lint_t::UNUSED_PARAMETER, declared.span, "'{}' is never used", declared.name)
@@ -17161,7 +17176,7 @@ private:
                 test_builtins = true;
             }
 
-            if (found.span.length() > 0) {
+            if (!found.span.empty()) {
                 used[module_of(found.span.file)].insert(found.name);
                 if (found.owner != type_id_t::INVALID) {
                     const auto owner = m_declared_types.find(definition_of(found.owner));
@@ -23473,7 +23488,7 @@ private:
                                      {
                                          .span = { .file = span_of(id).file,
                                                    .begin = span_of(node.left).end,
-                                                   .end = span_of(id).end },
+                                                   .end = span_of(id).end, },
                                          .replacement = "",
                                      },
                                  });
@@ -27925,7 +27940,7 @@ private:
                                      {
                                          .span = { .file = member.file,
                                                    .begin = span_of(object).end,
-                                                   .end = member.begin },
+                                                   .end = member.begin, },
                                          .replacement = ".",
                                      },
                                  });
@@ -29389,7 +29404,7 @@ private:
                                      {
                                          .span = { .file = span_of(id).file,
                                                    .begin = span_of(node.value).end,
-                                                   .end = span_of(id).end },
+                                                   .end = span_of(id).end, },
                                          .replacement = "",
                                      },
                                  });

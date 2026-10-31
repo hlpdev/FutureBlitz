@@ -432,7 +432,7 @@ private:
                 manifest.lints.set(*lint, lint_level_t::ERROR);
             } else {
                 fail(span_of(node_of_field->source()),
-                     "[lints]'s {} is \"off\", \"warning\", or \"error\"", field.str());
+                     R"([lints]'s {} is "off", "warning", or "error")", field.str());
             }
         }
     }
