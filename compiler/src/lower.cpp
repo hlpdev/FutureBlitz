@@ -4544,7 +4544,7 @@ private:
             for (const symbol_id_t found : reflected_members(type, node.kind, span.file)) {
                 // "Where p Has Set" goes over only the ones its code can set.
                 const symbol_t& declared = m_analysis.symbol(found);
-                if (info.picks_settable && unsettable(declared, span, info.within)) {
+                if (info.picks_settable && unsettable(declared, span, info.within, type)) {
                     continue;
                 }
 
@@ -4578,7 +4578,7 @@ private:
                 if (info.picks_settable &&
                     (fielded != type ||
                      (member.symbol &&
-                      unsettable(m_analysis.symbol(*member.symbol), span, info.within)))) {
+                      unsettable(m_analysis.symbol(*member.symbol), span, info.within, fielded)))) {
                     continue;
                 }
 
@@ -10268,14 +10268,16 @@ private:
     }
 
     /// Why "f.Set", "p.Set", or "s.Set" at `span`, in the code of the Class `within`, can't
-    /// change `field`, a Field, Property, or Static Field: a ReadOnly Field, which changes only in
-    /// its Class's New, which a loop's copy can't tell it's in, or Static Field, or a Property
-    /// without a Set, its own or what it overrides', or one the code there couldn't assign by name
-    /// either, as analysis has visibility: one that's Private outside its file, Package outside
-    /// its package, or Protected outside its file and the Classes extending its own. nullopt
-    /// when it can.
+    /// change `field`, a Field, Property, or Static Field, in a value of `through`, the loop's
+    /// type: a ReadOnly Field, which changes only in its Class's New, which a loop's copy can't
+    /// tell it's in, or Static Field, or a Property without a Set, its own or what it overrides',
+    /// or one the code there couldn't assign by name either, as analysis has visibility: one
+    /// that's Private outside its file, Package outside its package, or Protected outside its file
+    /// and the Classes extending its own, and for one that isn't Static, but through a value of
+    /// the code's Class or one extending it. nullopt when it can.
     [[nodiscard]] std::optional<std::string> unsettable(const symbol_t& field, const span_t span,
-                                                        const type_id_t within) const {
+                                                        const type_id_t within,
+                                                        const type_id_t through) const {
         std::string_view variable = "f";
         if (field.kind == symbol_kind_t::PROPERTY) {
             variable = "p";
@@ -10320,18 +10322,35 @@ private:
                                "can't change it",
                                field.name, variable);
         }
-        case visibility_t::PROTECTED:
-            // In the code of a Class extending its own, its Static code too.
-            for (type_id_t code = within; code != type_id_t::INVALID && is_class(code);
-                 code = types().get(code).base) {
-                if (definition_of(code) == definition_of(field.owner)) {
-                    return std::nullopt;
+        case visibility_t::PROTECTED: {
+            // In the code of a Class extending its own, its Static code too, and for what isn't
+            // Static, in a value of that Class or one extending it.
+            const auto extends = [&](const type_id_t type, const type_id_t ancestor) {
+                for (type_id_t at = type; at != type_id_t::INVALID && is_class(at);
+                     at = types().get(at).base) {
+                    if (definition_of(at) == definition_of(ancestor)) {
+                        return true;
+                    }
                 }
+
+                return false;
+            };
+            if (!extends(within, field.owner)) {
+                return std::format("'{}' is Protected, so {}.Set outside its file and the Classes "
+                                   "extending {} can't change it",
+                                   field.name, variable, types().name(field.owner));
             }
 
-            return std::format("'{}' is Protected, so {}.Set outside its file and the Classes "
-                               "extending {} can't change it",
-                               field.name, variable, types().name(field.owner));
+            if (field.kind != symbol_kind_t::GLOBAL && !field.modifiers.is_static &&
+                !extends(through, within)) {
+                return std::format("'{}' is Protected, so {}.Set in {}'s code can change it only "
+                                   "through Self or another {}",
+                                   field.name, variable, types().name(within),
+                                   types().name(within));
+            }
+
+            return std::nullopt;
+        }
         case visibility_t::PRIVATE:
             break;
         }
@@ -10380,7 +10399,7 @@ private:
         // stays as its own code has it.
         if (name == "Set" && declared != nullptr) {
             if (const std::optional<std::string> why =
-                    unsettable(*declared, span_of(id), member.within)) {
+                    unsettable(*declared, span_of(id), member.within, member.owner)) {
                 if (!m_module.error) {
                     m_module.error = mir_error_t{ .message = *why, .span = span_of(id) };
                 }

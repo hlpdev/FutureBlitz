@@ -3700,6 +3700,88 @@ TEST_CASE("p.Set and s.Set change only what has a Set and the code could assign 
               .empty());
 }
 
+TEST_CASE("a Set changes a Protected member only through a value of the code's own Class",
+          "[mir]") {
+    std::vector<fb::library_file_t> files =
+        fb::standard_library().value_or(std::vector<fb::library_file_t>{});
+    files.push_back({
+        .path = "std/hidden/kept.fb",
+        .text = "Public Class Kept\n"
+                "    Protected Field count: Int\n"
+                "    Protected Property Count: Int\n"
+                "        Get => count\n"
+                "        Set(value)\n"
+                "            count = value\n"
+                "        End Set\n"
+                "    End Property\n"
+                "    Public New()\n"
+                "    End New\n"
+                "End Class\n",
+    });
+    const auto error_of = [&](const std::string& loop) {
+        const fb::compilation_t compilation =
+            fb::compile("test.fb",
+                        std::format("Import std.core\n"
+                                    "Import std.hidden\n"
+                                    "Class Mine Extends Kept\n"
+                                    "    New()\n"
+                                    "        Super.New()\n"
+                                    "    End New\n"
+                                    "    Method Poke(ByRef other: Kept, ByRef mine: Mine)\n"
+                                    "{}"
+                                    "    End Method\n"
+                                    "End Class\n"
+                                    "Local plain = Kept()\n"
+                                    "Local mine = Mine()\n"
+                                    "mine.Poke(ByRef plain, ByRef mine)",
+                                    loop),
+                        files);
+        for (const fb::diagnostic_t& diagnostic : compilation.diagnostics.diagnostics()) {
+            UNSCOPED_INFO(diagnostic.message);
+        }
+
+        REQUIRE(compilation.diagnostics.diagnostics().empty());
+        const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+        const fb::mir_error_t error = module.error.value_or(fb::mir_error_t{});
+        return module.error ? error.message : std::string();
+    };
+    // By name, Mine's code can't change a Kept's either, but it can a Mine's.
+    CHECK(error_of("        For Field f: F In Kept\n"
+                   "            Where F: Numeric\n"
+                   "            f.Set(ByRef other, F.One())\n"
+                   "        End For\n") ==
+          "'count' is Protected, so f.Set in Mine's code can change it only through Self or "
+          "another Mine");
+    CHECK(error_of("        For Property p: P In Kept\n"
+                   "            Where P: Numeric\n"
+                   "            p.Set(ByRef other, P.One())\n"
+                   "        End For\n") ==
+          "'Count' is Protected, so p.Set in Mine's code can change it only through Self or "
+          "another Mine");
+    CHECK(error_of("        For Field f: F In Mine\n"
+                   "            Where F: Numeric\n"
+                   "            f.Set(ByRef mine, F.One())\n"
+                   "        End For\n"
+                   "        For Property p: P In Mine\n"
+                   "            Where P: Numeric\n"
+                   "            p.Set(ByRef mine, P.One())\n"
+                   "        End For\n")
+              .empty());
+
+    // So "Where f Has Set" leaves a Kept's out.
+    CHECK(error_of("        For Field f: F In Kept\n"
+                   "            Where f Has Set\n"
+                   "            Where F: Numeric\n"
+                   "            f.Set(ByRef other, F.One())\n"
+                   "        End For\n"
+                   "        For Property p: P In Kept\n"
+                   "            Where p Has Set\n"
+                   "            Where P: Numeric\n"
+                   "            p.Set(ByRef other, P.One())\n"
+                   "        End For\n")
+              .empty());
+}
+
 TEST_CASE("f.Set in a Static Method of a Class extending another changes its Protected Field",
           "[mir]") {
     std::vector<fb::library_file_t> files =
