@@ -82,6 +82,14 @@ has a file, or a later mount has a folder there: its reads, Async too, throw IS_
 `KindOf` and `Entries` say it's a folder, where they read the earlier file before (`Holds()` and
 `FolderError()`; fbengine's review found it). tests/programs/io_vfs_shadowed.fb.
 
+`File.WriteBytesAtomic` and every atomic write (WriteTextAtomic, Preferences, the HTTP client's
+Download) replace a file another handle holds open on Windows too, as a game's updater writes a
+new pak over a mounted one: atomic_file_t's commit renames with POSIX semantics,
+`SetFileInformationByHandle(FileRenameInfoEx, FILE_RENAME_FLAG_REPLACE_IF_EXISTS |
+FILE_RENAME_FLAG_POSIX_SEMANTICS)` (`replace_file()`), and falls back to libuv's `MoveFileExW`
+where Windows or the disk doesn't have them, and the open handle reads on in the old file
+(fbengine's assets lane found it). tests/programs/io_file_atomic_open.fb.
+
 ## 1.0.1
 
 (2026-10-30.) Linux's fb-bindgen read no header that includes `<stdint.h>`: release.yml gathered

@@ -762,7 +762,10 @@ std/io/.
 - `File`: `ReadBytes`, `ReadText`, `ReadLines`, `WriteBytes`, `WriteText`, `WriteLines`,
   `AppendBytes`, `AppendText`, `AppendLines`, `WriteBytesAtomic` and `WriteTextAtomic` (a new
   temporary file in the same folder, synced to the disk, then renamed over the file, keeping its
-  POSIX permissions), `Exists` (a file, not a folder), `Size`, `Metadata` (its `Kind`, `Size`,
+  POSIX permissions, which replaces a file another handle holds open, as a mounted pak is, and
+  the handle reads on in the file it had: on Windows the rename has POSIX semantics, through
+  `SetFileInformationByHandle`'s `FileRenameInfoEx`, where Windows 10 1709 and later and the disk
+  have them, and is `MoveFileExW`'s, which can't, elsewhere), `Exists` (a file, not a folder), `Size`, `Metadata` (its `Kind`, `Size`,
   `Modified` and `Accessed` Timestamps, its `Created` Timestamp, which is Null where the OS
   doesn't say, and `IsReadOnly`; through links unless asked), `Copy` and `Move` (which replace a
   file there, and copy a file to another disk; a folder moves only where nothing is, and neither
