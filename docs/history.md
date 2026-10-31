@@ -221,6 +221,10 @@ runs the installed release's fb-bindgen on tools/release/libc.h, a header of `<s
 `<stddef.h>`, `<stdint.h>`, and `<string.h>`. Windows' MinGW-w64 and winpthreads headers, and
 macOS's SDK, from `xcrun`, already had every header theirs include. A cli test whose name began
 with `--`, which Catch2 took as an option, so ctest never ran it, is "a --registry folder ...".
+After it, as futureblitz.dev still said 1.0.0: the launch check checks the download page's
+version and apt's and dnf's repositories for both CPUs; futureblitz-web's `production` branch is
+production's, the newest release's docs, apart from master's, staging's; and the `release` and
+`site` skills, in .claude/skills/, are a release's and the site's steps.
 
 ## E2 and E3, the GPU core and 2D
 
