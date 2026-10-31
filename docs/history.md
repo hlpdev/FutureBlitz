@@ -25,6 +25,25 @@ hand in WSL, with libuv and watcher.cpp built by gcc under ASan and UBSan, throu
 a folder made again where one went, a folder it can't read, and inotify's limit, by
 `--wrap=inotify_add_watch`, the loop closing with none left.
 
+From 1.2's review of it: `unwatch_subfolders()` closes the folder's own handle and then those
+after `key/`, as `forget()` walks, since a sibling like "assets.bak" sorts between "assets" and
+"assets/art" and stopped the walk, leaving the moved folder's folders watched and a new one's not.
+Each `subfolder_t` keeps its folder's device and inode, and `told()` takes a known folder that's
+`replaced()`, as one removed and made again in one batch of inotify's events, as went, with what
+it had, and came, with what it has, watched anew. third_party/CMakeLists.txt patches libuv's
+unix/linux.c, each text it changes there once or configuring fails, so inotify's IN_Q_OVERFLOW,
+which libuv dropped, comes to each of the loop's file event handles as an event without a name
+(`uv__inotify_overflowed()`), and `relist()` lists the folder again once a turn of the loop. On
+Linux, a handle's event for the folder itself, named by a pointer into its path (`own_event()`),
+isn't one of a name in it. The callbacks are `subfolder_t`'s Static members, and `key_for()`
+makes a key, for clang-tidy built for Linux, which lints watcher.cpp clean with WSL's headers as
+its sysroot. A tree past inotify's watches is `too_many_watches` (files_internal.hpp), whose
+message names fs.inotify.max_user_watches. Tests: io_watch_recursive's folder moved out beside
+a sibling and made again, a runtime test of the limit's message, and in the WSL harness on the
+patched libuv, the sibling, a folder removed and made again while the loop's busy, 17,000 files
+while it's busy and a folder made then, and a folder's own change beside its same-named folder,
+each failing with the watcher before.
+
 Reflection that sets (2026-10-31): a For Property's `p.Set(ByRef value, x)` calls the
 Property's Set, through the Method table for a Class (`accessor_of()`), and on a Struct's
 variable, and a For Static Field's `s.Set(x)` stores the Static Field, an instance's for a
