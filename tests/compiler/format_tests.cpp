@@ -368,6 +368,20 @@ TEST_CASE("formatting tries the next break when what follows the best one can't 
           "not be completed because the server went away\")\nEnd Function\n");
 }
 
+TEST_CASE("formatting breaks brackets in brackets once, after the first one the rest fits after",
+          "[format]") {
+    // Not after each bracket in turn, with one alone on its line.
+    CHECK(formatted("Local wordResponse = JsonReader((Try client.Get(\"https://api.datamuse.com/"
+                    "words?={\"?\".Repeated(wordLength)}&max={POOL_SIZE}\")).Bytes)\n") ==
+          "Local wordResponse = JsonReader((Try client.Get(\n    \"https://api.datamuse.com/"
+          "words?={\"?\".Repeated(wordLength)}&max={POOL_SIZE}\")).Bytes)\n");
+    CHECK(formatted("Print(Outer(Inner(aaaaaaaaaaaaaaaa)))\n", 30) ==
+          "Print(Outer(\n    Inner(aaaaaaaaaaaaaaaa)))\n");
+    // The innermost, when the rest fits after it alone.
+    CHECK(formatted("Print(Outer(Inner(aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)))\n", 40) ==
+          "Print(Outer(Inner(\n    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)))\n");
+}
+
 TEST_CASE("formatting doesn't break a statement where its next line would be too wide too",
           "[format]") {
     unchanged("Local message = \"a string that is much too long for a line of forty\"\n", 40);

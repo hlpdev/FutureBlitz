@@ -33,6 +33,14 @@ whole; a test checks each piece of a string with escapes and an interpolation, a
 and a character's. interface.cpp's interface text, which keeps a doc comment's line break,
 adds one to the end with an If, not `+= ... ? 1 : 0`, which -Wsign-conversion reported.
 
+Brackets in brackets break once (2026-10-31, the user): a line with no comma or operator to break
+at broke after its outermost opening bracket, then the next line after its own, so
+`JsonReader((Try client.Get("...")).Bytes)` came out a staircase with a `(` alone on a line.
+`layout_from` tries a break after an opening bracket that all that follows fits after, on the
+next line at the bracket's own indentation, before one it doesn't, the outermost first; std
+formats as before. Tests check the user's line, the outermost of two that fit, and the innermost
+when only it does.
+
 ## 1.1.0
 
 (2026-10-31.) Dependencies with both a path and a version, `fbengine = { path = "../fbengine",

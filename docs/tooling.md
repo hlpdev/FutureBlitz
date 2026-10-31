@@ -498,7 +498,9 @@ The style, std's own (settled with the user 2026-10-29), which `fb fmt` enforces
   line wider than the width breaks where it may, at the best place on it: a comma or a ternary's
   `:` before an operator, the loosest operator first, at the outermost bracket level, the latest
   there; then after `=` or `=>` outside brackets when all that follows fits on the next line;
-  after an opening bracket only when nothing else fits; and after `=` or `=>` last. When what
+  after an opening bracket only when nothing else fits, one after which all that follows fits
+  on the next line first, so brackets in brackets break once, `JsonReader((Try client.Get(` and
+  the URL on the next line, not after each in turn; and after `=` or `=>` last. When what
   comes after the best break still can't fit, the next best is tried. An operator inside a
   ternary's level doesn't break it, and a single-line If breaks only at a comma in its
   statement's brackets. A statement that can't fit at any break, as with a long string, is left

@@ -1163,16 +1163,22 @@ private:
             place(item, start, column, indent, line_depth, i == line.first_token);
             if (fit && line.info[i].breakable) {
                 // After '=' or "=>", when the rest fits on the next line, comes before an
-                // opening bracket.
+                // opening bracket, and one the rest fits after before one it doesn't, so a line of
+                // brackets in brackets breaks once, not at each in turn. After '=' or "=>"
+                // otherwise comes last.
                 const std::uint32_t rest =
                     line.after[i] - (i + 1 < items.size() && line.info[i + 1].space ? 1 : 0);
-                const bool whole = line.info[i].tier == 2 && line.info[i].depth == 0 &&
-                                   m_state.segments.back().indent + indent_width + rest <= m_width;
-                std::uint32_t tier = line.info[i].tier + 1;
-                if (line.info[i].tier == 0) {
-                    tier = 0;
-                } else if (whole) {
-                    tier = 1;
+                std::uint32_t tier = 0;
+                if (line.info[i].tier == 1) {
+                    const bracket_t& bracket = m_state.brackets.back();
+                    const std::uint32_t inside =
+                        bracket.line_indent + ((bracket.signature ? 2 : 1) * indent_width);
+                    tier = inside + rest <= m_width ? 2 : 3;
+                } else if (line.info[i].tier == 2) {
+                    const bool whole =
+                        line.info[i].depth == 0 &&
+                        m_state.segments.back().indent + indent_width + rest <= m_width;
+                    tier = whole ? 1 : 4;
                 }
 
                 candidates.push_back({
