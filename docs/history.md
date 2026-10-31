@@ -63,6 +63,12 @@ doc examples', `<name>.doctests`, are its tests in the module table (`add_tests(
 Private names stay their files' and Public what other packages see. The tested package's
 tests/ folder calls a Package Function.
 
+std.math's `Mat4.Perspective` and `Mat4.Orthographic` panic, with their values, for values
+whose matrix isn't finite, which they gave as Inf before: a field of view, an aspect, or a
+height so small that its reciprocal is Inf, a near and far whose `near * depth` is, and sides
+whose sum is (fbengine's review found it). Their panics' messages say the matrix is finite;
+five more panic_math_ programs.
+
 ## 1.0.1
 
 (2026-10-30.) Linux's fb-bindgen read no header that includes `<stdint.h>`: release.yml gathered

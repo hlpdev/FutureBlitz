@@ -617,7 +617,11 @@ the rest is planned.
 - `Mat3` and `Mat4`, whose Fields are their columns, x, y, z, and w, where they take each axis:
   `Identity`, `Scale`, `Rotation`, `RotationX`, `RotationY`, and `RotationZ`, and a Mat4's
   `Translation`, `Compose` (scale, then rotate, then move), `LookAt`, `Perspective`, and
-  `Orthographic` (glm's right-handed matrices with depth from 0 to 1); `TransformPoint`,
+  `Orthographic` (glm's right-handed matrices with depth from 0 to 1, which panic with the values
+  for a view they can't make: a field of view outside 0 to Pi, an aspect that isn't finite and
+  above 0, a near and far that aren't finite with 0 < near < far, facing sides at one place, or
+  values whose matrix isn't finite, as a field of view or a height so small that its reciprocal
+  is Inf); `TransformPoint`,
   `TransformVector`, `ProjectPoint`, `Decompose`, `ToMat3`, and `ToMat4`; `Transpose`,
   `Determinant`, `Inverse`, which panics for a matrix with no inverse, and `TryInverse`, which
   gives Null. Release builds make SIMD instructions of Vec4's Operators and Mat4's `*` where
