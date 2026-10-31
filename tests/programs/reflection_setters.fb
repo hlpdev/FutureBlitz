@@ -55,6 +55,28 @@ Class Hero Extends Base
     End Property
 End Class
 
+// An inherited Property has the type its base's instance gives it.
+Class Holder<T>
+    Field item: T
+
+    New(item: T)
+        Self.item = item
+    End New
+
+    Property Item: T
+        Get => item
+        Set(value)
+            item = value
+        End Set
+    End Property
+End Class
+
+Class Counted Extends Holder<Int>
+    New()
+        Super.New(41)
+    End New
+End Class
+
 Class Account
     ReadOnly Field Id: String
     Field Balance: Int
@@ -154,3 +176,7 @@ For Static Field s: S In Counter<String>
     Where S: Printable
     Print("{s.Name} = {s.Get()}")
 End For
+
+Local counted = Counted()
+Bump(ByRef counted)
+Print("{counted.Item}")
