@@ -7,6 +7,7 @@
 #include "fb/utf8.hpp"
 
 #include <algorithm>
+#include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <cctype>
 #include <chrono>
@@ -1946,6 +1947,8 @@ TEST_CASE("a package in a folder of any name links its C libraries", "[driver]")
     packages.remove();
 }
 
+namespace {
+
 /// A build step's program, which makes made.fb, with what it read and what it was given, and
 /// data/first.txt, the first of names.txt's lines, says it read names.txt, and warns.
 constexpr std::string_view generate_program =
@@ -1986,6 +1989,8 @@ std::string build_and_run(const packages_t& packages, const std::string& folder)
     return ran ? ran->output : ran.error();
 }
 
+} // namespace
+
 TEST_CASE("a package's build step makes modules and the files they embed, before its build",
           "[driver]") {
     const packages_t packages;
@@ -2024,11 +2029,14 @@ TEST_CASE("a package's build step makes modules and the files they embed, before
     packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\ntype = "
                                        "\"library\"\n\n[build]\nprogram = \"tools/generate.fb\"\n");
     packages.write("app/main.fb", "Import app.made\nPublic Function Twice(): Int => COUNT * 2\n");
-    for (const auto& compiled :
-         { fb::compile_file(packages / "app"), fb::compile_tests(packages / "app"),
-           fb::compile_docs(packages / "app") }) {
-        REQUIRE(compiled);
-        CHECK_FALSE(compiled->diagnostics.has_errors());
+    const std::array<std::expected<fb::compilation_t, std::string>, 3> compiled{
+        fb::compile_file(packages / "app"),
+        fb::compile_tests(packages / "app"),
+        fb::compile_docs(packages / "app"),
+    };
+    for (const std::expected<fb::compilation_t, std::string>& each : compiled) {
+        REQUIRE(each);
+        CHECK_FALSE(each->diagnostics.has_errors());
     }
 
     packages.remove();

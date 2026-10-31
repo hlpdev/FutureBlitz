@@ -255,9 +255,9 @@ TEST_CASE("[build] names the program a package's build step runs, its own or a d
         read(std::format("{}[build]\nprogram = \"tools\\\\generate.fb\"\nnice = 1\n", project));
     CHECK(own.diagnostics == diagnostics_t{ "warning: nice: [build] doesn't use 'nice'" });
     const fb::manifest_t manifest = own.manifest.value_or(fb::manifest_t{});
-    REQUIRE(manifest.build);
-    CHECK(manifest.build->program == "tools/generate.fb");
-    CHECK_FALSE(manifest.build->package);
+    CHECK(manifest.build.has_value());
+    CHECK(manifest.build.value_or(fb::build_step_t{}).program == "tools/generate.fb");
+    CHECK_FALSE(manifest.build.value_or(fb::build_step_t{}).package);
 
     // A dependency's, which [dependencies] can name after it.
     const read_t theirs = read(std::format(
@@ -265,8 +265,8 @@ TEST_CASE("[build] names the program a package's build step runs, its own or a d
         "= \"../tools\" }}\n",
         project));
     CHECK(theirs.diagnostics.empty());
-    REQUIRE(theirs.manifest.value_or(fb::manifest_t{}).build);
-    CHECK(theirs.manifest.value_or(fb::manifest_t{}).build->package == "tools");
+    const fb::manifest_t named = theirs.manifest.value_or(fb::manifest_t{});
+    CHECK(named.build.value_or(fb::build_step_t{}).package == "tools");
 
     CHECK(read(std::format("build = \"tools/generate.fb\"\n{}", project)).diagnostics ==
           diagnostics_t{ "error: build: 'build' is a table, [build], with the program its build "

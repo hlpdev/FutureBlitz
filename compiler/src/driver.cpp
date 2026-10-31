@@ -3217,9 +3217,16 @@ public:
     step_lock_t& operator=(step_lock_t&&) = delete;
 
     ~step_lock_t() {
-        if (m_locked) {
+        if (!m_locked) {
+            return;
+        }
+
+        // What can't be taken out is a lock folder that ten minutes make stale.
+        try {
             std::error_code ignored;
             std::filesystem::remove_all(m_folder, ignored);
+        } catch (...) {
+            return;
         }
     }
 
@@ -3340,8 +3347,10 @@ bool run_build_step(compilation_t& compilation, package_t& package, const build_
             return false;
         }
 
-        program_lines = { std::format("fb {}", build_config::version),
-                          "program " + to_utf8(program) };
+        program_lines = {
+            std::format("fb {}", build_config::version),
+            "program " + to_utf8(program),
+        };
         std::vector<std::string> sources;
         for (const std::filesystem::path& source : compiled->on_disk) {
             if (!source.empty()) {
@@ -3418,7 +3427,7 @@ bool run_build_step(compilation_t& compilation, package_t& package, const build_
         read.emplace_back("*");
     }
 
-    std::ofstream written(stamp_path, std::ios::binary | std::ios::trunc);
+    std::ofstream written(stamp_path, std::ios::binary);
     for (const std::string& line : program_lines) {
         written << line << '\n';
     }
@@ -3452,9 +3461,7 @@ bool run_build_steps(compilation_t& compilation, std::vector<package_t>& package
             continue;
         }
 
-        // A copy, as the step can't change the package it's from.
-        const package_t owner = *from;
-        if (!run_build_step(compilation, packages[index], *step, owner, packages.front().root, mode,
+        if (!run_build_step(compilation, packages[index], *step, *from, packages.front().root, mode,
                             steps)) {
             return false;
         }

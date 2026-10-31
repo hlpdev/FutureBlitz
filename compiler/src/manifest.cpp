@@ -105,13 +105,14 @@ public:
         }
 
         // [dependencies] can come after the [build] that names one of them.
-        if (manifest.build && manifest.build->package &&
-            std::ranges::find(manifest.dependencies, *manifest.build->package,
-                              &dependency_t::name) == manifest.dependencies.end()) {
-            fail(*manifest.build->package_span,
+        const build_step_t step = manifest.build.value_or(build_step_t{});
+        if (step.package && step.package_span &&
+            std::ranges::find(manifest.dependencies, *step.package, &dependency_t::name) ==
+                manifest.dependencies.end()) {
+            fail(*step.package_span,
                  "[build]'s package is one of [dependencies], whose program the build step is, "
                  "and there's no {} there",
-                 *manifest.build->package);
+                 *step.package);
         }
 
         // [registries] can come after the dependencies that name its registries.
