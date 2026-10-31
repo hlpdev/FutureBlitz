@@ -40,11 +40,11 @@ The editor and the migrator are programs built on these.
 
 Each is done when its last column holds. Tests render headless, on lavapipe or SwiftShader in
 CI and SDL's offscreen driver, and never open a window on a developer's machine; macOS's
-rendering is checked on a Mac.
+rendering is checked on Apple silicon in CI and on an Intel Mac by hand.
 
 | | Goal | Done when |
 |---|---|---|
-| **E0** | Setup: the repository, CMake, CI building each DLL for every target into its package's archives, trusted publishing, headless rendering in CI | a hello package is added with `fb add` and runs on Windows, Linux, and macOS |
+| **E0** | Setup: the repository, CMake, CI building each DLL for every target into its package's archives, trusted publishing, headless rendering in CI | a hello package is added with `fb add` and runs on Windows, Linux, and macOS (2026-10-31, from staging) |
 | **E1** | App and input: SDL3 windows and graphics modes, fullscreen and high DPI, frame timing, `Flip` stepping `Scheduler.Main`; keyboard, mouse, gamepads, text input, input actions and rebinding | under the offscreen driver, a test reads input and its coroutines resume once per frame |
 | **E2** | The GPU core: Vulkan through volk and VMA, the swapchain and frames in flight, shaders in Slang compiled to SPIR-V, bindless textures, offscreen targets, MoltenVK on macOS | a triangle and a textured quad match their golden images |
 | **E3** | 2D: Blitz's 2D commands, modernized: images, frames, handles, and masks, primitives, text and fonts, viewports and origins, pixel access through a CPU staging path, CopyRect, image collisions, drawing into images, batched sprites | a whole small arcade game runs, and its frames match their golden images |

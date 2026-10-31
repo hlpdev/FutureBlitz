@@ -3,6 +3,26 @@
 What each milestone and step added, by name, and each review's fixes, as CLAUDE.md kept
 them while each was built. Newest first.
 
+## E0, fbengine's setup
+
+(2026-10-31, in hlpdev/fbengine.) The repository, public under Apache-2.0, with FutureBlitz's
+.clang-format and .clang-tidy; CMake reading the version from packages/fbengine/project.toml, and
+configuring again when it changes; cmake/native.cmake's `fbengine_add_native`, a package's DLL
+behind a C API that exports only its prefix's functions, with its C++ runtime linked in, copied
+into the package's `native/<target>/`; the fbengine package, `Version()` over `fbe_version()` in
+fbengine_native, through fb-bindgen's bindings in c/; examples/hello; and ctest running `fb test`
+and the example. CI: native.yml builds each target's DLLs, Linux's in manylinux_2_28 for glibc
+2.28; ci.yml runs the package's tests and the examples on fb 1.0.0's release on all five targets,
+clang-format 19.1.5 and `fb fmt --check`, and the GPU tests; publish.yml, run by hand on a
+v<version> tag, publishes every package through trusted publishing and then adds and runs it from
+the registry on all five targets. fbengine 0.1.0 (from the user's `fb login`) and 0.1.1 (trusted
+publishing) are on staging. The GPU test makes a Vulkan instance and device through volk, with
+no window, preferring a CPU device, clears an image, and reads it back: on lavapipe on Linux
+(apt's) and Windows (mesa-dist-win's MSVC build, registered in the registry, since the loader
+ignores VK_DRIVER_FILES for an administrator, and MSYS2's MinGW build corrupts its heap freeing
+host-visible memory), and on MoltenVK on Apple silicon; Intel Macs' runners have no Metal and
+Homebrew's Mesa no lavapipe, so their GPU tests are run by hand.
+
 ## M10, packages online
 
 fb's side of steps 1, 2, 5, and 6 (2026-10-30, the m10-client lane), over the design in
