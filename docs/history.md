@@ -31,6 +31,13 @@ decisions.md say "at or past". Tests: tests/runtime/files_tests.cpp's spellings 
 Windows, and tests/programs/io_long_path_spellings, each spelling written and read, the dots, and
 a short `\\?\` folder walked and removed.
 
+From the check of those fixes: only `\\?\` itself is taken as written, with `/`s made `\`s after a
+drive, a share, by "UNC" in any case, or `Volume{`; `//?/` and the like go by Windows' rules
+again, through GetFullPathNameW, as before the review, since Windows applies them there, so a
+short one's `..`, `.`, and trailing dot are what they were. Tests: io_long_path_spellings' four
+short `//?/` lines, and the Catch2 test's `//?/` with `..` and a trailing dot, a mixed-case UNC,
+and a volume.
+
 A recursive FileWatcher (2026-10-31): `FileWatcher(path, recursive: True)` and its `Recursive`
 Field; `fb_io_watcher_new` takes `recursive`. watcher.cpp's `known` holds keys, a name or a path
 from the folder with '/'s ("art/hero.png"), which `listing_of()` lists through the tree, not

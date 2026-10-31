@@ -821,8 +821,8 @@ std/io/.
   share's after `\\?\UNC\` (`os_path()` in files.cpp), which Windows' calls take up to 32,767
   characters long, for each File, Dir, FileStream, FileLock, MappedFile, TempFile, and
   FileWatcher call; a relative one goes by the current folder, as Windows would take it. What it
-  gives back has no prefix. A path the program writes after `\\?\` or `//?/` keeps it, with `\`s
-  for a drive's or a share's, an NT path's `\??\` goes as it is, a drive's through a device's
+  gives back has no prefix. A path the program writes after `\\?\` itself keeps it, with `\`s
+  for a drive's, a share's, or a volume's, while `//?/` goes by Windows' rules, an NT path's `\??\` goes as it is, a drive's through a device's
   `//./` is the drive's, and one that's long as it's written but short once its `..`s go is that.
   Only `SetCurrent`'s folder has to be shorter, 258 characters at most, MAX_PATH less 2, as
   Windows keeps the current folder.
