@@ -58,6 +58,18 @@ harness, now on ext4 in WSL's home, 40 rounds of a folder made again while the l
 file that a folder took the place of, 40,000 files as the loop reads a first overflow's events,
 and the root's watch at the limit, the first three failing with the watcher before.
 
+From the check of those: libuv made a folder's own change of attributes, as a touch or a chmod,
+a rename, since a folder's IN_ATTRIB carries IN_ISDIR, which `gone` took as its going and so
+told its tree of again; third_party's patch leaves IN_ISDIR out of that test too, each text once
+or configuring fails. On Linux, `rescanned()` unwatches every folder and watches each again
+before it's listed, as `adopt()` does, since lost events may be a folder's own, as one removed
+and made again inside an overflow, whose handle is dead. A watcher that isn't recursive at
+inotify's limit is `no_watches_left`, "inotify watches as many as fs.inotify.max_user_watches lets
+it", and `too_many_watches` is a recursive one's. Tests: the WSL harness's touch and chmod of a
+folder, failing without the patch's change, a folder removed and made again with 17,000 files
+while the loop's busy, and a flat watcher at the limit, the last two failing with the watcher
+before; files_tests.cpp's message.
+
 Reflection that sets (2026-10-31): a For Property's `p.Set(ByRef value, x)` calls the
 Property's Set, through the Method table for a Class (`accessor_of()`), and on a Struct's
 variable, and a For Static Field's `s.Set(x)` stores the Static Field, an instance's for a
