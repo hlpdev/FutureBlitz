@@ -11,6 +11,8 @@ CodeLLDB. The design is in [docs/tooling.md](https://github.com/hlpdev/FutureBli
   it, highlighting, tasks, and debugging still work.
 - **CodeLLDB** (`vadimcn.vscode-lldb`), which VS Code installs with the extension, for debugging
   on every OS.
+- **A trusted workspace**: fb-lsp runs a package's build step, a program in the workspace, so in
+  Restricted Mode, a workspace VS Code doesn't trust, the extension stays off.
 
 ## Using it
 

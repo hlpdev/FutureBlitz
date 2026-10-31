@@ -316,6 +316,65 @@ TEST_CASE("a build step's program can be a registry package's, which builds from
     CHECK(world.run() == "made with shapes 0.3.4\n");
 }
 
+TEST_CASE("a check never runs a registry package's build step, and takes the workspace's build's "
+          "files",
+          "[packages]") {
+    const world_t world;
+    // counts, from the registry, makes its own counts.made with its step.
+    const std::string generate = "Import std.core\nImport std.io\nImport std.os\n"
+                                 "Local out = Path(Env.Get(\"FB_BUILD_OUT\") ?? \"\")\n"
+                                 "Try File.WriteText(out / \"made.fb\", \"Public Const COUNT = "
+                                 "3\\n\")\n";
+    const std::string counts = "Import counts.made\nPublic Function Count(): Int => COUNT\n";
+    world.sandbox.library("counts", "counts", "1.0.0", "",
+                          { { "generate.fb", generate }, { "counts.fb", counts } });
+    world.sandbox.write("counts/project.toml", world.sandbox.read("counts/project.toml") +
+                                                   "\n[build]\nprogram = \"generate.fb\"\n");
+    world.sandbox.publish("counts", world.index);
+    world.game("counts = { version = \"1\", registry = \"local\" }\n");
+    world.sandbox.write("game/main.fb", "Import std.core\nImport counts\nPrint(\"{Count()}\")\n");
+    said_t said;
+    REQUIRE(world.sync(said));
+    const std::filesystem::path cached = fb::package_cache_folder(world.index, "counts", "1.0.0");
+    const std::filesystem::path game = world.sandbox / "game";
+    const auto check = [&](const std::filesystem::path& file) {
+        return fb::check_files({ .files = { file }, .workspace = { game } });
+    };
+    const auto messages = [](const fb::compilation_t& compilation) {
+        std::vector<std::string> found;
+        for (const fb::diagnostic_t& diagnostic : compilation.diagnostics.diagnostics()) {
+            found.push_back(diagnostic.message);
+        }
+
+        return found;
+    };
+
+    // Before a build, a check says to build, of the game's file and of the package's, and nothing's
+    // written in the cache.
+    const std::string unbuilt =
+        "counts's build step hasn't run here; run fb build to make counts's generated files";
+    for (const std::filesystem::path& file : { game / "main.fb", cached / "counts.fb" }) {
+        const std::expected<fb::compilation_t, std::string> checked = check(file);
+        REQUIRE(checked);
+        CHECK(std::ranges::contains(messages(*checked), unbuilt));
+    }
+
+    CHECK_FALSE(std::filesystem::exists(cached / "build"));
+    CHECK_FALSE(std::filesystem::exists(game / "build"));
+
+    // fb build runs it into the game's build folder, whose files the checks take. Importing the
+    // package's folder leaves its step's program out.
+    CHECK(world.run() == "3\n");
+    CHECK_FALSE(std::filesystem::exists(cached / "build"));
+    for (const std::filesystem::path& file : { game / "main.fb", cached / "counts.fb" }) {
+        const std::expected<fb::compilation_t, std::string> checked = check(file);
+        REQUIRE(checked);
+        CHECK(messages(*checked).empty());
+    }
+
+    CHECK_FALSE(std::filesystem::exists(cached / "build"));
+}
+
 TEST_CASE("a registry package without its project.toml is an error at its range", "[packages]") {
     const world_t world;
     said_t said;

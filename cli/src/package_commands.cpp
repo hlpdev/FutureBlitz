@@ -716,7 +716,8 @@ bool verify_package(const console_t& console, const options_t& options,
         return false;
     }
 
-    const std::expected<compilation_t, std::string> compiled = compile_file(folder);
+    const std::expected<compilation_t, std::string> compiled =
+        compile_file(folder, build_mode_t::DEBUG, build_steps_t::RUN, console.statuses());
     if (!compiled) {
         console.error(compiled.error());
         return false;
@@ -765,7 +766,8 @@ int publish_command(const console_t& console, const options_t& options) {
         return compile_errors_exit_code;
     }
 
-    const std::expected<compilation_t, std::string> compiled = compile_docs(*root);
+    const std::expected<compilation_t, std::string> compiled =
+        compile_docs(*root, build_mode_t::DEBUG, console.statuses());
     if (!compiled) {
         console.error(compiled.error());
         return usage_exit_code;

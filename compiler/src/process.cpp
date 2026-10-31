@@ -1,7 +1,10 @@
 #include "fb/process.hpp"
 
+#include "fb/utf8.hpp"
+
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstdint>
 #include <cstdio>
 #include <expected>
@@ -25,14 +28,18 @@
 #endif
 #include <windows.h>
 #else
+#include <atomic>
 #include <cerrno>
 #include <csignal>
 #include <cstddef>
 #include <cstring>
+#include <ctime>
 #include <fcntl.h>
 #include <mutex>
 #include <signal.h>
 #include <spawn.h>
+#include <sys/file.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -148,13 +155,47 @@ BOOL WINAPI ignore_interrupt(const DWORD event) {
     return event == CTRL_C_EVENT || event == CTRL_BREAK_EVENT ? TRUE : FALSE;
 }
 
+/// A job whose programs end when its last handle closes, as this process's do when it ends.
+HANDLE tying_job() {
+    HANDLE job = CreateJobObjectW(nullptr, nullptr);
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    if (job != nullptr && SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits,
+                                                  sizeof(limits)) == 0) {
+        CloseHandle(job);
+        return nullptr;
+    }
+
+    return job;
+}
+
+/// A FILETIME's 100-nanosecond intervals since 1601, as nanoseconds since 1970.
+std::int64_t nanoseconds_of(const FILETIME time) {
+    constexpr std::int64_t unix_epoch = 116'444'736'000'000'000;
+    const std::uint64_t ticks =
+        (static_cast<std::uint64_t>(time.dwHighDateTime) << 32U) | time.dwLowDateTime;
+    return (static_cast<std::int64_t>(ticks) - unix_epoch) * 100;
+}
+
 } // namespace
 
 std::expected<process_result_t, std::string>
 run_process(const std::filesystem::path& program, std::span<const std::string> arguments,
-            const std::optional<std::string_view> input, const environment_t environment) {
+            const std::optional<std::string_view> input, const environment_t environment,
+            const process_life_t life) {
     std::wstring command = command_line(program, arguments);
     std::wstring block = environment.empty() ? std::wstring() : environment_block(environment);
+    // A tied program starts suspended, so it's in the job before it can start another.
+    HANDLE job = life == process_life_t::TIED ? tying_job() : nullptr;
+    if (life == process_life_t::TIED && job == nullptr) {
+        return std::unexpected(std::format("couldn't run {}: {}", program.string(), last_error()));
+    }
+
+    const auto close_job = [job] {
+        if (job != nullptr) {
+            CloseHandle(job);
+        }
+    };
     SECURITY_ATTRIBUTES security{
         .nLength = sizeof(SECURITY_ATTRIBUTES),
         .lpSecurityDescriptor = nullptr,
@@ -163,16 +204,20 @@ run_process(const std::filesystem::path& program, std::span<const std::string> a
     HANDLE read_end = nullptr;
     HANDLE write_end = nullptr;
     if (CreatePipe(&read_end, &write_end, &security, 0) == 0) {
-        return std::unexpected(last_error());
+        const std::string why = last_error();
+        close_job();
+        return std::unexpected(why);
     }
 
     // The input goes through a pipe of its own, whose read end is the child's.
     HANDLE input_read = nullptr;
     HANDLE input_write = nullptr;
     if (input && CreatePipe(&input_read, &input_write, &security, 0) == 0) {
+        const std::string why = last_error();
         CloseHandle(read_end);
         CloseHandle(write_end);
-        return std::unexpected(last_error());
+        close_job();
+        return std::unexpected(why);
     }
 
     // The child only gets the write end, and the input's read end.
@@ -189,11 +234,22 @@ run_process(const std::filesystem::path& program, std::span<const std::string> a
     startup.hStdOutput = write_end;
     startup.hStdError = write_end;
     PROCESS_INFORMATION process{};
-    const DWORD flags = CREATE_NO_WINDOW | (environment.empty() ? 0 : CREATE_UNICODE_ENVIRONMENT);
-    const BOOL started =
-        CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE, flags,
-                       environment.empty() ? nullptr : static_cast<void*>(block.data()), nullptr,
-                       &startup, &process);
+    const DWORD flags = CREATE_NO_WINDOW | (environment.empty() ? 0 : CREATE_UNICODE_ENVIRONMENT) |
+                        (job != nullptr ? CREATE_SUSPENDED : 0);
+    BOOL started = CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE, flags,
+                                  environment.empty() ? nullptr : static_cast<void*>(block.data()),
+                                  nullptr, &startup, &process);
+    std::string why = started == 0 ? last_error() : std::string();
+    if (started != 0 && job != nullptr &&
+        (AssignProcessToJobObject(job, process.hProcess) == 0 ||
+         ResumeThread(process.hThread) == static_cast<DWORD>(-1))) {
+        why = last_error();
+        TerminateProcess(process.hProcess, 1);
+        CloseHandle(process.hProcess);
+        CloseHandle(process.hThread);
+        started = 0;
+    }
+
     CloseHandle(write_end); // the child has its own copy now
     // The input goes in from a thread of its own while the output is read here, so neither
     // side waits on a full pipe for the other. Closing it ends the child's input.
@@ -214,7 +270,8 @@ run_process(const std::filesystem::path& program, std::span<const std::string> a
 
     if (started == 0) {
         CloseHandle(read_end);
-        return std::unexpected(std::format("couldn't run {}: {}", program.string(), last_error()));
+        close_job();
+        return std::unexpected(std::format("couldn't run {}: {}", program.string(), why));
     }
 
     process_result_t result;
@@ -238,7 +295,57 @@ run_process(const std::filesystem::path& program, std::span<const std::string> a
     CloseHandle(process.hProcess);
     CloseHandle(process.hThread);
     CloseHandle(read_end);
+    // What it started and left running ends with the job.
+    close_job();
     return result;
+}
+
+std::optional<std::int64_t> modified_time(const std::filesystem::path& path) {
+    WIN32_FILE_ATTRIBUTE_DATA data{};
+    if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data) == 0) {
+        return std::nullopt;
+    }
+
+    return nanoseconds_of(data.ftLastWriteTime);
+}
+
+std::int64_t time_now() {
+    FILETIME now{};
+    GetSystemTimePreciseAsFileTime(&now);
+    return nanoseconds_of(now);
+}
+
+std::expected<file_lock_t, std::string> file_lock_t::take(const std::filesystem::path& path,
+                                                          const std::function<void()>& waiting) {
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                              OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        return std::unexpected(std::format("couldn't open {}: {}", to_utf8(path), last_error()));
+    }
+
+    // The lock is of its first byte, which needn't be there.
+    OVERLAPPED at{};
+    if (LockFileEx(file, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &at) == 0) {
+        if (GetLastError() == ERROR_LOCK_VIOLATION && waiting) {
+            waiting();
+        }
+
+        at = {};
+        if (LockFileEx(file, LOCKFILE_EXCLUSIVE_LOCK, 0, 1, 0, &at) == 0) {
+            const std::string why = last_error();
+            CloseHandle(file);
+            return std::unexpected(std::format("couldn't lock {}: {}", to_utf8(path), why));
+        }
+    }
+
+    return file_lock_t(std::bit_cast<std::intptr_t>(file));
+}
+
+file_lock_t::~file_lock_t() {
+    if (m_handle != -1) {
+        CloseHandle(std::bit_cast<HANDLE>(m_handle));
+    }
 }
 
 std::filesystem::path current_executable() {
@@ -337,14 +444,77 @@ bool open_pipe(std::array<int, 2>& ends) {
     return true;
 }
 
+/// The process groups of the tied programs running, each in a slot of its own, 0 for a free one,
+/// which a signal handler reads. A program started when they're all taken isn't tied.
+std::array<std::atomic<pid_t>, 64> tied_groups{};
+/// What SIGINT and SIGTERM did before end_tied() took them.
+struct sigaction before_interrupt{};
+struct sigaction before_terminate{};
+
+/// SIGINT's and SIGTERM's handler once a program is tied: it ends the tied programs' groups, then
+/// does what the signal did before, which by default ends this process.
+void end_tied(const int number, siginfo_t* const info, void* const context) {
+    for (const std::atomic<pid_t>& group : tied_groups) {
+        if (const pid_t id = group.load(); id > 0) {
+            kill(-id, SIGKILL);
+        }
+    }
+
+    const struct sigaction& before = number == SIGINT ? before_interrupt : before_terminate;
+    if ((static_cast<unsigned>(before.sa_flags) & static_cast<unsigned>(SA_SIGINFO)) != 0) {
+        before.sa_sigaction(number, info, context);
+    } else if (before.sa_handler != SIG_DFL) {
+        before.sa_handler(number);
+    } else {
+        // It's blocked while this runs, so it ends the process right after.
+        sigaction(number, &before, nullptr);
+        raise(number);
+    }
+}
+
+/// Ends `group` with this process, from SIGINT or SIGTERM, but for one this process ignores.
+void tie(const pid_t group) {
+    static std::once_flag handled;
+    std::call_once(handled, [] {
+        for (const int number : { SIGINT, SIGTERM }) {
+            struct sigaction& before = number == SIGINT ? before_interrupt : before_terminate;
+            sigaction(number, nullptr, &before);
+            const bool information =
+                (static_cast<unsigned>(before.sa_flags) & static_cast<unsigned>(SA_SIGINFO)) != 0;
+            if (information || before.sa_handler != SIG_IGN) {
+                struct sigaction handler{};
+                handler.sa_sigaction = end_tied;
+                handler.sa_flags = SA_SIGINFO | SA_RESTART;
+                sigemptyset(&handler.sa_mask);
+                sigaction(number, &handler, nullptr);
+            }
+        }
+    });
+
+    for (std::atomic<pid_t>& slot : tied_groups) {
+        pid_t free = 0;
+        if (slot.compare_exchange_strong(free, group)) {
+            return;
+        }
+    }
+}
+
+void untie(const pid_t group) {
+    for (std::atomic<pid_t>& slot : tied_groups) {
+        pid_t held = group;
+        slot.compare_exchange_strong(held, 0);
+    }
+}
+
 /// Starts a program, which isn't looked up on PATH; `actions` can be null. It starts with SIGINT,
 /// SIGQUIT, and SIGPIPE at their defaults, as one a shell starts has them, though this process
 /// ignores the first two while it waits for a program in its terminal, and SIGPIPE once it has
-/// written a program's input.
+/// written a program's input. A tied one is in a process group of its own.
 std::expected<pid_t, std::string> spawn(const std::filesystem::path& program,
                                         const std::span<const std::string> arguments,
                                         const posix_spawn_file_actions_t* actions,
-                                        const environment_t environment = {}) {
+                                        const environment_t environment = {},
+                                        const process_life_t life = process_life_t::OWN) {
     // posix_spawn takes non-const strings, so it gets copies.
     std::string path = program.string();
     std::vector<std::string> copies(arguments.begin(), arguments.end());
@@ -385,7 +555,13 @@ std::expected<pid_t, std::string> spawn(const std::filesystem::path& program,
     posix_spawnattr_t attributes;
     posix_spawnattr_init(&attributes);
     posix_spawnattr_setsigdefault(&attributes, &defaults);
-    posix_spawnattr_setflags(&attributes, static_cast<short>(POSIX_SPAWN_SETSIGDEF));
+    unsigned flags = POSIX_SPAWN_SETSIGDEF;
+    if (life == process_life_t::TIED) {
+        posix_spawnattr_setpgroup(&attributes, 0);
+        flags |= static_cast<unsigned>(POSIX_SPAWN_SETPGROUP);
+    }
+
+    posix_spawnattr_setflags(&attributes, static_cast<short>(flags));
     pid_t pid = 0;
     const int error = posix_spawn(&pid, path.c_str(), actions, &attributes, argv.data(),
                                   environment.empty() ? environ : envp.data());
@@ -408,7 +584,8 @@ int wait_for(const pid_t pid) {
 
 std::expected<process_result_t, std::string>
 run_process(const std::filesystem::path& program, std::span<const std::string> arguments,
-            const std::optional<std::string_view> input, const environment_t environment) {
+            const std::optional<std::string_view> input, const environment_t environment,
+            const process_life_t life) {
     std::unique_lock lock(spawning);
     std::array<int, 2> pipe_ends{};
     if (!open_pipe(pipe_ends)) {
@@ -437,7 +614,12 @@ run_process(const std::filesystem::path& program, std::span<const std::string> a
         posix_spawn_file_actions_addclose(&actions, input_ends[1]);
     }
 
-    const std::expected<pid_t, std::string> pid = spawn(program, arguments, &actions, environment);
+    const std::expected<pid_t, std::string> pid =
+        spawn(program, arguments, &actions, environment, life);
+    if (pid && life == process_life_t::TIED) {
+        tie(*pid);
+    }
+
     posix_spawn_file_actions_destroy(&actions);
     lock.unlock();
     // Reading only ends once every copy of the write end is closed, and the child has its own.
@@ -488,7 +670,63 @@ run_process(const std::filesystem::path& program, std::span<const std::string> a
 
     close(pipe_ends[0]);
     result.exit_code = wait_for(*pid);
+    if (life == process_life_t::TIED) {
+        untie(*pid);
+    }
+
     return result;
+}
+
+std::optional<std::int64_t> modified_time(const std::filesystem::path& path) {
+    struct stat information{};
+    if (stat(path.c_str(), &information) != 0) {
+        return std::nullopt;
+    }
+
+#ifdef __APPLE__
+    const timespec& at = information.st_mtimespec;
+#else
+    const timespec& at = information.st_mtim;
+#endif
+    return (static_cast<std::int64_t>(at.tv_sec) * 1'000'000'000) + at.tv_nsec;
+}
+
+std::int64_t time_now() {
+    timespec now{};
+    clock_gettime(CLOCK_REALTIME, &now);
+    return (static_cast<std::int64_t>(now.tv_sec) * 1'000'000'000) + now.tv_nsec;
+}
+
+std::expected<file_lock_t, std::string> file_lock_t::take(const std::filesystem::path& path,
+                                                          const std::function<void()>& waiting) {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg): open's mode is its third argument
+    const int file = open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0644);
+    if (file < 0) {
+        return std::unexpected(
+            std::format("couldn't open {}: {}", to_utf8(path), std::strerror(errno)));
+    }
+
+    if (flock(file, LOCK_EX | LOCK_NB) != 0) {
+        if (errno == EWOULDBLOCK && waiting) {
+            waiting();
+        }
+
+        while (flock(file, LOCK_EX) != 0) {
+            if (errno != EINTR) {
+                const std::string why = std::strerror(errno);
+                close(file);
+                return std::unexpected(std::format("couldn't lock {}: {}", to_utf8(path), why));
+            }
+        }
+    }
+
+    return file_lock_t(file);
+}
+
+file_lock_t::~file_lock_t() {
+    if (m_handle != -1) {
+        close(static_cast<int>(m_handle));
+    }
 }
 
 std::filesystem::path current_executable() {
@@ -553,6 +791,18 @@ std::expected<void, std::string> start_detached(const std::filesystem::path& pro
 }
 
 #endif
+
+file_lock_t::file_lock_t(file_lock_t&& other) noexcept
+    : m_handle(std::exchange(other.m_handle, -1)) {}
+
+file_lock_t& file_lock_t::operator=(file_lock_t&& other) noexcept {
+    if (this != &other) {
+        const file_lock_t gone(std::move(*this));
+        m_handle = std::exchange(other.m_handle, -1);
+    }
+
+    return *this;
+}
 
 std::optional<std::filesystem::path> real_path(const std::filesystem::path& path) {
 #ifdef _WIN32

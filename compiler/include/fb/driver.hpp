@@ -8,6 +8,7 @@
 #include "fb/link.hpp"
 #include "fb/lower.hpp"
 #include "fb/mir.hpp"
+#include "fb/registry.hpp"
 #include "fb/sema.hpp"
 #include "fb/source.hpp"
 #include "fb/token.hpp"
@@ -190,8 +191,11 @@ resolve_import(std::string_view target, bool quoted, std::string_view importer);
 enum class build_steps_t : std::uint8_t {
     /// Each that's out of date, as fb build, run, test, check, and doc have them.
     RUN,
-    /// Only one that has never run; the others' files are their last run's, as the LSP has
-    /// them while code is typed.
+    /// Only one of the workspace's own packages or their path dependencies that has never run,
+    /// or whose last run failed and what it read or its program has changed since; the others'
+    /// files are their last run's, and a failed run's error is given again, as the LSP has them
+    /// while code is typed. A registry's package's step never runs, and its files are the ones a
+    /// build of the workspace made, as nothing writes in the cache.
     MISSING,
     /// None, and none's files are in the build, as for a build step's own program.
     SKIP,
@@ -203,10 +207,11 @@ enum class build_steps_t : std::uint8_t {
 /// whose project.toml names its main file. A package's dependencies' files come from their
 /// folders. Fails when the main file or the standard library can't be read, or a folder has no
 /// project.toml; a project.toml's mistakes are the compilation's diagnostics, as a build step's
-/// are, which run first as `steps` says.
+/// are, which run first as `steps` says, `status` saying each it runs, and when it waits for
+/// another fb's.
 [[nodiscard]] std::expected<compilation_t, std::string>
 compile_file(const std::filesystem::path& path, build_mode_t mode = build_mode_t::DEBUG,
-             build_steps_t steps = build_steps_t::RUN);
+             build_steps_t steps = build_steps_t::RUN, const status_t& status = {});
 
 /// For fb test: the package that `path` is the folder of, or that a .fb file at `path` is in,
 /// like compile_file(), with each of its .fb files a module, the main file's too, whose
@@ -214,9 +219,11 @@ compile_file(const std::filesystem::path& path, build_mode_t mode = build_mode_t
 /// package of its own, "<name>.tests", which depends on it and on what it depends on, as another
 /// package would. Each example in its files' doc comments is a module too, in a package of its
 /// own, "<name>.doctests", which depends on it as "<name>.tests" does. A .fb file outside a
-/// package is compiled as compile_file() compiles it. Fails as compile_file() does.
+/// package is compiled as compile_file() compiles it. Fails as compile_file() does, and its
+/// build steps run as compile_file()'s do.
 [[nodiscard]] std::expected<compilation_t, std::string>
-compile_tests(const std::filesystem::path& path, build_mode_t mode = build_mode_t::DEBUG);
+compile_tests(const std::filesystem::path& path, build_mode_t mode = build_mode_t::DEBUG,
+              const status_t& status = {});
 
 /// What the front end reads in place of a file on disk, as an editor's text that isn't saved:
 /// the text of the file at a path, as the driver joins its folder and its path in the program,
@@ -259,8 +266,12 @@ struct check_request_t {
     /// them, in a package of their own: for the LSP's references and renames, which find and
     /// change the names their code uses, in the doc comments.
     bool examples = false;
-    /// Which build steps run first: while code is typed, only one that never ran.
+    /// Which build steps run first: while code is typed, only one that never ran, or whose
+    /// failure's inputs changed.
     build_steps_t build_steps = build_steps_t::MISSING;
+    /// The workspace's packages' folders, whose builds made the files of a registry's package's
+    /// build step, which a check while code is typed takes, as it never runs one.
+    std::vector<std::filesystem::path> workspace;
 };
 
 /// For the LSP, which checks only the files an edit touches: `request`'s files, each a module of
@@ -275,9 +286,11 @@ compile_standard_tests(build_mode_t mode = build_mode_t::DEBUG);
 
 /// For fb doc: the package that `path` is the folder of, or that a .fb file at `path` is in, with
 /// each of its .fb files a module, as compile_tests() has them, without its tests or examples.
-/// Fails as compile_file() does, and for a path in no package.
+/// Fails as compile_file() does, and for a path in no package, and its build steps run as
+/// compile_file()'s do.
 [[nodiscard]] std::expected<compilation_t, std::string>
-compile_docs(const std::filesystem::path& path, build_mode_t mode = build_mode_t::DEBUG);
+compile_docs(const std::filesystem::path& path, build_mode_t mode = build_mode_t::DEBUG,
+             const status_t& status = {});
 
 /// For `fb doc std`: every module of the standard library, with an empty main file. Fails when
 /// the standard library can't be read.

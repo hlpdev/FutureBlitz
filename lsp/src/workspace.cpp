@@ -622,6 +622,15 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
         versions.emplace(key, document.version);
     }
 
+    // A registry's package's build step never runs here, and its files are the ones a build of
+    // one of the workspace's packages made.
+    std::vector<std::filesystem::path> workspace;
+    for (const unit_t& unit : m_units) {
+        if (unit.kind == unit_t::kind_t::PACKAGE && owns(unit.root)) {
+            workspace.push_back(unit.root);
+        }
+    }
+
     const std::uint64_t generation = m_generation;
     ++m_running;
     lock.unlock();
@@ -635,6 +644,7 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
         },
         .cache = &m_std_names,
         .examples = job.examples,
+        .workspace = std::move(workspace),
     });
     std::shared_ptr<const compilation_t> compilation =
         result ? std::make_shared<const compilation_t>(std::move(*result)) : nullptr;

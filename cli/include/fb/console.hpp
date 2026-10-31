@@ -2,6 +2,7 @@
 
 #include "fb/diagnostic_render.hpp"
 #include "fb/options.hpp"
+#include "fb/registry.hpp"
 #include "fb/style.hpp"
 #include "fb/terminal.hpp"
 
@@ -40,6 +41,13 @@ public:
         // Views and errors stay in order when both streams go to the same place.
         std::fflush(stdout);
         std::fwrite(text.data(), 1, text.size(), stderr);
+    }
+
+    /// status(), for what a compilation says as it works, as it runs a build step.
+    [[nodiscard]] status_t statuses() const {
+        return [this](const std::string_view verb, const std::string_view message) {
+            status(verb, message);
+        };
     }
 
     /// "   Compiling game.fb", with the verb right-aligned like cargo's.

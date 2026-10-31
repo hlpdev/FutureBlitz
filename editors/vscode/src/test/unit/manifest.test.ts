@@ -45,3 +45,10 @@ test("the Marketplace's fields are FutureBlitz's", () => {
 test("the README's links don't leave the extension's folder", () => {
     assert.deepEqual([...readme.matchAll(/\]\((\.\.\/[^)]*)\)/g)].map((match) => match[1]), []);
 });
+
+// fb-lsp runs a package's build step, a program in the workspace, so Restricted Mode keeps the
+// extension off.
+test("it doesn't run in a workspace that isn't trusted", () => {
+    assert.equal(manifest.capabilities.untrustedWorkspaces.supported, false);
+    assert.ok(manifest.capabilities.untrustedWorkspaces.description.includes("build step"));
+});

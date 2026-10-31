@@ -690,7 +690,8 @@ int compile_command(const options_t& options) {
 
     // This only fails when the file can't be read, or a folder isn't a package's, which counts as
     // bad usage.
-    const std::expected<compilation_t, std::string> compiled = compile_file(*input, options.mode);
+    const std::expected<compilation_t, std::string> compiled =
+        compile_file(*input, options.mode, build_steps_t::RUN, console.statuses());
     if (!compiled) {
         console.error(compiled.error());
         return usage_exit_code;
@@ -1086,7 +1087,8 @@ int test_command(const options_t& options) {
     }
 
     const std::expected<compilation_t, std::string> compiled =
-        standard ? compile_standard_tests(options.mode) : compile_tests(*input, options.mode);
+        standard ? compile_standard_tests(options.mode)
+                 : compile_tests(*input, options.mode, console.statuses());
     if (!compiled) {
         console.error(compiled.error());
         return usage_exit_code;
@@ -1257,7 +1259,8 @@ int doc_command(const options_t& options) {
     }
 
     const std::expected<compilation_t, std::string> compiled =
-        standard ? compile_standard_docs(options.mode) : compile_docs(*input, options.mode);
+        standard ? compile_standard_docs(options.mode)
+                 : compile_docs(*input, options.mode, console.statuses());
     if (!compiled) {
         console.error(compiled.error());
         return usage_exit_code;
