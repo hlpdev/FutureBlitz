@@ -2,6 +2,7 @@
 #include "fb/diagnostic.hpp"
 #include "fb/driver.hpp"
 #include "fb/lexer.hpp"
+#include "fb/literal.hpp"
 #include "fb/lsp/features.hpp"
 #include "fb/lsp/protocol.hpp"
 #include "fb/lsp/query.hpp"
@@ -20,6 +21,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -79,6 +81,57 @@ struct token_info_t {
     token_type_t type = token_type_t::VARIABLE;
     std::uint32_t modifiers = 0;
 };
+
+/// The pieces of a string or character literal's token that are its text, as offsets in the
+/// token's: all but its escapes, "{{" and "}}" among them, and the braces of its
+/// interpolations, which the editor's grammar colors as its own.
+std::vector<std::pair<std::uint32_t, std::uint32_t>> string_pieces(const std::string_view text,
+                                                                   const token_kind_t kind) {
+    // A piece after an interpolation starts with the "}" that ends it, and one before an
+    // interpolation ends with the "{" that starts it.
+    std::uint32_t at =
+        kind == token_kind_t::STRING_MIDDLE || kind == token_kind_t::STRING_END ? 1 : 0;
+    auto end = static_cast<std::uint32_t>(text.size());
+    if ((kind == token_kind_t::STRING_START || kind == token_kind_t::STRING_MIDDLE) && end > at) {
+        --end;
+    }
+
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> pieces;
+    // r"..." has no escapes.
+    if (text.starts_with('r')) {
+        pieces.emplace_back(at, end);
+        return pieces;
+    }
+
+    std::uint32_t begin = at;
+    while (at < end) {
+        std::uint32_t escape = 0;
+        if (text[at] == '\\') {
+            escape = std::max<std::uint32_t>(decode_escape(text, at).length, 1);
+        } else if ((text[at] == '{' || text[at] == '}') && at + 1 < end &&
+                   text[at + 1] == text[at]) {
+            escape = 2;
+        }
+
+        if (escape == 0) {
+            ++at;
+            continue;
+        }
+
+        if (at > begin) {
+            pieces.emplace_back(begin, at);
+        }
+
+        at = std::min(at + escape, end);
+        begin = at;
+    }
+
+    if (end > begin) {
+        pieces.emplace_back(begin, end);
+    }
+
+    return pieces;
+}
 
 /// What a name of `symbol` is, as a token.
 token_type_t type_of(const analysis_t& analysis, const symbol_t& symbol) {
@@ -142,8 +195,14 @@ json_t semantic_tokens(const query_t& query, const positions_t& positions) {
         case token_kind_t::STRING_MIDDLE:
         case token_kind_t::STRING_END:
         case token_kind_t::CHARACTER:
-            type = token_type_t::STRING;
-            break;
+            for (const auto& [begin, end] : string_pieces(text, token.kind)) {
+                tokens[token.span.begin + begin] = {
+                    .end = token.span.begin + end,
+                    .type = token_type_t::STRING,
+                };
+            }
+
+            continue;
         case token_kind_t::INTEGER:
         case token_kind_t::DECIMAL:
             type = token_type_t::NUMBER;

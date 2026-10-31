@@ -101,6 +101,48 @@ std::vector<place_t> places(const json_t& locations) {
     return found;
 }
 
+/// A semantic token, as its line, column, length, and type's name.
+struct semantic_token_t {
+    std::uint32_t line = 0;
+    std::uint32_t column = 0;
+    std::uint32_t length = 0;
+    std::string type = "none";
+};
+
+/// A document's semantic tokens, from their relative positions.
+std::vector<semantic_token_t> semantic_tokens(client_t& client, const std::string& uri) {
+    const json_t legend = client.initialized()["capabilities"]["semanticTokensProvider"]["legend"];
+    const json_t data = client.request("textDocument/semanticTokens/full",
+                                       { { "textDocument", { { "uri", uri } } } })["data"];
+    REQUIRE(data.size() % 5 == 0);
+    std::vector<semantic_token_t> tokens;
+    std::uint32_t line = 0;
+    std::uint32_t column = 0;
+    for (std::size_t i = 0; i < data.size(); i += 5) {
+        const auto delta = data[i].get<std::uint32_t>();
+        line += delta;
+        column = delta == 0 ? column + data[i + 1].get<std::uint32_t>()
+                            : data[i + 1].get<std::uint32_t>();
+        tokens.push_back({
+            .line = line,
+            .column = column,
+            .length = data[i + 2].get<std::uint32_t>(),
+            .type = legend["tokenTypes"][data[i + 3].get<std::size_t>()].get<std::string>(),
+        });
+    }
+
+    return tokens;
+}
+
+/// The token at a line and column, or one of type "none" when none starts there.
+semantic_token_t token_at(const std::vector<semantic_token_t>& tokens, const std::uint32_t line,
+                          const std::uint32_t column) {
+    const auto found = std::ranges::find_if(tokens, [&](const semantic_token_t& token) {
+        return token.line == line && token.column == column;
+    });
+    return found != tokens.end() ? *found : semantic_token_t{};
+}
+
 /// The messages of a file's diagnostics.
 std::vector<std::string> messages(const json_t& diagnostics) {
     std::vector<std::string> found;
@@ -638,41 +680,9 @@ TEST_CASE("semantic tokens say what each name is", "[lsp]") {
     const std::string main = folder.uri("main.fb");
     client.open(main, main_text);
 
-    const json_t legend = client.initialized()["capabilities"]["semanticTokensProvider"]["legend"];
-    const json_t data = client.request("textDocument/semanticTokens/full",
-                                       { { "textDocument", { { "uri", main } } } })["data"];
-    REQUIRE(data.size() % 5 == 0);
-    // Each token, as its line, column, length, and type's name.
-    struct token_t {
-        std::uint32_t line;
-        std::uint32_t column;
-        std::uint32_t length;
-        std::string type;
-    };
-    std::vector<token_t> tokens;
-    std::uint32_t line = 0;
-    std::uint32_t column = 0;
-    for (std::size_t i = 0; i < data.size(); i += 5) {
-        const auto delta = data[i].get<std::uint32_t>();
-        line += delta;
-        column = delta == 0 ? column + data[i + 1].get<std::uint32_t>()
-                            : data[i + 1].get<std::uint32_t>();
-        tokens.push_back({
-            .line = line,
-            .column = column,
-            .length = data[i + 2].get<std::uint32_t>(),
-            .type = legend["tokenTypes"][data[i + 3].get<std::size_t>()].get<std::string>(),
-        });
-    }
-
-    const auto type_at = [&](const std::uint32_t at_line, const std::uint32_t at_column) {
-        for (const token_t& token : tokens) {
-            if (token.line == at_line && token.column == at_column) {
-                return token.type;
-            }
-        }
-
-        return std::string("none");
+    const std::vector<semantic_token_t> tokens = semantic_tokens(client, main);
+    const auto type_at = [&](const std::uint32_t line, const std::uint32_t column) {
+        return token_at(tokens, line, column).type;
     };
     CHECK(type_at(0, 0) == "keyword");
     CHECK(type_at(0, 7) == "namespace");
@@ -685,6 +695,57 @@ TEST_CASE("semantic tokens say what each name is", "[lsp]") {
     CHECK(type_at(4, 6) == "string");
     CHECK(type_at(4, 8) == "function");
     CHECK(type_at(4, 15) == "variable");
+}
+
+TEST_CASE("a string's semantic tokens leave its escapes and interpolations' braces to the grammar",
+          "[lsp]") {
+    const folder_t folder({});
+    const std::string uri = folder.uri("strings.fb");
+    client_t client({});
+    client.open(uri, R"(Import std.core
+Local name = "x"
+Print("a\tb{{c}}d{name}e\u{41}")
+Print(r"raw\t")
+Local c = '\n'
+)");
+    const std::vector<semantic_token_t> tokens = semantic_tokens(client, uri);
+    const auto type_at = [&](const std::uint32_t line, const std::uint32_t column) {
+        return token_at(tokens, line, column).type;
+    };
+    const auto length_at = [&](const std::uint32_t line, const std::uint32_t column) {
+        return token_at(tokens, line, column).length;
+    };
+
+    // `"a`, then `\t`, `b`, `{{`, `c`, `}}`, `d`, the interpolation's `{`, and after its `}`,
+    // `e`, `\u{41}`, and `"`.
+    CHECK(type_at(2, 6) == "string");
+    CHECK(length_at(2, 6) == 2);
+    CHECK(type_at(2, 8) == "none");
+    CHECK(type_at(2, 10) == "string");
+    CHECK(length_at(2, 10) == 1);
+    CHECK(type_at(2, 11) == "none");
+    CHECK(type_at(2, 13) == "string");
+    CHECK(type_at(2, 14) == "none");
+    CHECK(type_at(2, 16) == "string");
+    CHECK(length_at(2, 16) == 1);
+    CHECK(type_at(2, 17) == "none");
+    CHECK(type_at(2, 18) == "variable");
+    CHECK(type_at(2, 22) == "none");
+    CHECK(type_at(2, 23) == "string");
+    CHECK(length_at(2, 23) == 1);
+    CHECK(type_at(2, 24) == "none");
+    CHECK(type_at(2, 30) == "string");
+    CHECK(length_at(2, 30) == 1);
+
+    // A raw string has no escapes.
+    CHECK(type_at(3, 6) == "string");
+    CHECK(length_at(3, 6) == 8);
+
+    // A character's escape is left out too.
+    CHECK(type_at(4, 10) == "string");
+    CHECK(length_at(4, 10) == 1);
+    CHECK(type_at(4, 11) == "none");
+    CHECK(type_at(4, 13) == "string");
 }
 
 TEST_CASE("code actions make the fix-its fb has", "[lsp]") {

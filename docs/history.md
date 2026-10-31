@@ -24,6 +24,14 @@ around a check, which canonicalizes paths at 0.45 ms each on Windows. driver.cpp
 that shadowed others in `build_program`, which -Wshadow reported, are `beside_object` and
 `written`.
 
+A string's escapes in their own color (2026-10-31, the user): fb-lsp's semantic tokens gave each
+string literal one `string` token, which VS Code colors over the grammar's
+`constant.character.escape`, so `\n` looked like the rest of the string. `string_pieces()` in
+semantic.cpp gives a string's or a character's tokens only its text, without its escapes, as
+`decode_escape()` reads them, `{{` and `}}`, or its interpolations' `{` and `}`, and a raw string
+whole; a test checks each piece of a string with escapes and an interpolation, a raw string's,
+and a character's.
+
 ## 1.1.0
 
 (2026-10-31.) Dependencies with both a path and a version, `fbengine = { path = "../fbengine",
