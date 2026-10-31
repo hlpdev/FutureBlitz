@@ -3151,6 +3151,72 @@ TEST_CASE("an interface file doesn't write a built-in type its module's own type
     packages.remove();
 }
 
+TEST_CASE("an interface file doesn't write a built-in type that a type its module sees hides, "
+          "and only that",
+          "[driver]") {
+    const packages_t packages;
+    packages.write("lib/project.toml",
+                   "[project]\nname = \"lib\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    packages.write("lib/helpers.fb",
+                   "Import std.core\n"
+                   "Public Class Rock\nEnd Class\n"
+                   "Public Alias Pointer = Ptr<Int>\n"
+                   "Public Alias Handle = Thread\n"
+                   "Public Async Function Waits(): Int\n    Return 1\nEnd Function\n"
+                   "Public Function MakePipe(): Channel<Int> => Channel<Int>(4)\n"
+                   "Public Function Nowhere(): Pointer => Null\n"
+                   "Public Function Idle(): Handle? => Null\n"
+                   "Public Function MakeAny(): Object => Rock()\n");
+    // The module's own Task, Channel, Ptr, and Thread hide the built-ins its Globals have.
+    packages.write("lib/hides.fb", "Import lib.helpers\n"
+                                   "Public Class Task<T>\nEnd Class\n"
+                                   "Public Class Channel<T>\nEnd Class\n"
+                                   "Public Class Ptr<T>\nEnd Class\n"
+                                   "Public Class Thread\nEnd Class\n"
+                                   "Public Global A = Waits()\n"
+                                   "Public Global B = MakePipe()\n"
+                                   "Public Global C = Nowhere()\n"
+                                   "Public Global D = Idle()\n");
+    // An Object that an Import brings in hides it too, but not one an Import As or a From line
+    // that names something else keeps behind its name, nor a Private one.
+    packages.write("lib/objs.fb",
+                   "Public Class Object\nEnd Class\nPublic Class Thing\nEnd Class\n");
+    packages.write("lib/secret.fb", "Private Class Object\nEnd Class\n");
+    packages.write("lib/by_import.fb",
+                   "Import lib.helpers\nImport lib.objs\nPublic Global ByImport = MakeAny()\n");
+    packages.write("lib/by_as.fb",
+                   "Import lib.helpers\nImport lib.objs As o\nPublic Global ByAs = MakeAny()\n");
+    packages.write("lib/by_from.fb", "Import lib.helpers\nFrom lib.objs Import Thing\n"
+                                     "Public Global ByFrom = MakeAny()\n");
+    packages.write("lib/by_secret.fb",
+                   "Import lib.helpers\nImport lib.secret\nPublic Global BySecret = MakeAny()\n");
+    const std::expected<fb::compilation_t, std::string> library =
+        fb::compile_file(packages / "lib");
+    REQUIRE(library);
+    CHECK(packages.messages(*library).empty());
+    fb::diagnostic_bag_t diagnostics;
+    CHECK_FALSE(fb::build_library(*library, fb::build_mode_t::DEBUG, diagnostics));
+    std::vector<std::string> messages;
+    for (const fb::diagnostic_t& diagnostic : diagnostics.diagnostics()) {
+        messages.push_back(diagnostic.message);
+    }
+
+    const auto hidden = [](const std::string_view name, const std::string_view type,
+                           const std::string_view by) {
+        return std::format("this library's interface file names the built-in {} for '{}', which "
+                           "{} {} hides; name that type another way",
+                           type, name, by, type);
+    };
+    CHECK(messages == std::vector<std::string>{
+                          hidden("ByImport", "Object", "lib.objs's"),
+                          hidden("A", "Task", "the module's own"),
+                          hidden("B", "Channel", "the module's own"),
+                          hidden("C", "Ptr", "the module's own"),
+                          hidden("D", "Thread", "the module's own"),
+                      });
+    packages.remove();
+}
+
 TEST_CASE("a prebuilt library's tests see its Public names, and say why they see no others",
           "[driver]") {
     const packages_t packages;
@@ -3158,7 +3224,11 @@ TEST_CASE("a prebuilt library's tests see its Public names, and say why they see
         "[project]\nname = \"geo\"\nversion = \"0.1.0\"\ntype = \"library\"\n";
     packages.write("geo/project.toml", manifest);
     packages.write("geo/shapes.fb", "Public Function Twice(n: Int): Int => n * 2\n"
-                                    "Package Function Thrice(n: Int): Int => n * 3\n");
+                                    "Package Function Thrice(n: Int): Int => n * 3\n"
+                                    "Public Class Shape\n"
+                                    "    Package Field Sides: Int = 4\n"
+                                    "    Package Method Half(): Int => Sides / 2\n"
+                                    "End Class\n");
     const std::expected<fb::compilation_t, std::string> library =
         fb::compile_file(packages / "geo");
     REQUIRE(library);
@@ -3172,20 +3242,28 @@ TEST_CASE("a prebuilt library's tests see its Public names, and say why they see
     packages.write("geo-prebuilt/project.toml", manifest);
     packages.write(folder + "geo.fbi", build->interface);
     packages.write(folder + "geo.fblib", build->binary);
+    // They see its Public names and the Package members of its Public types, which the interface
+    // file has; a Package Function, which it doesn't, says so, but a typo doesn't.
     packages.write("geo-prebuilt/tests/both.fb", "Import std.test\n"
                                                  "Import geo.shapes\n"
                                                  "@Test Function Both()\n"
                                                  "    Expect(Twice(2) == 4)\n"
+                                                 "    Expect(Shape().Sides == 4)\n"
+                                                 "    Expect(Shape().Half() == 2)\n"
                                                  "    Expect(Thrice(2) == 6)\n"
+                                                 "    Expect(Twise(2) == 4)\n"
                                                  "End Function\n");
     const std::expected<fb::compilation_t, std::string> tested =
         fb::compile_tests(packages / "geo-prebuilt");
     REQUIRE(tested);
     CHECK(packages.messages(*tested) ==
           std::vector<std::string>{
-              "geo-prebuilt/tests/both.fb: Thrice: 'Thrice' isn't declared; a prebuilt library's "
-              "tests see only its Public names, which its interface file has",
+              "geo-prebuilt/tests/both.fb: Thrice: 'Thrice' isn't declared; it's Package, and a "
+              "prebuilt library's tests see only what its interface file has: its Public names, "
+              "and the Package members of its Public types",
+              "geo-prebuilt/tests/both.fb: Twise: 'Twise' isn't declared",
           });
+    CHECK(build->interface.contains("// package Thrice\n"));
     packages.remove();
 }
 

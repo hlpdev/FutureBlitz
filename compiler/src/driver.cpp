@@ -482,6 +482,30 @@ struct loaded_t {
     const proto_entry_t* proto = nullptr;
 };
 
+/// The names a prebuilt module's interface file says its top-level Package declarations have,
+/// in its first comment, "// package ", which it leaves out.
+std::vector<std::string> prebuilt_package_names(const source_file_t& file) {
+    constexpr std::string_view start = "// package ";
+    std::istringstream lines{ std::string(file.text()) };
+    std::vector<std::string> names;
+    for (std::string line; std::getline(lines, line);) {
+        if (line.empty()) {
+            continue;
+        }
+
+        if (line.starts_with(start)) {
+            std::istringstream words(line.substr(start.size()));
+            for (std::string name; words >> name;) {
+                names.push_back(std::move(name));
+            }
+        }
+
+        break;
+    }
+
+    return names;
+}
+
 /// Loads a program's files into a compilation: the main file, std/core/, std.collections.map,
 /// and what their imports reach, each file once. Then it puts them in the module table in the
 /// order their Globals initialize: std/core/'s first, then each module after the ones it
@@ -1849,6 +1873,11 @@ private:
                               !m_files.packages.empty() && package_of(loaded.path) == 0 &&
                               has_code(m_items[index]),
             };
+            if (module.prebuilt) {
+                module.package_names =
+                    prebuilt_package_names(m_compilation.sources.get(loaded.file));
+            }
+
             if (const auto [taken, added] = names.emplace(module.name, index); !added) {
                 m_compilation.diagnostics.error(
                     loaded.imported_at.value_or(span_t{ .file = loaded.file }),
