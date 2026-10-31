@@ -435,12 +435,13 @@ std::string temporary_beside(const std::string& path) {
 
 #ifdef _WIN32
 /// FILE_RENAME_INFO as Windows 10 1709's SDK has it, with Flags in place of ReplaceIfExists,
-/// which older MinGW headers lack, and FileRenameInfoEx's flags.
+/// which older MinGW headers lack, and FileRenameInfoEx's flags. The name goes on past its first
+/// character, in the buffer the struct starts.
 struct rename_info_t {
     DWORD flags;
     HANDLE root;
     DWORD length;
-    WCHAR name[1];
+    std::array<WCHAR, 1> name;
 };
 
 constexpr DWORD rename_replace_if_exists = 0x1;
@@ -487,7 +488,8 @@ std::int64_t replace_file(const std::string& from, const std::string& to) {
     info->flags = rename_replace_if_exists | rename_posix_semantics;
     info->root = nullptr;
     info->length = static_cast<DWORD>(full.size() * sizeof(WCHAR));
-    std::memcpy(static_cast<void*>(info->name), full.c_str(), (full.size() + 1) * sizeof(WCHAR));
+    std::memcpy(static_cast<void*>(info->name.data()), full.c_str(),
+                (full.size() + 1) * sizeof(WCHAR));
     const BOOL renamed =
         SetFileInformationByHandle(file, file_rename_info_ex, info, static_cast<DWORD>(size));
     const DWORD error = renamed != 0 ? ERROR_SUCCESS : GetLastError();
