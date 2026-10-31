@@ -1,0 +1,156 @@
+// Reflection that sets: p.Set for Properties, s.Set for Static Fields, and "Where p Has Set",
+// which picks the Properties, Static Fields, or Fields the loop's code can set.
+
+Import std.core
+
+Struct Volume
+    Field level: Int
+
+    // A Struct's Set changes the variable it's on.
+    Property Level: Int
+        Get => level
+        Set(value)
+            level = Clamp(value, 0, 10)
+        End Set
+    End Property
+
+    Property Loud: Bool
+        Get => level > 5
+    End Property
+End Struct
+
+Class Base
+    Field hp: Int
+
+    Property HP: Int
+        Get => hp
+        Set(value)
+            Print("Base sets HP to {value}")
+            hp = value
+        End Set
+    End Property
+End Class
+
+Class Hero Extends Base
+    Field name: String = "Ann"
+
+    // p.Set goes through the Method table, as assigning the Property does.
+    Override Property HP: Int
+        Get => hp + 1
+        Set(value)
+            Print("Hero sets HP to {value}")
+            hp = value
+        End Set
+    End Property
+
+    Property Name: String
+        Get => name
+        Set(value)
+            name = value
+        End Set
+    End Property
+
+    Property Shout: String
+        Get => name + "!"
+    End Property
+End Class
+
+Class Account
+    ReadOnly Field Id: String
+    Field Balance: Int
+    Field Owner: String
+
+    New(id: String)
+        Id = id
+    End New
+End Class
+
+Class Counter<T>
+    Static Field Made: Int = 0
+    Static Field Label: String = "count"
+    Static ReadOnly Field Kind: String = "counter"
+End Class
+
+// Over a type parameter: each Property it can set, which needs to be a number, goes up by one.
+// The ones it can't set needn't be.
+Function Bump<T>(ByRef value: T)
+    For Property p: P In T
+        Where p Has Set
+        Where P: Numeric
+        p.Set(ByRef value, p.Get(value) + P.One())
+    End For
+End Function
+
+// And each it can set, of any type, takes what another value has.
+Function CopyInto<T>(ByRef target: T, source: T)
+    For Property p In T
+        Where p Has Set
+        p.Set(ByRef target, p.Get(source))
+    End For
+End Function
+
+// "Where f Has Set" picks Fields the same way, leaving out a ReadOnly one.
+Function Blank<T>(ByRef value: T)
+    For Field f: F In T
+        Where f Has Set
+        Where F: Defaultable
+        f.Set(ByRef value, F.DefaultValue())
+    End For
+End Function
+
+// Each Static Field it can set goes back to its type's default.
+Function Reset<T>()
+    For Static Field s: S In T
+        Where s Has Set
+        Where S: Defaultable
+        s.Set(S.DefaultValue())
+    End For
+End Function
+
+Local volume = Volume(3)
+Bump(ByRef volume)
+Print("{volume.Level} {volume.Loud}")
+For Property p: P In Volume
+    Where p Has Set
+    Where P: Numeric
+    p.Set(ByRef volume, p.Get(volume) * (P.One() + P.One() + P.One() + P.One()))
+End For
+Print("{volume.Level} {volume.Loud}")
+
+Local hero = Hero()
+For Property p: P In Hero
+    Where p Has Set
+    Where P: Printable
+    Print("{p.Name} = {p.Get(hero)}")
+End For
+Local other = Hero()
+other.Name = "Bo"
+CopyInto(ByRef hero, other)
+Print("{hero.Name} {hero.Shout} {hero.HP}")
+
+// A Base variable holding a Hero calls Hero's Set.
+Local held: Base = Hero()
+For Property p: P In Base
+    Where p Has Set
+    Where P: Numeric
+    p.Set(ByRef held, P.One())
+End For
+Print("{held.HP}")
+
+Local account = Account("a-1")
+account.Balance = 30
+account.Owner = "Ann"
+Blank(ByRef account)
+Print("{account.Id} {account.Balance} '{account.Owner}'")
+
+// Each instance of a generic type has its own Static Fields.
+Counter<Int>.Made = 5
+Counter<String>.Made = 7
+Counter<Int>.Label = "ints"
+Reset<Counter<Int>>()
+Print("{Counter<Int>.Made} '{Counter<Int>.Label}' {Counter<String>.Made} {Counter<Int>.Kind}")
+For Static Field s: S In Counter<String>
+    Where s Has Set
+    Where S: Printable
+    Print("{s.Name} = {s.Get()}")
+End For

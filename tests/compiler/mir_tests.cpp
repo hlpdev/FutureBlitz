@@ -3454,6 +3454,8 @@ TEST_CASE("For Field over a T? reads its T's fields, but f.Get and f.Set can't r
     CHECK(error_of("f.Set(ByRef value, f.Get(other))") ==
           "f.Set(ByRef value, f.Get(other)): the loop goes over the fields of Box?, a T?, which "
           "may be Null, so f.Set can't reach 'Size'");
+    // So "Where f Has Set" picks none of them.
+    CHECK(error_of("Where f Has Set\n        f.Set(ByRef value, f.Get(other))") == "no error");
 }
 
 TEST_CASE("For Field's f.Set can't change a ReadOnly Field", "[mir]") {
@@ -3526,6 +3528,20 @@ TEST_CASE("For Field's f.Set changes only what the code could assign by name", "
           "change it");
     CHECK(error_of(std::format("{}Local x = Open()\nZero(ByRef x)", zero)).empty());
 
+    // "Where f Has Set" leaves out the ones it can't set.
+    const std::string_view picked = "Import std.core\n"
+                                    "Import std.hidden\n"
+                                    "Function Zero<T>(ByRef target: T)\n"
+                                    "    For Field f: F In T\n"
+                                    "        Where f Has Set\n"
+                                    "        Where F: Numeric\n"
+                                    "        f.Set(ByRef target, F.Zero())\n"
+                                    "    End For\n"
+                                    "End Function\n";
+    for (const std::string_view type : { "Hidden", "Common", "Kept", "Open" }) {
+        CHECK(error_of(std::format("{}Local x = {}()\nZero(ByRef x)", picked, type)).empty());
+    }
+
     // The code of a Class extending Kept can change its Protected Field, as it could by name.
     CHECK(error_of("Import std.core\n"
                    "Import std.hidden\n"
@@ -3555,6 +3571,166 @@ TEST_CASE("For Field's f.Set changes only what the code could assign by name", "
                    "Local a = Buffer<Int32>(4)\n"
                    "Assign(ByRef a, Buffer<Int32>(4))") ==
           "'First' is ReadOnly, so f.Set can't change it");
+    CHECK(error_of("Import std.core\n"
+                   "Import std.ffi\n"
+                   "Function Assign<T>(ByRef into: T, from: T)\n"
+                   "    For Field f In T\n"
+                   "        Where f Has Set\n"
+                   "        f.Set(ByRef into, f.Get(from))\n"
+                   "    End For\n"
+                   "End Function\n"
+                   "Local a = Buffer<Int32>(4)\n"
+                   "Assign(ByRef a, Buffer<Int32>(4))")
+              .empty());
+}
+
+TEST_CASE("p.Set and s.Set change only what has a Set and the code could assign by name", "[mir]") {
+    // Members in another package's file, as std's are, which the code can read but not assign.
+    std::vector<fb::library_file_t> files =
+        fb::standard_library().value_or(std::vector<fb::library_file_t>{});
+    files.push_back({
+        .path = "std/hidden/hubs.fb",
+        .text = "Public Class Hub\n"
+                "    Field secret: Int\n"
+                "    Property Secret: Int\n"
+                "        Get => secret\n"
+                "        Set(value)\n"
+                "            secret = value\n"
+                "        End Set\n"
+                "    End Property\n"
+                "    Public Property Open: Int\n"
+                "        Get => secret\n"
+                "        Set(value)\n"
+                "            secret = value\n"
+                "        End Set\n"
+                "    End Property\n"
+                "    Public Property Shown: Int\n"
+                "        Get => secret\n"
+                "    End Property\n"
+                "    Protected Static Field Kept: Int\n"
+                "    Package Static Field Common: Int\n"
+                "    Public Static Field Count: Int\n"
+                "    Public Static ReadOnly Field Most: Int = 9\n"
+                "    Public New()\n"
+                "    End New\n"
+                "End Class\n",
+    });
+    const auto error_of = [&](const std::string& program) {
+        const fb::compilation_t compilation = fb::compile("test.fb", program, files);
+        for (const fb::diagnostic_t& diagnostic : compilation.diagnostics.diagnostics()) {
+            UNSCOPED_INFO(diagnostic.message);
+        }
+
+        REQUIRE(compilation.diagnostics.diagnostics().empty());
+        const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+        const fb::mir_error_t error = module.error.value_or(fb::mir_error_t{});
+        return module.error ? error.message : std::string();
+    };
+    const std::string_view head = "Import std.core\nImport std.hidden\nLocal hub = Hub()\n";
+    // Each copy of the loop's body is checked, as f.Set's are.
+    const std::string_view properties = "For Property p: P In Hub\n"
+                                        "    {}"
+                                        "    Where P: Numeric\n"
+                                        "    p.Set(ByRef hub, P.Zero())\n"
+                                        "End For";
+    CHECK(
+        error_of(std::format("{}{}", head, std::vformat(properties, std::make_format_args("")))) ==
+        "'Secret' is Private, so p.Set outside its file can't change it");
+    const std::string_view statics = "For Static Field s: S In Hub\n"
+                                     "    {}"
+                                     "    Where S: Numeric\n"
+                                     "    s.Set(S.Zero())\n"
+                                     "End For";
+    CHECK(error_of(std::format("{}{}", head, std::vformat(statics, std::make_format_args("")))) ==
+          "'Kept' is Protected, so s.Set outside its file and the Classes extending Hub can't "
+          "change it");
+
+    // "Where p Has Set" leaves them out: it goes over Open, and over Count.
+    CHECK(
+        error_of(std::format("{}{}", head,
+                             std::vformat(properties, std::make_format_args("Where p Has Set\n"))))
+            .empty());
+    CHECK(error_of(std::format("{}{}", head,
+                               std::vformat(statics, std::make_format_args("Where s Has Set\n"))))
+              .empty());
+
+    // In its own file, a Property without a Set and a ReadOnly Static Field are still errors.
+    CHECK(error_of("Import std.core\n"
+                   "Class Gauge\n"
+                   "    Property Level: Int\n"
+                   "        Get => 1\n"
+                   "    End Property\n"
+                   "End Class\n"
+                   "Local gauge = Gauge()\n"
+                   "For Property p: P In Gauge\n"
+                   "    Where P: Numeric\n"
+                   "    p.Set(ByRef gauge, P.Zero())\n"
+                   "End For") == "'Level' has no Set, so p.Set can't change it");
+    CHECK(error_of("Import std.core\n"
+                   "Class Gauge\n"
+                   "    Static ReadOnly Field Most: Int = 3\n"
+                   "End Class\n"
+                   "For Static Field s: S In Gauge\n"
+                   "    Where S: Numeric\n"
+                   "    s.Set(S.Zero())\n"
+                   "End For") == "'Most' is ReadOnly, so s.Set can't change it");
+
+    // An Override without a Set uses the one it overrides, which p.Set calls.
+    CHECK(error_of("Import std.core\n"
+                   "Class Base\n"
+                   "    Field level: Int\n"
+                   "    Property Level: Int\n"
+                   "        Get => level\n"
+                   "        Set(value)\n"
+                   "            level = value\n"
+                   "        End Set\n"
+                   "    End Property\n"
+                   "End Class\n"
+                   "Class Gauge Extends Base\n"
+                   "    Override Property Level: Int\n"
+                   "        Get => level + 1\n"
+                   "    End Property\n"
+                   "End Class\n"
+                   "Local gauge = Gauge()\n"
+                   "For Property p: P In Gauge\n"
+                   "    Where p Has Set\n"
+                   "    Where P: Numeric\n"
+                   "    p.Set(ByRef gauge, P.Zero())\n"
+                   "End For")
+              .empty());
+}
+
+TEST_CASE("f.Set in a Static Method of a Class extending another changes its Protected Field",
+          "[mir]") {
+    std::vector<fb::library_file_t> files =
+        fb::standard_library().value_or(std::vector<fb::library_file_t>{});
+    files.push_back({
+        .path = "std/hidden/kept.fb",
+        .text = "Public Class Kept\n    Protected Field Count: Int\n    Public New()\n    End New\n"
+                "End Class\n",
+    });
+    // As its code could by name, through an object of its Class.
+    const fb::compilation_t compilation = fb::compile("test.fb",
+                                                      "Import std.core\n"
+                                                      "Import std.hidden\n"
+                                                      "Class Mine Extends Kept\n"
+                                                      "    New()\n"
+                                                      "        Super.New()\n"
+                                                      "    End New\n"
+                                                      "    Static Method Clear(ByRef me: Mine)\n"
+                                                      "        me.Count = 0\n"
+                                                      "        For Field f: F In Mine\n"
+                                                      "            Where F: Numeric\n"
+                                                      "            f.Set(ByRef me, F.Zero())\n"
+                                                      "        End For\n"
+                                                      "    End Method\n"
+                                                      "End Class\n"
+                                                      "Local mine = Mine()\n"
+                                                      "Mine.Clear(ByRef mine)",
+                                                      files);
+    REQUIRE(compilation.diagnostics.diagnostics().empty());
+    const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+    CHECK_FALSE(module.error);
 }
 
 TEST_CASE("a debug form is a function made for its type, and an object shows its own Class's",

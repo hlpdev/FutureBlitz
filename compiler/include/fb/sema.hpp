@@ -73,6 +73,10 @@ struct bound_t {
     /// the field's type in place of this. A For Property's or For Static Field's is on those.
     type_id_t field = type_id_t::INVALID;
     member_kind_t members = member_kind_t::FIELD;
+    /// For a For Field's, For Property's, or For Static Field's loop with "Where p Has Set": the
+    /// loop's place, whose code can set only some of the members, which are all the constraint
+    /// is on.
+    std::optional<span_t> settable;
 
     friend bool operator==(const bound_t&, const bound_t&) = default;
 };
@@ -354,6 +358,13 @@ struct stmt_info_t {
     /// For a For Method: the Attributes each "Where m Has" line names, one of which each Method
     /// it goes over has.
     std::vector<std::vector<type_id_t>> picks;
+    /// For a For Field, For Property, or For Static Field with "Where f Has Set": it goes over
+    /// only the members its code can set, a Field or Static Field that isn't ReadOnly and a
+    /// Property with a Set, which their visibility lets it, and over a T?, none.
+    bool picks_settable = false;
+    /// For a loop over members: the Class whose code it's in, whose Protected members, and
+    /// those of the Classes it extends, its Sets can change. INVALID outside one.
+    type_id_t within = type_id_t::INVALID;
 };
 
 /// An Interface that an Extend makes a type implement: a built-in type, an Enum, every T[], or

@@ -209,6 +209,8 @@ struct reflected_t {
     std::optional<symbol_id_t> symbol;
     /// The type it's a member of.
     type_id_t owner = type_id_t::INVALID;
+    /// The Class whose code the loop is in, which its Sets can change the Protected members of.
+    type_id_t within = type_id_t::INVALID;
 };
 
 /// Turns the analyzed AST into MIR: one function per Function, Method, and New, plus "main" for
@@ -4499,6 +4501,7 @@ private:
         const auto copy = [&](reflected_t member, const type_id_t field,
                               const std::vector<type_id_t>& bound = {}) {
             member.owner = type;
+            member.within = info.within;
             m_reflected[variable] = std::move(member);
             const bool typed =
                 field != type_id_t::INVALID && info.type_arguments.at(1) != type_id_t::INVALID;
@@ -4539,7 +4542,12 @@ private:
         } else if (node.kind == member_kind_t::PROPERTY ||
                    node.kind == member_kind_t::STATIC_FIELD) {
             for (const symbol_id_t found : reflected_members(type, node.kind, span.file)) {
+                // "Where p Has Set" goes over only the ones its code can set.
                 const symbol_t& declared = m_analysis.symbol(found);
+                if (info.picks_settable && unsettable(declared, span, info.within)) {
+                    continue;
+                }
+
                 reflected_t member{ .name = std::string(declared.name) };
                 member.symbol = found;
                 copy(std::move(member),
@@ -4564,8 +4572,16 @@ private:
                     continue;
                 }
 
+                // "Where f Has Set" goes over only the ones its code can set, and over a T?, none.
                 reflected_t member{ .name = fields[i].name, .index = i };
                 member.symbol = field_symbol(fielded, i);
+                if (info.picks_settable &&
+                    (fielded != type ||
+                     (member.symbol &&
+                      unsettable(m_analysis.symbol(*member.symbol), span, info.within)))) {
+                    continue;
+                }
+
                 copy(std::move(member), fields[i].type);
             }
         }
@@ -10251,12 +10267,36 @@ private:
         return call_on(id, std::nullopt);
     }
 
-    /// Why "f.Set" at `span` can't change `field`, which the code there couldn't assign by name
+    /// Why "f.Set", "p.Set", or "s.Set" at `span`, in the code of the Class `within`, can't
+    /// change `field`, a Field, Property, or Static Field: a ReadOnly Field, which changes only in
+    /// its Class's New, which a loop's copy can't tell it's in, or Static Field, or a Property
+    /// without a Set, its own or what it overrides', or one the code there couldn't assign by name
     /// either, as analysis has visibility: one that's Private outside its file, Package outside
     /// its package, or Protected outside its file and the Classes extending its own. nullopt
     /// when it can.
-    [[nodiscard]] std::optional<std::string> unsettable(const symbol_t& field, const span_t span) {
-        if (field.kind != symbol_kind_t::FIELD || field.span.file == span.file) {
+    [[nodiscard]] std::optional<std::string> unsettable(const symbol_t& field, const span_t span,
+                                                        const type_id_t within) const {
+        std::string_view variable = "f";
+        if (field.kind == symbol_kind_t::PROPERTY) {
+            variable = "p";
+        } else if (field.kind == symbol_kind_t::GLOBAL) {
+            variable = "s";
+        }
+
+        if (field.kind != symbol_kind_t::PROPERTY && field.modifiers.is_read_only) {
+            return std::format("'{}' is ReadOnly, so {}.Set can't change it", field.name, variable);
+        }
+
+        const symbol_t* setting = &field;
+        while (!setting->setter && setting->overrides) {
+            setting = &m_analysis.symbol(*setting->overrides);
+        }
+
+        if (field.kind == symbol_kind_t::PROPERTY && !setting->setter) {
+            return std::format("'{}' has no Set, so p.Set can't change it", field.name);
+        }
+
+        if (field.span.file == span.file) {
             return std::nullopt;
         }
 
@@ -10276,33 +10316,33 @@ private:
                 return std::nullopt;
             }
 
-            return std::format("'{}' is Package, so f.Set outside its package and its tests can't "
-                               "change it",
-                               field.name);
+            return std::format("'{}' is Package, so {}.Set outside its package and its tests "
+                               "can't change it",
+                               field.name, variable);
         }
         case visibility_t::PROTECTED:
-            // In the code of a Class extending its own.
-            for (type_id_t code = m_self ? type_of(place_t{ *m_self }) : type_id_t::INVALID;
-                 code != type_id_t::INVALID && is_class(code); code = types().get(code).base) {
+            // In the code of a Class extending its own, its Static code too.
+            for (type_id_t code = within; code != type_id_t::INVALID && is_class(code);
+                 code = types().get(code).base) {
                 if (definition_of(code) == definition_of(field.owner)) {
                     return std::nullopt;
                 }
             }
 
-            return std::format("'{}' is Protected, so f.Set outside its file and the Classes "
+            return std::format("'{}' is Protected, so {}.Set outside its file and the Classes "
                                "extending {} can't change it",
-                               field.name, types().name(field.owner));
+                               field.name, variable, types().name(field.owner));
         case visibility_t::PRIVATE:
             break;
         }
 
-        return std::format("'{}' is Private, so f.Set outside its file can't change it",
-                           field.name);
+        return std::format("'{}' is Private, so {}.Set outside its file can't change it",
+                           field.name, variable);
     }
 
     /// "f.Get(value)", "f.Set(ByRef value, x)", "f.Has(A)", "f.Attribute(A)", or
-    /// "m.Call(value)", for the field or Method of this copy of the loop's body. An attribute's
-    /// values are constants.
+    /// "m.Call(value)", for the field, Property, Static Field, or Method of this copy of the
+    /// loop's body. An attribute's values are constants.
     std::optional<operand_t> lower_reflection(const expr_id_t id, const call_expr_t& node,
                                               const reflected_t& member) {
         const std::string_view name =
@@ -10335,30 +10375,51 @@ private:
             return name == "Get" ? std::optional<operand_t>(zero(expr_type(id))) : std::nullopt;
         }
 
-        // A ReadOnly Field changes only in its Class's New, which a loop's copy can't tell it's
-        // in, so f.Set can't change one.
-        if (name == "Set" && declared != nullptr && declared->modifiers.is_read_only) {
-            if (!m_module.error) {
-                m_module.error = mir_error_t{
-                    .message =
-                        std::format("'{}' is ReadOnly, so f.Set can't change it", declared->name),
-                    .span = span_of(id),
-                };
-            }
-
-            return std::nullopt;
-        }
-
-        // Nor one that visibility hides from the code, which couldn't assign it by name: what a
-        // type keeps to itself stays as its own code has it.
+        // A Set can't change what's ReadOnly, or a Property without a Set, nor what visibility
+        // hides from the code, which couldn't assign it by name: what a type keeps to itself
+        // stays as its own code has it.
         if (name == "Set" && declared != nullptr) {
-            if (const std::optional<std::string> why = unsettable(*declared, span_of(id))) {
+            if (const std::optional<std::string> why =
+                    unsettable(*declared, span_of(id), member.within)) {
                 if (!m_module.error) {
                     m_module.error = mir_error_t{ .message = *why, .span = span_of(id) };
                 }
 
                 return std::nullopt;
             }
+        }
+
+        // s.Set(x) stores the Static Field, the instance's for a generic type's.
+        if (name == "Set" && declared != nullptr && declared->kind == symbol_kind_t::GLOBAL) {
+            const symbol_id_t global = expect(member.symbol);
+            const std::vector<type_id_t> arguments = owner_arguments(member.owner, declared->owner);
+            const place_t place{ arguments.empty() ? ready(m_globals.at(global), id)
+                                                   : instance_global(global, arguments) };
+            store(place, lower_value(node.arguments[0].value));
+            return std::nullopt;
+        }
+
+        // p.Set(ByRef value, x) calls the Property's Set, which takes a Struct's variable itself
+        // and a Class's object, as assigning the Property does.
+        if (name == "Set" && declared != nullptr && declared->kind == symbol_kind_t::PROPERTY) {
+            const expr_id_t target = node.arguments[0].value;
+            const bool changes = may_change(node.arguments[1].value);
+            call_argument_t receiver;
+            if (is_object(member.owner)) {
+                receiver = { .value = settled(lower_value(target), changes) };
+            } else {
+                const place_t place = lower_place(target);
+                receiver = {
+                    .value = changes ? settled_place(place, false) : place,
+                    .by_ref = true,
+                };
+            }
+
+            const accessor_call_t access = accessor_of(expect(member.symbol), member.owner, true);
+            const operand_t assigned =
+                convert(lower_value(node.arguments[1].value), access.type, span_of(id));
+            call_accessor(access, { receiver, { .value = assigned } }, type_id_t::NONE);
+            return std::nullopt;
         }
 
         if (name == "Get" || name == "Set") {

@@ -10147,9 +10147,245 @@ TEST_CASE("loops over Properties, Static Fields, and Methods of a Func type", "[
     CHECK(
         errors_of(std::format("{}For Method m: M In Player\n    Where M: Int\nEnd For", player)) ==
         errors_t{ "Int: M is the Methods' Func type, like Func(Int): String, not Int32" });
-    CHECK(errors_of(std::format("{}For Property p In Player\n    p.Set(1)\nEnd For", player)) ==
-          errors_t{ "Set: 'p' is a Property of Player; it has Name, Get(value), Has(A), and "
-                    "Attribute(A)" });
+    CHECK(errors_of(std::format("{}For Property p In Player\n    p.Sett(1)\nEnd For", player)) ==
+          errors_t{ "Sett: 'p' is a Property of Player; it has Name, Get(value), "
+                    "Set(ByRef value, x), Has(A), and Attribute(A)" });
+}
+
+TEST_CASE("a loop's p.Set and s.Set change Properties and Static Fields, and 'Where p Has Set' "
+          "picks the ones it can",
+          "[sema]") {
+    const std::string_view player = "Import std.core\n"
+                                    "Class Tag\nEnd Class\n"
+                                    "Class Player\n"
+                                    "    Field HP: Int\n"
+                                    "    Static Field Count: Int = 3\n"
+                                    "    Static ReadOnly Field Kind: Tag = Tag()\n"
+                                    "    Property Half: Int\n"
+                                    "        Get => HP / 2\n"
+                                    "        Set(value)\n"
+                                    "            HP = value * 2\n"
+                                    "        End Set\n"
+                                    "    End Property\n"
+                                    "    Property Owner: Tag\n"
+                                    "        Get => Tag()\n"
+                                    "    End Property\n"
+                                    "End Class\n"
+                                    "Local me = Player()\n";
+    CHECK(errors_of(std::format("{}For Property p: P In Player\n"
+                                "    p.Set(ByRef me, p.Get(me))\n"
+                                "End For\n"
+                                "For Static Field s: S In Player\n"
+                                "    s.Set(s.Get())\n"
+                                "End For",
+                                player))
+              .empty());
+    CHECK(errors_of(std::format("{}For Property p In Player\n    p.Set(1)\nEnd For\n"
+                                "For Static Field s In Player\n    s.Set()\nEnd For",
+                                player)) ==
+          errors_t{ "p.Set: 'p.Set' takes 2 arguments", "s.Set: 's.Set' takes 1 argument" });
+    CHECK(errors_of(std::format("{}For Static Field s: S In Player\n    s.Set(\"x\")\nEnd For",
+                                player)) == errors_t{ "\"x\": expected S, found String" });
+
+    // Where lines on P or S are on the ones it picks, which only they need to meet.
+    const std::string_view zero = "For Property p: P In Player\n"
+                                  "    Where p Has Set\n"
+                                  "    Where P: Numeric\n"
+                                  "    p.Set(ByRef me, P.Zero())\n"
+                                  "End For\n"
+                                  "For Static Field s: S In Player\n"
+                                  "    Where s Has Set\n"
+                                  "    Where S: Numeric\n"
+                                  "    s.Set(S.Zero())\n"
+                                  "End For";
+    CHECK(errors_of(std::format("{}{}", player, zero)).empty());
+    CHECK(errors_of(std::format("{}For Property p: P In Player\n"
+                                "    Where P: Numeric\n"
+                                "    p.Set(ByRef me, P.Zero())\n"
+                                "End For",
+                                player)) ==
+          errors_t{ "Player: Player's Property 'Owner' is Tag, which doesn't implement "
+                    "Numeric, as this loop needs" });
+
+    // A For Field loop picks the same way, leaving out a ReadOnly Field.
+    const std::string_view entry = "Class Entry\n"
+                                   "    ReadOnly Field Id: String = \"a\"\n"
+                                   "    Field Count: Int\n"
+                                   "End Class\n"
+                                   "Local entry = Entry()\n"
+                                   "For Field f: F In Entry\n"
+                                   "    {}"
+                                   "    Where F: Numeric\n"
+                                   "    f.Set(ByRef entry, F.Zero())\n"
+                                   "End For";
+    CHECK(errors_of(std::format("{}{}", player,
+                                std::vformat(entry, std::make_format_args("Where f Has Set\n"))))
+              .empty());
+    CHECK(errors_of(std::format("{}{}", player, std::vformat(entry, std::make_format_args("")))) ==
+          errors_t{ "Entry: Entry's field 'Id' is String, which doesn't implement Numeric, as "
+                    "this loop needs" });
+
+    // A Where line on the variable picks only that way.
+    CHECK(errors_of(std::format("{}For Property p In Player\n    Where p Has Get\nEnd For\n"
+                                "For Field f In Player\n    Where f Has Set Or Get\nEnd For",
+                                player)) ==
+          errors_t{ "Get: a For Property loop's Where line picks only the ones its code can set, "
+                    "with 'Where p Has Set'; its body tests 'p.Has(A)' for an Attribute",
+                    "Set: a For Field loop's Where line picks only the ones its code can set, with "
+                    "'Where f Has Set'; its body tests 'f.Has(A)' for an Attribute" });
+
+    // Over a type parameter, each call checks the ones it picks.
+    const std::string_view clear = "Function Clear<T>(ByRef value: T)\n"
+                                   "    For Property p: P In T\n"
+                                   "        Where p Has Set\n"
+                                   "        Where P: Numeric\n"
+                                   "        p.Set(ByRef value, P.Zero())\n"
+                                   "    End For\n"
+                                   "End Function\n";
+    CHECK(errors_of(std::format("{}{}Clear(ByRef me)", player, clear)).empty());
+    CHECK(errors_of(std::format("{}{}"
+                                "Class Named\n"
+                                "    Field n: String\n"
+                                "    Property Name: String\n"
+                                "        Get => n\n"
+                                "        Set(value)\n"
+                                "            n = value\n"
+                                "        End Set\n"
+                                "    End Property\n"
+                                "End Class\n"
+                                "Local named = Named()\n"
+                                "Clear(ByRef named)",
+                                player, clear)) ==
+          errors_t{ "Clear: 'Clear' needs each Property of Named that it can set to implement "
+                    "Numeric, but its Property 'Name' is String, which doesn't" });
+
+    // Another loop says they meet it only when it picks the same way, as all of them do.
+    const std::string_view twice = "Function Twice<T>(ByRef value: T)\n"
+                                   "    For Property p: P In T\n"
+                                   "        {}"
+                                   "        Where P: Numeric\n"
+                                   "    End For\n"
+                                   "    Clear(ByRef value)\n"
+                                   "End Function\n";
+    CHECK(errors_of(std::format("{}{}{}", player, clear,
+                                std::vformat(twice, std::make_format_args("Where p Has Set\n"))))
+              .empty());
+    CHECK(errors_of(
+              std::format("{}{}{}", player, clear, std::vformat(twice, std::make_format_args(""))))
+              .empty());
+    CHECK(errors_of(std::format("{}{}"
+                                "Function Each<T>(ByRef value: T)\n"
+                                "    For Property p: P In T\n"
+                                "        Where P: Numeric\n"
+                                "    End For\n"
+                                "End Function\n"
+                                "Function Some<T>(ByRef value: T)\n"
+                                "    For Property p: P In T\n"
+                                "        Where p Has Set\n"
+                                "        Where P: Numeric\n"
+                                "    End For\n"
+                                "    Each(ByRef value)\n"
+                                "End Function",
+                                player, clear)) ==
+          errors_t{ "Each: 'Each' needs each Property of T to implement Numeric, but nothing "
+                    "says that of T's Properties" });
+}
+
+TEST_CASE("a loop's Get, Set, and Call follow the thread rules for what each copy runs", "[sema]") {
+    const std::string_view config = "Import std.core\n"
+                                    "Class Config\n"
+                                    "    Static Field Volume: Int = 3\n"
+                                    "    Static ReadOnly Field Limit: Int = 10\n"
+                                    "End Class\n";
+    const std::string_view main_only =
+        "Spawn: this work runs on another thread, but it calls 'Reset', which uses the Static "
+        "Field 'Config.Volume', which only the main thread can, unless it's an Atomic or a Mutex";
+    // s.Set and s.Get use the Static Fields, over a type and over a type parameter, which each
+    // call gives a type.
+    CHECK(errors_of(std::format("{}Function Reset(): Int\n"
+                                "    For Static Field s: S In Config\n"
+                                "        Where s Has Set\n"
+                                "        Where S: Numeric\n"
+                                "        s.Set(S.Zero())\n"
+                                "    End For\n"
+                                "    Return 0\n"
+                                "End Function\n"
+                                "Local t = Spawn(Function() => Reset())",
+                                config)) == errors_t{ std::string(main_only) });
+    CHECK(errors_of(std::format("{}Function Reset<T>(): Int\n"
+                                "    For Static Field s In T\n"
+                                "        Where s Has Set\n"
+                                "        s.Set(s.Get())\n"
+                                "    End For\n"
+                                "    Return 0\n"
+                                "End Function\n"
+                                "Function Through<U>(): Int => Reset<U>()\n"
+                                "Local t = Spawn(Function() => Reset<Config>())\n"
+                                "Local u = Spawn(Function() => Through<Config>())",
+                                config)) ==
+          errors_t{ std::string(main_only),
+                    "Spawn: this work runs on another thread, but it calls 'Through', which "
+                    "calls 'Reset', which uses the Static Field 'Config.Volume', which only the "
+                    "main thread can, unless it's an Atomic or a Mutex" });
+
+    // A Static ReadOnly Field of a Sendable type is read on any thread. Like a call of an
+    // Interface's Method, which reaches what implements it, the loop reaches what each type it's
+    // given has, wherever it's given it.
+    const std::string_view read = "Struct Limits\n"
+                                  "    Static ReadOnly Field Most: Int = 10\n"
+                                  "End Struct\n"
+                                  "Function Read<T>(): String\n"
+                                  "    Local text = \"\"\n"
+                                  "    For Static Field s: S In T\n"
+                                  "        Where S: Printable\n"
+                                  "        text = text + \"{s.Get()}\"\n"
+                                  "    End For\n"
+                                  "    Return text\n"
+                                  "End Function\n";
+    CHECK(errors_of(std::format("{}{}Local t = Spawn(Function() => Read<Limits>())", config, read))
+              .empty());
+    CHECK(errors_of(std::format("{}{}Print(Read<Config>())", config, read)).empty());
+    CHECK(errors_of(std::format("{}{}Local t = Spawn(Function() => Read<Limits>())\n"
+                                "Print(Read<Config>())",
+                                config, read)) ==
+          errors_t{ "Spawn: this work runs on another thread, but it calls 'Read', which uses "
+                    "the Static Field 'Config.Volume', which only the main thread can, unless "
+                    "it's an Atomic or a Mutex" });
+
+    // p.Get and p.Set run the Properties' Get and Set, and m.Call the Methods.
+    CHECK(errors_of("Import std.core\n"
+                    "Global level = 1\n"
+                    "Class Gauge\n"
+                    "    Property Level: Int\n"
+                    "        Get => level\n"
+                    "    End Property\n"
+                    "End Class\n"
+                    "Function Read(): String\n"
+                    "    Local text = \"\"\n"
+                    "    For Property p: P In Gauge\n"
+                    "        Where P: Printable\n"
+                    "        text = text + \"{p.Get(Gauge())}\"\n"
+                    "    End For\n"
+                    "    Return text\n"
+                    "End Function\n"
+                    "Local t = Spawn(Function() => Read())") ==
+          errors_t{ "Spawn: this work runs on another thread, but it calls 'Read', which calls "
+                    "'Gauge.Level', which uses the Global 'level', which only the main thread "
+                    "can, unless it's an Atomic or a Mutex" });
+    CHECK(errors_of("Import std.core\n"
+                    "Class Screen\n"
+                    "    @MainThread Method Draw()\n"
+                    "    End Method\n"
+                    "End Class\n"
+                    "Function Run<T>(value: T): Int\n"
+                    "    For Method m In T\n"
+                    "        m.Call(value)\n"
+                    "    End For\n"
+                    "    Return 0\n"
+                    "End Function\n"
+                    "Local t = Spawn(Function() => Run(Screen()))") ==
+          errors_t{ "Spawn: this work runs on another thread, but it calls 'Run', which calls "
+                    "'Screen.Draw', which is @MainThread" });
 }
 
 TEST_CASE("a typed For Method's Func type binds type parameters of its own for each Method",
@@ -10400,8 +10636,8 @@ TEST_CASE("a typed For Method picks Methods by attribute, and takes throwing one
           "Gett: 'Gett' isn't an Attribute, which a Where line on 'm' picks its Methods by");
     CHECK(errors[4] == "m.Call(Api(), Args(1)): 'm.Call' can throw E, so calling it needs Try, "
                        "Try?, or a Try block");
-    CHECK(errors[5] == "Get: a For Field loop's body tests 'g.Has(A)'; only a For Method loop "
-                       "picks its members with a Where line");
+    CHECK(errors[5] == "Get: a For Field loop's Where line picks only the ones its code can set, "
+                       "with 'Where g Has Set'; its body tests 'g.Has(A)' for an Attribute");
 }
 
 TEST_CASE("a picked or throwing For Method vouches only for its own Methods, and only its own Func "

@@ -675,7 +675,21 @@ private:
         std::string_view where;
     };
 
+    /// A loop's "p.Get(value)", "p.Set(ByRef value, x)", "s.Get()", "s.Set(x)", or
+    /// "m.Call(value)" in `code`, which runs what each copy's member is or has: a Property's Get
+    /// or Set, a Static Field, or a Method. Over a type parameter, check_threads() finds the
+    /// types it may be.
+    struct reflected_use_t {
+        symbol_id_t code;
+        type_id_t owner;
+        member_kind_t kind;
+        bool set = false;
+        span_t span;
+        stmt_id_t loop;
+    };
+
     std::unordered_map<symbol_id_t, main_only_t> m_main_only;
+    std::vector<reflected_use_t> m_reflected_uses;
     /// The code each function's or lambda's code can run: what it calls, and its lambdas.
     std::unordered_map<symbol_id_t, std::vector<symbol_id_t>> m_reaches;
     /// The lambdas' symbols, which an error's path leaves out, as part of the code around them.
@@ -1028,9 +1042,11 @@ private:
     template <typename Function>
     auto on_trial(Function&& function) {
         m_trials.emplace_back();
+        const std::size_t uses = m_reflected_uses.size();
         auto result = quietly(std::forward<Function>(function));
         const trial_t trial = std::move(m_trials.back());
         m_trials.pop_back();
+        m_reflected_uses.resize(uses);
         for (const symbol_id_t code : std::views::reverse(trial.reaches)) {
             m_reaches[code].pop_back();
         }
@@ -6131,7 +6147,8 @@ private:
                 const std::string needed =
                     bound.members == member_kind_t::METHOD
                         ? std::format("what each of its Methods has for {}", name_of(bound.field))
-                        : std::format("each of its {}", members_text(bound.members));
+                        : std::format("each of its {}{}", members_text(bound.members),
+                                      settable_text(bound));
                 error(span, "{} takes {}'s '{}', which needs {} to implement {}, but {}",
                       name_among(type, shown), name_among(interface, shown), symbol(method).name,
                       needed, name_among(wanted, shown), misfit_text(bound, *misfit, shown));
@@ -8670,6 +8687,8 @@ private:
                     .interface = interface,
                     .field = field,
                     .members = bound.members,
+                    // Only whether a loop picks the ones it can set counts too.
+                    .settable = bound.settable ? std::optional(span_t{}) : std::nullopt,
                 });
             }
         }
@@ -10676,9 +10695,10 @@ private:
                               what, name_among(argument, shown), name_of(bound.field),
                               name_among(interface, shown), misfit_text(bound, *misfit, shown));
                     } else {
-                        error(span, "{} needs each {} of {} to implement {}, but {}", what,
+                        error(span, "{} needs each {} of {}{} to implement {}, but {}", what,
                               member_text(bound.members), name_among(argument, shown),
-                              name_among(interface, shown), misfit_text(bound, *misfit, shown));
+                              settable_text(bound), name_among(interface, shown),
+                              misfit_text(bound, *misfit, shown));
                     }
                 }
 
@@ -10772,7 +10792,7 @@ private:
 
                 return bound.members == member_kind_t::METHOD
                            ? same_method_bound(bound, other, interface)
-                           : other.interface == interface;
+                           : other.interface == interface && covers(other, bound);
             });
             return known ? std::nullopt : std::optional(misfit_t{ .type = type });
         }
@@ -10797,7 +10817,7 @@ private:
             return std::nullopt;
         }
 
-        for (const field_t& field : reflected_types(type, bound.members)) {
+        for (const field_t& field : reflected_types(type, bound.members, bound.settable)) {
             const type_id_t wanted = substitute(interface, { bound.field }, { field.type });
             if (!implements(field.type, wanted)) {
                 return misfit_t{ .field = field.name, .type = field.type };
@@ -10835,8 +10855,8 @@ private:
     [[nodiscard]] std::string misfit_text(const bound_t& bound, const misfit_t& misfit,
                                           const std::span<const type_id_t> shown) const {
         if (!misfit.field) {
-            return std::format("nothing says that of {}'s {}", name_among(misfit.type, shown),
-                               members_text(bound.members));
+            return std::format("nothing says that of {}'s {}{}", name_among(misfit.type, shown),
+                               members_text(bound.members), settable_text(bound));
         }
 
         if (bound.members == member_kind_t::METHOD) {
@@ -10855,6 +10875,24 @@ private:
         return names[std::to_underlying(kind)];
     }
 
+    /// " that it can set" for a loop's constraint on the Properties or Static Fields its
+    /// "Where p Has Set" picks, after "each Property of T", and nothing for others.
+    [[nodiscard]] static std::string_view settable_text(const bound_t& bound) {
+        return bound.settable ? " that it can set" : "";
+    }
+
+    /// Whether what `known` says of a type parameter's Properties or Static Fields says what
+    /// `wanted` needs of them: of all of them, or of the ones that code at the same place, in
+    /// the same file and Class, can set.
+    [[nodiscard]] bool covers(const bound_t& known, const bound_t& wanted) const {
+        if (!known.settable) {
+            return true;
+        }
+
+        return wanted.settable && known.settable->file == wanted.settable->file &&
+               class_at(*known.settable) == class_at(*wanted.settable);
+    }
+
     /// "field", "Method", "Property", or "Static Field".
     [[nodiscard]] static std::string_view member_text(const member_kind_t kind) {
         constexpr auto names =
@@ -10862,20 +10900,71 @@ private:
         return names[std::to_underlying(kind)];
     }
 
-    /// The names and types of the members a loop goes over in `type`: a Struct's, Class's, or
-    /// tuple's fields, or a Struct's or Class's Properties, its own and inherited, or its own
-    /// Static Fields. Other types have none.
-    [[nodiscard]] std::vector<field_t> reflected_types(const type_id_t type,
-                                                       const member_kind_t kind) const {
-        if (kind == member_kind_t::FIELD) {
-            return reflected_fields(type);
+    /// Whether a loop's "Where f Has Set" picks the Field, Property, or Static Field `id`, which
+    /// its Set can change, from code at `span`: a Field or Static Field that isn't ReadOnly, or a
+    /// Property with a Set, its own or the one it overrides, whose visibility lets the code there
+    /// assign it by its name.
+    [[nodiscard]] bool settable_at(const symbol_id_t id, const span_t span) const {
+        const symbol_t& member = m_analysis.symbols[index(id)];
+        bool changes = false;
+        if (member.kind == symbol_kind_t::PROPERTY) {
+            changes = setter_of(id).has_value();
+        } else if (member.kind == symbol_kind_t::FIELD || member.kind == symbol_kind_t::GLOBAL) {
+            changes = !member.modifiers.is_read_only;
         }
 
+        return changes && can_use(member, span, type_id_t::INVALID);
+    }
+
+    /// Whether a loop over members picks with "Where f Has Set": a For Field's, For Property's,
+    /// or For Static Field's one Where line on its variable that names Set alone.
+    [[nodiscard]] bool picks_set(const for_member_stmt_t& loop) const {
+        if (loop.kind == member_kind_t::METHOD || loop.picks.size() != 1 ||
+            loop.picks.front().size() != 1) {
+            return false;
+        }
+
+        const auto* name = std::get_if<name_expr_t>(&m_ast.get(loop.picks.front().front()).node);
+        return name != nullptr && name->name == "Set";
+    }
+
+    /// The names and types of the members a loop goes over in `type`: a Struct's, Class's, or
+    /// tuple's fields, or reflected_members()'s. Other types have none.
+    [[nodiscard]] std::vector<field_t>
+    reflected_types(const type_id_t type, const member_kind_t kind,
+                    const std::optional<span_t> settable = std::nullopt) const {
+        if (kind == member_kind_t::FIELD) {
+            return reflected_fields(type, settable);
+        }
+
+        std::vector<field_t> found;
+        for (const symbol_id_t id : reflected_members(type, kind, settable)) {
+            const symbol_t& member = m_analysis.symbols[index(id)];
+            const type_t& info = m_analysis.types.get(type);
+            const type_id_t seen =
+                info.generic != type_id_t::INVALID
+                    ? substitute(member.type, m_analysis.types.get(info.generic).parameters,
+                                 info.arguments)
+                    : member.type;
+            if (!in_place(seen)) {
+                found.push_back({ .name = std::string(member.name), .type = seen });
+            }
+        }
+
+        return found;
+    }
+
+    /// A Struct's or Class's Properties a loop goes over, its own and inherited, or its own
+    /// Static Fields, or of those, the ones code at `settable` can set. Other types have none.
+    [[nodiscard]] std::vector<symbol_id_t>
+    reflected_members(const type_id_t type, const member_kind_t kind,
+                      const std::optional<span_t> settable = std::nullopt) const {
         if (type == type_id_t::INVALID || !(is_struct(type) || is_class(type))) {
             return {};
         }
 
-        std::vector<field_t> found;
+        std::vector<symbol_id_t> found;
+        std::vector<std::string_view> names;
         for (type_id_t current = type; current != type_id_t::INVALID;
              current = is_class(current) ? base_of(current) : type_id_t::INVALID) {
             const auto declared = m_declared_types.find(definition_of(current));
@@ -10890,7 +10979,8 @@ private:
                     kind == member_kind_t::PROPERTY
                         ? member.kind == symbol_kind_t::PROPERTY && !member.modifiers.is_static
                         : member.kind == symbol_kind_t::GLOBAL;
-                if (!wanted || std::ranges::contains(found, member.name, &field_t::name)) {
+                if (!wanted || std::ranges::contains(names, member.name) ||
+                    (settable && !settable_at(id, *settable))) {
                     continue;
                 }
 
@@ -10901,14 +10991,8 @@ private:
                     continue;
                 }
 
-                const type_id_t seen =
-                    info.generic != type_id_t::INVALID
-                        ? substitute(member.type, m_analysis.types.get(info.generic).parameters,
-                                     info.arguments)
-                        : member.type;
-                if (!in_place(seen)) {
-                    found.push_back({ .name = std::string(member.name), .type = seen });
-                }
+                names.push_back(member.name);
+                found.push_back(id);
             }
 
             if (kind == member_kind_t::STATIC_FIELD) {
@@ -10992,6 +11076,7 @@ private:
                 .interface = bound.interface,
                 .field = field,
                 .members = loop.kind,
+                .settable = picks_set(loop) ? std::optional(m_ast.get(id).span) : std::nullopt,
             });
         }
 
@@ -11215,20 +11300,22 @@ private:
     /// never changes once its initializer runs, in source order with the Globals, so one of a
     /// Sendable type is read from any thread, as a Sendable Const is.
     void note_thread_use(const symbol_id_t id, const span_t span) {
-        const std::optional<symbol_id_t> code = current_code();
-        if (!code) {
-            return;
+        if (const std::optional<symbol_id_t> code = current_code()) {
+            note_thread_use(*code, id, span);
         }
+    }
 
+    /// The same, for `code`'s use.
+    void note_thread_use(const symbol_id_t code, const symbol_id_t id, const span_t span) {
         const symbol_t& used = symbol(id);
         const auto main_only = [&](std::string what, const type_id_t type = type_id_t::INVALID,
                                    std::string rest = {}) {
-            add_main_only(*code, main_only_t{
-                                     .what = std::move(what),
-                                     .span = span,
-                                     .type = type,
-                                     .rest = std::move(rest),
-                                 });
+            add_main_only(code, main_only_t{
+                                    .what = std::move(what),
+                                    .span = span,
+                                    .type = type,
+                                    .rest = std::move(rest),
+                                });
         };
 
         // "uses the Static Field 'Enemy.count', which ...", with its type apart.
@@ -11279,7 +11366,7 @@ private:
         case symbol_kind_t::FUNCTION:
         case symbol_kind_t::METHOD:
         case symbol_kind_t::CONSTRUCTOR:
-            add_reach(*code, id);
+            add_reach(code, id);
             if (used.modifiers.is_main_thread) {
                 names("calls", "which is @MainThread");
             } else if (used.modifiers.is_async) {
@@ -11290,13 +11377,112 @@ private:
         case symbol_kind_t::PROPERTY:
             for (const std::optional<symbol_id_t> accessor : { used.getter, used.setter }) {
                 if (accessor) {
-                    add_reach(*code, *accessor);
+                    add_reach(code, *accessor);
                 }
             }
 
             break;
         default:
             break;
+        }
+    }
+
+    /// What each loop's Get, Set, and Call run, for the thread rules: over a type, its members',
+    /// and over a type parameter, the members of each type a call, an instance, or a type that
+    /// implements an Interface, for its Self, gives it, or gives a type parameter that's given
+    /// to it.
+    void note_reflected_uses() {
+        if (m_reflected_uses.empty()) {
+            return;
+        }
+
+        std::unordered_map<type_id_t, std::vector<type_id_t>> given;
+        for (const expr_info_t& expr : m_analysis.exprs) {
+            if (!expr.symbol || expr.type_arguments.empty()) {
+                continue;
+            }
+
+            // An Interface's member's are the type for Self and the Interface's, which its
+            // instance has.
+            const symbol_t& callee = symbol(*expr.symbol);
+            if (callee.type_parameters.size() != expr.type_arguments.size() ||
+                (callee.owner != type_id_t::INVALID && is_interface(callee.owner))) {
+                continue;
+            }
+
+            for (std::size_t i = 0; i < callee.type_parameters.size(); ++i) {
+                given[callee.type_parameters[i]].push_back(expr.type_arguments[i]);
+            }
+        }
+
+        for (std::size_t i = 0; i < m_analysis.types.size(); ++i) {
+            const type_t& info = m_analysis.types.get(static_cast<type_id_t>(i));
+            if (info.generic == type_id_t::INVALID) {
+                continue;
+            }
+
+            const std::vector<type_id_t>& parameters =
+                m_analysis.types.get(info.generic).parameters;
+            for (std::size_t j = 0; j < parameters.size() && j < info.arguments.size(); ++j) {
+                given[parameters[j]].push_back(info.arguments[j]);
+            }
+        }
+
+        for (const conformance_t& conformance : m_analysis.conformances) {
+            given[self_of(definition_of(conformance.interface))].push_back(conformance.type);
+        }
+
+        // The types a type parameter may be, through the ones given to it.
+        const auto types_for = [&](const type_id_t parameter) {
+            std::vector<type_id_t> found;
+            std::unordered_set<type_id_t> seen{ parameter };
+            std::vector<type_id_t> pending{ parameter };
+            while (!pending.empty()) {
+                const type_id_t next = pending.back();
+                pending.pop_back();
+                for (const type_id_t type : given[next]) {
+                    if (!is_parameter(type)) {
+                        if (!std::ranges::contains(found, type)) {
+                            found.push_back(type);
+                        }
+                    } else if (seen.insert(type).second) {
+                        pending.push_back(type);
+                    }
+                }
+            }
+
+            return found;
+        };
+
+        for (const reflected_use_t& use : m_reflected_uses) {
+            const type_id_t owner = non_null(use.owner);
+            const std::vector<type_id_t> types =
+                is_parameter(owner) ? types_for(owner) : std::vector{ owner };
+            for (const type_id_t type : types) {
+                if (use.kind == member_kind_t::METHOD) {
+                    const auto pattern = m_loop_methods.find(use.loop);
+                    if (pattern == m_loop_methods.end()) {
+                        continue;
+                    }
+
+                    for (const loop_method_t& method : loop_methods(type, pattern->second)) {
+                        note_thread_use(use.code, method.symbol, use.span);
+                    }
+
+                    continue;
+                }
+
+                const std::optional<span_t> settable =
+                    use.set ? std::optional(m_ast.get(use.loop).span) : std::nullopt;
+                for (const symbol_id_t member : reflected_members(type, use.kind, settable)) {
+                    if (use.kind == member_kind_t::STATIC_FIELD) {
+                        note_thread_use(use.code, member, use.span);
+                    } else if (const std::optional<symbol_id_t> accessor =
+                                   use.set ? setter_of(member) : getter_of(member)) {
+                        add_reach(use.code, *accessor);
+                    }
+                }
+            }
         }
     }
 
@@ -11321,6 +11507,7 @@ private:
     /// of a Method reaches what overrides it, and of an Interface's Method, what implements it;
     /// a New reaches its Class's Destroy(). The error says how the code gets there.
     void check_threads() {
+        note_reflected_uses();
         std::unordered_map<symbol_id_t, std::vector<symbol_id_t>> also;
         for (std::size_t i = 0; i < m_analysis.symbols.size(); ++i) {
             const auto id = static_cast<symbol_id_t>(i);
@@ -16679,9 +16866,15 @@ private:
                               node.type_name
                                   ? std::string(node.type_name->text)
                                   : std::format("{}{}", unnamed_member_type, node.variable.text));
+            // "Where f Has Set" picks the Fields, Properties, or Static Fields its code can set.
+            const bool setting = picks_set(node);
+            m_analysis.stmts[index(id)].picks_settable = setting;
+            m_analysis.stmts[index(id)].within =
+                class_at(m_ast.get(id).span).value_or(type_id_t::INVALID);
             bounds = resolve_constraints(node.constraints, { field });
             for (bound_t& bound : bounds) {
                 bound.members = node.kind;
+                bound.settable = setting ? std::optional(m_ast.get(id).span) : std::nullopt;
             }
 
             if (!is_parameter(type)) {
@@ -16689,13 +16882,13 @@ private:
             }
         }
 
-        if (!methods && !node.picks.empty()) {
+        if (!methods && !node.picks.empty() && !picks_set(node)) {
             constexpr auto loops =
                 std::to_array<std::string_view>({ "Field", "Method", "Property", "Static Field" });
             error(span_of(node.picks.front().front()),
-                  "a For {} loop's body tests '{}.Has(A)'; only a For Method loop picks its "
-                  "members with a Where line",
-                  loops[std::to_underlying(node.kind)], node.variable.text);
+                  "a For {} loop's Where line picks only the ones its code can set, with "
+                  "'Where {} Has Set'; its body tests '{}.Has(A)' for an Attribute",
+                  loops[std::to_underlying(node.kind)], node.variable.text, node.variable.text);
         }
 
         std::vector<type_id_t> fresh;
@@ -16762,7 +16955,7 @@ private:
     void check_fields(const type_id_t type, const std::vector<bound_t>& bounds, const span_t span,
                       const member_kind_t kind) {
         for (const bound_t& bound : bounds) {
-            for (const field_t& field : reflected_types(type, kind)) {
+            for (const field_t& field : reflected_types(type, kind, bound.settable)) {
                 const type_id_t wanted =
                     substitute(bound.interface, { bound.parameter }, { field.type });
                 if (!implements(field.type, wanted)) {
@@ -17054,16 +17247,31 @@ private:
 
     /// The fields a For Field loop goes over: a Struct's, a Class's, or a tuple's, or a T?'s T's,
     /// whose declarations it reads. Other types have none.
-    [[nodiscard]] std::vector<field_t> reflected_fields(const type_id_t type) const {
+    [[nodiscard]] std::vector<field_t>
+    reflected_fields(const type_id_t type,
+                     const std::optional<span_t> settable = std::nullopt) const {
         const type_id_t inner = all_non_null(type);
         if (inner == type_id_t::INVALID ||
             !(is_struct(inner) || is_class(inner) || is_tuple(inner))) {
             return {};
         }
 
+        // f.Set can't reach a T?'s T, so "Where f Has Set" picks none of its fields.
+        if (settable && inner != type) {
+            return {};
+        }
+
         // An Atomic or Mutex can't be copied, so f.Get(value) can't give one.
-        std::vector<field_t> fields = m_analysis.types.get(inner).fields;
-        std::erase_if(fields, [this](const field_t& field) { return in_place(field.type); });
+        const std::vector<field_t>& all = m_analysis.types.get(inner).fields;
+        std::vector<field_t> fields;
+        for (std::uint32_t i = 0; i < all.size(); ++i) {
+            const std::optional<symbol_id_t> declared =
+                settable ? field_symbol(inner, i) : std::nullopt;
+            if (!in_place(all[i].type) && (!declared || settable_at(*declared, *settable))) {
+                fields.push_back(all[i]);
+            }
+        }
+
         return fields;
     }
 
@@ -17108,12 +17316,12 @@ private:
                                "Call(value, ...)",
                                found.name, shown_name(found.owner));
         case member_kind_t::PROPERTY:
-            return std::format("'{}' is a Property of {}; it has Name, Get(value), Has(A), and "
-                               "Attribute(A)",
+            return std::format("'{}' is a Property of {}; it has Name, Get(value), "
+                               "Set(ByRef value, x), Has(A), and Attribute(A)",
                                found.name, shown_name(found.owner));
         case member_kind_t::STATIC_FIELD:
-            return std::format("'{}' is a Static Field of {}; it has Name, Get(), Has(A), and "
-                               "Attribute(A)",
+            return std::format("'{}' is a Static Field of {}; it has Name, Get(), Set(x), Has(A), "
+                               "and Attribute(A)",
                                found.name, shown_name(found.owner));
         case member_kind_t::FIELD:
             break;
@@ -17125,8 +17333,9 @@ private:
     }
 
     /// "f.Get(value)", "f.Set(ByRef value, x)", "f.Has(A)", "f.Attribute(A)", or
-    /// "m.Call(value)": what a field or Method does in each copy of its loop's body. An
-    /// attribute is named by its Attribute.
+    /// "m.Call(value)": what a field, Property, Static Field, or Method does in each copy of its
+    /// loop's body, where a Static Field's Get and Set take no value. An attribute is named by
+    /// its Attribute.
     type_id_t check_member_call(const expr_id_t id, const call_expr_t& node,
                                 const symbol_id_t variable, const name_t& member) {
         info(id).symbol = variable;
@@ -17160,15 +17369,34 @@ private:
             expect_type(argument.value, found.owner);
         };
 
+        // What a copy's Get, Set, or Call runs, for the thread rules.
+        const auto runs = [&](const bool set) {
+            if (const std::optional<symbol_id_t> code = current_code(); code && found.declaration) {
+                m_reflected_uses.push_back({
+                    .code = *code,
+                    .owner = found.owner,
+                    .kind = kind,
+                    .set = set,
+                    .span = span_of(id),
+                    .loop = *found.declaration,
+                });
+            }
+        };
+
         // A Static Field's Get takes nothing.
         if (member.text == "Get" && kind == member_kind_t::STATIC_FIELD) {
             takes(0);
+            runs(false);
             return found.type;
         }
 
         if (member.text == "Get" && !method) {
             if (takes(1)) {
                 value_of_owner(arguments[0]);
+            }
+
+            if (kind == member_kind_t::PROPERTY) {
+                runs(false);
             }
 
             return found.type;
@@ -17201,10 +17429,28 @@ private:
 
             check_throws(id, std::format("{}.Call", found.name),
                          m_analysis.types.get(signature).throws);
+            runs(false);
             return m_analysis.types.get(signature).inner;
         }
 
-        if (member.text == "Set" && kind == member_kind_t::FIELD) {
+        // A Static Field's Set takes what it's set to.
+        if (member.text == "Set" && kind == member_kind_t::STATIC_FIELD) {
+            if (takes(1)) {
+                std::vector<access_t> by_ref;
+                const symbol_id_t given = add_symbol({
+                    .kind = symbol_kind_t::PARAMETER,
+                    .name = "x",
+                    .type = found.type,
+                });
+                check_argument(arguments[0], given, by_ref);
+            }
+
+            runs(true);
+            return type_id_t::NONE;
+        }
+
+        if (member.text == "Set" &&
+            (kind == member_kind_t::FIELD || kind == member_kind_t::PROPERTY)) {
             if (takes(2)) {
                 std::vector<access_t> by_ref;
                 const symbol_id_t target = add_symbol({
@@ -17220,6 +17466,10 @@ private:
                 });
                 check_argument(arguments[0], target, by_ref);
                 check_argument(arguments[1], given, by_ref);
+            }
+
+            if (kind == member_kind_t::PROPERTY) {
+                runs(true);
             }
 
             return type_id_t::NONE;
