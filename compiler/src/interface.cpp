@@ -35,6 +35,9 @@ constexpr std::string_view binary_start = "// fblib ";
 constexpr std::string_view bundled_start = "// bundled";
 constexpr std::string_view module_start = "// module ";
 constexpr std::string_view uses_start = "// uses ";
+/// First in a module's part, when it has any: the names of its top-level Package declarations,
+/// which the interface file leaves out, so a message to the library's tests can say one is.
+constexpr std::string_view package_start = "// package ";
 /// Before each declaration, and a module's doc comment: the line of the library's source that the
 /// lines after it start at, the doc comment's first, which fb doc names.
 constexpr std::string_view line_start = "// line ";
@@ -245,7 +248,7 @@ public:
 
         std::string body;
         for (std::size_t module = 0; module < m_modules.size(); ++module) {
-            const std::string text = module_text(module);
+            const std::string text = package_names(module) + module_text(module);
             const auto lines = std::ranges::count(text, '\n');
             body += std::format("{}{} {}\n{}", module_start, m_modules[module].module->path, lines,
                                 text);
@@ -259,6 +262,33 @@ public:
     }
 
 private:
+    /// The `// package` line of a module's top-level Package declarations' names, or nothing.
+    [[nodiscard]] std::string package_names(const std::size_t module) const {
+        std::set<std::string_view> names;
+        for (const symbol_t& symbol : m_analysis.symbols) {
+            if (symbol.declaration && symbol.owner == type_id_t::INVALID &&
+                symbol.modifiers.visibility == visibility_t::PACKAGE &&
+                module_index(symbol.span.file) == module &&
+                (symbol.kind == symbol_kind_t::FUNCTION || symbol.kind == symbol_kind_t::GLOBAL ||
+                 symbol.kind == symbol_kind_t::CONSTANT || symbol.kind == symbol_kind_t::TYPE ||
+                 symbol.kind == symbol_kind_t::ALIAS)) {
+                names.insert(symbol.name);
+            }
+        }
+
+        if (names.empty()) {
+            return {};
+        }
+
+        std::string line(package_start);
+        for (const std::string_view name : names) {
+            line += std::string(name) + " ";
+        }
+
+        line.back() = '\n';
+        return line;
+    }
+
     diagnostic_bag_t& m_diagnostics;
     const ast_t& m_ast;
     const analysis_t& m_analysis;
@@ -1006,21 +1036,26 @@ private:
             return text + "]";
         }
         case type_kind_t::WEAK:
-            return std::format("Weak<{}>", type_text(module, type.inner));
+            return std::format("{}<{}>", builtin_name(module, "Weak"),
+                               type_text(module, type.inner));
         case type_kind_t::PTR:
-            return type.inner == type_id_t::NONE
-                       ? std::string("Ptr<Void>")
-                       : std::format("Ptr<{}>", type_text(module, type.inner));
+            return std::format("{}<{}>", builtin_name(module, "Ptr"),
+                               type.inner == type_id_t::NONE ? std::string("Void")
+                                                             : type_text(module, type.inner));
         case type_kind_t::ATOMIC:
-            return std::format("Atomic<{}>", type_text(module, type.inner));
+            return std::format("{}<{}>", builtin_name(module, "Atomic"),
+                               type_text(module, type.inner));
         case type_kind_t::MUTEX:
-            return std::format("Mutex<{}>", type_text(module, type.inner));
+            return std::format("{}<{}>", builtin_name(module, "Mutex"),
+                               type_text(module, type.inner));
         case type_kind_t::CHANNEL:
-            return std::format("Channel<{}>", type_text(module, type.inner));
+            return std::format("{}<{}>", builtin_name(module, "Channel"),
+                               type_text(module, type.inner));
         case type_kind_t::TASK: {
+            const std::string task = builtin_name(module, "Task");
             std::string text = type.inner == type_id_t::NONE
-                                   ? std::string("Task")
-                                   : std::format("Task<{}>", type_text(module, type.inner));
+                                   ? task
+                                   : std::format("{}<{}>", task, type_text(module, type.inner));
             return type.throws.empty() ? text
                                        : std::format("{} Throws {}", text, list(type.throws));
         }
@@ -1051,6 +1086,8 @@ private:
         }
         case type_kind_t::SCHEDULER:
             return builtin_name(module, "Scheduler");
+        case type_kind_t::THREAD:
+            return builtin_name(module, "Thread");
         default:
             return type.name;
         }
@@ -1083,27 +1120,31 @@ private:
         return wrapped ? std::format("({})", type_text(module, id)) : type_text(module, id);
     }
 
-    /// A built-in type's name, `name`, which the interface file can write only where the module
-    /// has no type of that name, of its own or from an Import, which would take its place.
+    /// A built-in type's name, `name`, which the interface file can write only where the
+    /// module's code sees no type of that name that would take its place, its own or one an
+    /// Import brings in, as analysis found them.
     std::string builtin_name(module_text_t& module, const std::string_view name) {
         const module_table_t& modules = m_ast.modules();
-        const auto seen = [&](const file_id_t file) {
-            const std::optional<module_id_t> declared = modules.of(file);
-            return declared &&
-                   (&modules.get(*declared) == module.module ||
-                    std::ranges::any_of(module.module->imports, [&](const module_import_t& each) {
-                        return std::ranges::contains(each.modules, *declared);
-                    }));
-        };
-        const bool hidden = std::ranges::any_of(m_analysis.symbols, [&](const symbol_t& symbol) {
-            return (symbol.kind == symbol_kind_t::TYPE || symbol.kind == symbol_kind_t::ALIAS) &&
-                   symbol.declaration && symbol.name == name && seen(symbol.span.file);
-        });
-        if (hidden) {
+        const std::optional<module_id_t> here = modules.of(module.module->file);
+        if (!here || std::to_underlying(*here) >= m_analysis.builtin_hiders.size()) {
+            return std::string(name);
+        }
+
+        const auto& hiders = m_analysis.builtin_hiders[std::to_underlying(*here)];
+        if (const auto hider = hiders.find(name); hider != hiders.end()) {
+            const symbol_t& hiding = m_analysis.symbols[std::to_underlying(hider->second)];
+            const std::optional<module_id_t> from = modules.of(hiding.span.file);
+            std::string whose = "an imported";
+            if (from == here) {
+                whose = "the module's own";
+            } else if (from) {
+                whose = std::format("{}'s", modules.get(*from).name);
+            }
+
             m_diagnostics.error(m_typed.span,
                                 "this library's interface file names the built-in {} for '{}', "
-                                "which the module's own {} hides; name that type another way",
-                                name, m_typed.text, name);
+                                "which {} {} hides; name that type another way",
+                                name, m_typed.text, whose, name);
             m_failed = true;
         }
 

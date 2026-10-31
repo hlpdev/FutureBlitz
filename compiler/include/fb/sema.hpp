@@ -12,6 +12,7 @@
 #include <deque>
 #include <expected>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -527,6 +528,11 @@ struct analysis_t { // NOLINT(bugprone-exception-escape)
     /// Each use of a symbol, in the order the code is checked. Code checked more than once, as
     /// in a For Field loop's copies, has its uses here each time.
     std::vector<symbol_use_t> uses;
+    /// For each module, by its module_id_t, the types and Aliases that take the places of the
+    /// built-in types of their names in its code, as Object, Task, or Weak, by the name: its own,
+    /// or one an Import brings in without a qualifier, which a library's interface file can't
+    /// write the built-in under.
+    std::vector<std::map<std::string, symbol_id_t, std::less<>>> builtin_hiders;
 
     [[nodiscard]] const symbol_t& symbol(const symbol_id_t id) const {
         return symbols[std::to_underlying(id)];

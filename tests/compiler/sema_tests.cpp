@@ -2430,6 +2430,22 @@ TEST_CASE("every Class's object is an Object, which 'As?' turns back into a Clas
     CHECK(errors_of(with_family("Function Object(): Int => 1\nLocal x: Object = B()")).empty());
     CHECK(errors_of("Function Scheduler(): Int => 1\nFunction F(s: Scheduler)\nEnd Function")
               .empty());
+    // As it does for every built-in type's name, and a call with type arguments, which a Function
+    // that isn't generic doesn't take, makes the built-in.
+    CHECK(errors_of("Class Rock\nEnd Class\n"
+                    "Async Function Later(): Int\n    Return 1\nEnd Function\n"
+                    "Function Task(): Int => 3\nFunction Channel(): Int => 4\n"
+                    "Function Thread(): Int => 5\nFunction Weak(): Int => 6\n"
+                    "Function Ptr(): Int => 7\nFunction Atomic(): Int => 8\n"
+                    "Function Mutex(): Int => 9\n"
+                    "Local t: Task<Int> = Later()\n"
+                    "Local c: Channel<Int> = Channel<Int>(2)\n"
+                    "Global a = Atomic<Int>(0)\n"
+                    "Global m = Mutex<Int>(0)\n"
+                    "Function Kinds(h: Thread?, w: Weak<Rock>, p: Ptr<Int>, ByRef x: Atomic<Int>, "
+                    "ByRef y: Mutex<Int>)\nEnd Function\n"
+                    "Local n = Task() + Channel() + Thread() + Weak() + Ptr() + Atomic() + Mutex()")
+              .empty());
 
     // Beside a module's own Object, the built-in says what it is.
     CHECK(errors_with("Import \"./things\"\nImport \"./keeper\"\nLocal c: Object = MakeAny()",
