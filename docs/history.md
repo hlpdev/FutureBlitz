@@ -96,25 +96,25 @@ with `--`, which Catch2 took as an option, so ctest never ran it, is "a --regist
 
 ## E1, app and input
 
-Steps 3 to 7 (2026-10-31, the input lane, landed at 3698cf3; steps 1 and 2 came with E0). Step 3 added the
-keyboard: `Key` by position, `KeyDown`, `KeyHit`, and `KeyUp` counted per Flip, `FlushKeys`, and
-text input with IME composition (`TextInput()`, `StartTextInput`, `StopTextInput`), with Simulate's
-keys and text for tests. Step 4 added the mouse: position in window units, the wheel, speeds since
-the last Flip, buttons, `MoveMouse`, the cursor, and relative mode for mouse look, with no warp
-emulation. Step 5 added gamepads and joysticks: buttons, axes past round dead zones, rumble,
-connections, GUIDs, serials, and player indices, raw joysticks, and Simulate's virtual devices; OS
-devices go by the OS's own IDs. Step 6 added input actions: an `ActionSet` of `Action`s bound to
-keys, buttons, and axes, one- and two-axis, read at each Flip (`Down`, `Hit`, `Up`, `Value`,
-`Vector`), saved and loaded as TOML, rebound from the next input pressed (`InputPressed`), with
-`Binding.Reads` and `ActionSet.BoundTo` for a bindings menu; examples/controls shows them. Step 7
-added `ShowMessage` and `OpenURL` in a new app area, which open nothing headless (`OpenedURLs()`
-for tests), and the done-when, every kind of input read in one Flip. Six reviews' findings were
-all fixed with tests, among them presses counted for a key held when a set was turned on
-or rebound, Ups lost to a rebind, a handover between bindings counted as a press, two pads on one
-button counted twice, scales that weren't finite, links Windows' shell opens as other files for
-non-ASCII and UNC paths, a closed window's mouse position kept, and the headless guard misreading
-SDL's driver list. A seeded fuzz of presses and releases over several bindings and pads checks
-that every Flip's Hits and Ups are what some order of its events would give.
+Steps 3 to 7 (2026-10-31, the input lane, landed at 3698cf3; steps 1 and 2 came with E0). Step 3
+added the keyboard: `Key` by position, `KeyDown`, `KeyHit`, and `KeyUp` counted per Flip,
+`FlushKeys`, and text input with IME composition (`TextInput()`, `StartTextInput`, `StopTextInput`),
+with Simulate's keys and text for tests. Step 4 added the mouse: position in window units, the
+wheel, speeds since the last Flip, buttons, `MoveMouse`, the cursor, and relative mode for mouse
+look, with no warp emulation. Step 5 added gamepads and joysticks: buttons, axes past round dead
+zones, rumble, connections, GUIDs, serials, and player indices, raw joysticks, and Simulate's
+virtual devices; OS devices go by the OS's own IDs. Step 6 added input actions: an `ActionSet` of
+`Action`s bound to keys, buttons, and axes, one- and two-axis, read at each Flip (`Down`, `Hit`,
+`Up`, `Value`, `Vector`), saved and loaded as TOML, rebound from the next input pressed
+(`InputPressed`), with `Binding.Reads` and `ActionSet.BoundTo` for a bindings menu;
+examples/controls shows them. Step 7 added `ShowMessage` and `OpenURL` in a new app area, which open
+nothing headless (`OpenedURLs()` for tests), and the done-when, every kind of input read in one
+Flip. Six reviews' findings were all fixed with tests, among them presses counted for a key held
+when a set was turned on or rebound, Ups lost to a rebind, a handover between bindings counted as a
+press, two pads on one button counted twice, scales that weren't finite, links Windows' shell opens
+as other files for non-ASCII and UNC paths, a closed window's mouse position kept, and the headless
+guard misreading SDL's driver list. A seeded fuzz of presses and releases over several bindings and
+pads checks that every Flip's Hits and Ups are what some order of its events would give.
 
 ## E10, fbengine_physics
 
