@@ -182,7 +182,13 @@ scheduler's run_until slept 1 ms with sleep_for while a timer was due, which Win
 sleeps on a thread's high-resolution waitable timer (CreateWaitableTimerExW with
 CREATE_WAITABLE_TIMER_HIGH_RESOLUTION), or before Windows 10 1803 with winmm's timeBeginPeriod(1),
 loaded then, for the sleep alone; run_until and fb_time_sleep use it. tests/programs/
-time_realwait.fb waits and sleeps a millisecond 100 times, each under 300 ms.
+time_realwait.fb waits and sleeps a millisecond 100 times, each under 1 s, which still catches
+Windows' tick (1.56 s): a loaded macOS runner took 795 ms, over the 300 ms it first had.
+
+A write to a child's closed stdin is EPIPE on every OS, as "broken pipe" (master's macOS CI found
+it): macOS's stdio pipes are socketpairs, where libuv gives ENOTCONN, "socket is not connected",
+which process.cpp's `write_error()` takes as EPIPE, as it does Windows' UV_EOF. os_process's
+"during:" line on macOS CI is its test.
 
 A TGA that ends before its pixels do is an IOError of INVALID_DATA (fbengine's GPU review found
 it): stb_image read what's past the end as 0s, so an 18-byte header of a 16384 by 16384 image
