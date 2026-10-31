@@ -1,83 +1,64 @@
 # Engine
 
-The engine is phase 2, after phase 1 (M0 to M10). Its milestones are E0 to E14, below; each
-module's API is designed in its milestone.
+The engine is phase 2, after phase 1 (M0 to M10): **fbengine**, in its own public repository,
+hlpdev/fbengine, under Apache-2.0. This doc is the summary; fbengine's own docs have the rest:
+docs/plan.md (the milestones' steps, what each needs, and the lanes), docs/architecture.md (how it
+fits together), docs/questions.md (what waits on the user), and docs/research/ (read-throughs of
+Blitz3D's and SCP: Containment Breach's source).
 
 The engine is packages built on top of FutureBlitz, never part of the language (the user,
 2026-10-30). The language, compiler, runtime, std, and spec depend on none of its features: it
 uses what any library can, Extern blocks over its C API, `@MainThread`, and the main scheduler's
 `Scheduler.Main.Step()`, and a program uses it by importing its packages.
 
-Its goal: any Blitz3D game can be remade with it, looking nearly identical, and a modern game can
-be made with it from the start.
+Its goal: a good modern engine, on which SCP: Containment Breach is remade 1-to-1 at the end of
+phase 2, feeling nearly identical. fbengine copies none of Blitz3D's quirks: it follows std.math
+(right-handed, Y up, -Z forward, radians) and loads modern formats only; the remake converts its
+assets and reproduces what it needs in game code (the user, 2026-10-31).
 
 ## Packages
 
-The engine is **fbengine**, in its own public repository, hlpdev/fbengine, under Apache-2.0. Its
-packages are released together, at one version (the user, 2026-10-30):
+Released together, at one version (the user, 2026-10-30):
 
 | Package | What's in it | Native code |
 |---|---|---|
-| `fbengine` | the window, input and gamepads, the frame loop and `Flip`, timing; 2D: images, drawing, fonts; the 3D scene: entities, cameras, lights, meshes, terrain, sprites; animation; the renderer, Blitz's look and PBR; loading assets; Blitz's collisions and picks, in `UpdateWorld` | one DLL: SDL3, Vulkan through volk and VMA, fastgltf, KTX |
-| `fbengine_audio` | sounds, channels, 3D sound, streamed music, buses, effects | one DLL: miniaudio |
+| `fbengine` | the window, input, the frame loop and `Flip`, timing; 2D; the scene: entities, cameras, lights, geometry, materials, sprites, collisions, picks; animation; the renderer; loading assets | one DLL: SDL3, Vulkan through volk and VMA, fastgltf, KTX |
+| `fbengine_audio` | sounds, channels, streams, 3D sound, buses, effects | one DLL: miniaudio |
 | `fbengine_physics` | rigid bodies, shapes, joints, the character controller, triggers, casts | one DLL: Jolt |
-| `fbengine_ui` | a game's UI: widgets, layout, themes, gamepad focus; and a debug UI | none, on fbengine's 2D |
-| `fbengine_tools` | the cooker, pak files, typed references, and the mesh converter for .b3d, .x, and .3ds | none |
-
-The editor and the migrator are programs built on these.
+| `fbengine_ui` | a game's UI: widgets, layout, themes, focus; a debug UI and console | none, on fbengine's 2D |
+| `fbengine_video` | video into a texture, with its sound | one DLL: a decoder |
+| `fbengine_tools` | the cooker, pak files, typed references, and converters from legacy formats (.b3d, .x, .3ds) | none |
 
 - The split is where a game can do without a part: a 2D game without Jolt and 3D, a server
   without a window, audio and physics without each other. The window, the GPU device, 2D, the
-  scene, and the renderer share one window, device, and frame, and every Blitz3D game uses them
-  together, so they're one package.
-- Each package's DLL is called only by its own FB code, so no package's C++ links to another's:
-  physics gets a mesh's vertices from fbengine's FB API and hands them to Jolt, as M7 step 6's
-  stand-in did with one DLL per package.
+  scene, and the renderer share one window, device, and frame, so they're one package.
+- Each package's DLL is called only by its own FB code, so no package's C++ links to another's.
 - Each DLL is C++23 behind a C API of fixed-size types, wrapped by FB code through fb-bindgen's
-  bindings, with its C++ runtime linked in, as tests/native/engine is.
+  bindings, with its C++ runtime linked in, and exports only its C API.
 
 ## Milestones
 
-Each is done when its last column holds. Tests render headless, on lavapipe or SwiftShader in
-CI and SDL's offscreen driver, and never open a window on a developer's machine; macOS's
-rendering is checked on Apple silicon in CI and on an Intel Mac by hand.
+Tests never open a window: SDL's offscreen video, and Vulkan on lavapipe and MoltenVK in CI.
 
 | | Goal | Done when |
 |---|---|---|
-| **E0** | Setup: the repository, CMake, CI building each DLL for every target into its package's archives, trusted publishing, headless rendering in CI | a hello package is added with `fb add` and runs on Windows, Linux, and macOS (2026-10-31, from staging) |
-| **E1** | App and input: SDL3 windows and graphics modes, fullscreen and high DPI, frame timing, `Flip` stepping `Scheduler.Main`; keyboard, mouse, gamepads, text input, input actions and rebinding | under the offscreen driver, a test reads input and its coroutines resume once per frame |
-| **E2** | The GPU core: Vulkan through volk and VMA, the swapchain and frames in flight, shaders in Slang compiled to SPIR-V, bindless textures, offscreen targets, MoltenVK on macOS | a triangle and a textured quad match their golden images |
-| **E3** | 2D: Blitz's 2D commands, modernized: images, frames, handles, and masks, primitives, text and fonts, viewports and origins, pixel access through a CPU staging path, CopyRect, image collisions, drawing into images, batched sprites | a whole small arcade game runs, and its frames match their golden images |
-| **E4** | The scene: entities and the hierarchy, every transform and TForm, cameras (projection, viewports, picking, fog), lights, meshes and surfaces, the primitive shapes, sprites, terrain, BSP and MD2, EntityFX, EntityOrder, alpha, auto-fade; Blitz's collisions and picks | transforms, picks, and collision responses match Blitz3D's source |
-| **E5** | The Blitz look: `Shading.VERTEX`, DX7's fixed-function lighting, linear fog, every TextureBlend mode, eight texture layers, texture flags, sphere and cube maps, Blitz's alpha sorting | reference scenes match screenshots taken in Blitz3D within a tolerance |
-| **E6** | The modern renderer: PBR with glTF's materials, image-based lighting, cascaded, spot, and point shadows, HDR and tonemapping, bloom, SSAO, TAA, FXAA, and MSAA, clustered lights, instancing, culling and LOD, GPU particles, decals, sky, materials with their own shaders | Khronos's glTF sample models match their reference images |
-| **E7** | Animation: skeletons from glTF and .b3d, blending, morph targets, vertex animation, Blitz's Animate, SetAnimTime, and ExtractAnimSeq | animated sample models match their reference frames |
-| **E8** | Assets: `res://` paths on std.vfs, a refcounted cache, async loading with progress, sidecar import settings, the cooker (BC7 and ASTC in KTX2, meshoptimizer), pak files, typed references, hot reload | a game runs from cooked paks in a release build and reloads changed assets in a dev build |
-| **E9** | Audio: Blitz's sound commands, channels, 3D sound with Doppler, streaming, buses, effects | on miniaudio's null backend, tests mix to known buffers |
-| **E10** | Physics: Jolt's bodies, shapes, joints, character controller, triggers, and casts, deterministic when asked | Jolt's sample scenes stay stable, and a deterministic run repeats exactly |
-| **E11** | UI: widgets, layout, themes, gamepad focus, SDF text, localization hooks, a debug UI | a sample game's menus and HUD work with a mouse and with a gamepad |
-| **E12** | The editor: code on fb-lsp, a scene editor and inspector, an asset browser, play in the editor, the debugger | a scene is made, saved, played, and debugged in the editor |
-| **E13** | The migrator ([migration.md](migration.md)): a .bb parser after Blitz3D's source, the deterministic translation to fbengine's API, the AI-assisted pass, the mesh converter | the sample games that come with Blitz3D translate and run |
-| **E14** | The proof: SCP: Containment Breach ported end to end, looking nearly identical, and a modern showcase game | both run on Windows, Linux, and macOS |
+| **E0** | Setup: the repository, CI on every target, publishing, headless Vulkan | a hello package is added with `fb add` and runs on Windows, Linux, and macOS (2026-10-31, from staging) |
+| **E1** | App and input: the window, Flip and timing, keyboard, mouse, gamepads and joysticks, actions | a test under the offscreen driver reads every kind of input, and coroutines resume once per frame (steps 1 and 2 done, 2026-10-31) |
+| **E2** | The GPU core: Vulkan, the swapchain, shaders, textures, render targets and readback, the frame graph | golden images of a triangle, a textured quad, and a readback match |
+| **E3** | 2D: drawing, textures, text, pixel access, 2D collisions | a small arcade game runs, and its frames match their golden images |
+| **E4** | The scene: worlds, entities, transforms, cameras, lights, geometry, materials, visibility, collisions, picks, sprites, fixed steps | transforms, visibility, collisions, and picks pass their tests, with no GPU |
+| **E5** | Drawing the scene: materials with layers and lightmaps, clustered lights, transparency, cameras into textures | a lightmapped, fogged, lit room with cameras rendering to textures matches its golden images |
+| **E6** | The modern renderer: PBR, shadows, HDR, post effects, particles, instancing, custom shaders | Khronos's glTF sample models match their references |
+| **E7** | Animation: skeletons, clips and blending, bones under game control, morph targets | skinned and morphing sample models match their reference frames |
+| **E8** | Assets: the VFS and paks, loaders, the cache, legacy converters, the cooker, typed references, hot reload | a game runs from cooked paks, reloads changed files in development, and the converters turn .b3d and .x into glTF |
+| **E9** | Audio | tests mix to known buffers, and sounds follow entities |
+| **E10** | Physics | Jolt's samples stay stable, deterministic runs repeat, and bodies drive entities |
+| **E11** | UI | a sample game's menus, HUD, and console work by mouse, keyboard, and gamepad |
+| **E12** | Video | a video plays into a texture with its sound in sync |
+| **E13** | The editor | a scene is made, saved, played, and inspected in the editor |
+| **E14** | The proof: SCP:CB remade 1-to-1, and a modern showcase game | both run on Windows, Linux, and macOS |
 
 The engine's docs are `fb doc`'s, on its packages' pages; futureblitz.dev's stay the language's.
-
-## E1's steps
-
-| | Step | Adds |
-|---|---|---|
-| 1 | SDL3 and the window | SDL3 built into fbengine_native, statically, with video, events, and gamepads only, exporting only `fbe_` functions; `Graphics(width, height, mode)` and `EndGraphics()`, which throw GraphicsError; `Window`'s SetHeadless (SDL's offscreen video, for tests and servers), Title, Width and Height, PixelWidth and PixelHeight and Scale for high DPI, Mode (WINDOWED, FULLSCREEN at the closest display mode or the desktop's on a display that lists none, BORDERLESS), and Resizable; `Displays()`, each Display's name, desktop mode, and fullscreen modes (2026-10-31) |
-| 2 | Flip and frame timing | `Flip(vsync)`: present (from E2), wait for `Frame.Limit()` if one's set, read the OS's events into the next frame's input, then `Scheduler.Main.Step()`; `Frame`'s Delta, Count, Rate, and SetLimit; `Window`'s Closed (the close button, or the app's quit, until the window closes), Focused, and Minimized; `Simulate`, which pushes the window's events as the OS would, for a game's tests and replays (2026-10-31) |
-| 3 | The keyboard | `Key`, by position (scancodes), as Blitz's are; `KeyDown`, `KeyHit` and `KeyUp`, `FlushKeys()`; `TextInput()`, what was typed in the frame, with IME, and `StartTextInput()` and `StopTextInput()`; Simulate's keys and text |
-| 4 | The mouse | `MouseX`, `MouseY`, `MouseZ` (the wheel), their speeds, `MouseDown`, `MouseHit`, and `MouseUp` with `MouseButton`, `MoveMouse`, `Mouse.Visible`, and `Mouse.Relative` for mouse look |
-| 5 | Gamepads | `Gamepads()`, each Gamepad's Name, buttons (Down, Hit, Up), axes from -1 to 1 past a dead zone, Rumble, and connecting and disconnecting; tests on SDL's virtual gamepads |
-| 6 | Input actions | `Action`s bound to keys, mouse buttons, and gamepad buttons and axes, with Down, Hit, Up, and Value; two-axis actions; bindings saved and loaded as TOML; rebinding from the next input pressed |
-| 7 | Loose ends and E1's review | E1's done-when, on all five targets |
-
-- A key, button, or gamepad's Hit and Up count the presses and releases the last Flip read, so
-  every call in a frame gives the same answer: Blitz's KeyHit counted since the last call, which
-  two calls in one frame split. The migrator calls it once.
-- Tests set SDL's offscreen video driver, which every target has, so no test opens a window.
 
 ## What the engine needs from the language
 
@@ -88,114 +69,47 @@ library could use ([open-questions.md](open-questions.md)):
 | What | Needed by |
 |---|---|
 | Build steps or tools in a package, which the cooker and typed references run | E8 |
-| Setting a reflected Property or Static Field (milestones.md's Deferred work) | E12's inspector, and saving scenes |
+| Setting a reflected Property or Static Field (milestones.md's Deferred work) | E13's inspector, and saving scenes |
 | `Plugin.Load` and `DynamicLibrary` (Deferred work) | mods, and reloading game code in the editor |
 | Re-exports, so a package can hand on another's names | only an umbrella package, which the engine can do without |
 | A Callback taking or giving a Struct by value (Deferred work) | nothing, while the C APIs pass Structs by pointer |
 
 ## API style (Locked: modern)
 
-Objects with methods, not Blitz's flat global functions with int handles.
+Objects with methods, not flat global functions with int handles.
 
 ```vb
-// Blitz3D
-Local cam = CreateCamera()
-PositionEntity(cam, 0, 5, -10)
-TurnEntity(cube, 0, 1, 0)
-EntityColor(cube, 255, 0, 0)
-
-// FutureBlitz
 Local cam = Camera()
-cam.SetPosition(Vec3(0, 5, -10))
-cube.Turn(0, 1, 0)
+cam.SetPosition(Vec3(0, 5, 10))
+cube.Turn(0, Deg(1), 0)
 cube.SetColor(Color.RED)
 ```
-
-Why: discoverable via autocomplete, type-safe (a texture can't be passed where an entity
-goes), and uses `Vec3`/`Color` naturally.
 
 - What reaches the engine is a `@MainThread` Function or Method, never a Property, since
   `@MainThread` only goes on Functions and Methods (the user, 2026-10-31): `Window.SetTitle("x")`
   and `Window.Title()`, `cam.SetPosition(p)` and `cam.Position()`. What's only data, as a
   display's modes are, is a Struct's Fields.
 - Enum members are UPPER_CASE, as std's are: `WindowMode.FULLSCREEN`, `Key.ESCAPE`.
+- Engine resources (entities, textures, meshes) have an explicit `Free()`, since the scene owns
+  them; handles are generational, so using a freed one is a clear error, not a crash.
 
 ## Frame loop
 
-The **user owns the main loop**, like Blitz3D. There is no engine-owned update callback.
+The **game owns the main loop**. There is no engine-owned update callback.
 
 ```vb
 Try Graphics(1280, 720)
 
-While !KeyHit(Key.ESCAPE)
+While !KeyHit(Key.ESCAPE) && !Window.Closed()
     UpdateGame()
-    UpdateWorld()
+    UpdateWorld(Frame.Delta())
     RenderWorld()
     Flip()
 End While
 ```
 
-`Flip()` is the frame boundary, and the engine package's: it presents the frame, then calls
-`Scheduler.Main.Step()`, so the game's coroutines resume at the start of the next frame, before
-its update code, and a game never steps the scheduler itself. The language knows nothing of
-frames; a coroutine's `Await NextTick()` waits for the next Step, which in a game is the next
-frame (see [spec/10-concurrency.md](spec/10-concurrency.md#scheduling)).
-
-## Threading
-
-Engine APIs are `@MainThread`, as any library's main-thread APIs are. Calling them from a
-worker is a compile error.
-
-## Resource lifetime
-
-Engine resources (entities, textures, meshes) have an explicit `Free()` because the scene
-owns them, as native resources do (spec 08). Handles are generational: using a freed resource
-raises a clear error, not a crash.
-
-## Renderer
-
-- **One renderer**, own **Vulkan** backend (MoltenVK for macOS).
-- **No "classic vs modern" split.** Every feature is first-class.
-- The Blitz3D look is just one material setting among the others:
-
-```vb
-mat.SetShading(Shading.VERTEX)   // Blitz-style per-vertex Gouraud lighting
-mat.SetShading(Shading.PBR)
-mat.SetShading(Shading.UNLIT)
-```
-
-- Fog, blend modes, shadows, post-FX are ordinary engine features.
-
-### Reproducing the Blitz3D look
-
-So migrated games can look nearly identical, the renderer must be able to match DX7
-fixed-function behavior:
-
-- per-vertex Gouraud lighting with Blitz's light model (`Shading.VERTEX`)
-- linear fog
-- texture blend modes (multiply, add, alpha, ...)
-- the equivalents of `EntityFX` flags and `EntityOrder`
-- Blitz's alpha sorting behavior
-
-Compatibility traps to handle:
-
-- **Pixel operations** (`WritePixelFast`, `LockBuffer`, `CopyRect` equivalents) need a
-  CPU-side staging path or they'll be slow on a modern GPU.
-- **Coordinate system:** Blitz3D is left-handed; the mesh importers/converter must account
-  for it.
-
-The original Blitz3D source is open (zlib license) and should be used as the reference for
-exact behavior, rather than guessing.
-
-## Modules (draft)
-
-| Module | Contents |
-|---|---|
-| `fbengine.app` | window, graphics mode, `Flip`, frame timing |
-| `fbengine.input` | keyboard, mouse, gamepad, input actions |
-| `fbengine.gfx2d` | images, drawing, fonts, text |
-| `fbengine.scene` | entities, pivots, cameras, lights, meshes, hierarchy, Blitz's collisions and picks |
-| `fbengine.render` | materials, shaders, shading models, shadows, post-FX |
-| `fbengine.assets` | see [assets.md](assets.md) |
-| `fbengine_physics` | Jolt's bodies, joints, characters, and casts |
-| `fbengine_audio` | sounds, 3D audio, music streaming (miniaudio) |
+`Flip()` is the frame boundary, and the engine package's: it presents the frame, reads the OS's
+events, then calls `Scheduler.Main.Step()`, so the game's coroutines resume at the start of the
+next frame, before its update code, and a game never steps the scheduler itself. The language
+knows nothing of frames; a coroutine's `Await NextTick()` waits for the next Step, which in a game
+is the next frame (see [spec/10-concurrency.md](spec/10-concurrency.md#scheduling)).
