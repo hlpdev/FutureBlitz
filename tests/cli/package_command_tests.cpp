@@ -277,6 +277,64 @@ TEST_CASE("fb publish, add, search, and yank work with a registry on disk", "[cl
 // publishes two packages, and searches for them, and another, with a cache of its own, adds one
 // and builds with it. Without FB_TEST_REGISTRY, it's skipped, so the tests stay offline. A
 // registry's versions are forever, so each run's packages have names of their own.
+TEST_CASE("fb publish checks a path dependency's version is the registry's, and builds the "
+          "archive from the registry's packages",
+          "[cli-packages]") {
+    const fb::testing::sandbox_t sandbox;
+    const std::string index = fb::to_utf8(sandbox / "registry/index");
+    (void)sandbox.registry();
+    const std::string version_code =
+        "Public Function Version(): String\n    Return \"shapes\"\nEnd Function\n";
+    sandbox.library("shapes", "shapes", "0.3.0", "", { { "area.fb", version_code } });
+    REQUIRE(fb_run({ "publish", fb::to_utf8(sandbox / "shapes"), "--registry", index }).exit_code ==
+            0);
+
+    // The folder physics builds with has a version the registry doesn't, with what it doesn't.
+    sandbox.library("shapes_local", "shapes", "0.3.9", "",
+                    { { "area.fb", version_code + "Public Function Extra(): Int => 1\n" } });
+    sandbox.library("physics", "physics", "1.2.0",
+                    "shapes = { path = \"../shapes_local\", version = \"0.3\", registry = "
+                    "\"local\" }\n",
+                    { { "world.fb", "Import shapes\nPublic Function Uses(): Int => Extra()\n" } });
+    const fb::process_result_t unpublished =
+        fb_run({ "publish", fb::to_utf8(sandbox / "physics"), "--registry", index });
+    INFO(unpublished.output);
+    CHECK(unpublished.exit_code == 1);
+    CHECK(unpublished.output.contains(
+        "physics builds with shapes v0.3.9 from its folder, '../shapes_local', which the "
+        "registry doesn't have, so no one could build the published package; publish shapes "
+        "v0.3.9 first"));
+
+    // At the registry's version, the archive builds from the registry's shapes, which has no
+    // Extra, in a dry run too.
+    sandbox.library("shapes_local", "shapes", "0.3.0", "",
+                    { { "area.fb", version_code + "Public Function Extra(): Int => 1\n" } });
+    for (const bool dry : { true, false }) {
+        std::vector<std::string> arguments{ "publish", fb::to_utf8(sandbox / "physics"),
+                                            "--registry", index };
+        if (dry) {
+            arguments.emplace_back("--dry-run");
+        }
+
+        const fb::process_result_t unbuilt = fb_run(arguments);
+        INFO(unbuilt.output);
+        CHECK(unbuilt.exit_code == 1);
+        CHECK(unbuilt.output.contains("Verifying physics v1.2.0 as the registry would have it"));
+        CHECK(unbuilt.output.contains("'Extra' isn't declared"));
+        CHECK(unbuilt.output.contains("physics v1.2.0 doesn't build as the registry would have "
+                                      "it, from its packages, because of 1 error; --no-verify "
+                                      "publishes it anyway"));
+    }
+
+    CHECK_FALSE(std::filesystem::exists(sandbox / "registry/index/ph/ys/physics"));
+    const fb::process_result_t unverified = fb_run(
+        { "publish", fb::to_utf8(sandbox / "physics"), "--registry", index, "--no-verify" });
+    INFO(unverified.output);
+    CHECK(unverified.exit_code == 0);
+    CHECK_FALSE(unverified.output.contains("Verifying"));
+    CHECK(unverified.output.contains("Published physics v1.2.0"));
+}
+
 TEST_CASE("fb publishes to a registry's API, and another computer adds and builds",
           "[cli-packages]") {
     const std::optional<std::string> index = fb::environment_variable("FB_TEST_REGISTRY");

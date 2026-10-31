@@ -103,6 +103,8 @@ struct options_t {
     std::vector<std::string> names;
     /// `fb publish --dry-run`: builds and checks the archives, without publishing them.
     bool dry_run = false;
+    /// `fb publish --no-verify`: doesn't build the unpacked archive from the registry's packages.
+    bool no_verify = false;
     /// `fb login --token`: reads the token from stdin.
     bool token = false;
     /// `fb yank --undo`.

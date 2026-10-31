@@ -186,6 +186,7 @@ std::string package_help(const command_t command, const style_t& style) {
         out += entry("    --limit <n>", "Show at most n packages, from 1 to 100 (10)");
     } else if (command == command_t::PUBLISH) {
         out += entry("    --dry-run", "Build and check the archives, and list their files");
+        out += entry("    --no-verify", "Don't build the archive from the registry's packages");
     } else if (command == command_t::YANK) {
         out += entry("    --undo", "Take the yank back");
     } else if (command == command_t::OWNER) {
