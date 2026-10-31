@@ -30,8 +30,8 @@ End Class
 Class Door
 End Class
 
-// An entity holds whatever the program gives it, as fbengine's do.
-Class Entity
+// A holder keeps whatever the program gives it.
+Class Holder
     Field data: Object?
 
     Method SetData(value: Object?)
@@ -55,17 +55,17 @@ End Function
 // A type parameter that's a Class's converts to an Object.
 Function Keep<T: Class>(value: T): Object => value
 
-Local entity = Entity()
-entity.SetData(Guard("Ann"))
-Print(entity.Data<Guard>()?.Name() ?? "no guard")
-Print(entity.Data<Npc>()?.Name() ?? "no npc")
-Print(entity.Data<Door>() == Null)
-Print(entity.data Is Guard, entity.data Is Door)
+Local holder = Holder()
+holder.SetData(Guard("Ann"))
+Print(holder.Data<Guard>()?.Name() ?? "no guard")
+Print(holder.Data<Npc>()?.Name() ?? "no npc")
+Print(holder.Data<Door>() == Null)
+Print(holder.data Is Guard, holder.data Is Door)
 
-entity.SetData(Door())
-Print(entity.Data<Npc>() == Null, entity.Data<Door>() != Null)
-entity.SetData(Null)
-Print(entity.Data<Door>() == Null)
+holder.SetData(Door())
+Print(holder.Data<Npc>() == Null, holder.Data<Door>() != Null)
+holder.SetData(Null)
+Print(holder.Data<Door>() == Null)
 
 // An array of Objects, each its own Class's.
 Local things: Object[] = []
