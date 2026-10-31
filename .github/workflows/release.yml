@@ -85,11 +85,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # glibc's headers are glibc-headers' and glibc-devel's, which has gnu/stubs-64.h and
+      # gnu/lib-names-64.h, or arm64's -lp64.h, that glibc's own include.
       - name: Gather glibc's and the kernel's headers
         run: |
+          packages=(glibc-headers glibc-devel kernel-headers)
+          rpm -q "${packages[@]}" > /dev/null || dnf install -y "${packages[@]}"
           mkdir headers
-          rpm -ql glibc-headers kernel-headers | grep '^/usr/include/' | while read -r file; do
+          rpm -ql "${packages[@]}" | grep '^/usr/include/' | while read -r file; do
             if [ -f "$file" ]; then cp --parents "$file" headers/; fi
+          done
+          for file in /usr/include/gnu/*; do
+            if [ ! -f "headers$file" ]; then
+              echo "::error::$file isn't among the release's headers"
+              exit 1
+            fi
           done
 
       - name: Build
@@ -524,6 +534,21 @@ jobs:
           & "$env:GITHUB_WORKSPACE\tools\install\install.ps1" -Archive $archive
           fb run
 
+      # fb-bindgen reads the C library's headers with the release's own: every header they
+      # include is there.
+      - name: fb-bindgen on the C library's headers (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:Path = "$env:SystemRoot\System32;$env:SystemRoot"
+          Set-Location $env:RUNNER_TEMP
+          & "$env:USERPROFILE\.futureblitz\bin\fb-bindgen.exe" "$env:GITHUB_WORKSPACE\tools\release\libc.h" -o libc.fb
+          if ($LASTEXITCODE -ne 0) { throw "fb-bindgen couldn't read the C library's headers" }
+          Get-Content libc.fb
+          if (-not (Select-String -Quiet -SimpleMatch 'Function libc_length(text: CString): UInt64' libc.fb)) {
+            throw "fb-bindgen's module hasn't libc_length"
+          }
+
       - name: Install with the MSI, and run fb new's package
         if: runner.os == 'Windows'
         shell: pwsh
@@ -672,6 +697,21 @@ jobs:
           # Again, an update over the release that's there.
           sh "$GITHUB_WORKSPACE/tools/install/install.sh" --archive "$(ls "$GITHUB_WORKSPACE"/dist/*.tar.gz)"
           test "$(cd hello && bash -lc 'fb run')" = "Hello, world!"
+
+      # fb-bindgen reads the C library's headers with the release's own, or on macOS the SDK's:
+      # every header they include is there.
+      - name: fb-bindgen on the C library's headers
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -eux
+          if [ "$RUNNER_OS" = macOS ]; then
+            export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+          fi
+          cd "$RUNNER_TEMP"
+          bash -lc "fb-bindgen '$GITHUB_WORKSPACE/tools/release/libc.h' -o libc.fb"
+          cat libc.fb
+          grep -F 'Function libc_length(text: CString): UInt64' libc.fb
 
       # fb's binaries load only the system's libraries, and their own beside them.
       - name: What the binaries load

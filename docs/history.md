@@ -3,6 +3,18 @@
 What each milestone and step added, by name, and each review's fixes, as CLAUDE.md kept
 them while each was built. Newest first.
 
+## 1.0.1
+
+(2026-10-30.) Linux's fb-bindgen read no header that includes `<stdint.h>`: release.yml gathered
+lib/linux-<arch>/include/ from glibc-headers and kernel-headers, and AlmaLinux 8 has
+gnu/stubs-64.h and gnu/lib-names-64.h (arm64's -lp64.h) in glibc-devel, which fbengine's CI found.
+The runtime job gathers glibc-devel's headers too, installing the three packages where they
+aren't, and fails if any of the container's gnu/ headers isn't among them; each target's test job
+runs the installed release's fb-bindgen on tools/release/libc.h, a header of `<stdbool.h>`,
+`<stddef.h>`, `<stdint.h>`, and `<string.h>`. Windows' MinGW-w64 and winpthreads headers, and
+macOS's SDK, from `xcrun`, already had every header theirs include. A cli test whose name began
+with `--`, which Catch2 took as an option, so ctest never ran it, is "a --registry folder ...".
+
 ## E0, fbengine's setup
 
 (2026-10-31, in hlpdev/fbengine.) The repository, public under Apache-2.0, with FutureBlitz's
