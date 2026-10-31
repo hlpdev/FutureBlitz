@@ -33,6 +33,22 @@ and the thread rules over a type, a type parameter, and one given through anothe
 at the copies and the picks that leave them out, an Override that uses its base's Set, and a
 Static Method's f.Set; tests/programs/reflection_setters.
 
+From 1.2's review of it: `reflected_members()` gives each member with the level it's on
+(`reflected_member_t`), whose type arguments `reflected_types()` substitutes, as before Sets,
+so `Derived Extends Base<Int>`'s inherited `Item: T` is an Int again; an Override the code can't
+set still takes the place of what it overrides. `note_reflected_uses()` binds a call's own type
+arguments, its last, to each function that runs in its place, what overrides it and what
+implements an Interface's Method (`instead`), so a loop in `Resetter.Visit<T>` reached through
+`Visitor`'s is the thread rules' too; a loop that picks the ones it can set runs only those
+there, Gets too; and one over a T?'s Properties, Static Fields, or Methods runs nothing there,
+nor, in `collect_loop_bounds()`, bounds anything, as a For Field one with `Where f Has Set`
+doesn't. A Protected member that isn't Static is settable, by `settable_at()`'s `through` and
+lower's `unsettable()`'s, only in a value of the code's own Class or one extending it, as by
+name, which f.Set didn't keep before either. Tests: sema's inherited generic Properties, over a
+generic Class too, the Interface's and its by-name twin's chains, a Get in a picking loop, and a
+T?'s loops; mir's Protected Sets through a plain base and a Mine; and reflection_setters'
+inherited Holder<Int>.
+
 ## M11, the IDE
 
 Step 0, measuring (2026-10-31): tests/lsp/bench_tests.cpp, fb-lsp's benchmark, hidden from ctest
