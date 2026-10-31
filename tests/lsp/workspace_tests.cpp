@@ -607,9 +607,11 @@ TEST_CASE("the client is asked to watch every file, and trusted to once it says 
     CHECK(client.diagnostics(main).empty() == !answers);
 }
 
-TEST_CASE("files no Import names, made or changed, are read again once the client says so",
+TEST_CASE("what embeds a file no Import names is checked again once the client says it changed",
           "[lsp]") {
-    // A file an Embed names, made after a check, and the config a Const Function reads, fixed.
+    // A file an Embed names, made after a check, the config a Const Function reads, fixed, and a
+    // folder EmbedFolder names, made with a file in it.
+    const std::string_view changed = GENERATE("hello.txt", "config.txt", "assets/a.txt");
     const folder_t folder({
         { "project.toml", "[project]\nname = \"embeds\"\nversion = \"0.1.0\"\n" },
         { "config.txt", "bad" },
@@ -618,8 +620,8 @@ TEST_CASE("files no Import names, made or changed, are read again once the clien
             "Import std.core\nConst Greeting = EmbedText(\"hello.txt\")\n"
             "Const Function Checked(text: String): Int\n"
             "    If text != \"ok\" Then Panic(\"the config isn't ok\")\n    Return 1\n"
-            "End Function\nConst C = Checked(EmbedText(\"config.txt\"))\nPrint(Greeting)\n"
-            "Print(C)\n",
+            "End Function\nConst C = Checked(EmbedText(\"config.txt\"))\n"
+            "Const Assets = EmbedFolder(\"assets\")\nPrint(Greeting)\nPrint(C)\n",
         },
     });
     client_t client({ .folders = { folder.root() }, .watches = true });
@@ -627,16 +629,14 @@ TEST_CASE("files no Import names, made or changed, are read again once the clien
     const std::string text = read_file(folder.path("main.fb"));
     client.open(main, text);
     client.settle();
-    REQUIRE(client.diagnostics(main).size() == 2);
+    REQUIRE(client.diagnostics(main).size() == 3);
 
-    folder.write("hello.txt", "hi");
-    saw(client, folder.uri("hello.txt"), 1);
-    folder.write("config.txt", "ok");
-    saw(client, folder.uri("config.txt"), 2);
-    client.change(main, text + "\n");
+    // Without an edit.
+    folder.write(std::string(changed), changed == "config.txt" ? "ok" : "hi");
+    saw(client, folder.uri(std::string(changed)), changed == "config.txt" ? 2 : 1);
     client.settle();
-    CHECK(client.diagnostics(main).empty());
-    CHECK(as_fresh(client, { folder.root() }, main, text + "\n", { main }));
+    CHECK(client.diagnostics(main).size() == 2);
+    CHECK(as_fresh(client, { folder.root() }, main, text, { main }));
 }
 
 TEST_CASE("a folder of modules moved in is read once the client says it was made", "[lsp]") {

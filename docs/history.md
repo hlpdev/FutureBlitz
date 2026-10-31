@@ -89,14 +89,16 @@ the cache's lock); a package a check reads outside them gets a RelativePattern w
 when the client has relativePatternSupport (`workspace_t::on_outside`, `watching`), and is asked
 each time without it. A changed .proto checks again what imports it, through the .proto its module
 is made from (`compilation_t::made_from`, `made_from_path`), and dependents are found through files
-no check has as a root; a package's fb.lock, library, or .fbi reads its package again. The
+no check has as a root; a file an embed named, found or not, or one in a folder EmbedFolder named,
+checks again the files whose checks named it (`compilation_t::embeds_named`,
+`workspace_t::m_embeds`); a package's fb.lock, library, or .fbi reads its package again. The
 benchmark's budgets are met with the 50th percentile in them and the 95th in one and a half times
 them, and a miss fails it only with `FB_LSP_BENCH_ENFORCE` set, which CI's lsp-bench job sets.
 decisions.md's first row for step 1 is marked superseded. Tests: the cache keeping only its folders'
-answers, the registration and its answer, an Embed's file made and a Const Function's config fixed,
-a folder of modules moved in, a path dependency outside the client's folders with and without its
-own watcher, a .proto changed directly and through another, a package's library and fb.lock, each
-against a check from nothing, and the budgets' rule.
+answers, the registration and its answer, an Embed's file made, a Const Function's config fixed, and
+an EmbedFolder's file added, each without an edit, a folder of modules moved in, a path dependency
+outside the client's folders with and without its own watcher, a .proto changed directly and through
+another, a package's library and fb.lock, each against a check from nothing, and the budgets' rule.
 
 A string's escapes in their own color (2026-10-31, the user): fb-lsp's semantic tokens gave each
 string literal one `string` token, which VS Code colors over the grammar's

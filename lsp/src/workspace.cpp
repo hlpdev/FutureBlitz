@@ -645,7 +645,9 @@ void workspace_t::changed_on_disk(const std::vector<std::filesystem::path>& path
                 continue;
             }
 
+            // Any other file is what an embed may name, which dependents() finds.
             if (path.extension() != ".fb") {
+                m_dependents[key] = steady_t::now() + m_options.dependents_delay;
                 continue;
             }
 
@@ -664,6 +666,7 @@ void workspace_t::changed_on_disk(const std::vector<std::filesystem::path>& path
                 m_alone.push_back(path);
             } else {
                 m_imports.erase(key);
+                m_embeds.erase(key);
                 m_published[key] = m_generation;
                 m_publish({ .path = path });
             }
@@ -1011,6 +1014,17 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
             const std::filesystem::path path = compilation->disk_path(file);
             return path.empty() ? compilation->made_from_path(file) : path;
         };
+        // Any of the roots' code can have named what its embeds did.
+        std::set<std::string> roots;
+        for (const std::filesystem::path& root : job.roots) {
+            roots.insert(file_key(root));
+        }
+
+        std::set<std::string> named;
+        for (const std::filesystem::path& each : compilation->embeds_named) {
+            named.insert(file_key(each));
+        }
+
         const module_table_t& modules = compilation->ast.modules();
         for (const module_t& module : modules.modules()) {
             const std::filesystem::path path = where(module.file);
@@ -1034,6 +1048,10 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
             }
 
             recorded = generation;
+            if (roots.contains(key)) {
+                m_embeds[key] = named;
+            }
+
             std::set<std::string>& imports = m_imports[key];
             imports.clear();
             for (const module_import_t& imported : module.imports) {
@@ -1200,6 +1218,18 @@ std::set<std::string> workspace_t::dependents(const std::string& key) const {
     std::set<std::string> found;
     std::set<std::string> walked{ key };
     std::vector<std::string> work{ key };
+    // The files whose embeds named it, or a folder it's in, and what imports them.
+    for (const auto& [file, named] : m_embeds) {
+        const bool embeds = std::ranges::any_of(
+            named, [&](const std::string& each) { return each == key || inside(key, each); });
+        if (embeds && walked.insert(file).second) {
+            work.push_back(file);
+            if (candidates.contains(file)) {
+                found.insert(file);
+            }
+        }
+    }
+
     while (!work.empty()) {
         const std::string imported = work.back();
         work.pop_back();

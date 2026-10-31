@@ -211,6 +211,9 @@ private:
     /// What each file imports, by key, from the latest check that had it, and that check's
     /// generation.
     std::map<std::string, std::set<std::string>> m_imports;
+    /// What the embeds of each file's latest check as a root named, files and folders, by keys,
+    /// whose changes check it again.
+    std::map<std::string, std::set<std::string>> m_embeds;
     std::map<std::string, std::uint64_t> m_import_generations;
     /// Each file's paths by key, as the checks have found them.
     std::map<std::string, std::filesystem::path> m_paths;

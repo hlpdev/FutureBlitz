@@ -100,6 +100,10 @@ struct compilation_t { // NOLINT(bugprone-exception-escape)
     /// name them: on disk, where they are. Each build reads them again, as it does `sources`,
     /// and a tool that rebuilds when the program's files change watches them too.
     std::vector<std::string> embedded;
+    /// What Embed, EmbedText, and EmbedFolder named, on disk, found or not: a file, or a folder,
+    /// whose files a change to changes what the program embeds, as a tool that checks it again
+    /// knows, as the LSP does.
+    std::vector<std::filesystem::path> embeds_named;
     /// Where each of `sources`' files is on disk, by its file_id_t, for a tool that names them
     /// by their paths there, as the LSP does. Empty for one that isn't a file of its own there:
     /// compile()'s, in memory, a prebuilt library's modules, in its interface file, and a

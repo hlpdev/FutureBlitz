@@ -491,7 +491,7 @@ public:
         }
 
         warn_respelled_embed(at, target);
-
+        note_named(*path);
         if (is_folder(*path)) {
             return std::unexpected(std::format(
                 R"("{}" is a folder; EmbedFolder puts a folder's files in the program)", target));
@@ -521,7 +521,7 @@ public:
         }
 
         warn_respelled_embed(at, target);
-
+        note_named(*path);
         if (!is_folder(*path)) {
             std::uint64_t size = 0;
             return std::unexpected(
@@ -766,6 +766,20 @@ private:
 
         size = std::filesystem::file_size(where, error);
         return !error;
+    }
+
+    /// Lists what an embed names at `path` in the program, on disk, among what the compilation's
+    /// embeds named.
+    void note_named(const std::string& path) {
+        if (!m_files.root || prebuilt_package(m_files, path) != nullptr) {
+            return;
+        }
+
+        std::error_code ignored;
+        std::filesystem::path where = std::filesystem::absolute(disk_path(m_files, path), ignored);
+        if (!std::ranges::contains(m_compilation.embeds_named, where)) {
+            m_compilation.embeds_named.push_back(std::move(where));
+        }
     }
 
     /// The bytes of the file at `path` in the program, read once, which every embed of it
