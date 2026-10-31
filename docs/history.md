@@ -216,6 +216,27 @@ runs the installed release's fb-bindgen on tools/release/libc.h, a header of `<s
 macOS's SDK, from `xcrun`, already had every header theirs include. A cli test whose name began
 with `--`, which Catch2 took as an option, so ctest never ran it, is "a --registry folder ...".
 
+## E2 and E3, the GPU core and 2D
+
+E2's steps 1 to 6 and E3's 1 to 4 (2026-11-01, the gpu lane, landed as a merge at e9d02d6; E3 step
+3's text core and step 5's collisions came from the input lane at 0d0c099). E2 added Vulkan
+through volk and VMA: a discrete GPU preferred and lavapipe in tests, the window's swapchain with
+two frames in flight, Flip's present with vsync or without, and resizing and minimizing; Slang
+shaders compiled to SPIR-V at build time and embedded, with a pipeline cache on disk and golden
+images compared within a tolerance; buffers and textures through staging, mipmaps, samplers, and
+bindless descriptors over buffer device addresses, in sRGB and linear; offscreen targets with
+reversed 32-bit depth, MSAA and resolve, readback, PNG screenshots, and a render size apart from
+the window's; the frame graph, its barriers from declared reads and writes and its transient
+targets reused; and device loss, a missing feature's clear error, MoltenVK, timings, and
+counters. E3 added the Canvas, drawing lines, rectangles, ovals, and polygons into the window or a
+target in few batches, with Blend2D for its blends; Sprite2D, images drawn with a handle,
+rotation, scale, color, frames of a sheet, tiles, and regions; text, the core's glyph pages
+uploaded as they change and drawn by Canvas.DrawText, underlines under each line the core breaks;
+and pixels, a texture or the window locked through one copy a frame, copies between them, and
+std.image's Image in and out. Every review's findings were fixed with tests, the last the swap's
+two: underlines at every break the core makes, and text ending at its first NUL. E3 step 6, the
+arcade example, is in review.
+
 ## E8, assets
 
 Steps 0 to 3, and the parts of 4 and 5 that don't need FutureBlitz 1.1's build step (2026-10-31, the
