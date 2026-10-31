@@ -41,6 +41,74 @@ else()
     message(FATAL_ERROR "libuv's win/process.c doesn't put its children in a job as it did")
   endif()
 endif()
+# On Linux, libuv drops inotify's word that its queue overflowed, an event of no watch, so a
+# FileWatcher would never learn it lost events: each of the loop's file event handles is told, as
+# an event without a name, as libuv tells them on Windows, and the watcher lists its folder again.
+# Each text it changes is in linux.c once, or configuring fails, so a libuv that's changed there
+# is looked at again.
+set(inotify "${libuv_SOURCE_DIR}/src/unix/linux.c")
+file(READ "${inotify}" text)
+set(reading [=[void uv__inotify_read(uv_loop_t* loop, uv__io_t* dummy, unsigned int events) {]=])
+set(overflowed [=[/* FutureBlitz: tells each of the loop's file event handles that inotify's queue
+ * overflowed, as an event without a name, as libuv does on Windows. The handles are gathered
+ * first, since a callback can start and stop others. */
+static void uv__inotify_overflowed(uv_loop_t* loop) {
+  struct watcher_list* w;
+  struct uv__queue* q;
+  uv_fs_event_t* h;
+  uv_fs_event_t** handles;
+  size_t count;
+  size_t i;
+
+  count = 0;
+  RB_FOREACH(w, watcher_root, uv__inotify_watchers(loop))
+    uv__queue_foreach(q, &w->watchers)
+      count++;
+
+  if (count == 0)
+    return;
+
+  handles = uv__malloc(count * sizeof(*handles));
+  if (handles == NULL)
+    return;
+
+  i = 0;
+  RB_FOREACH(w, watcher_root, uv__inotify_watchers(loop))
+    uv__queue_foreach(q, &w->watchers)
+      handles[i++] = uv__queue_data(q, uv_fs_event_t, watchers);
+
+  for (i = 0; i < count; i++) {
+    h = handles[i];
+    if (uv__is_active(h))
+      h->cb(h, NULL, UV_CHANGE, 0);
+  }
+
+  uv__free(handles);
+}
+
+]=])
+set(finding [=[      w = find_watcher(loop, e->wd);
+      if (w == NULL)
+        continue; /* Stale event, no watchers left. */]=])
+set(telling [=[      if (e->mask & IN_Q_OVERFLOW) {
+        uv__inotify_overflowed(loop);
+        continue;
+      }
+
+]=])
+string(FIND "${text}" "uv__inotify_overflowed" patched)
+if(patched EQUAL -1)
+  foreach(part reading finding)
+    string(FIND "${text}" "${${part}}" first)
+    string(FIND "${text}" "${${part}}" last REVERSE)
+    if(first EQUAL -1 OR NOT first EQUAL last)
+      message(FATAL_ERROR "libuv's unix/linux.c doesn't read inotify's events as it did")
+    endif()
+  endforeach()
+  string(REPLACE "${reading}" "${overflowed}${reading}" text "${text}")
+  string(REPLACE "${finding}" "${telling}${finding}" text "${text}")
+  file(WRITE "${inotify}" "${text}")
+endif()
 set(FB_LIBUV_VERSION ${FB_LIBUV_VERSION} PARENT_SCOPE)
 # Its notices, in one file: libuv's license, then those of the code it has from Joyent's libuv,
 # FreeBSD's tree.h, and ISC's inet.c, whose texts are at the top of those files.

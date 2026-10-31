@@ -18,6 +18,10 @@ namespace fb::runtime {
 /// A path the OS gave back for one os_path() made, without what that put before it.
 [[nodiscard]] std::string plain_path(std::string path);
 
+/// The error a recursive FileWatcher gives on Linux for a tree with more folders than inotify
+/// watches, whose message names the setting that says how many.
+constexpr std::int64_t too_many_watches = -5001;
+
 /// A file written atomically: a new temporary file beside the one a path leads to, which
 /// commit() puts onto the disk and renames over that file, so it holds either all that was
 /// written or what it held before. The temporary file goes with this unless it was committed.
