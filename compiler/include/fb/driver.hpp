@@ -4,6 +4,7 @@
 #include "fb/build_config.hpp"
 #include "fb/codegen.hpp"
 #include "fb/diagnostic.hpp"
+#include "fb/disk.hpp"
 #include "fb/library.hpp"
 #include "fb/link.hpp"
 #include "fb/lower.hpp"
@@ -16,11 +17,13 @@
 #include <filesystem>
 #include <functional>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace fb {
@@ -222,8 +225,17 @@ struct std_names_cache_t {
         std::vector<std_name_t> names;
     };
 
+    /// A file's tokens and doc comments, as a lexing without errors found them, in the file of
+    /// the check that lexed it, which another check of the same text takes as its own.
+    struct lexed_t {
+        std::vector<token_t> tokens;
+        std::vector<span_t> docs;
+    };
+
     std::mutex mutex;
     std::map<std::string, file_t, std::less<>> files;
+    /// The files' tokens, by the symbols defined and the text, which checks share too.
+    std::unordered_map<std::string, std::shared_ptr<const lexed_t>> lexed;
 };
 
 /// What check_files() checks.
@@ -241,6 +253,9 @@ struct check_request_t {
     build_mode_t mode = build_mode_t::DEBUG;
     /// What the checks share, if they do.
     std_names_cache_t* cache = nullptr;
+    /// What the checks know of the disk, if they share it, which its owner empties when the disk
+    /// changes. Without it, a check asks the disk once for itself.
+    disk_cache_t* disk = nullptr;
     /// Whether a package's files' doc comments' examples are checked too, as fb test compiles
     /// them, in a package of their own: for the LSP's references and renames, which find and
     /// change the names their code uses, in the doc comments.

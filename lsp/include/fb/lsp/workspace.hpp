@@ -1,6 +1,7 @@
 #pragma once
 
 #include "fb/diagnostic.hpp"
+#include "fb/disk.hpp"
 #include "fb/driver.hpp"
 #include "fb/format.hpp"
 #include "fb/source.hpp"
@@ -102,6 +103,10 @@ public:
     workspace_t& operator=(workspace_t&&) = delete;
     /// Stops the checks, waiting for the ones running.
     ~workspace_t();
+
+    /// Whether the client says when files change, so the checks can share what they know of
+    /// the disk, which the workspace forgets then; without it, each check asks the disk itself.
+    void watched(bool watches);
 
     /// The client's folders: each package in them, and std when it's among them.
     void add_folders(const std::vector<std::filesystem::path>& folders);
@@ -207,11 +212,16 @@ private:
     std::vector<check_record_t> m_history;
     /// What std's modules declare, which every check needs, and only the first works out.
     std_names_cache_t m_std_names;
+    /// What the checks know of the disk, when the client says when files change.
+    disk_cache_t m_disk;
+    bool m_watched = false;
     std::thread m_foreground;
     std::thread m_background;
 
     void run_foreground();
     void run_background();
+    /// Forgets what the checks know of the disk, and the files' keys, as it may have changed.
+    void disk_changed();
     /// Runs `job` with the lock unlocked, and takes in what it found. `foreground` checks are of
     /// edited documents.
     std::shared_ptr<const compilation_t> run_job(std::unique_lock<std::mutex>& lock,

@@ -500,6 +500,10 @@ struct analysis_t { // NOLINT(bugprone-exception-escape)
     std::unordered_map<symbol_id_t, std::string> main_thread_only;
     /// The @Test Functions, in source order.
     std::vector<test_function_t> tests;
+    /// A check of only some files' bodies, analyze()'s `bodies`, found what needs every body
+    /// checked: a worker, whose work's calls lead through other files' code, or generic code
+    /// whose instances can lead back through theirs. The analysis is then only to be thrown away.
+    bool needs_every_body = false;
     /// What each call of Expect, ExpectThrows, and Fail says when it fails, by the call.
     std::unordered_map<expr_id_t, expectation_t> expectations;
     /// The function values the program makes. The expression that makes each one, a lambda or
@@ -603,10 +607,13 @@ loop_methods(const ast_t& ast, const analysis_t& analysis, type_table_t& types, 
 /// top-level names, and sees those of the modules it imports after them, as the module table
 /// says; `sources` holds their files. It always returns a full analysis, but only one without
 /// errors can be lowered. Const Functions run as a build of `mode` would run them, and `embeds`
-/// reads the files the program embeds.
+/// reads the files the program embeds. With `bodies`, only those files' functions have their
+/// bodies checked, as the LSP's checks of a few files want, but for the Const Functions that run;
+/// the declarations are all checked.
 [[nodiscard]] analysis_t analyze(const source_manager_t& sources, const ast_t& ast,
                                  diagnostic_bag_t& diagnostics,
                                  build_mode_t mode = build_mode_t::DEBUG,
-                                 const embed_reader_t& embeds = {});
+                                 const embed_reader_t& embeds = embed_reader_t(),
+                                 const std::vector<file_id_t>* bodies = nullptr);
 
 } // namespace fb

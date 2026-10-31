@@ -85,9 +85,9 @@ rename_conflict(std::span<const std::shared_ptr<const compilation_t>> compilatio
 
 /// textDocument/completion at `offset` of `text`, the document as it is, whose last check is
 /// `query`: a member after a '.', a module after Import, or the names in scope and keywords.
-/// `modules` are the modules an Import can name.
+/// `modules` gives the modules an Import can name, which it asks for only at an Import.
 [[nodiscard]] json_t completion(const query_t& query, std::uint32_t offset,
-                                const std::vector<std::string>& modules,
+                                const std::function<std::vector<std::string>()>& modules,
                                 const positions_t& positions);
 
 /// textDocument/signatureHelp for the call `offset` is in.

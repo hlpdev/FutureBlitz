@@ -81,6 +81,12 @@ client_t::client_t(options_t options)
         capabilities["general"] = { { "positionEncodings", options.encodings } };
     }
 
+    if (options.watches) {
+        capabilities["workspace"] = {
+            { "didChangeWatchedFiles", { { "dynamicRegistration", true } } },
+        };
+    }
+
     m_initialized =
         request("initialize", {
                                   { "processId", nullptr },

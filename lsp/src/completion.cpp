@@ -14,6 +14,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <iterator>
 #include <optional>
 #include <ranges>
@@ -847,7 +848,8 @@ std::set<std::string> visible_names(const query_t& query, const std::uint32_t of
 }
 
 json_t completion(const query_t& query, const std::uint32_t offset,
-                  const std::vector<std::string>& modules, const positions_t& positions) {
+                  const std::function<std::vector<std::string>()>& modules,
+                  const positions_t& positions) {
     const std::string_view text = query.source().text();
     const std::uint32_t at =
         std::min<std::uint32_t>(offset, static_cast<std::uint32_t>(text.size()));
@@ -873,7 +875,7 @@ json_t completion(const query_t& query, const std::uint32_t offset,
 
     const std::string_view head = left_trimmed(text.substr(line_start, dotted - line_start));
     if (head == "Import " || head == "From " || head == "Import" || head == "From") {
-        return completer.modules(modules, dotted, positions);
+        return completer.modules(modules(), dotted, positions);
     }
 
     if (before.starts_with("From ")) {

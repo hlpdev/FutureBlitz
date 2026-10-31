@@ -32,6 +32,9 @@
 namespace fb::lsp {
 namespace {
 
+/// The LSP's WatchKind for a deletion.
+constexpr int watch_delete = 4;
+
 /// The file a request's textDocument names. nullopt for a URI that isn't a file's.
 std::optional<std::filesystem::path> document_path(const json_t& params) {
     return path_of(params.at("textDocument").at("uri").get<std::string>());
@@ -309,6 +312,14 @@ void server_t::notified(const std::string& method, const json_t& params) {
                                                 json_t::array({
                                                     { { "globPattern", "**/*.fb" } },
                                                     { { "globPattern", "**/project.toml" } },
+                                                    { { "globPattern", "**/fb.lock" } },
+                                                    { { "globPattern", "**/*.proto" } },
+                                                    // A folder's deletion, whose files the
+                                                    // patterns above might not be told of.
+                                                    {
+                                                        { "globPattern", "**/*" },
+                                                        { "kind", watch_delete },
+                                                    },
                                                 }),
                                             },
                                         },
@@ -433,6 +444,7 @@ json_t server_t::initialize(const json_t& params) {
     // open, so the threads that publish read the positions' unit only after it's set.
     m_positions.unit = utf8 ? column_unit_t::UTF8 : column_unit_t::UTF16;
     m_watches = watches;
+    m_workspace->watched(watches);
     m_format_on_save = format_on_save;
     m_folders = std::move(folders);
     m_initialized = true;
@@ -666,8 +678,10 @@ json_t server_t::completion(const json_t& params) {
     }
 
     const query_t query(*checked->compilation, checked->file);
-    return lsp::completion(query, m_positions.offset(query.source(), params.at("position")),
-                           import_names(*path, *checked->compilation), m_positions);
+    // The modules an Import can name take a while to list, so only one being typed lists them.
+    return lsp::completion(
+        query, m_positions.offset(query.source(), params.at("position")),
+        [&] { return import_names(*path, *checked->compilation); }, m_positions);
 }
 
 json_t server_t::signature_help(const json_t& params) {

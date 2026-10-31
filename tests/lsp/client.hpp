@@ -59,6 +59,9 @@ public:
         json_t initialization_options = json_t::object();
         /// The position encodings the client offers.
         std::vector<std::string> encodings;
+        /// Whether it says it watches files, as VS Code does, so the server's checks share what
+        /// they know of the disk until it says files changed.
+        bool watches = false;
     };
 
     explicit client_t(options_t options);

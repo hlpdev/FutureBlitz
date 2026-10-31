@@ -187,8 +187,19 @@ workspace_t::~workspace_t() {
     m_background.join();
 }
 
+void workspace_t::watched(const bool watches) {
+    const std::scoped_lock lock(m_mutex);
+    m_watched = watches;
+}
+
+void workspace_t::disk_changed() {
+    m_disk.clear();
+    forget_file_keys();
+}
+
 void workspace_t::add_folders(const std::vector<std::filesystem::path>& folders) {
     std::unique_lock lock(m_mutex);
+    disk_changed();
     for (const std::filesystem::path& folder : folders) {
         std::error_code error;
         const std::filesystem::path absolute =
@@ -234,6 +245,7 @@ void workspace_t::add_folders(const std::vector<std::filesystem::path>& folders)
 
 void workspace_t::remove_folders(const std::vector<std::filesystem::path>& folders) {
     const std::scoped_lock lock(m_mutex);
+    disk_changed();
     for (const std::filesystem::path& folder : folders) {
         std::error_code error;
         const std::string key = file_key(
@@ -311,6 +323,8 @@ void workspace_t::edited(const std::string& key) {
 void workspace_t::close(const std::filesystem::path& path) {
     {
         const std::scoped_lock lock(m_mutex);
+        // Its text on disk is read again, which it may have been saved over.
+        disk_changed();
         const std::string key = file_key(path);
         m_documents.erase(key);
         m_latest.erase(key);
@@ -336,8 +350,26 @@ void workspace_t::close(const std::filesystem::path& path) {
 void workspace_t::changed_on_disk(const std::vector<std::filesystem::path>& paths) {
     {
         const std::scoped_lock lock(m_mutex);
+        disk_changed();
         ++m_generation;
+        // A folder that went takes its files, which the client may not name one by one.
+        std::vector<std::filesystem::path> changed = paths;
         for (const std::filesystem::path& path : paths) {
+            std::error_code error;
+            if (path.extension() == ".fb" || path.filename() == "project.toml" ||
+                std::filesystem::exists(path, error)) {
+                continue;
+            }
+
+            const std::string folder = file_key(path);
+            for (const auto& [key, known] : m_paths) {
+                if (key != folder && inside(key, folder)) {
+                    changed.push_back(known);
+                }
+            }
+        }
+
+        for (const std::filesystem::path& path : changed) {
             const std::string key = file_key(path);
             if (m_documents.contains(key)) {
                 continue;
@@ -623,6 +655,7 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
     }
 
     const std::uint64_t generation = m_generation;
+    disk_cache_t* disk = m_watched ? &m_disk : nullptr;
     ++m_running;
     lock.unlock();
     const auto start = steady_t::now();
@@ -634,6 +667,7 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
             return found != texts.end() ? std::optional(found->second) : std::nullopt;
         },
         .cache = &m_std_names,
+        .disk = disk,
         .examples = job.examples,
     });
     std::shared_ptr<const compilation_t> compilation =

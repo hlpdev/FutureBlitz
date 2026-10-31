@@ -8,11 +8,13 @@
 
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <chrono>
 #include <cstddef>
 #include <expected>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <optional>
 #include <set>
 #include <sstream>
@@ -68,6 +70,16 @@ std::string read_file(const std::filesystem::path& path) {
     std::ostringstream read;
     read << in.rdbuf();
     return read.str();
+}
+
+/// The messages of a file's diagnostics.
+std::vector<std::string> messages_of(const json_t& diagnostics) {
+    std::vector<std::string> found;
+    for (const json_t& diagnostic : diagnostics) {
+        found.push_back(diagnostic["message"].get<std::string>());
+    }
+
+    return found;
 }
 
 } // namespace
@@ -163,8 +175,11 @@ TEST_CASE("breaking a module shows in the modules that import it, and fixing it 
 }
 
 TEST_CASE("files that change on disk are checked again, with what imports them", "[lsp]") {
+    // Whether or not the checks share what they know of the disk, which the client's watching
+    // lets them.
+    const bool watches = GENERATE(false, true);
     const folder_t folder(layers());
-    client_t client({ .folders = { folder.root() } });
+    client_t client({ .folders = { folder.root() }, .watches = watches });
     client.settle();
     const std::string middle = folder.uri("middle.fb");
 
@@ -194,6 +209,97 @@ TEST_CASE("files that change on disk are checked again, with what imports them",
     const json_t missing = client.diagnostics(middle);
     REQUIRE(!missing.empty());
     CHECK(missing[0]["range"]["start"]["line"] == 1);
+}
+
+TEST_CASE("after edits, each file's diagnostics are those a check from nothing gives", "[lsp]") {
+    const folder_t folder(layers());
+    client_t client({ .folders = { folder.root() }, .watches = true });
+    client.settle();
+    const std::vector<std::string> files{ "base.fb", "middle.fb", "top.fb", "alone.fb" };
+    std::map<std::string, std::string> open;
+    // Each file's diagnostics, and those of a client that starts now with the same documents.
+    const auto same_as_new = [&] {
+        client.settle();
+        client_t fresh({ .folders = { folder.root() }, .watches = true });
+        for (const auto& [file, text] : open) {
+            fresh.open(folder.uri(file), text);
+        }
+
+        fresh.settle();
+        for (const std::string& file : files) {
+            INFO(file);
+            CHECK(messages_of(client.diagnostics(folder.uri(file))) ==
+                  messages_of(fresh.diagnostics(folder.uri(file))));
+        }
+    };
+    const auto edit = [&](const std::string& file, const std::string& text) {
+        if (!open.contains(file)) {
+            client.open(folder.uri(file), read_file(folder.path(file)));
+        }
+
+        open[file] = text;
+        client.change(folder.uri(file), text);
+    };
+
+    // A body, a declaration that what imports it sees, and an Import.
+    edit("base.fb",
+         "Import std.core\nPublic Function Base(): Int\n    Return \"no\"\nEnd Function\n");
+    same_as_new();
+    edit("base.fb", "Import std.core\nPublic Function Base(): String => \"1\"\n");
+    same_as_new();
+    REQUIRE(!client.diagnostics(folder.uri("middle.fb")).empty());
+    edit("top.fb", "Import std.core\nPublic Function Top(): Int => Middle() + 1\n");
+    same_as_new();
+    REQUIRE(!client.diagnostics(folder.uri("top.fb")).empty());
+}
+
+TEST_CASE("a folder deleted on disk takes its files, and what imports them sees it", "[lsp]") {
+    std::vector<std::pair<std::string, std::string>> files = layers();
+    files.emplace_back("parts/wheel.fb", "Import std.core\nPublic Function Wheel(): Int => 4\n");
+    files.emplace_back("car.fb", "Import std.core\nImport \"./parts/wheel\"\n"
+                                 "Public Function Car(): Int => Wheel()\n");
+    const folder_t folder(files);
+    client_t client({ .folders = { folder.root() }, .watches = true });
+    client.settle();
+    REQUIRE(client.diagnostics(folder.uri("car.fb")).empty());
+
+    // The client says only that the folder went.
+    std::filesystem::remove_all(folder.path("parts"));
+    client.notify(
+        "workspace/didChangeWatchedFiles",
+        { { "changes", json_t::array({ { { "uri", folder.uri("parts") }, { "type", 3 } } }) } });
+    client.settle();
+    const json_t missing = client.diagnostics(folder.uri("car.fb"));
+    REQUIRE(missing.size() == 1);
+    CHECK(missing[0]["range"]["start"]["line"] == 1);
+    CHECK(client.diagnostics(folder.uri("parts/wheel.fb")).empty());
+}
+
+TEST_CASE("the checks share what they know of the disk only while the client watches it", "[lsp]") {
+    const bool watches = GENERATE(false, true);
+    const folder_t folder({
+        { "project.toml", "[project]\nname = \"shared\"\nversion = \"0.1.0\"\n" },
+        { "main.fb", "Import std.core\nImport \"./extra\"\nPrint(Extra())\n" },
+    });
+    client_t client({ .folders = { folder.root() }, .watches = watches });
+    const std::string main = folder.uri("main.fb");
+    client.open(main, read_file(folder.path("main.fb")));
+    client.settle();
+    REQUIRE(!client.diagnostics(main).empty());
+
+    // A file made without a word from the client: a check that asks the disk itself finds it,
+    // and one that shares what the checks before it found doesn't, until the client says.
+    folder.write("extra.fb", "Import std.core\nPublic Function Extra(): Int => 1\n");
+    client.change(main, "Import std.core\nImport \"./extra\"\nPrint(Extra())\n\n");
+    client.settle();
+    CHECK(client.diagnostics(main).empty() == !watches);
+
+    client.notify(
+        "workspace/didChangeWatchedFiles",
+        { { "changes", json_t::array({ { { "uri", folder.uri("extra.fb") }, { "type", 1 } } }) } });
+    client.change(main, "Import std.core\nImport \"./extra\"\nPrint(Extra())\n");
+    client.settle();
+    CHECK(client.diagnostics(main).empty());
 }
 
 TEST_CASE("a package that depends on another is checked again when the other changes", "[lsp]") {

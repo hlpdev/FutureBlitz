@@ -24,6 +24,27 @@ around a check, which canonicalizes paths at 0.45 ms each on Windows. driver.cpp
 that shadowed others in `build_program`, which -Wshadow reported, are `beside_object` and
 `written`.
 
+Step 1, checks that keep what didn't change (2026-10-31, on dev/m11): a profile found a check's time
+went to the disk, so `fb/disk.hpp`'s `disk_cache_t` keeps where paths lead, what's at them, folders'
+entries, and source texts, which `disk::` functions answer through the cache a `disk_scope_t` puts
+in use (each run of the front end has one; `check_request_t::disk` is fb-lsp's, shared while the
+client watches files, emptied with what `file_key`, which asks through a cache of its own, asked,
+when files change, folders are added or removed, or a document closes). An answer asked for while
+the cache was emptied isn't kept (`disk_cache_t::remember`, by `clears`), so a check that began
+before a change can't leave what it saw. fb-lsp watches fb.lock, .proto files, and deletions too,
+and a deleted folder takes the files it held. `analyze()` takes the files whose bodies it checks;
+`run_front_end` gives a check's roots (`file_set_t::root_bodies`) and checks again with every body
+when sema sets `analysis_t::needs_every_body`, for a worker or generic code in the roots. Checks
+share files' tokens (`std_names_cache_t::lexed`), a package's files aren't listed unless lib/ has an
+interface, and completion lists Import names only at an Import. The program's check went from 1,067
+to 43 ms and a type error from 2,020 to 209; the type error, completion, signature help, references,
+and rename are enforced. Tests: the disk cache's answers and scopes, `check_files` with the roots'
+bodies and every body for a worker and for generic code, the checks sharing the disk only while the
+client watches, a deleted folder, and after a body's, a declaration's, and an Import's edit, each
+file's diagnostics against a check from nothing. The test client can say it watches files, as the
+benchmark's does. `report_no_archive` no longer reads `names.front()`, which GCC's release build
+warned about.
+
 A string's escapes in their own color (2026-10-31, the user): fb-lsp's semantic tokens gave each
 string literal one `string` token, which VS Code colors over the grammar's
 `constant.character.escape`, so `\n` looked like the rest of the string. `string_pieces()` in

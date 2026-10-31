@@ -4040,6 +4040,65 @@ TEST_CASE("check_files checks only the files it's given, and what they import", 
     packages.remove();
 }
 
+TEST_CASE("check_files checks its files' bodies, and every body when theirs need the others",
+          "[driver]") {
+    const packages_t packages;
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"0.1.0\"\n");
+    packages.write("app/a.fb", "Import std.core\nPublic Function A(): Int\n    Return \"a\"\n"
+                               "End Function\n");
+    packages.write("app/b.fb",
+                   "Import std.core\nImport \"./a\"\nPublic Function B(): Int => A()\n");
+    packages.write("app/score.fb", "Import std.core\nGlobal score = 3\n"
+                                   "Public Function Get(): Int => score\n");
+    // Work on another thread, which calls code that uses what only the main thread can.
+    packages.write("app/work.fb", "Import std.core\nImport \"./a\"\nImport \"./score\"\n"
+                                  "Public Function Run(): Int\n    Local t = Spawn(Get)\n"
+                                  "    Return t.Wait()\nEnd Function\n");
+    // Generic code, whose instances could lead back through another file's.
+    packages.write("app/deep.fb", "Import std.core\nImport \"./a\"\n"
+                                  "Function Deep<T>(x: T, n: Int): Int\n"
+                                  "    If n == 0 Then Return 0\n    Return Deep([x], n - 1)\n"
+                                  "End Function\n");
+
+    // b's own body, but not a's, which has a mistake that a check of a reports.
+    std::expected<fb::compilation_t, std::string> checked =
+        fb::check_files({ .files = { packages / "app/b.fb" } });
+    REQUIRE(checked);
+    CHECK(packages.messages(*checked).empty());
+    checked = fb::check_files({ .files = { packages / "app/a.fb" } });
+    REQUIRE(checked);
+    REQUIRE(packages.messages(*checked).size() == 1);
+    CHECK(packages.messages(*checked).front().starts_with("app/a.fb: "));
+
+    // A worker's work goes through score's body, so every body is checked, a's too.
+    checked = fb::check_files({ .files = { packages / "app/work.fb" } });
+    REQUIRE(checked);
+    std::vector<std::string> messages = packages.messages(*checked);
+    const auto has = [&](const std::string_view file, const std::string_view text) {
+        return std::ranges::any_of(messages, [&](const std::string& message) {
+            return message.starts_with(file) && message.contains(text);
+        });
+    };
+    std::string shown;
+    for (const std::string& message : messages) {
+        shown += message + "; ";
+    }
+
+    INFO(shown);
+    CHECK(messages.size() == 2);
+    CHECK(has("app/a.fb: ", ""));
+    CHECK(has("app/work.fb: ", "uses the Global 'score'"));
+
+    // So is generic code's, whose loop is found.
+    checked = fb::check_files({ .files = { packages / "app/deep.fb" } });
+    REQUIRE(checked);
+    messages = packages.messages(*checked);
+    CHECK(messages.size() == 2);
+    CHECK(has("app/a.fb: ", ""));
+    CHECK(has("app/deep.fb: ", "leads back to this code"));
+    packages.remove();
+}
+
 TEST_CASE("check_files checks the standard library's files, and a file outside a package",
           "[driver]") {
     const std::filesystem::path fuzzy =

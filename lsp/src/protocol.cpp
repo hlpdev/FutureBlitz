@@ -1,5 +1,6 @@
 #include "fb/lsp/protocol.hpp"
 
+#include "fb/disk.hpp"
 #include "fb/utf8.hpp"
 
 #include <algorithm>
@@ -152,10 +153,22 @@ std::optional<std::filesystem::path> path_of(const std::string_view uri) {
     return path_from_utf8(text);
 }
 
+namespace {
+
+/// What file_key() asked the disk, until forget_file_keys().
+disk_cache_t& key_answers() {
+    static disk_cache_t answers;
+    return answers;
+}
+
+} // namespace
+
 std::string file_key(const std::filesystem::path& path) {
+    // Working it out asks the disk, slowly on Windows, and the LSP asks for a file's key often.
+    const disk_scope_t scope(&key_answers());
     std::error_code error;
     const std::filesystem::path absolute = std::filesystem::absolute(path, error);
-    std::filesystem::path canonical = std::filesystem::weakly_canonical(absolute, error);
+    std::filesystem::path canonical = disk::weakly_canonical(absolute, error);
     if (error) {
         canonical = absolute.lexically_normal();
     }
@@ -166,6 +179,10 @@ std::string file_key(const std::filesystem::path& path) {
 #else
     return text;
 #endif
+}
+
+void forget_file_keys() {
+    key_answers().clear();
 }
 
 json_t positions_t::position(const source_file_t& file, const std::uint32_t offset) const {

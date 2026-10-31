@@ -350,9 +350,14 @@ bool is_later_name(const std::string_view name) {
 class checker_t {
 public:
     checker_t(const source_manager_t& sources, const ast_t& ast, diagnostic_bag_t& diagnostics,
-              const build_mode_t mode, const embed_reader_t& embeds)
+              const build_mode_t mode, const embed_reader_t& embeds,
+              const std::vector<file_id_t>* bodies)
         : m_sources(sources), m_ast(ast), m_mode(mode), m_embeds(&embeds),
           m_diagnostics(&diagnostics), m_bag(&diagnostics), m_reported(&diagnostics) {
+        if (bodies != nullptr) {
+            m_bodies.emplace(bodies->begin(), bodies->end());
+        }
+
         m_analysis.exprs.resize(ast.expr_count());
         m_analysis.stmts.resize(ast.stmt_count());
         const std::vector<module_t>& modules = ast.modules().modules();
@@ -455,7 +460,18 @@ public:
         each_item([this](const stmt_id_t id) { check_debug_attributes(id); });
         each_item([this](const stmt_id_t id) { check_loaded_type(id); });
         check_top_level();
-        each_item([this](const stmt_id_t id) { check_function(id); });
+        each_item([this](const stmt_id_t id) {
+            if (!m_bodies || m_bodies->contains(m_ast.get(id).span.file)) {
+                check_function(id);
+            }
+        });
+        // A worker's work calls code whose bodies weren't checked, which may use what only the
+        // main thread can.
+        if (m_bodies && (!m_workers.empty() || !m_kept_workers.empty())) {
+            m_analysis.needs_every_body = true;
+            return std::move(m_analysis);
+        }
+
         check_threads();
         check_expansion();
         return std::move(m_analysis);
@@ -466,6 +482,8 @@ private:
     const ast_t& m_ast;
     /// The build's mode, which Const Functions run as.
     build_mode_t m_mode;
+    /// The files whose functions have their bodies checked, when not all do.
+    std::optional<std::set<file_id_t>> m_bodies;
     /// What reads the files Embed, EmbedText, and EmbedFolder name.
     const embed_reader_t* m_embeds;
     /// Each embed's place in analysis_t::embeds, by its files' paths and shared bytes.
@@ -11643,6 +11661,15 @@ private:
                     }
                 }
             }
+        }
+
+        // A loop through code whose bodies weren't checked can't be seen, so generic code in
+        // the files whose bodies were needs them all.
+        if (m_bodies && std::ranges::any_of(edges, [&](const expansion_t& edge) {
+                return m_bodies->contains(edge.span.file);
+            })) {
+            m_analysis.needs_every_body = true;
+            return;
         }
 
         // Where a growing edge's parameter comes back to itself, in the order the code reads.
@@ -27404,8 +27431,9 @@ loop_methods(const ast_t& ast, const analysis_t& analysis, type_table_t& types,
 }
 
 analysis_t analyze(const source_manager_t& sources, const ast_t& ast, diagnostic_bag_t& diagnostics,
-                   const build_mode_t mode, const embed_reader_t& embeds) {
-    return checker_t(sources, ast, diagnostics, mode, embeds).run();
+                   const build_mode_t mode, const embed_reader_t& embeds,
+                   const std::vector<file_id_t>* bodies) {
+    return checker_t(sources, ast, diagnostics, mode, embeds, bodies).run();
 }
 
 } // namespace fb

@@ -64,21 +64,25 @@ std::vector<metric_t> metrics() {
             .name = "type_error",
             .what = "a type error shown, from the last keystroke",
             .budget = milliseconds(300),
+            .enforced = true,
         },
         {
             .name = "completion_member",
             .what = "completion after `.`, from the keystroke",
             .budget = milliseconds(100),
+            .enforced = true,
         },
         {
             .name = "completion_word",
             .what = "completion on a word being typed, from the keystroke",
             .budget = milliseconds(100),
+            .enforced = true,
         },
         {
             .name = "signature_help",
             .what = "signature help after `(`, from the keystroke",
             .budget = milliseconds(100),
+            .enforced = true,
         },
         {
             .name = "hover",
@@ -96,11 +100,13 @@ std::vector<metric_t> metrics() {
             .name = "references",
             .what = "find references across the package",
             .budget = milliseconds(1000),
+            .enforced = true,
         },
         {
             .name = "rename",
             .what = "a rename across the package",
             .budget = milliseconds(1000),
+            .enforced = true,
         },
     };
 }
@@ -389,8 +395,13 @@ void measure(workload_t& workload, const std::size_t samples, const std::chrono:
     };
 
     const steady_t::time_point start = steady_t::now();
-    client_t client(
-        { .folders = { workload.root }, .delay = delay, .dependents_delay = dependents_delay });
+    // As VS Code, which watches the files.
+    client_t client({
+        .folders = { workload.root },
+        .delay = delay,
+        .dependents_delay = dependents_delay,
+        .watches = true,
+    });
     client.settle();
     workload.initial = milliseconds_t(steady_t::now() - start).count();
 

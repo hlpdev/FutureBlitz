@@ -312,8 +312,9 @@ How it's built (2026-10-29):
   file's diagnostics and the import graph.
 - **A check** is the driver's `check_files()`: some files of one unit, the roots, each a module of
   its own, with what they import, and no other file. The open documents' texts are read in place
-  of the disk's. Sema checks a compilation's modules whole, as it does a build's, so what makes it
-  incremental is what a check loads: an edit of a file that few others import loads few modules.
+  of the disk's. Sema checks the declarations of every module a check loads, and only the roots'
+  function bodies (M11's step 1), so an edit of a file that few others import loads few modules,
+  and their bodies aren't checked again.
 - **An edit** checks the edited file once there's been no other edit for 150 ms, on a thread for
   edited documents, and publishes its diagnostics. Then, 400 ms after, a thread for the rest
   checks the files that import it, directly or not, as the graph of the checks before says, one
@@ -340,7 +341,8 @@ How it's built (2026-10-29):
   letters, digits, and '_'.
 - **Shared work.** A check's driver parses each std file it doesn't load, for the error that says
   which module declares a name, which took most of a check's time; the checks share what it finds
-  (`std_names_cache_t`), by each file's text.
+  (`std_names_cache_t`), by each file's text, and each file's tokens, and what the disk said
+  (`disk_cache_t`), until the client says files changed (M11's step 1).
 - **Semantic tokens** are the lexer's keywords, literals, and comments, with each name as what it
   names over them. A string's or a character's tokens leave out its escapes, `{{` and `}}`
   among them, and its interpolations' braces, which VS Code would otherwise color as the string,
@@ -650,7 +652,7 @@ program of a few hundred files), measured at the 95th percentile:
 | | Step | Done when |
 |---|---|---|
 | 0 | **Measure.** A benchmark of fb-lsp over its messages (tests/lsp), on std and a generated large package: each request's time from the edit, at the 50th and 95th percentile, written as a report CI keeps; and a check that fails when a budget is missed | the report shows where today's time goes, and the budgets are checked |
-| 1 | **Checks that keep what didn't change.** A check reuses what the checks before it found for each module whose text hasn't changed: its parse, its declarations' types and signatures, and its Public names, with std's modules checked once for the session and shared by every check. An edit checks the edited module again, and the modules that import it, directly or not, only when what it declares changed, not when only a body did. Completion and signature help answer from the edited module's own check, and references and renames from the uses the kept checks recorded, checking again only what changed since. A file's key is worked out once, not after every check, and the wait after a keystroke is as short as the budgets need | the benchmark's type error, completion, signature help, references, and rename meet their budgets on both workloads and are enforced; tests edit a body, a declaration, and an Import, and check that only what each touches is checked again, and that after each, every file's diagnostics are the same as a check from nothing gives |
+| 1 | **Checks that keep what didn't change** (done 2026-10-31). Measuring showed a check's time went to asking the disk, not to compiling, so the checks keep what the disk said until it changes, and what didn't change of the rest: each file's tokens; the package's files aren't listed for every check; a check of a few files checks only their bodies, unless theirs need the others'; a file's key is worked out once; and completion lists the modules an Import can name only at an Import (below) | the benchmark's type error, completion, signature help, references, and rename meet their budgets on both workloads and are enforced; tests edit a body, a declaration, and an Import, and check that after each, every file's diagnostics are the same as a check from nothing gives |
 | 2 | **Errors as typed.** Each change parses the file alone at once and publishes its syntax errors with no wait; the full check follows at its pause, and its errors replace them. The parser recovers at each statement and block, so one missing `End` or `)` doesn't hide the rest of the file's errors; tests of recovery for each block and each kind of broken line | a syntax error shows within 50 ms, and a file with three unrelated syntax errors shows all three |
 | 3 | **Completion that knows.** Names from every module the file can import (its package's, std's, its dependencies'), not only those it imports, with the Import added when one is chosen; ranked by the type expected where the cursor is, then by scope and use; an Enum's members where an Enum is expected; named arguments; the members a Class can override and an Interface's to implement, written out with their signatures; keywords only where they can go; postfix completions (`.if`, `.ifnull`, `.for`, `.not`, `.try`, `.local`); completion on a word as it's typed, not only after `.` | each kind has a test of what's offered and in what order, and choosing an unimported name adds its Import |
 | 4 | **The editor's basics.** Inlay hints (a Local's inferred type, parameter names at calls, each a setting); highlighting a symbol's other uses; folding by blocks, comments, and Import groups; expanding a selection by syntax; go to type definition and to implementations; call and type hierarchies; code lenses for references; run and debug for each `@Test` and main file in VS Code's Testing panel and the gutter | each request has tests, and the extension's Testing panel runs and debugs a package's tests |
@@ -706,6 +708,56 @@ with other builds running, so the 95th percentiles are noisy; the 50th held acro
   doc comments' examples, from nothing each time.
 - **Hover and the quick fixes** answer from the last check in a few milliseconds; their budgets
   are enforced from the start.
+
+**Step 1, checks that keep what didn't change** (2026-10-31). Step 0's report said every check
+started over, so the plan was to keep each module's parse and declarations between checks. A
+profile of one check of the program's middle module found otherwise: of about 1.1 s, lexing and
+parsing its 108 modules took 25 ms and sema 70 ms, and the rest went to asking the disk, about
+4,500 real paths, 600 canonical ones, and 1,800 statuses and comparisons, at a tenth to half a
+millisecond each on Windows, for the 200 or so paths a check has. So:
+
+- **The disk cache** (`fb/disk.hpp`): `disk_cache_t` keeps what the front end asks the disk, where
+  a path really leads, what's at it, a folder's entries, and a source file's text, and
+  `disk::weakly_canonical`, `real_path`, `exists`, `is_regular_file`, `is_directory`,
+  `equivalent`, `entries`, `files_under`, and `read` answer through the one a `disk_scope_t`
+  puts in use on the thread, as std::filesystem does, or from the disk without one. Each run of
+  the front end has a scope of its own, so `fb check` and `fb build` ask the disk once a path
+  too; `check_request_t::disk` is the LSP's, which its checks share while the client watches the
+  files. The workspace empties it, and the one `file_key` asks through, when the client says
+  files changed, when a folder is added or removed, and when a document closes; an answer asked
+  for while it was emptied isn't kept (`disk_cache_t::remember`), so a check that began before a
+  change can't leave what it saw. fb-lsp watches `**/fb.lock`, `**/*.proto`, and every deletion
+  besides .fb files and project.toml, and a folder's deletion takes the files the workspace knows
+  in it. A client that doesn't watch gets a cache for each check, which the disk can't change
+  under.
+- **Only the roots' bodies.** fb-lsp publishes only a check's roots' diagnostics, so
+  `analyze()` takes the files whose functions' bodies it checks (`file_set_t::root_bodies`);
+  the others' declarations are checked, and Const Functions' bodies as they run. Two things in
+  the roots need the other bodies: a worker, whose work's calls lead through them, and generic
+  code, whose instances could lead back through them. Sema says so
+  (`analysis_t::needs_every_body`), and the check runs again with every body.
+- **Shared tokens.** The checks share each file's tokens and doc comments by its text and the
+  symbols defined, when lexing it reported nothing (`std_names_cache_t::lexed`).
+- **No list of the package's files.** Loading a package listed every file in it, to see whether
+  one without an interface file for this build was prebuilt for another; it looks at lib/ first
+  now, which rarely has one.
+- **Completion** asks for the modules an Import can name, which copies the unit and names all its
+  files, only at an Import.
+
+Dependents are still checked again after every edit, not only when a declaration changed: a
+body's change can change what imports it through a Const Function, a use of what only the main
+thread can, and a generic instance, and checking them is cheap now.
+
+| At the 50th percentile, ms | The program, before | After | std, before | After |
+|---|---|---|---|---|
+| A check of the edited file | 1,067 | 43 | 150 | 11 |
+| A type error shown | 2,020 | 209 | 345 | 166 |
+| Completion after `.`, signature help | 1,830, 1,751 | 49, 48 | 185, 162 | 13, 11 |
+| References, a rename | 8,043, 8,454 | 208, 294 | 1,402, 1,525 | 285, 289 |
+| The first check of the whole folder | 7,086 | 673 to 2,597 | 2,884 | 695 to 1,434 |
+
+Each of these met its budget at the 95th percentile too, as the report shows, and is enforced. A
+syntax error still waits for the check, step 2's.
 
 ## Not in M8
 
