@@ -8,6 +8,7 @@
 #include "fb/types.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <format>
@@ -1221,7 +1222,13 @@ private:
             }
         }
 
-        if (builtin_type(name) || m_builtins.contains(name)) {
+        // And the types the language has by name, as Object and Scheduler, where nothing the code
+        // sees takes the name.
+        static constexpr std::array named_types{
+            "Object", "Scheduler", "Task", "Thread", "Channel", "Atomic", "Mutex", "Weak", "Ptr",
+        };
+        if (builtin_type(name) || m_builtins.contains(name) ||
+            std::ranges::contains(named_types, name)) {
             return found_t{ .path = std::string(name), .builtin = true };
         }
 

@@ -143,6 +143,9 @@ public:
     /// `declared`: its own, or the package's it tests.
     [[nodiscard]] bool sees_package(package_id_t here, package_id_t declared) const;
 
+    /// The package `package` is tests of, if it's tests.
+    [[nodiscard]] std::optional<package_id_t> tested(package_id_t package) const;
+
     /// The module that declares the member `name` an Extend adds to the built-in type named
     /// `type`, among the standard library's that the program doesn't load. nullopt when none
     /// does.

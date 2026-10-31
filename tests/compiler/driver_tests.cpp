@@ -2743,6 +2743,40 @@ TEST_CASE("a package's tests are in its files, and its tests/ folder's see its P
     packages.remove();
 }
 
+TEST_CASE("a package's tests change its Package Fields through f.Set, as by their names",
+          "[driver]") {
+    const packages_t packages;
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\n");
+    packages.write("app/main.fb", "Import std.core\n");
+    packages.write("app/counter.fb", "Public Class Counter\n"
+                                     "    Package Field count: Int = 3\n"
+                                     "    Public New()\n"
+                                     "    End New\n"
+                                     "End Class\n");
+    packages.write("app/tests/zero.fb", "Import std.core\n"
+                                        "Import std.test\n"
+                                        "Import app.counter\n"
+                                        "Function Zero<T>(ByRef target: T)\n"
+                                        "    For Field f: F In T\n"
+                                        "        Where F: Numeric\n"
+                                        "        f.Set(ByRef target, F.Zero())\n"
+                                        "    End For\n"
+                                        "End Function\n"
+                                        "@Test Function Zeroes()\n"
+                                        "    Local counter = Counter()\n"
+                                        "    Zero(ByRef counter)\n"
+                                        "    Expect(counter.count == 0)\n"
+                                        "End Function\n");
+    const std::expected<fb::compilation_t, std::string> tested =
+        fb::compile_tests(packages / "app");
+    REQUIRE(tested);
+    CHECK(packages.messages(*tested).empty());
+    const fb::mir_module_t module =
+        fb::lower_tests(tested->ast, tested->analysis, fb::package_tests(*tested));
+    CHECK_FALSE(module.error);
+    packages.remove();
+}
+
 TEST_CASE("a test build leaves out other main files' code, and builds leave out tests/",
           "[driver]") {
     const packages_t packages;
@@ -2806,6 +2840,78 @@ TEST_CASE("a test build leaves out other main files' code, and builds leave out 
     CHECK_FALSE(binary->interface.contains("AreaWorks"));
     CHECK(binary->binary.contains("Area"));
     CHECK_FALSE(binary->binary.contains("AreaWorks"));
+    packages.remove();
+}
+
+TEST_CASE("an interface file doesn't write a built-in type its module's own type hides",
+          "[driver]") {
+    const packages_t packages;
+    packages.write("lib/project.toml",
+                   "[project]\nname = \"lib\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    packages.write("lib/helpers.fb", "Public Class Rock\nEnd Class\n"
+                                     "Public Function MakeAny(): Object => Rock()\n"
+                                     "Public Function Ticker(): Scheduler => Scheduler()\n");
+    packages.write("lib/shapes.fb", "Import lib.helpers\n"
+                                    "Public Class Object\n    Public Field N: Int = 7\nEnd Class\n"
+                                    "Public Class Scheduler\nEnd Class\n"
+                                    "Public Global Kept = MakeAny()\n"
+                                    "Public Global Ticks = Ticker()\n");
+    const std::expected<fb::compilation_t, std::string> library =
+        fb::compile_file(packages / "lib");
+    REQUIRE(library);
+    CHECK(packages.messages(*library).empty());
+    fb::diagnostic_bag_t diagnostics;
+    CHECK_FALSE(fb::build_library(*library, fb::build_mode_t::DEBUG, diagnostics));
+    std::vector<std::string> messages;
+    for (const fb::diagnostic_t& diagnostic : diagnostics.diagnostics()) {
+        messages.push_back(diagnostic.message);
+    }
+
+    CHECK(messages == std::vector<std::string>{
+                          "this library's interface file names the built-in Object for 'Kept', "
+                          "which the module's own Object hides; name that type another way",
+                          "this library's interface file names the built-in Scheduler for "
+                          "'Ticks', which the module's own Scheduler hides; name that type "
+                          "another way",
+                      });
+    packages.remove();
+}
+
+TEST_CASE("a prebuilt library's tests see its Public names, and say why they see no others",
+          "[driver]") {
+    const packages_t packages;
+    const std::string manifest =
+        "[project]\nname = \"geo\"\nversion = \"0.1.0\"\ntype = \"library\"\n";
+    packages.write("geo/project.toml", manifest);
+    packages.write("geo/shapes.fb", "Public Function Twice(n: Int): Int => n * 2\n"
+                                    "Package Function Thrice(n: Int): Int => n * 3\n");
+    const std::expected<fb::compilation_t, std::string> library =
+        fb::compile_file(packages / "geo");
+    REQUIRE(library);
+    fb::diagnostic_bag_t diagnostics;
+    const std::expected<fb::library_build_t, std::string> build =
+        fb::build_library(*library, fb::build_mode_t::DEBUG, diagnostics);
+    REQUIRE(build);
+
+    // The prebuilt package has its builds in place of its .fb files.
+    const std::string folder = std::format("geo-prebuilt/lib/{}/debug/", fb::build_target());
+    packages.write("geo-prebuilt/project.toml", manifest);
+    packages.write(folder + "geo.fbi", build->interface);
+    packages.write(folder + "geo.fblib", build->binary);
+    packages.write("geo-prebuilt/tests/both.fb", "Import std.test\n"
+                                                 "Import geo.shapes\n"
+                                                 "@Test Function Both()\n"
+                                                 "    Expect(Twice(2) == 4)\n"
+                                                 "    Expect(Thrice(2) == 6)\n"
+                                                 "End Function\n");
+    const std::expected<fb::compilation_t, std::string> tested =
+        fb::compile_tests(packages / "geo-prebuilt");
+    REQUIRE(tested);
+    CHECK(packages.messages(*tested) ==
+          std::vector<std::string>{
+              "geo-prebuilt/tests/both.fb: Thrice: 'Thrice' isn't declared; a prebuilt library's "
+              "tests see only its Public names, which its interface file has",
+          });
     packages.remove();
 }
 

@@ -94,6 +94,12 @@ bool module_table_t::sees_package(const package_id_t here, const package_id_t de
     return here == declared || m_tested[index] == declared;
 }
 
+std::optional<package_id_t> module_table_t::tested(const package_id_t package) const {
+    const auto index = std::to_underlying(package);
+    assert(index < m_tested.size());
+    return m_tested[index];
+}
+
 bool module_table_t::is_standard(const package_id_t id) const {
     return m_standard == id;
 }

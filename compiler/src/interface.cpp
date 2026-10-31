@@ -982,7 +982,7 @@ private:
         case type_kind_t::ENUM: {
             // The built-in Object is in no module, as Scheduler isn't.
             if (id == m_analysis.interfaces.object) {
-                return "Object";
+                return builtin_name(module, "Object");
             }
 
             const type_id_t declared = type.generic != type_id_t::INVALID ? type.generic : id;
@@ -1049,6 +1049,8 @@ private:
                        : std::format("{}({}): {}{}", word, list(type.parameters),
                                      listed(module, type.inner), throws);
         }
+        case type_kind_t::SCHEDULER:
+            return builtin_name(module, "Scheduler");
         default:
             return type.name;
         }
@@ -1079,6 +1081,33 @@ private:
                              m_analysis.types.get(last).kind == type_kind_t::TASK &&
                              !m_analysis.types.get(last).throws.empty();
         return wrapped ? std::format("({})", type_text(module, id)) : type_text(module, id);
+    }
+
+    /// A built-in type's name, `name`, which the interface file can write only where the module
+    /// has no type of that name, of its own or from an Import, which would take its place.
+    std::string builtin_name(module_text_t& module, const std::string_view name) {
+        const module_table_t& modules = m_ast.modules();
+        const auto seen = [&](const file_id_t file) {
+            const std::optional<module_id_t> declared = modules.of(file);
+            return declared &&
+                   (&modules.get(*declared) == module.module ||
+                    std::ranges::any_of(module.module->imports, [&](const module_import_t& each) {
+                        return std::ranges::contains(each.modules, *declared);
+                    }));
+        };
+        const bool hidden = std::ranges::any_of(m_analysis.symbols, [&](const symbol_t& symbol) {
+            return (symbol.kind == symbol_kind_t::TYPE || symbol.kind == symbol_kind_t::ALIAS) &&
+                   symbol.declaration && symbol.name == name && seen(symbol.span.file);
+        });
+        if (hidden) {
+            m_diagnostics.error(m_typed.span,
+                                "this library's interface file names the built-in {} for '{}', "
+                                "which the module's own {} hides; name that type another way",
+                                name, m_typed.text, name);
+            m_failed = true;
+        }
+
+        return std::string(name);
     }
 
     /// The qualifier a declared type takes in `module`: none in its own module, or else a

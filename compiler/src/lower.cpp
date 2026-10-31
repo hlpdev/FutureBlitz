@@ -10255,13 +10255,18 @@ private:
         switch (field.modifiers.visibility) {
         case visibility_t::PUBLIC:
             return std::nullopt;
-        case visibility_t::PACKAGE:
-            if (package(field.span.file) == package(span.file)) {
+        case visibility_t::PACKAGE: {
+            // Its package's tests can change it too, as they can by its name.
+            const std::optional<package_id_t> declared = package(field.span.file);
+            const std::optional<package_id_t> here = package(span.file);
+            if (declared == here || (declared && here && modules.sees_package(*here, *declared))) {
                 return std::nullopt;
             }
 
-            return std::format("'{}' is Package, so f.Set outside its package can't change it",
+            return std::format("'{}' is Package, so f.Set outside its package and its tests can't "
+                               "change it",
                                field.name);
+        }
         case visibility_t::PROTECTED:
             // In the code of a Class extending its own.
             for (type_id_t code = m_self ? type_of(place_t{ *m_self }) : type_id_t::INVALID;

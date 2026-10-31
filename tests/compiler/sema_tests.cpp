@@ -2419,6 +2419,29 @@ TEST_CASE("every Class's object is an Object, which 'As?' turns back into a Clas
                     "be" });
     CHECK(errors_of(with_family("Local o: Object = B()\nLocal x = o.ToString()")) ==
           errors_t{ "ToString: Object has no member named 'ToString'" });
+
+    // "an Object", and no word of arrays where it's not a Class.
+    CHECK(errors_of(with_family("Local b = B()\nLocal x = b Is Object")) ==
+          errors_t{ "b Is Object: this is always True: every B is an Object" });
+    CHECK(errors_of("Function F<T: Class>(): Int => 0\nLocal x = F<Object>()") ==
+          errors_t{ "F<Object>: Object isn't a Class, which 'F' needs for T" });
+
+    // Only a type of its name takes the built-in's place, not a Function's, for Scheduler too.
+    CHECK(errors_of(with_family("Function Object(): Int => 1\nLocal x: Object = B()")).empty());
+    CHECK(errors_of("Function Scheduler(): Int => 1\nFunction F(s: Scheduler)\nEnd Function")
+              .empty());
+
+    // Beside a module's own Object, the built-in says what it is.
+    CHECK(errors_with("Import \"./things\"\nImport \"./keeper\"\nLocal c: Object = MakeAny()",
+                      {
+                          { .path = "things.fb", .text = "Public Class Object\nEnd Class\n" },
+                          {
+                              .path = "keeper.fb",
+                              .text = "Public Class Rock\nEnd Class\nPublic Function MakeAny(): "
+                                      "Object => Rock()\n",
+                          },
+                      }) ==
+          errors_t{ "MakeAny(): expected things.Object, found the built-in Object" });
 }
 
 TEST_CASE("a Select can match Classes", "[sema]") {

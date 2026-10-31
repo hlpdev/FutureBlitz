@@ -9613,6 +9613,11 @@ private:
             return std::string(name_of(shown));
         }
 
+        // The built-in Object is in no module, so beside another Object it says what it is.
+        if (shown != type_id_t::INVALID && shown == m_analysis.interfaces.object) {
+            return "the built-in Object";
+        }
+
         return qualified(shown);
     }
 
@@ -10625,8 +10630,10 @@ private:
                           is_parameter(bound.parameter)
                               ? std::format(" for {}", name_of(bound.parameter, argument))
                               : std::string(),
-                          is_interface(argument) ? "; an Interface's value can be an array too"
-                                                 : "");
+                          // An Object is always a Class's.
+                          is_interface(argument) && argument != m_analysis.interfaces.object
+                              ? "; an Interface's value can be an array too"
+                              : "");
                 }
             } else if (interface == m_analysis.interfaces.any_error) {
                 if (!implements(argument, interface)) {
@@ -13512,7 +13519,13 @@ private:
                 return channel_of(resolve_type(named->arguments.front()), type.span);
             }
 
-            if (named->name == "Scheduler" && found.empty()) {
+            // Only a type of its name takes a built-in type's place, as spec 06 says, not a
+            // Function or a Global.
+            const bool typed = std::ranges::any_of(found, [&](const symbol_id_t id) {
+                return symbol(id).kind == symbol_kind_t::TYPE ||
+                       symbol(id).kind == symbol_kind_t::ALIAS;
+            });
+            if (named->name == "Scheduler" && !typed) {
                 if (!named->arguments.empty()) {
                     error(type.span, "'Scheduler' isn't generic");
                 }
@@ -13520,7 +13533,7 @@ private:
                 return m_analysis.types.scheduler();
             }
 
-            if (named->name == "Object" && found.empty()) {
+            if (named->name == "Object" && !typed) {
                 if (!named->arguments.empty()) {
                     error(type.span, "'Object' isn't generic");
                 }
@@ -19415,8 +19428,23 @@ private:
 
             error(span, "'{}' is called, as in {}", name, example);
         } else if (!from_failed_import(name, span) && !m_misplaced_externs.contains(name)) {
-            error(span, "'{}' isn't declared", name);
+            error(span, "'{}' isn't declared{}", name, prebuilt_tests_hint(span));
         }
+    }
+
+    /// For code in the tests of a prebuilt library, what a name it doesn't see may be: one the
+    /// library keeps to itself, which its interface file leaves out.
+    [[nodiscard]] std::string prebuilt_tests_hint(const span_t span) const {
+        const module_table_t& modules = m_ast.modules();
+        const std::optional<package_id_t> here = package_of(module_of(span.file));
+        const std::optional<package_id_t> tested = here ? modules.tested(*here) : std::nullopt;
+        const bool prebuilt =
+            tested && std::ranges::any_of(modules.modules(), [&](const module_t& module) {
+                return module.package == *tested && module.prebuilt;
+            });
+        return prebuilt ? "; a prebuilt library's tests see only its Public names, which its "
+                          "interface file has"
+                        : std::string();
     }
 
     /// Whether an Import of the code's module that loaded nothing, which the driver reported,
@@ -26874,8 +26902,11 @@ private:
         }
 
         if (!is_nullable(source) && is_interface(target) && converts_plainly(object, target)) {
-            warning(span_of(id), "this is always True: every {} is a {}", name_of(object, target),
-                    name_of(target, object));
+            const std::string interface = name_of(target, object);
+            const bool vowel =
+                !interface.empty() && std::string_view("AEIOU").contains(interface[0]);
+            warning(span_of(id), "this is always True: every {} is {} {}", name_of(object, target),
+                    vowel ? "an" : "a", interface);
         } else if (!is_nullable(source) && m_analysis.types.extends(object, target)) {
             warning(span_of(id), "this is always True: '{}' is {} already", text(node.value),
                     shown_name(object));
