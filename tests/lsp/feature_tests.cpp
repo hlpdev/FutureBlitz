@@ -518,6 +518,7 @@ TEST_CASE("completion gives members, names in scope, modules, and keywords", "[l
     CHECK(names.contains("Point"));
     CHECK(names.contains("Print"));
     CHECK(names.contains("Return"));
+    CHECK(names.contains("Object"));
     CHECK(!names.contains("by"));
 
     // In a Method, Self's members.

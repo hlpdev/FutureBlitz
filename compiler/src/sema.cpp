@@ -1114,6 +1114,7 @@ private:
     /// rest below, which the compiler checks and lowers itself. User functions can overload them,
     /// and a module's own, or an imported one, of a built-in's name and types hides it.
     void declare_builtins() {
+        m_analysis.interfaces.object = declare_object();
         // RefEquals takes any Classes, so its parameters have no type; check_ref_equals() checks
         // the arguments instead.
         const symbol_id_t left = add_symbol({ .kind = symbol_kind_t::PARAMETER, .name = "a" });
@@ -1595,6 +1596,8 @@ private:
             .sendable = find("Sendable"),
             .any_class = any_class,
             .any_error = declare_any_error(any_class),
+            // Declared with the built-ins, so any type can name it.
+            .object = m_analysis.interfaces.object,
         };
 
         // CData is std.ffi's.
@@ -1645,6 +1648,20 @@ private:
         });
         m_constraint_only[type] = "says that a type is a Class";
         m_analysis.constraint_only.push_back(type);
+        return type;
+    }
+
+    /// Object, which every Class's object is and nothing else: an Interface without members,
+    /// which every Class implements without listing it. A type named Object that the code's
+    /// module declares or imports takes its place, as one named Scheduler does.
+    type_id_t declare_object() {
+        const type_id_t type = m_analysis.types.add_interface("Object");
+        m_declared_types[type] = add_symbol({
+            .kind = symbol_kind_t::TYPE,
+            .name = "Object",
+            .type = type,
+            .modifiers = { .visibility = visibility_t::PUBLIC },
+        });
         return type;
     }
 
@@ -2309,6 +2326,13 @@ private:
 
         // One the code can't use, which resolve_type() reported, is still the one it names.
         const type_id_t type = resolve_type(id);
+        if (type != type_id_t::INVALID && type == m_analysis.interfaces.object) {
+            error(written.span,
+                  "every Class is an Object already, and nothing else can be one, so Object isn't "
+                  "implemented, extended, or a constraint; <T: Class> says a type is a Class");
+            return type_id_t::INVALID;
+        }
+
         if (type != type_id_t::INVALID && is_interface(type)) {
             return type;
         }
@@ -3523,6 +3547,12 @@ private:
 
         if (found.empty() && is_later_name(named->name)) {
             error(written.span, "'{}' isn't supported yet", named->name);
+            return type_id_t::INVALID;
+        }
+
+        if (found.empty() && named->name == "Object") {
+            error(written.span, "Object can't be extended; it's every Class's object, which has "
+                                "only its own Class's members");
             return type_id_t::INVALID;
         }
 
@@ -9801,6 +9831,12 @@ private:
         return is_class(type) || is_interface(type);
     }
 
+    /// A Class or an Interface, or a type parameter that's a Class's: what 'As' and 'As?' convert
+    /// between, checking at run time.
+    [[nodiscard]] bool is_any_object(const type_id_t type) const {
+        return is_object(type) || is_any_class(type);
+    }
+
     /// A Class, or a type parameter whose constraints say it's one, like the T of `Where T:
     /// Class`, which a Weak<T> refers to and RefEquals and 'Is' take.
     [[nodiscard]] bool is_any_class(const type_id_t type) const {
@@ -10024,6 +10060,11 @@ private:
 
         if (interface == m_analysis.interfaces.c_data) {
             return !why_not_c_data(type);
+        }
+
+        // Every Class's object is an Object, as a type parameter's that's a Class is.
+        if (interface == m_analysis.interfaces.object && is_any_class(type)) {
+            return true;
         }
 
         if (is_parameter(type)) {
@@ -12860,6 +12901,9 @@ private:
             error(span, "{} can't be shown {}, since {} isn't {}, which its ToString needs for {}",
                   name_among(type, shown), where, name_among(argument, shown),
                   name_among(bound.interface, shown), name_among(bound.parameter, shown));
+        } else if (type == m_analysis.interfaces.object) {
+            error(span, "an Object can't be shown {}; 'As?' gives it as a Class that can be",
+                  where);
         } else if (has_members(type) && printable != type_id_t::INVALID) {
             error(span, "{} can't be shown {}; implement {}, with a ToString{}",
                   name_of(type, printable), where, std_name(printable, type, span),
@@ -13136,10 +13180,13 @@ private:
         }
 
         if (is_weak(to) && from != to) {
-            // A Weak<T> of a type parameter is assigned that T.
+            // A Weak<T> of a type parameter is assigned that T, and a Weak<Object> any object.
+            const type_id_t object = m_analysis.interfaces.object;
             return (is_class(non_null(from)) &&
                     m_analysis.types.extends(non_null(from), element_of(to))) ||
-                   (is_parameter(non_null(from)) && non_null(from) == element_of(to));
+                   (is_parameter(non_null(from)) && non_null(from) == element_of(to)) ||
+                   (element_of(to) == object &&
+                    (non_null(from) == object || converts_plainly(non_null(from), object)));
         }
 
         // A Ptr<Void> is any Ptr, both ways, as C's void* is.
@@ -13149,10 +13196,12 @@ private:
         }
 
         // Only one that all of its Class's objects implement: one that an Extend's constraints
-        // make conditional would need a table for each instance. Each array type has its own.
+        // make conditional would need a table for each instance. Each array type has its own. A
+        // type parameter that's a Class's is an Object.
         if (is_interface(to) && from != to) {
             return ((is_class(from) || is_array(from)) && implements(from, to)) ||
-                   (is_interface(from) && m_analysis.types.extends(from, to));
+                   (is_interface(from) && m_analysis.types.extends(from, to)) ||
+                   (to == m_analysis.interfaces.object && is_any_class(from));
         }
 
         // A type parameter that's an error is an Error.
@@ -13390,7 +13439,8 @@ private:
             }
 
             const type_id_t inner = resolve_type(weak->inner);
-            if (inner != type_id_t::INVALID && !is_any_class(inner)) {
+            if (inner != type_id_t::INVALID && !is_any_class(inner) &&
+                inner != m_analysis.interfaces.object) {
                 error(type.span, "Weak<T> refers to an object of a Class, not {}{}",
                       shown_name(inner), class_hint(inner));
                 return type_id_t::INVALID;
@@ -13460,6 +13510,14 @@ private:
                 }
 
                 return m_analysis.types.scheduler();
+            }
+
+            if (named->name == "Object" && found.empty()) {
+                if (!named->arguments.empty()) {
+                    error(type.span, "'Object' isn't generic");
+                }
+
+                return m_analysis.interfaces.object;
             }
 
             // "Task<T>", "Task" for work that gives nothing, and "Thread".
@@ -19326,6 +19384,9 @@ private:
             report_hint(span, *hint);
         } else if (is_later_name(name)) {
             error(span, "'{}' isn't supported yet", name);
+        } else if (name == "Object") {
+            error(span, "Object is any Class's object, so it isn't a value or made; make an object "
+                        "of a Class");
         } else if (is_value_builtin(name)) {
             std::string example = std::format("{}<T>()", name);
             if (name == "AddressOf") {
@@ -25843,7 +25904,8 @@ private:
             }
 
             const type_id_t type = symbol(*source).type;
-            if (!is_weak(type) && !is_any_class(non_null(type))) {
+            if (!is_weak(type) && !is_any_class(non_null(type)) &&
+                non_null(type) != m_analysis.interfaces.object) {
                 if (type != type_id_t::INVALID) {
                     error(name.span, "[Weak {}] needs a reference to an object, not {}{}",
                           name.text, shown_name(type), class_hint(non_null(type)));
@@ -26658,9 +26720,11 @@ private:
 
         // Numbers convert to each other, a Bool to an integer as 0 or 1, a Char to and from an
         // integer, its code, and anything to what it converts to without 'As', like a T to a T?. An
-        // object converts to a related Class, which is checked at run time.
-        const bool classes = is_object(non_null(source)) && is_object(non_null(target)) &&
-                             related(non_null(source), non_null(target));
+        // object converts to a related Class, which is checked at run time, and to and from a type
+        // parameter that's a Class's, whose instances may be related or not.
+        const bool classes = is_any_object(non_null(source)) && is_any_object(non_null(target)) &&
+                             (is_parameter(non_null(source)) || is_parameter(non_null(target)) ||
+                              related(non_null(source), non_null(target)));
         // An Enum converts to and from integers.
         const bool enums =
             (is_enum(source) && is_integer(target)) || (is_integer(source) && is_enum(target));
@@ -26749,14 +26813,16 @@ private:
         }
 
         const type_id_t object = non_null(source);
-        if (!is_object(object) || !is_object(target)) {
+        if (!is_any_object(object) || !is_any_object(target)) {
             error(span_of(id),
-                  "'As?' converts objects between Classes and Interfaces, not {} to {}",
-                  name_of(source, target), name_of(target, source));
+                  "'As?' converts objects between Classes and Interfaces, not {} to {}{}",
+                  name_of(source, target), name_of(target, source),
+                  class_hint(is_any_object(object) ? target : object));
             return type_id_t::INVALID;
         }
 
-        if (!related(object, target)) {
+        // A type parameter's Class is each instance's, which may be related or not.
+        if (!is_parameter(object) && !is_parameter(target) && !related(object, target)) {
             error(span_of(id), "{} and {} aren't related, so this is always Null",
                   name_of(object, target), name_of(target, object));
             return type_id_t::INVALID;
@@ -26859,6 +26925,10 @@ public:
 
         if (interface == m_analysis.interfaces.any_error) {
             return info.kind == type_kind_t::CLASS && m_types.extends(type, m_analysis.error_class);
+        }
+
+        if (interface == m_analysis.interfaces.object) {
+            return info.kind == type_kind_t::CLASS;
         }
 
         if (info.kind == type_kind_t::STRUCT || info.kind == type_kind_t::CLASS) {

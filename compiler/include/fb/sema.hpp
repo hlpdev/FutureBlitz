@@ -399,6 +399,9 @@ struct builtin_interfaces_t {
     /// The "Error" of a constraint, `Where E: Error`, which the Classes that extend std's Error
     /// meet, so a type parameter can be thrown, caught, and in a Throws. It extends any_class.
     type_id_t any_error = type_id_t::INVALID;
+    /// Object, which every Class's object is: an Interface without members that every Class
+    /// implements, and nothing else, a type of its own. Analysis makes it, as it does any_class.
+    type_id_t object = type_id_t::INVALID;
 };
 
 /// What Load<T>(value) and Save(x) use from std.core: its Value, which they convert from and to,

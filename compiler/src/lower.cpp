@@ -221,6 +221,7 @@ public:
               const std::optional<std::string>& library = std::nullopt)
         : m_ast(ast), m_analysis(analysis) {
         m_module.types = std::make_shared<type_table_t>(analysis.types);
+        m_module.object = analysis.interfaces.object;
         if (const std::optional<module_id_t> main = ast.modules().main()) {
             m_module.main_module = ast.modules().get(*main).name;
         }
@@ -1869,6 +1870,13 @@ private:
         std::erase_if(found, [this](const type_id_t interface) {
             return m_analysis.symbol(m_declared_types.at(definition_of(interface))).constraint_only;
         });
+        // And Object, which every Class's objects are, but no array's, or a closure's or cell's,
+        // which aren't values of a Class.
+        if (is_class(type) && !types().get(type).made &&
+            m_analysis.interfaces.object != type_id_t::INVALID) {
+            found.push_back(m_analysis.interfaces.object);
+        }
+
         return found;
     }
 

@@ -43,4 +43,20 @@ Public Class Arena
     End Method
 
     Public Method Describe(): String => "{world.Name}: {world.Count} bodies from {drops} drops"
+
+    Field kept: Object?
+
+    // Keeps the program's object of any Class, and gives it back as the one it asks for.
+    Public Method Keep(thing: Object?)
+        kept = thing
+    End Method
+
+    // An Interface's value, as an Object, which this binary's 'As?' tests.
+    Public Method KeepShown(thing: Printable)
+        kept = thing As? Object
+    End Method
+
+    Public Method Kept<T: Class>(): T? => kept As? T
+
+    Public Method KeepsArena(): Bool => kept Is Arena
 End Class

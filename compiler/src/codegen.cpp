@@ -1510,9 +1510,11 @@ private:
         };
         LLVMValueRef value = LLVMConstStructInContext(context(), names.data(),
                                                       static_cast<unsigned>(names.size()), 0);
-        LLVMValueRef global = LLVMAddGlobal(
-            m_module.get(), LLVMTypeOf(value),
-            std::format("fb.{}.interface", m_mir.types->qualified_name(interface)).c_str());
+        // A declared Interface's name has no parentheses, so the built-in Object's is its own.
+        const std::string name = interface == m_mir.object ? std::string("(Object)")
+                                                           : m_mir.types->qualified_name(interface);
+        LLVMValueRef global = LLVMAddGlobal(m_module.get(), LLVMTypeOf(value),
+                                            std::format("fb.{}.interface", name).c_str());
         LLVMSetInitializer(global, value);
         LLVMSetGlobalConstant(global, 1);
         set_linkage(global,

@@ -1,0 +1,100 @@
+// Object: what every Class's object is. A library keeps a program's object of any Class, as an
+// Object, and hands it back as the Class or Interface it asks for with 'As?', which gives Null
+// when it isn't one. Objects count their owners as any Class's do, and Structs aren't Objects.
+Import std.core
+
+Interface Named
+    Method Name(): String
+End Interface
+
+Class Npc Implements Named
+    Field Called: String
+
+    New(called: String)
+        Called = called
+    End New
+
+    Method Name(): String => Called
+
+    Method Destroy()
+        Print("{Called} goes")
+    End Method
+End Class
+
+Class Guard Extends Npc
+    New(called: String)
+        Super.New(called)
+    End New
+End Class
+
+Class Door
+End Class
+
+// An entity holds whatever the program gives it, as fbengine's do.
+Class Entity
+    Field data: Object?
+
+    Method SetData(value: Object?)
+        data = value
+    End Method
+
+    Method Data<T: Class>(): T? => data As? T
+End Class
+
+Function Kind(value: Object): String
+    Select value
+        Case npc As Guard
+            Return "a guard, {npc.Name()}"
+        Case named As Named
+            Return "something named {named.Name()}"
+    End Select
+
+    Return "something else"
+End Function
+
+// A type parameter that's a Class's converts to an Object.
+Function Keep<T: Class>(value: T): Object => value
+
+Local entity = Entity()
+entity.SetData(Guard("Ann"))
+Print(entity.Data<Guard>()?.Name() ?? "no guard")
+Print(entity.Data<Npc>()?.Name() ?? "no npc")
+Print(entity.Data<Door>() == Null)
+Print(entity.data Is Guard, entity.data Is Door)
+
+entity.SetData(Door())
+Print(entity.Data<Npc>() == Null, entity.Data<Door>() != Null)
+entity.SetData(Null)
+Print(entity.Data<Door>() == Null)
+
+// An array of Objects, each its own Class's.
+Local things: Object[] = []
+things.Add(Npc("Bo"))
+things.Add(Door())
+things.Add(Keep(Guard("Cy")))
+For thing In things
+    Print(Kind(thing))
+End For
+
+// From an Interface's value, 'As?' gives the Object, or Null when it's an array's.
+Local named: Named = Npc("Di")
+Print((named As? Object) != Null)
+Local shown: Printable = [1, 2]
+Print((shown As? Object) == Null)
+Local back = (named As Object) As? Named
+Print(back?.Name() ?? "none")
+
+// The same object, however it's held.
+Local first: Object = things[0]
+Print(RefEquals(first, things[0]), RefEquals(first, things[1]))
+things.Clear()
+Print("cleared")
+first = Door()
+
+// A Weak<Object> refers to an object without keeping it.
+Local kept: Object = Npc("Ed")
+Local weak: Weak<Object> = kept
+Print(weak != Null)
+kept = Door()
+Print(weak == Null)
+Print("done")

@@ -57,7 +57,7 @@ constexpr std::array keywords = {
 /// The types the language has by name besides the numbers, Bool, String, CString, and Char,
 /// and the names code writes some of those with, separated by spaces.
 constexpr std::string_view built_in_types =
-    "Int Long Byte Float Double Atomic Mutex Task Thread Channel Scheduler Ptr Weak";
+    "Int Long Byte Float Double Atomic Mutex Task Thread Channel Scheduler Ptr Weak Object";
 
 bool is_name_char(const char c) {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' ||

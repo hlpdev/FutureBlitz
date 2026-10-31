@@ -667,6 +667,9 @@ struct mir_module_t {
     /// The main module's name, which a message showing two types whose names are the same puts
     /// before the main module's.
     std::string main_module;
+    /// Object, the Interface every Class's objects implement, whose fb_interface_t has a name of
+    /// its own, apart from any the program declares.
+    type_id_t object = type_id_t::INVALID;
     /// Set when lowering stopped, and the module can't be built.
     std::optional<mir_error_t> error;
     /// A library's build, for its binary: it has no main, and `modules` are its own.

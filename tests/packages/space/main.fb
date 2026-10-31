@@ -5,6 +5,12 @@ Import std.core
 Import physics
 Import arena
 
+Class Ship Implements Printable
+    Field Name: String = "vega"
+
+    Method ToString(): String => Name
+End Class
+
 Local ship = Body(Vec(0.0, 0.0), Vec(2.0, 1.0))
 ship.Step(1.5)
 Print("ship at {ship.position.x}, {ship.position.y}")
@@ -18,3 +24,11 @@ Print(field.Place(7))
 Print(field.Describe())
 // A Task runs the arena's code on another thread.
 Print(Spawn(Function() => Arena("task").Describe()).Wait())
+
+// The library beside the executable keeps the program's objects as Objects, and gives them back.
+field.Keep(Ship())
+Print(field.Kept<Ship>()?.Name ?? "none", field.Kept<Arena>() == Null, field.KeepsArena())
+field.Keep(Arena("inner"))
+Print(field.Kept<Ship>() == Null, field.KeepsArena())
+field.KeepShown(Ship())
+Print(field.Kept<Ship>()?.Name ?? "none")

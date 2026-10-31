@@ -980,6 +980,11 @@ private:
         case type_kind_t::CLASS:
         case type_kind_t::INTERFACE:
         case type_kind_t::ENUM: {
+            // The built-in Object is in no module, as Scheduler isn't.
+            if (id == m_analysis.interfaces.object) {
+                return "Object";
+            }
+
             const type_id_t declared = type.generic != type_id_t::INVALID ? type.generic : id;
             const std::string_view name = m_analysis.types.get(declared).name;
             std::string text =

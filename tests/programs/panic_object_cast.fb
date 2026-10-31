@@ -1,0 +1,10 @@
+Import std.core
+
+Class Npc
+End Class
+
+Class Door
+End Class
+
+Local thing: Object = Door()
+Local npc = thing As Npc

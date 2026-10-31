@@ -2354,6 +2354,73 @@ TEST_CASE("an object converts to the Classes its Class extends", "[sema]") {
           errors_t{ "b Is A: this is always True: 'b' is B already" });
 }
 
+TEST_CASE("every Class's object is an Object, which 'As?' turns back into a Class or Interface",
+          "[sema]") {
+    constexpr std::string_view family = "Class A\nEnd Class\n"
+                                        "Class B Extends A\nEnd Class\n"
+                                        "Struct P\nEnd Struct\n"
+                                        "Interface I\n    Method M()\nEnd Interface\n";
+    const auto with_family = [&](const std::string_view text) {
+        return std::format("{}{}", family, text);
+    };
+
+    CHECK(probe(with_family("Local x: Object = B()")) == "Object (from B)");
+    CHECK(probe(with_family("Local o: Object = B()\nLocal x = o As? A")) == "A?");
+    CHECK(probe(with_family("Local o: Object? = B()\nLocal x = o As A")) == "A");
+    CHECK(probe(with_family("Local o: Object = B()\nLocal x = o Is I")) == "Bool");
+    CHECK(probe(with_family("Local i: I? = Null\nLocal x = i As? Object")) == "Object?");
+    CHECK(probe(with_family("Local x: Weak<Object> = B()")) == "Weak<Object> (from B)");
+    CHECK(probe("Local x = TypeName<Object[]>()") == "String Object[]");
+    // A Class type parameter's object is one, and 'As?' and 'As' convert to and from one.
+    CHECK(probe(with_family("Function F<T: Class>(o: Object): T? => o As? T\n"
+                            "Local x = F<B>(A())")) == "B?");
+    CHECK(probe(with_family("Function F<T: Class>(t: T): Object => t\nLocal x = F(B())")) ==
+          "Object");
+    CHECK(probe(with_family("Function F<T: Class>(t: T): A => t As A\nLocal x = F(B())")) == "A");
+    // A type the code declares by the name takes its place.
+    CHECK(probe("Class Object\n    Field N: Int\nEnd Class\nLocal x = Object().N") == "Int32");
+
+    CHECK(errors_of(with_family("Local x: Object = P()")) ==
+          errors_t{ "P(): expected Object, found P" });
+    CHECK(errors_of("Local x: Object = [1]") == errors_t{ "[1]: expected Object, found Int32[]" });
+    CHECK(errors_of(with_family("Local i: I? = Null\nLocal x: Object? = i")) ==
+          errors_t{ "i: expected Object?, found I?" });
+    CHECK(errors_of(with_family("Local p = P()\nLocal x = p As? Object")) ==
+          errors_t{ "p As? Object: 'As?' converts objects between Classes and Interfaces, not P "
+                    "to Object" });
+    CHECK(errors_of("Function F<T>(o: Object): T? => o As? T") ==
+          errors_t{ "o As? T: 'As?' converts objects between Classes and Interfaces, not Object "
+                    "to T; a constraint like <T: Class> says it's one" });
+    CHECK(errors_of("Local x: Object<Int>") == errors_t{ "Object<Int>: 'Object' isn't generic" });
+    const std::string listed = "every Class is an Object already, and nothing else can be one, "
+                               "so Object isn't implemented, extended, or a constraint; <T: "
+                               "Class> says a type is a Class";
+    CHECK(errors_of("Class C Implements Object\nEnd Class") == errors_t{ "Object: " + listed });
+    CHECK(errors_of("Interface J Extends Object\nEnd Interface") ==
+          errors_t{ "Object: " + listed });
+    CHECK(errors_of("Function F<T: Object>(t: T)\nEnd Function") ==
+          errors_t{ "Object: " + listed });
+    CHECK(errors_of("Extend Object\nEnd Extend") ==
+          errors_t{ "Object: Object can't be extended; it's every Class's object, which has only "
+                    "its own Class's members" });
+    // It has no members and no ==, can't be made, and stays on its thread.
+    CHECK(errors_of(with_family("Local o: Object = B()\nLocal x = o == o")) ==
+          errors_t{ "o == o: '==' can't be used on Object; RefEquals tells whether two are the "
+                    "same object" });
+    CHECK(errors_of("Local x = Object()") ==
+          errors_t{ "Object: Object is any Class's object, so it isn't a value or made; make an "
+                    "object of a Class" });
+    CHECK(errors_of(with_family("Function F(o: Object): Task<Bool> => Spawn(Function() => o Is "
+                                "A)")) ==
+          errors_t{ "Function() => o Is A: 'o' is Object, which another thread can't have: an "
+                    "Interface's values are objects, which stay on the thread that made them" });
+    CHECK(errors_of(std::format("Import std.core\n{}Local o: Object = B()\nPrint(o)", family)) ==
+          errors_t{ "o: an Object can't be shown by 'Print'; 'As?' gives it as a Class that can "
+                    "be" });
+    CHECK(errors_of(with_family("Local o: Object = B()\nLocal x = o.ToString()")) ==
+          errors_t{ "ToString: Object has no member named 'ToString'" });
+}
+
 TEST_CASE("a Select can match Classes", "[sema]") {
     constexpr std::string_view family = "Class A\nEnd Class\n"
                                         "Class B Extends A\nEnd Class\n"
