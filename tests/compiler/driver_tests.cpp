@@ -1,5 +1,6 @@
 #include "binary_images.hpp"
 #include "fb/commit.hpp"
+#include "fb/disk.hpp"
 #include "fb/doc.hpp"
 #include "fb/driver.hpp"
 #include "fb/interface.hpp"
@@ -2041,6 +2042,24 @@ TEST_CASE("a package's build step makes modules and the files they embed, before
         CHECK_FALSE(each->diagnostics.has_errors());
     }
 
+    packages.remove();
+}
+
+TEST_CASE("a build step's run empties the disk cache in use, so what it wrote is read",
+          "[driver]") {
+    const packages_t packages;
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\n\n"
+                                       "[build]\nprogram = \"tools/generate.fb\"\n");
+    packages.write("app/tools/generate.fb", generate_program);
+    packages.write("app/names.txt", "ann\nbo\n");
+    packages.write("app/main.fb", "Import std.core\nImport app.made\nPrint(\"{COUNT}\")\n");
+    // One cache for both builds, as the LSP's checks share one, which nothing empties between
+    // them: the second's step runs again, and writes made.fb anew.
+    fb::disk_cache_t cache;
+    const fb::disk_scope_t scope(&cache);
+    CHECK(build_and_run(packages, "app") == "2\n");
+    packages.write("app/names.txt", "cy\n");
+    CHECK(build_and_run(packages, "app") == "1\n");
     packages.remove();
 }
 

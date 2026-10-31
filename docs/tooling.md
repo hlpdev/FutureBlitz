@@ -735,21 +735,22 @@ millisecond each on Windows, for the 200 or so paths a check has. So:
   scope of its own, so `fb check` and `fb build` ask the disk once a path too;
   `check_request_t::disk` is the LSP's, which its checks share while the client watches the files.
   The workspace empties it, and the one `file_key` asks through, when the client says files changed,
-  when a folder is added or removed, and when a document closes; an answer asked for while it was
-  emptied isn't kept (`disk_cache_t::remember`), so a check that began before a change can't leave
-  what it saw. fb-lsp asks the client to watch every file, `**/*`, as an Embed's, a [native]
-  library's, or a .fbi's change is the checks' too, and the checks share the cache only once the
-  client takes the registration, and then keep answers only about the client's folders and std's,
-  which changes only with the toolchain (`disk_cache_t::keep_only_under`). The packages a check
-  reads outside them, a path dependency's, are watched too when the client's watchers can have
-  folders of their own (relativePatternSupport), each a RelativePattern of its own; without that,
-  what's outside is asked each time. A folder's deletion takes the files the workspace knows in it,
-  and its creation is read when a check asks. A changed file that an Embed, EmbedText, or
-  EmbedFolder named, found or not, or one in a folder EmbedFolder named, checks again the files
-  whose checks named it (`compilation_t::embeds_named`). A changed .proto checks again what imports
-  it, through the .proto's module (`compilation_t::made_from`), and a package's fb.lock, library, or
-  .fbi reads its package again, as its project.toml does. A client that doesn't watch gets a cache
-  for each check, which the disk can't change under.
+  a build step runs (`disk::forget`), when a folder is added or removed, and when a document closes;
+  an answer asked for while it was emptied isn't kept (`disk_cache_t::remember`), so a check that
+  began before a change can't leave what it saw. fb-lsp asks the client to watch every file, `**/*`,
+  as an Embed's, a [native] library's, or a .fbi's change is the checks' too, and the checks share
+  the cache only once the client takes the registration, and then keep answers only about the
+  client's folders and std's, which changes only with the toolchain
+  (`disk_cache_t::keep_only_under`). The packages a check reads outside them, a path dependency's,
+  are watched too when the client's watchers can have folders of their own (relativePatternSupport),
+  each a RelativePattern of its own; without that, what's outside is asked each time. A folder's
+  deletion takes the files the workspace knows in it, and its creation is read when a check asks. A
+  changed file that an Embed, EmbedText, or EmbedFolder named, found or not, or one in a folder
+  EmbedFolder named, checks again the files whose checks named it (`compilation_t::embeds_named`). A
+  changed .proto checks again what imports it, through the .proto's module
+  (`compilation_t::made_from`), and a package's fb.lock, library, or .fbi reads its package again,
+  as its project.toml does. A client that doesn't watch gets a cache for each check, which the disk
+  can't change under.
 - **Only the roots' bodies.** fb-lsp publishes only a check's roots' diagnostics, so
   `analyze()` takes the files whose functions' bodies it checks (`file_set_t::root_bodies`);
   the others' declarations are checked, and Const Functions' bodies as they run. Two things in

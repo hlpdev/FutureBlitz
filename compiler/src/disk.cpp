@@ -304,6 +304,12 @@ std::optional<std::string> read(const std::filesystem::path& path) {
     return *text;
 }
 
+void forget() {
+    if (current != nullptr) {
+        current->clear();
+    }
+}
+
 } // namespace disk
 
 } // namespace fb

@@ -151,6 +151,10 @@ entries(const std::filesystem::path& folder, std::error_code& error);
 /// A file's text, or nullopt when it isn't a file or can't be read.
 [[nodiscard]] std::optional<std::string> read(const std::filesystem::path& path);
 
+/// Empties the cache in use, when there's one, as what's on the disk changed under it: a build
+/// step's program, which ran, wrote files.
+void forget();
+
 } // namespace disk
 
 } // namespace fb

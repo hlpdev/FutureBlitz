@@ -120,6 +120,11 @@ and on `S`, which has names to import too. Tests: completion_tests.cpp's names t
 overrides, `@`, Try, and postfixes inside an expression, the `!=` and named argument rankings;
 workspace_tests.cpp's deleted folder of an embed's target; disk_tests.cpp's link that leads out.
 
+With master's build steps merged (2026-10-31, on dev/m11): a build step's run empties the disk cache
+in use (`disk::forget()`), so a check that shares one reads what the step wrote, and the folder a
+step made of a package's path is listed through the cache too. Test: driver_tests.cpp's two builds
+sharing a cache, the second's step writing its module anew.
+
 Step 4, the editor's basics (2026-10-31, on dev/m11): lsp/src/navigate.cpp answers
 textDocument/foldingRange (`folding_ranges`: blocks, each If branch, Select Case, and Catch, multi-line
 lambdas, arrays, and Maps, runs of comments, Import runs, #If blocks), selectionRange

@@ -3860,6 +3860,8 @@ bool run_build_step(compilation_t& compilation, package_t& package, const build_
     const std::int64_t started = time_now();
     const std::expected<process_result_t, std::string> ran =
         run_process(executable, {}, std::string_view(), environment, process_life_t::TIED);
+    // What it wrote isn't what the disk said before it ran.
+    disk::forget();
     if (!ran) {
         return fail(std::format("{}'s build step can't run: {}", package.name, ran.error()), {});
     }
