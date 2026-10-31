@@ -1366,11 +1366,6 @@ std::string os_path(const std::string_view path) {
 #ifdef _WIN32
     constexpr std::size_t longest = MAX_PATH - 12;
     const auto separator = [](const char c) { return c == '/' || c == '\\'; };
-    // "\\?\" and "\\.\", or with '/'s, go past Windows' rules and to a device.
-    const auto marked = [&](const std::string_view text, const char mark) {
-        return text.size() > 3 && separator(text[0]) && separator(text[1]) && text[2] == mark &&
-               separator(text[3]);
-    };
     const auto drive = [](const std::string_view text) {
         return text.size() > 1 && text[1] == ':' &&
                ((text[0] >= 'A' && text[0] <= 'Z') || (text[0] >= 'a' && text[0] <= 'z'));
@@ -1381,15 +1376,21 @@ std::string os_path(const std::string_view path) {
         return std::string(path);
     }
 
-    // A "\\?\" path is read without Windows' rules, so a drive's or a share's takes '\'s only,
-    // which Path and the runtime write as '/'s.
-    if (marked(path, '?')) {
-        std::string text = R"(\\?\)" + std::string(path.substr(4));
+    // Only "\\?\" itself skips Windows' rules, so a drive's, a share's, or a volume's path after
+    // it takes '\'s only, which Path and the runtime write as '/'s. Another spelling, as "//?/",
+    // goes by Windows' rules, as below.
+    if (path.starts_with(R"(\\?\)")) {
         const std::string_view after = path.substr(4);
-        const bool share = after.size() > 3 &&
-                           (after.starts_with("UNC") || after.starts_with("unc")) &&
-                           separator(after[3]);
-        if (drive(after) || share) {
+        const auto starts = [&](const std::string_view word) {
+            const auto lower = [](const char c) {
+                return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+            };
+            return after.size() >= word.size() &&
+                   std::ranges::equal(after.substr(0, word.size()), word, {}, lower, lower);
+        };
+        std::string text(path);
+        if (drive(after) || (starts("unc") && after.size() > 3 && separator(after[3])) ||
+            starts("volume{")) {
             std::ranges::replace(text, '/', '\\');
         }
 

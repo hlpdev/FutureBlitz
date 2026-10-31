@@ -43,6 +43,19 @@ Try Dir.CreateAll(prefixed / "under" / "deeper")
 Try File.WriteText(prefixed / "under" / "deeper" / "w.txt", "w")
 Print("walked {(Try Dir.Walk(prefixed / "under")).Count}")
 Print("removed {Try Dir.RemoveAll(prefixed / "under")} {Dir.Exists(temp.Path / "under")}")
+
+// A short "//?/" one goes by Windows' rules: "..", ".", and a trailing dot, and ".." from a current
+// folder set by a "\\?\" path, which Dir.Current gives as "//?/".
+Try Dir.Create(temp.Path / "a")
+Local slashed = "//?/" + temp.Path.Text
+Print("dot-dot {Wrote(Path(slashed + "/a/../a/x.txt"))}")
+Print("dot {Wrote(Path(slashed + "/./a/y.txt"))}")
+Print("trailing dot {Wrote(Path(slashed + "/a/z.txt."))} {File.Exists(temp.Path / "a" / "z.txt")}")
+Local before = Try Dir.Current()
+Try Dir.SetCurrent(Path("\\\\?\\" + temp.Path.Text.Replace("/", "\\") + "\\a"))
+Local current = Try Dir.Current()
+Print("up from it {Wrote(current / ".." / "up.txt")} {File.Exists(temp.Path / "up.txt")}")
+Try Dir.SetCurrent(before)
 #Else
 Print("\\\\?\\ True")
 Print("\\\\?\\ joined True")
@@ -52,5 +65,9 @@ Print("\\??\\ True")
 Print("dots True True True")
 Print("walked 2")
 Print("removed True False")
+Print("dot-dot True")
+Print("dot True")
+Print("trailing dot True True")
+Print("up from it True True")
 #End If
 Try temp.Close()

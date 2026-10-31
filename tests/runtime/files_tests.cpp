@@ -35,10 +35,16 @@ TEST_CASE("a path Windows' calls take only with their prefix goes to them so, ho
     CHECK(os_path(R"(C:\saves\one.dat)") == R"(C:\saves\one.dat)");
     CHECK(os_path("C:/" + name + "/x") == R"(\\?\C:\)" + name + R"(\x)");
     CHECK(os_path("save.dat") == "save.dat");
-    // One the program writes after "\\?\" or "//?/" keeps it, a drive's or a share's with '\'s.
-    CHECK(os_path("//?/C:/x/y") == R"(\\?\C:\x\y)");
+    // One the program writes after "\\?\" itself keeps it, a drive's, a share's, or a volume's with
+    // '\'s, while "//?/" goes by Windows' rules, a short one as it is and a long one as its full
+    // path, with its ".", "..", and trailing dot gone.
     CHECK(os_path(R"(\\?\C:/x/y)") == R"(\\?\C:\x\y)");
     CHECK(os_path(R"(\\?\UNC\server/share/x)") == R"(\\?\UNC\server\share\x)");
+    CHECK(os_path(R"(\\?\Unc\server/share/x)") == R"(\\?\Unc\server\share\x)");
+    CHECK(os_path(R"(\\?\Volume{1234}/a/b)") == R"(\\?\Volume{1234}\a\b)");
+    CHECK(os_path("//?/C:/a/../a/x.txt") == "//?/C:/a/../a/x.txt");
+    CHECK(os_path("//?/C:/" + name + "/../y/./z.") == R"(\\?\C:\y\z)");
+    CHECK(os_path("//?/C:/x/" + name + "/y") == R"(\\?\C:\x\)" + name + R"(\y)");
     // An NT path, and a device's, as they are, but a long one of a drive's through a device as
     // the drive's.
     CHECK(os_path(R"(\??\C:\x)") == R"(\??\C:\x)");
