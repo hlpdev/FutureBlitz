@@ -133,6 +133,27 @@ runs the installed release's fb-bindgen on tools/release/libc.h, a header of `<s
 macOS's SDK, from `xcrun`, already had every header theirs include. A cli test whose name began
 with `--`, which Catch2 took as an option, so ctest never ran it, is "a --registry folder ...".
 
+## E9, fbengine_audio
+
+Steps 1 to 3, 5, and 6, and step 4 on positions (2026-10-31, the audio lane, landed at 5d7e461).
+Step 1 added fbengine_audio, a package over its own DLL, `fbengine_audio_native`, with miniaudio
+linked in: the mix and its devices (`Audio.Start` on DEFAULT, SILENT, or MANUAL, an output by name
+and a period, `Audio.Outputs`, `Audio.Output`, `Audio.Lost`), STA COM on Windows, a clipped mix, and
+an exit with the audio started. Step 2 added sounds and channels, each Channel with volume, pan
+under a pan law, pitch, loops, positions, seeks, and fades. Step 3 added streams of WAV, FLAC, and
+OGG. Step 4 added the listener and emitters, positional sound with Doppler worked out by the engine
+and held with the pitch to 1/16 to 16, moved along with what they follow from one late Frame.OnFlip
+hook (`Frame.OnFlip(hook, late)`, which runs after every other); its entity overloads wait for the
+scene's entities. Step 5 added buses with low-passes and reverbs. Step 6 added stops and pauses that
+fade out over 5 ms, and a lost output that falls back to the default at the next Flip, following the
+default as it changes. A Channel's volume and pan are one pair of gains, published to the mixing
+thread at once and ramped. Four reviews' findings were all fixed with tests, among them a heap
+corruption, a leak, and an undefined shift in stb_vorbis, patched at configure time, decode buffers
+sized by a file's claimed length, sample rates and Doppler past their limits, a pan heard half
+applied, a race on bus low-passes, the WASAPI reroute against the fallback, and out of memory caught
+at every C entry that allocates, swept by a test that fails each allocation in turn. 64 channels mix
+in 0.18 ms.
+
 ## E1, app and input
 
 Steps 3 to 7 (2026-10-31, the input lane, landed at 3698cf3; steps 1 and 2 came with E0). Step 3
