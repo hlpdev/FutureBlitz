@@ -49,7 +49,7 @@ rendering is checked on Apple silicon in CI and on an Intel Mac by hand.
 | **E2** | The GPU core: Vulkan through volk and VMA, the swapchain and frames in flight, shaders in Slang compiled to SPIR-V, bindless textures, offscreen targets, MoltenVK on macOS | a triangle and a textured quad match their golden images |
 | **E3** | 2D: Blitz's 2D commands, modernized: images, frames, handles, and masks, primitives, text and fonts, viewports and origins, pixel access through a CPU staging path, CopyRect, image collisions, drawing into images, batched sprites | a whole small arcade game runs, and its frames match their golden images |
 | **E4** | The scene: entities and the hierarchy, every transform and TForm, cameras (projection, viewports, picking, fog), lights, meshes and surfaces, the primitive shapes, sprites, terrain, BSP and MD2, EntityFX, EntityOrder, alpha, auto-fade; Blitz's collisions and picks | transforms, picks, and collision responses match Blitz3D's source |
-| **E5** | The Blitz look: `Shading.Vertex`, DX7's fixed-function lighting, linear fog, every TextureBlend mode, eight texture layers, texture flags, sphere and cube maps, Blitz's alpha sorting | reference scenes match screenshots taken in Blitz3D within a tolerance |
+| **E5** | The Blitz look: `Shading.VERTEX`, DX7's fixed-function lighting, linear fog, every TextureBlend mode, eight texture layers, texture flags, sphere and cube maps, Blitz's alpha sorting | reference scenes match screenshots taken in Blitz3D within a tolerance |
 | **E6** | The modern renderer: PBR with glTF's materials, image-based lighting, cascaded, spot, and point shadows, HDR and tonemapping, bloom, SSAO, TAA, FXAA, and MSAA, clustered lights, instancing, culling and LOD, GPU particles, decals, sky, materials with their own shaders | Khronos's glTF sample models match their reference images |
 | **E7** | Animation: skeletons from glTF and .b3d, blending, morph targets, vertex animation, Blitz's Animate, SetAnimTime, and ExtractAnimSeq | animated sample models match their reference frames |
 | **E8** | Assets: `res://` paths on std.vfs, a refcounted cache, async loading with progress, sidecar import settings, the cooker (BC7 and ASTC in KTX2, meshoptimizer), pak files, typed references, hot reload | a game runs from cooked paks in a release build and reloads changed assets in a dev build |
@@ -95,7 +95,7 @@ library could use ([open-questions.md](open-questions.md)):
 
 ## API style (Locked: modern)
 
-Objects with methods and properties, not Blitz's flat global functions with int handles.
+Objects with methods, not Blitz's flat global functions with int handles.
 
 ```vb
 // Blitz3D
@@ -106,22 +106,28 @@ EntityColor(cube, 255, 0, 0)
 
 // FutureBlitz
 Local cam = Camera()
-cam.Position = Vec3(0, 5, -10)
+cam.SetPosition(Vec3(0, 5, -10))
 cube.Turn(0, 1, 0)
-cube.Color = Color.Red
+cube.SetColor(Color.RED)
 ```
 
 Why: discoverable via autocomplete, type-safe (a texture can't be passed where an entity
 goes), and uses `Vec3`/`Color` naturally.
+
+- What reaches the engine is a `@MainThread` Function or Method, never a Property, since
+  `@MainThread` only goes on Functions and Methods (the user, 2026-10-31): `Window.SetTitle("x")`
+  and `Window.Title()`, `cam.SetPosition(p)` and `cam.Position()`. What's only data, as a
+  display's modes are, is a Struct's Fields.
+- Enum members are UPPER_CASE, as std's are: `WindowMode.FULLSCREEN`, `Key.ESCAPE`.
 
 ## Frame loop
 
 The **user owns the main loop**, like Blitz3D. There is no engine-owned update callback.
 
 ```vb
-Graphics3D(1280, 720)
+Try Graphics(1280, 720)
 
-While !KeyHit(KEY_ESCAPE)
+While !KeyHit(Key.ESCAPE)
     UpdateGame()
     UpdateWorld()
     RenderWorld()
@@ -153,9 +159,9 @@ raises a clear error, not a crash.
 - The Blitz3D look is just one material setting among the others:
 
 ```vb
-mat.Shading = Shading.Vertex     // Blitz-style per-vertex Gouraud lighting
-mat.Shading = Shading.PBR
-mat.Shading = Shading.Unlit
+mat.SetShading(Shading.VERTEX)   // Blitz-style per-vertex Gouraud lighting
+mat.SetShading(Shading.PBR)
+mat.SetShading(Shading.UNLIT)
 ```
 
 - Fog, blend modes, shadows, post-FX are ordinary engine features.
@@ -165,7 +171,7 @@ mat.Shading = Shading.Unlit
 So migrated games can look nearly identical, the renderer must be able to match DX7
 fixed-function behavior:
 
-- per-vertex Gouraud lighting with Blitz's light model (`Shading.Vertex`)
+- per-vertex Gouraud lighting with Blitz's light model (`Shading.VERTEX`)
 - linear fog
 - texture blend modes (multiply, add, alpha, ...)
 - the equivalents of `EntityFX` flags and `EntityOrder`

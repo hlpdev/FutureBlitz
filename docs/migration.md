@@ -23,7 +23,7 @@ FutureBlitz engine APIs, so those APIs have to exist first.
 ## Visual fidelity
 
 Migrated games should look nearly identical. The migrator picks matching render settings
-(e.g. `Shading.Vertex`, fog, blend modes); see [engine.md](engine.md#reproducing-the-blitz3d-look).
+(e.g. `Shading.VERTEX`, fog, blend modes); see [engine.md](engine.md#reproducing-the-blitz3d-look).
 
 Old mesh formats (`.b3d`, `.x`, `.3ds`) are converted to glTF by the converter tool,
 accounting for Blitz's left-handed coordinates.
