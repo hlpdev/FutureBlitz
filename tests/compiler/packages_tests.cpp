@@ -247,6 +247,48 @@ TEST_CASE("a registry package's dependencies are from its registry, not paths", 
                          "is a path");
 }
 
+TEST_CASE("a dependency with a path and a version builds from its folder", "[packages]") {
+    const world_t world;
+    // A physics of its own, beside the game, that's published too.
+    world.sandbox.library("physics_local", "physics", "1.3.0", shapes_dependency,
+                          { { "world.fb", physics_code("1.3.0") } });
+    world.game("physics = { path = \"../physics_local\", version = \"1\", registry = \"local\" "
+               "}\n");
+    said_t said;
+    const std::expected<fb::sync_result_t, std::string> synced = world.sync(said);
+    INFO((synced ? std::string() : synced.error()));
+    REQUIRE(synced);
+    // The folder's own registry dependencies are locked, but not the folder.
+    CHECK(said.lines == std::vector<std::string>{ "Adding shapes v0.3.4" });
+    CHECK(world.run() == "physics 1.3.0 with shapes 0.3.4\n");
+
+    // Its folder has to have a version the range takes, as the registry's would.
+    world.game("physics = { path = \"../physics_local\", version = \"1.4\" }\n");
+    CHECK(world.run() == "'../physics_local' is physics v1.3.0, which isn't in \"1.4\", as a "
+                         "build from the registry would be");
+
+    // As the registry's own physics has no path, a package from the registry uses its version.
+    world.sandbox.library("game_lib", "game_lib", "1.0.0",
+                          "physics = { path = \"../physics_local\", version = \"1\", registry = "
+                          "\"local\" }\n",
+                          { { "lib.fb", "Import physics\nPublic Function Lib(): String\n    "
+                                        "Return Describe()\nEnd Function\n" } });
+    world.sandbox.publish("game_lib", world.index);
+    world.game("game_lib = { version = \"1\", registry = \"local\" }\n");
+    world.sandbox.write("game/main.fb", "Import std.core\nImport game_lib\nPrint(Lib())\n");
+    said.lines.clear();
+    REQUIRE(world.sync(said));
+    CHECK(said.lines ==
+          std::vector<std::string>{ "Adding game_lib v1.0.0", "Adding physics v1.2.0" });
+    const std::filesystem::path folder = fb::package_cache_folder(world.index, "game_lib", "1.0.0");
+    std::ifstream cached(folder / "project.toml", std::ios::binary);
+    const std::string manifest{ std::istreambuf_iterator<char>(cached),
+                                std::istreambuf_iterator<char>() };
+    CHECK(manifest.contains("physics = { version = \"1\", registry = \"local\" }"));
+    CHECK_FALSE(manifest.contains("path"));
+    CHECK(world.run() == "physics 1.2.0 with shapes 0.3.4\n");
+}
+
 TEST_CASE("an unresolvable range says why, before anything's written", "[packages]") {
     const world_t world;
     world.game("physics = { version = \"7\", registry = \"local\" }\n");

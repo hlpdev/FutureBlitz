@@ -2031,7 +2031,7 @@ private:
                   const version_range_t& range) {
         const std::string wanted = std::format("{} = \"{}\"", dependency.name, range.text);
         if (!m_lockfile) {
-            fail(dependency.path_span,
+            fail(dependency.range_span,
                  "{} is from a registry, but there's no fb.lock yet; fb build, fb check, or fb "
                  "update makes it and fetches the package",
                  wanted);
@@ -2039,7 +2039,7 @@ private:
         }
 
         if (!*m_lockfile) {
-            fail(dependency.path_span, "fb.lock can't be read: {}", m_lockfile->error());
+            fail(dependency.range_span, "fb.lock can't be read: {}", m_lockfile->error());
             return std::nullopt;
         }
 
@@ -2049,7 +2049,7 @@ private:
         const std::expected<version_t, std::string> version =
             locked != nullptr ? parse_version(locked->version) : std::unexpected(std::string());
         if (locked == nullptr || (!cached && source != locked->source)) {
-            fail(dependency.path_span,
+            fail(dependency.range_span,
                  "fb.lock doesn't have {} yet; fb build, fb check, or fb update locks it and "
                  "fetches it",
                  wanted);
@@ -2057,7 +2057,7 @@ private:
         }
 
         if (!version || !range.matches(*version)) {
-            fail(dependency.path_span,
+            fail(dependency.range_span,
                  "fb.lock has {} v{}, which isn't in \"{}\"; fb build, fb check, or fb update "
                  "locks another",
                  dependency.name, locked->version, range.text);
@@ -2065,7 +2065,7 @@ private:
         }
 
         if (!is_unpacked(*locked, build_target())) {
-            fail(dependency.path_span,
+            fail(dependency.range_span,
                  "{} v{} isn't in the cache yet; fb build or fb check fetches it", dependency.name,
                  locked->version);
             return std::nullopt;
@@ -2073,6 +2073,24 @@ private:
 
         return std::pair(package_cache_folder(locked->source, locked->name, locked->version),
                          locked);
+    }
+
+    /// Whether a local package of `version` is in the range the dependency `named` has too, which
+    /// is said when it isn't. One with only a path takes any version.
+    bool in_range(const dependency_t& named, const std::string& version) {
+        if (!named.range || named.path.empty()) {
+            return true;
+        }
+
+        const std::expected<version_t, std::string> parsed = parse_version(version);
+        if (parsed && named.range->matches(*parsed)) {
+            return true;
+        }
+
+        fail(named.range_span,
+             "'{}' is {} v{}, which isn't in \"{}\", as a build from the registry would be",
+             named.path, named.name, version, named.range->text);
+        return false;
     }
 
     /// The package in `folder`, which the dependency `named` names, if any, read with the ones it
@@ -2103,6 +2121,8 @@ private:
 
                 fail(named->name_span, "packages can't depend on each other in a cycle: {}{}",
                      cycle, m_packages[index].name);
+            } else if (named != nullptr && locked == nullptr) {
+                (void)in_range(*named, m_packages[index].version);
             }
 
             return index;
@@ -2154,8 +2174,12 @@ private:
             return std::nullopt;
         }
 
+        if (named != nullptr && locked == nullptr && !in_range(*named, manifest->version)) {
+            return std::nullopt;
+        }
+
         if (locked != nullptr && manifest->version != locked->version) {
-            fail(named->path_span,
+            fail(named->range_span,
                  "the cache's {} in '{}' is v{}, but fb.lock says v{}; deleting that folder "
                  "lets fb build fetch it again",
                  manifest->name, to_utf8(root), manifest->version, locked->version);
@@ -2249,8 +2273,9 @@ private:
         // Only the program's own project.toml says which libraries go beside it.
         const bool program = index == 0 && (m_program || !m_packages.front().main.empty());
         for (const dependency_t& dependency : dependencies) {
+            // A path is the local package's, but a registry's package takes the registry's.
             std::optional<std::pair<std::filesystem::path, const locked_package_t*>> found;
-            if (dependency.range) {
+            if (dependency.range && (dependency.path.empty() || locked != nullptr)) {
                 found = locked_folder(dependency, registries, root, locked != nullptr,
                                       *dependency.range);
             } else if (locked != nullptr) {

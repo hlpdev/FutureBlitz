@@ -13,19 +13,26 @@
 
 namespace fb {
 
-/// A dependency a project.toml names: a package from a registry, by a range of its versions, or
-/// a local package, by its folder.
+/// A dependency a project.toml names: a package from a registry, by a range of its versions, a
+/// local package, by its folder, or both, a local package that's published too, which builds use
+/// the folder of and a published package's project.toml names by its range.
 struct dependency_t {
     /// The name its modules are imported by, like `physics` in `Import physics.shapes`.
     std::string name;
     span_t name_span;
     /// For a local package, its folder, from the project.toml's folder, as written. Empty for one
-    /// from a registry.
+    /// only from a registry.
     std::string path;
-    /// Where its path or its range is written.
+    /// Where its path is written.
     span_t path_span;
-    /// For a package from a registry, the versions it takes, like "1.2".
+    /// Where its path's key and value, `path = "../physics"`, are written, which `fb publish`
+    /// takes out of a dependency with a range too.
+    span_t path_entry_span;
+    /// For a package from a registry, the versions it takes, like "1.2". A local package's folder
+    /// has to have one of them too.
     std::optional<version_range_t> range;
+    /// Where its range is written.
+    span_t range_span;
     /// The registry it's from, as [registries] names it; nullopt for futureblitz.dev's.
     std::optional<std::string> registry;
     std::optional<span_t> registry_span;
@@ -117,6 +124,12 @@ struct manifest_t {
     /// [registries], in the order the file has them.
     std::vector<registry_entry_t> registries;
 };
+
+/// The project.toml `file`, which `manifest` is read from, as a published package has it: without
+/// the path of each dependency with a range too, as its builds are from the registry. nullopt when
+/// a path can't be taken out without changing anything else.
+[[nodiscard]] std::optional<std::string> published_manifest(const source_file_t& file,
+                                                            const manifest_t& manifest);
 
 /// Why `text` isn't an SPDX license expression, like "MIT OR Apache-2.0", or nullopt when it is
 /// one. Only its form is checked; the registry checks its licenses' names against SPDX's list.

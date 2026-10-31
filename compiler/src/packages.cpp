@@ -81,7 +81,8 @@ void collect(const std::filesystem::path& folder, std::set<std::filesystem::path
     }
 
     for (const dependency_t& dependency : manifest->dependencies) {
-        if (!dependency.range) {
+        // A local package's builds are its folder's, with or without a range.
+        if (!dependency.path.empty()) {
             collect(root / path_from_utf8(dependency.path), seen, wanted);
             continue;
         }

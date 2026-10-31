@@ -153,15 +153,17 @@ TEST_CASE("a dependency is a range of a registry's versions, or a local package'
           diagnostics_t{ "error: { link = \"beside\" }: a dependency needs a range of versions, "
                          "like physics = \"1.2\", or a local package's folder, like physics = { "
                          "path = \"../physics\" }" });
-    CHECK(read(std::format("{}[dependencies]\nphysics = {{ path = \"../p\", version = \"1\" }}\n",
+    CHECK(read(std::format("{}[dependencies]\nphysics = {{ path = \"../p\", version = \"1.x\" }}\n",
                            project))
               .diagnostics ==
-          diagnostics_t{ "error: \"../p\": a dependency is from a registry, by its version, or a "
-                         "local package, by its path, not both" });
+          diagnostics_t{ "error: \"1.x\": \"1.x\" isn't a version, which is up to three numbers, "
+                         "like 1.2 or 1.2.3" });
     CHECK(read(std::format("{}[dependencies]\nphysics = {{ path = \"../p\", registry = \"x\" }}\n",
                            project))
-              .diagnostics.front()
-              .contains("takes no 'registry'"));
+              .diagnostics ==
+          diagnostics_t{ "error: \"x\": a local package, by its path, isn't from a registry, so "
+                         "it takes no 'registry' without a 'version' too, which a published "
+                         "package depends on" });
     CHECK(read(std::format("{}[dependencies]\nphysics = {{ version = \"1\", registry = \"nope\" "
                            "}}\n",
                            project))
@@ -194,6 +196,56 @@ TEST_CASE("a dependency is a range of a registry's versions, or a local package'
     CHECK(
         read(std::format("{}[dependencies]\nphysics = {{ version = 1 }}\n", project)).diagnostics ==
         diagnostics_t{ "error: 1: 'version' is text, like \"1.2\"" });
+}
+
+TEST_CASE("a local package that's published too has both its path and its version", "[manifest]") {
+    const std::string_view project = "[project]\nname = \"game\"\nversion = \"0.1.0\"\n";
+    const read_t both = read(std::format(
+        "{}[dependencies]\nengine = {{ path = \"..\\\\engine\", version = \"0.1\" }}\ntools = {{ "
+        "version = \"2\", path = \"../tools\", registry = \"company\" }}\n\n[registries]\ncompany "
+        "= {{ index = \"https://packages.example.com/index\" }}\n",
+        project));
+    CHECK(both.diagnostics.empty());
+    const fb::manifest_t manifest = both.manifest.value_or(fb::manifest_t{});
+    REQUIRE(manifest.dependencies.size() == 2);
+    const fb::dependency_t& engine = manifest.dependencies[0];
+    CHECK(engine.path == "../engine");
+    CHECK(engine.range.value_or(fb::version_range_t{}).text == "0.1");
+    CHECK(manifest.dependencies[1].path == "../tools");
+    CHECK(manifest.dependencies[1].registry == "company");
+}
+
+TEST_CASE("a published package's project.toml has its dependencies' versions, not their paths",
+          "[manifest]") {
+    const auto published = [](const std::string_view text) {
+        const fb::source_file_t file(fb::file_id_t{}, "project.toml", std::string(text));
+        fb::diagnostic_bag_t bag;
+        const std::optional<fb::manifest_t> manifest = fb::read_manifest(file, bag);
+        REQUIRE(manifest);
+        return fb::published_manifest(file, *manifest).value_or("(none)");
+    };
+    const std::string project = "[project]\nname = \"audio\"\nversion = \"0.1.0\"\n\n";
+
+    // In an inline table, the path goes with the comma after it, or before it when it's last.
+    CHECK(published(project + "[dependencies]\nengine = { path = \"../engine\", version = "
+                              "\"0.1\", link = \"beside\" }\nshapes = \"1\"\n") ==
+          project + "[dependencies]\nengine = { version = \"0.1\", link = \"beside\" }\nshapes = "
+                    "\"1\"\n");
+    CHECK(published(project + "[dependencies]\nengine = {version=\"0.1\" ,path=\"../engine\"}\n") ==
+          project + "[dependencies]\nengine = {version=\"0.1\"}\n");
+
+    // A table's line goes, with its comment, and so does a dotted key's, in CRLF's lines too.
+    CHECK(published(project + "[dependencies.engine]\nversion = \"0.1\"\n  path = \"../engine\" "
+                              "# beside this one\nlink = \"beside\"\n") ==
+          project + "[dependencies.engine]\nversion = \"0.1\"\nlink = \"beside\"\n");
+    CHECK(published(project + "[dependencies]\r\nengine.path = '../engine'\r\nengine.version = "
+                              "\"0.1\"\r\n") ==
+          project + "[dependencies]\r\nengine.version = \"0.1\"\r\n");
+
+    // A path alone is left for fb publish to refuse, and a file without paths is as it was.
+    CHECK(published(project + "[dependencies]\nlocal = { path = \"../local\" }\n") ==
+          project + "[dependencies]\nlocal = { path = \"../local\" }\n");
+    CHECK(published(project + "# no dependencies\n") == project + "# no dependencies\n");
 }
 
 TEST_CASE("[registries] names registries by their indexes", "[manifest]") {

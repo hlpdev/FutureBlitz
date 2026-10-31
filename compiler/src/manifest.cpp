@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <expected>
 #include <format>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -418,7 +419,7 @@ private:
                 name, name, name);
             dependency_t dependency{ .name = std::string(name), .name_span = name_span };
             if (const std::optional<std::string> text = value.value<std::string>()) {
-                dependency.path_span = span_of(value.source());
+                dependency.range_span = span_of(value.source());
                 if (read_range(*text, dependency)) {
                     manifest.dependencies.push_back(std::move(dependency));
                 }
@@ -435,7 +436,6 @@ private:
 
             std::optional<std::string> path;
             std::optional<std::string> version;
-            span_t path_span = name_span;
             bool written = false;
             bool failed = false;
             bool beside = false;
@@ -444,12 +444,17 @@ private:
                 if (detail->str() == "path") {
                     written = true;
                     path = string_of(*detail, *setting, "\"../physics\"");
-                    path_span = span_of(setting->source());
+                    dependency.path_span = span_of(setting->source());
+                    dependency.path_entry_span = {
+                        .file = m_file.id(),
+                        .begin = span_of(detail->source()).begin,
+                        .end = dependency.path_span.end,
+                    };
                     failed = failed || !path;
                 } else if (detail->str() == "version") {
                     written = true;
                     version = string_of(*detail, *setting, "\"1.2\"");
-                    dependency.path_span = span_of(setting->source());
+                    dependency.range_span = span_of(setting->source());
                     failed = failed || !version;
                 } else if (detail->str() == "registry") {
                     dependency.registry = string_of(*detail, *setting, "\"company\"");
@@ -484,30 +489,30 @@ private:
 
             dependency.beside = beside;
             dependency.link_span = link_span;
-            if (path && version) {
-                fail(path_span,
-                     "a dependency is from a registry, by its version, or a local package, by its "
-                     "path, not both");
-            } else if (path && dependency.registry) {
+            // With a version too, a local package is published, to the registry it names.
+            if (path && !version && dependency.registry) {
                 fail(*dependency.registry_span,
                      "a local package, by its path, isn't from a registry, so it takes no "
-                     "'registry'");
-            } else if (path) {
+                     "'registry' without a 'version' too, which a published package depends on");
+                continue;
+            }
+
+            if (path) {
                 dependency.path = with_slashes(std::move(*path));
-                dependency.path_span = path_span;
-                manifest.dependencies.push_back(std::move(dependency));
-            } else if (version && read_range(*version, dependency)) {
+            }
+
+            if (!version || read_range(*version, dependency)) {
                 manifest.dependencies.push_back(std::move(dependency));
             }
         }
     }
 
-    /// A registry dependency's range, into `dependency`, whose path_span is where it's written.
-    /// False after an error.
+    /// A dependency's range, into `dependency`, whose range_span is where it's written. False
+    /// after an error.
     bool read_range(const std::string_view text, dependency_t& dependency) {
         std::expected<version_range_t, std::string> range = parse_range(text);
         if (!range) {
-            fail(dependency.path_span, "{}", range.error());
+            fail(dependency.range_span, "{}", range.error());
             return false;
         }
 
@@ -730,6 +735,93 @@ private:
 
 std::optional<manifest_t> read_manifest(const source_file_t& file, diagnostic_bag_t& diagnostics) {
     return reader_t(file, diagnostics).read();
+}
+
+std::optional<std::string> published_manifest(const source_file_t& file,
+                                              const manifest_t& manifest) {
+    std::vector<span_t> paths;
+    for (const dependency_t& dependency : manifest.dependencies) {
+        if (!dependency.path.empty() && dependency.range) {
+            paths.push_back(dependency.path_entry_span);
+        }
+    }
+
+    // From the last, so the spans before stay where they are.
+    std::ranges::sort(paths, std::ranges::greater{}, &span_t::begin);
+    std::string text(file.text());
+    const auto blank = [](const char c) { return c == ' ' || c == '\t' || c == '\r'; };
+    for (const span_t& path : paths) {
+        const std::size_t line =
+            path.begin == 0 ? std::string::npos : text.rfind('\n', path.begin - 1);
+        const std::size_t line_begin = line == std::string::npos ? 0 : line + 1;
+        const std::size_t line_end = std::min(text.find('\n', path.end), text.size());
+        const std::string_view before =
+            std::string_view(text).substr(line_begin, path.begin - line_begin);
+        std::size_t after = path.end;
+        while (after < line_end && blank(text[after])) {
+            ++after;
+        }
+
+        // A line of its own, in a dependency's table, or a dotted key's, like `physics.path`.
+        if ((after == line_end || text[after] == '#') &&
+            std::ranges::all_of(before, [&](const char c) {
+                return blank(c) || c == '.' || c == '_' || c == '-' || c == '"' || c == '\'' ||
+                       (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+            })) {
+            text.erase(line_begin, std::min(line_end + 1, text.size()) - line_begin);
+            continue;
+        }
+
+        // In an inline table, with the comma after it, or the one before it when it's last.
+        if (after < line_end && text[after] == ',') {
+            ++after;
+            while (after < line_end && blank(text[after])) {
+                ++after;
+            }
+
+            text.erase(path.begin, after - path.begin);
+            continue;
+        }
+
+        std::size_t begin = path.begin;
+        while (begin > line_begin && blank(text[begin - 1])) {
+            --begin;
+        }
+
+        if (begin == line_begin || text[begin - 1] != ',') {
+            return std::nullopt;
+        }
+
+        --begin;
+        while (begin > line_begin && blank(text[begin - 1])) {
+            --begin;
+        }
+
+        text.erase(begin, path.end - begin);
+    }
+
+    // It has to read as the same manifest, without those paths.
+    const source_file_t published(file.id(), file.path(), text);
+    diagnostic_bag_t diagnostics;
+    const std::optional<manifest_t> read = read_manifest(published, diagnostics);
+    if (!read || read->dependencies.size() != manifest.dependencies.size()) {
+        return std::nullopt;
+    }
+
+    const auto range_of = [](const dependency_t& dependency) {
+        return dependency.range ? std::optional(dependency.range->text) : std::nullopt;
+    };
+    for (std::size_t i = 0; i < manifest.dependencies.size(); ++i) {
+        const dependency_t& was = manifest.dependencies[i];
+        const dependency_t& now = read->dependencies[i];
+        if (now.name != was.name || now.path != (was.range ? std::string() : was.path) ||
+            range_of(now) != range_of(was) || now.registry != was.registry ||
+            now.beside != was.beside) {
+            return std::nullopt;
+        }
+    }
+
+    return text;
 }
 
 std::optional<std::string> package_name_error(const std::string_view text) {

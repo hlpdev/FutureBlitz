@@ -95,7 +95,6 @@ std::optional<std::string> first_file(const std::filesystem::path& root,
     return std::nullopt;
 }
 
-/// An archive of `paths` from `root`, named `file`.
 /// A size in the registry's megabytes, which are a million bytes: "10 MB", or "10.5 MB".
 std::string megabytes(const std::uint64_t bytes) {
     if (bytes % 1'000'000 == 0) {
@@ -107,11 +106,12 @@ std::string megabytes(const std::uint64_t bytes) {
 
 /// The archive `file` of `paths`, from `root`, refused as fb would refuse to unpack it: with
 /// more than the registry's files, or unpacking to more than `unpack_factor` times the larger of
-/// `most`, the registry's limit on its kind, and its own size.
-std::expected<built_archive_t, std::string> build_archive(const std::filesystem::path& root,
-                                                          std::string file,
-                                                          const std::vector<std::string>& paths,
-                                                          const std::uint64_t most) {
+/// `most`, the registry's limit on its kind, and its own size. Its project.toml, if it has one,
+/// is `manifest`.
+std::expected<built_archive_t, std::string>
+build_archive(const std::filesystem::path& root, std::string file,
+              const std::vector<std::string>& paths, const std::uint64_t most,
+              const std::optional<std::string>& manifest = std::nullopt) {
     if (paths.size() > most_archive_files) {
         return std::unexpected(std::format("{} would have {} files, more than the registry's {}",
                                            file, paths.size(), most_archive_files));
@@ -120,7 +120,8 @@ std::expected<built_archive_t, std::string> build_archive(const std::filesystem:
     std::vector<archive_file_t> files;
     std::uint64_t unpacked = 0;
     for (const std::string& path : paths) {
-        std::optional<std::string> bytes = read_bytes(root / path_from_utf8(path));
+        std::optional<std::string> bytes =
+            manifest && path == "project.toml" ? manifest : read_bytes(root / path_from_utf8(path));
         if (!bytes) {
             return std::unexpected(std::format("couldn't read {}", path));
         }
@@ -649,8 +650,10 @@ std::expected<prepared_package_t, std::string> prepare_package(const std::filesy
         if (!dependency.range) {
             return std::unexpected(std::format(
                 "{} is a path, {} = {{ path = \"{}\" }}, but a published package's dependencies "
-                "are from a registry, by their versions, like {} = \"1.2\"",
-                dependency.name, dependency.name, dependency.path, dependency.name));
+                "are from a registry, by their versions: {} = {{ path = \"{}\", version = "
+                "\"1.2\" }} builds with the path and publishes the version",
+                dependency.name, dependency.name, dependency.path, dependency.name,
+                dependency.path));
         }
 
         if (const std::optional<std::string> wrong = registry_name_error(dependency.name)) {
@@ -710,8 +713,17 @@ std::expected<prepared_package_t, std::string> prepare_package(const std::filesy
         }
     }
 
-    std::expected<built_archive_t, std::string> source = build_archive(
-        root, archive_name(manifest.name, manifest.version), files.source, most_source_archive);
+    // The registry's package depends on the registry's packages, by their versions alone.
+    const std::optional<std::string> published = published_manifest(file, manifest);
+    if (!published) {
+        return std::unexpected(
+            "fb publish couldn't take the paths of the dependencies with versions out of "
+            "project.toml; writing each as name = { path = \"...\", version = \"...\" } lets it");
+    }
+
+    std::expected<built_archive_t, std::string> source =
+        build_archive(root, archive_name(manifest.name, manifest.version), files.source,
+                      most_source_archive, published);
     if (!source) {
         return std::unexpected(source.error());
     }

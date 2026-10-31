@@ -563,6 +563,14 @@ TEST_CASE("fb publish checks what the registry checks, as the registry counts it
 
     CHECK(prepared_error("many").contains("more than the registry's 20000"));
 
+    // A dependency that's only a path isn't from the registry; with a version too, it would be.
+    sandbox.library("pathed", "pathed", "1.0.0", "engine = { path = \"../engine\" }\n",
+                    { { "code.fb", "// code\n" } });
+    CHECK(prepared_error("pathed") ==
+          "engine is a path, engine = { path = \"../engine\" }, but a published package's "
+          "dependencies are from a registry, by their versions: engine = { path = \"../engine\", "
+          "version = \"1.2\" } builds with the path and publishes the version");
+
     // The registry's reserved names, with or without their '_'s, as docs/registry-api.md has them.
     for (const std::string_view reserved :
          { "std", "fb", "futureblitz", "future_blitz", "apt", "rpm", "releases", "re_leases" }) {
