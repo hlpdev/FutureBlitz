@@ -179,7 +179,8 @@ End Function
   its own. A ReadOnly Field changes only in its Class's New, so `f.Set` on one is an error where the
   loop's copy for it is made, and so is `f.Set` on a Field that the loop's code couldn't assign by
   name: a Private one outside its file, a Package one outside its package and its tests, and a
-  Protected one outside its file and the code of the Classes extending its Class. What a type keeps
+  Protected one outside its file and the code of the Classes extending its Class, and there, in a
+  value that isn't of the code's own Class or one extending it, as Self is. What a type keeps
   to itself, like the memory a std.ffi Buffer owns, stays as its own code has it, while `f.Get`
   still reads every Field. `Where f Has Set` picks only the Fields the loop's code can set, as
   `Where p Has Set` does Properties (below), and over a `T?`, none.
@@ -223,7 +224,9 @@ End Function
 - `For Property p: P In T` goes over a Struct's or Class's Properties (inherited ones first),
   with `p.Name`, `p.Get(value)`, `p.Set(ByRef value, x)`, `p.Has(A)`, and `p.Attribute(A)`, and
   `For Static Field s: S In T` over its own Static Fields, with `s.Get()` and `s.Set(x)`. Where
-  lines on P or S work as on F.
+  lines on P or S work as on F. An inherited Property's type is what the instance of the Class it's
+  in, which T extends, makes it, `Int` for `Base<T>`'s `Item: T` in `Derived Extends Base<Int>`.
+  Over a `T?` these loops, and For Method, go over nothing, and their Where lines are on nothing.
 - `p.Set` calls the Property's Set, through the Method table for a Class, as assigning it does,
   and on a Struct it changes the variable. `s.Set` assigns the Static Field, the instance's for a
   generic type's. Each changes only what its code could assign by name, as `f.Set` does, so in a
@@ -238,9 +241,10 @@ End Function
   is.
 - What each copy's `p.Get`, `p.Set`, `s.Get`, `s.Set`, and `m.Call` run is what its code can run,
   for [10](10-concurrency.md)'s rules about work on another thread: the Property's Get or Set,
-  the Static Field, and the Method. Over a type parameter, it's what each type the code is ever
-  given for it has, as a call of an Interface's Method can run what each type implementing it
-  has.
+  the Static Field, and the Method, only the ones it picks when it picks. Over a type
+  parameter, it's what each type the code is ever given for it has, by a call of it, of what it
+  overrides, or of the Interface's Method it implements, as a call of an Interface's Method can
+  run what each type implementing it has.
 - The loops go over Private members too, and over what an Extend of the type, or of that one
   instance like `Box<Int>`, adds, but only where the loop's file sees the Extend's module, as a
   call there would. A Method or Property that Where lines on the type's parameters make
