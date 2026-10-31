@@ -70,6 +70,13 @@ folder, failing without the patch's change, a folder removed and made again with
 while the loop's busy, and a flat watcher at the limit, the last two failing with the watcher
 before; files_tests.cpp's message.
 
+From the check of those: the relisting let go of every folder's watch before it watched each
+again, so a change in a folder not yet watched again went untold. `rewatch_subfolder()` watches a
+folder with a new handle before it stops the old one, which for a folder still there inotify
+gives the old one's watch, and the folders that went are let go after the walk. Test: the WSL
+harness's change as soon as the kernel's watches are fewer, after 17,000 files while the loop's
+busy, whose count never drops and whose CHANGED is told, both failing with the watcher before.
+
 Reflection that sets (2026-10-31): a For Property's `p.Set(ByRef value, x)` calls the
 Property's Set, through the Method table for a Class (`accessor_of()`), and on a Struct's
 variable, and a For Static Field's `s.Set(x)` stores the Static Field, an instance's for a
