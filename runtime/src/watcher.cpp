@@ -55,6 +55,9 @@ struct subfolder_t {
     /// when one's removed and made again before the events are read, doesn't have.
     std::uint64_t device = 0;
     std::uint64_t inode = 0;
+    /// Whether its handle has told that the folder itself went, was moved, or is no longer
+    /// watched, as ext4 can give a folder made again where one went the old one's inode.
+    bool gone = false;
 
     /// libuv's callbacks for the handle: what happened to a name in the folder, and the handle's
     /// gone.
@@ -76,9 +79,11 @@ struct watcher_t {
     std::set<std::string, std::less<>> listing;
     std::string listed_folder;
     std::uint64_t listed_at = 0;
-    /// The loop's time it last listed its folder again for events libuv says it lost, which only
-    /// that thread touches.
-    std::uint64_t rescanned_at = 0;
+    /// What lists its folder again for events libuv says it lost, once the loop has read all it
+    /// has to read, after its poll phase, and whether it's to, which only the I/O thread touches.
+    uv_check_t relisting{};
+    bool relisting_made = false;
+    bool relist_pending = false;
     /// The Tasks of the Awaits for the next event.
     std::vector<fb_task_t*> waiting;
     /// The path the program gave, which events' paths start with, and where it was when the
@@ -110,9 +115,11 @@ struct watcher_t {
     bool started = false;
     bool closed = false;
 
-    /// libuv's callbacks for the handle: what happened to a name, and the handle's gone.
+    /// libuv's callbacks for the handle: what happened to a name, and the handle's gone; and for
+    /// the relisting, it's time, and it's gone.
     static void on_event(uv_fs_event_t* handle, const char* name, int events, int status);
     static void on_closed(uv_handle_t* handle);
+    static void on_relisting(uv_check_t* check);
 };
 
 void release(watcher_t* watcher) {
@@ -377,6 +384,10 @@ bool replaced(const watcher_t& watcher, const std::string_view key) {
         return false;
     }
 
+    if (watched->second->gone) {
+        return true;
+    }
+
     uv_fs_t call{};
     const bool same = uv_fs_lstat(nullptr, &call, real_in(watcher, key).c_str(), nullptr) == 0 &&
                       (call.statbuf.st_mode & S_IFMT) == S_IFDIR &&
@@ -406,6 +417,12 @@ void close_handle(watcher_t& watcher) {
 #ifdef __linux__
     unwatch_subfolders(watcher, "");
 #endif
+    if (watcher.relisting_made) {
+        uv_check_stop(&watcher.relisting);
+        uv_close(reinterpret_cast<uv_handle_t*>(&watcher.relisting), watcher_t::on_closed);
+        watcher.relisting_made = false;
+    }
+
     uv_fs_event_stop(&watcher.handle);
     uv_close(reinterpret_cast<uv_handle_t*>(&watcher.handle), watcher_t::on_closed);
 }
@@ -599,6 +616,16 @@ void told(watcher_t& watcher, const uv_loop_t* loop, const std::string& key, con
             queue(watcher, std::move(found));
             return;
         }
+
+        // A file that a folder took the place of in one batch, or a folder its handle couldn't
+        // watch before, is watched now, with what it has.
+        if (watcher.recursive && !watcher.subfolders.contains(key) &&
+            is_folder(real_in(watcher, key))) {
+            found.push_back(std::move(event));
+            adopt(watcher, key, &found);
+            queue(watcher, std::move(found));
+            return;
+        }
 #endif
         found.push_back(std::move(event));
     }
@@ -606,15 +633,30 @@ void told(watcher_t& watcher, const uv_loop_t* loop, const std::string& key, con
     queue(watcher, std::move(found));
 }
 
-/// Lists a folder watcher's folder again for the events libuv says it lost, once a turn of the
-/// loop, though each of a recursive watcher's handles on Linux says so.
-void relist(watcher_t& watcher, const uv_loop_t* loop) {
-    const std::uint64_t now = uv_now(loop) + 1;
-    if (watcher.rescanned_at == now) {
+/// Lists a folder watcher's folder again for the events libuv says it lost, once the loop has
+/// read what it has, though each of a recursive watcher's handles on Linux says so, and another
+/// overflow can come in the same turn. One that says so after the listing lists it again.
+void relist(watcher_t& watcher, uv_loop_t* loop) {
+    if (watcher.relist_pending) {
         return;
     }
 
-    watcher.rescanned_at = now;
+    if (!watcher.relisting_made) {
+        uv_check_init(loop, &watcher.relisting);
+        watcher.relisting.data = &watcher;
+        watcher.relisting_made = true;
+        // The relisting's handle holds the watcher.
+        watcher.owners.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    watcher.relist_pending = true;
+    uv_check_start(&watcher.relisting, watcher_t::on_relisting);
+}
+
+void watcher_t::on_relisting(uv_check_t* check) {
+    auto& watcher = *static_cast<watcher_t*>(check->data);
+    uv_check_stop(check);
+    watcher.relist_pending = false;
     queue(watcher, rescanned(watcher));
 }
 
@@ -671,7 +713,13 @@ void subfolder_t::on_event(uv_fs_event_t* handle, const char* name, const int ev
         return;
     }
 
+    // The folder's own going, as inotify's IN_DELETE_SELF, IN_MOVE_SELF, or IN_IGNORED, which
+    // its parent's handle tells of by name.
     if (own_event(handle, name)) {
+        if ((static_cast<unsigned>(events) & static_cast<unsigned>(UV_RENAME)) != 0U) {
+            subfolder.gone = true;
+        }
+
         return;
     }
 
@@ -728,6 +776,11 @@ void start_watching(uv_loop_t* loop, void* context) {
             watcher.recursive ? static_cast<unsigned>(UV_FS_EVENT_RECURSIVE) : 0U;
         error =
             uv_fs_event_start(&watcher.handle, watcher_t::on_event, watcher.path.c_str(), flags);
+#ifdef __linux__
+        if (error == UV_ENOSPC) {
+            error = fb::runtime::too_many_watches;
+        }
+#endif
         if (error == 0) {
             watcher.open = true;
             open_watchers().push_back(&watcher);
