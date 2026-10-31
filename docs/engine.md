@@ -62,6 +62,23 @@ rendering is checked on Apple silicon in CI and on an Intel Mac by hand.
 
 The engine's docs are `fb doc`'s, on its packages' pages; futureblitz.dev's stay the language's.
 
+## E1's steps
+
+| | Step | Adds |
+|---|---|---|
+| 1 | SDL3 and the window | SDL3 built into fbengine_native, statically, with video, events, and gamepads only; `Graphics(width, height, mode)` and `EndGraphics()`, which throw GraphicsError; `Window`'s Title, Width and Height, PixelWidth and PixelHeight and Scale for high DPI, Mode (Windowed, Fullscreen, Borderless), Resizable, Focused, Minimized, and Closed (the close button); `Displays()`, each Display's size and modes |
+| 2 | Flip and frame timing | `Flip(vsync)`: present (from E2), then read the OS's events into the next frame's input, then wait for `Frame.Limit` if one's set, then `Scheduler.Main.Step()`; `Frame.Delta`, `Frame.Count`, `Frame.Rate` |
+| 3 | The keyboard | `Key`, by position (scancodes), as Blitz's are; `KeyDown`, `KeyHit` and `KeyUp`, `FlushKeys()`; `TextInput()`, what was typed in the frame, with IME, and `StartTextInput()` and `StopTextInput()`; `Simulate`, which pushes input as the OS would, for a game's tests and replays |
+| 4 | The mouse | `MouseX`, `MouseY`, `MouseZ` (the wheel), their speeds, `MouseDown`, `MouseHit`, and `MouseUp` with `MouseButton`, `MoveMouse`, `Mouse.Visible`, and `Mouse.Relative` for mouse look |
+| 5 | Gamepads | `Gamepads()`, each Gamepad's Name, buttons (Down, Hit, Up), axes from -1 to 1 past a dead zone, Rumble, and connecting and disconnecting; tests on SDL's virtual gamepads |
+| 6 | Input actions | `Action`s bound to keys, mouse buttons, and gamepad buttons and axes, with Down, Hit, Up, and Value; two-axis actions; bindings saved and loaded as TOML; rebinding from the next input pressed |
+| 7 | Loose ends and E1's review | E1's done-when, on all five targets |
+
+- A key, button, or gamepad's Hit and Up count the presses and releases the last Flip read, so
+  every call in a frame gives the same answer: Blitz's KeyHit counted since the last call, which
+  two calls in one frame split. The migrator calls it once.
+- Tests set SDL's offscreen video driver, which every target has, so no test opens a window.
+
 ## What the engine needs from the language
 
 The engine is the largest FutureBlitz code yet, so it'll find bugs. Each is fixed in FutureBlitz,
