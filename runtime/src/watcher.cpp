@@ -347,6 +347,23 @@ void watch_subfolder(watcher_t& watcher, const std::string& key) {
     watcher.subfolders.emplace(key, subfolder);
 }
 
+/// Watches the folder at `key` with a new handle, then stops its old one, if it has one, so
+/// nothing's untold meanwhile: for a folder still there, inotify gives the new handle the old
+/// one's watch, and one made again where one went gets a watch of its own.
+void rewatch_subfolder(watcher_t& watcher, const std::string& key) {
+    const auto old = watcher.subfolders.find(key);
+    subfolder_t* previous = old != watcher.subfolders.end() ? old->second : nullptr;
+    if (previous != nullptr) {
+        watcher.subfolders.erase(old);
+    }
+
+    watch_subfolder(watcher, key);
+    if (previous != nullptr) {
+        uv_fs_event_stop(&previous->handle);
+        uv_close(reinterpret_cast<uv_handle_t*>(&previous->handle), subfolder_t::on_closed);
+    }
+}
+
 /// Stops watching the folder at `key` and the folders in it with their own handles, which are
 /// the keys after `key/`, though a sibling like "art.old" sorts between "art" and "art/maps", or
 /// every folder for the watcher's own "".
@@ -521,15 +538,17 @@ void forget(watcher_t& watcher, const std::string_view key, std::vector<event_t>
 std::vector<event_t> rescanned(watcher_t& watcher) {
 #ifdef __linux__
     // Events lost on Linux may be a folder's own, as one removed and made again, whose handle
-    // is then dead, so each folder is watched again, before it's listed, as adopt() does.
+    // is then dead, so each folder is watched again, before it's listed, as adopt() does, and
+    // the folders that went are watched no more.
     std::set<std::string, std::less<>> keys;
     if (watcher.recursive) {
-        unwatch_subfolders(watcher, "");
+        std::set<std::string, std::less<>> folders;
         std::vector<std::string> pending{ "" };
         while (!pending.empty()) {
             const std::string folder = std::move(pending.back());
             pending.pop_back();
-            watch_subfolder(watcher, folder);
+            rewatch_subfolder(watcher, folder);
+            folders.emplace(folder);
             std::vector<std::string> inside;
             for (const std::string& name : names_in(real_in(watcher, folder), &inside)) {
                 keys.emplace(name.empty() ? folder : key_of(folder, name));
@@ -538,6 +557,17 @@ std::vector<event_t> rescanned(watcher_t& watcher) {
             for (const std::string& name : inside) {
                 pending.push_back(key_of(folder, name));
             }
+        }
+
+        for (auto at = watcher.subfolders.begin(); at != watcher.subfolders.end();) {
+            if (folders.contains(at->first)) {
+                ++at;
+                continue;
+            }
+
+            uv_fs_event_stop(&at->second->handle);
+            uv_close(reinterpret_cast<uv_handle_t*>(&at->second->handle), subfolder_t::on_closed);
+            at = watcher.subfolders.erase(at);
         }
     } else {
         keys = listing_of(watcher);
