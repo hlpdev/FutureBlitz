@@ -1200,8 +1200,13 @@ std::string undocumented(const std::string_view body) {
         if (doc) {
             // The whole line, its line break too.
             std::size_t end = comment.end;
-            end += end < text.size() && text[end] == '\r' ? 1 : 0;
-            end += end < text.size() && text[end] == '\n' ? 1 : 0;
+            if (end < text.size() && text[end] == '\r') {
+                ++end;
+            }
+
+            if (end < text.size() && text[end] == '\n') {
+                ++end;
+            }
             out += text.substr(kept, start - kept);
             kept = end;
         } else if (written.starts_with(module_start)) {

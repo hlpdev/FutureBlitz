@@ -30,7 +30,8 @@ string literal one `string` token, which VS Code colors over the grammar's
 semantic.cpp gives a string's or a character's tokens only its text, without its escapes, as
 `decode_escape()` reads them, `{{` and `}}`, or its interpolations' `{` and `}`, and a raw string
 whole; a test checks each piece of a string with escapes and an interpolation, a raw string's,
-and a character's.
+and a character's. interface.cpp's interface text, which keeps a doc comment's line break,
+adds one to the end with an If, not `+= ... ? 1 : 0`, which -Wsign-conversion reported.
 
 ## 1.1.0
 
