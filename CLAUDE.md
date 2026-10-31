@@ -45,7 +45,8 @@ in docs/engine.md: fbengine's packages, in the public repo hlpdev/fbengine, in m
 E14; E0, its setup, is done (2026-10-31), and E1, app and input, is next. M11, the IDE (errors as
 typed, completion that imports, quick fixes, inspections, refactorings, project.toml in the
 editor, `fb mcp`), is planned in docs/tooling.md with its latency budgets; step 0, measuring, is
-done (2026-10-31), with where the time goes, and step 1, errors as typed, is next.
+done (2026-10-31), with where the time goes, and step 1, checks that keep what didn't
+change, is next.
 
 ## History
 Each milestone's steps, in detail (what each added, by name, and each review's fixes), are in
