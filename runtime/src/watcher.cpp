@@ -4,6 +4,7 @@
 
 #include "fb/files.hpp"
 #include "fb/runtime.hpp"
+#include "files_internal.hpp"
 #include "internal.hpp"
 #include "io_internal.hpp"
 
@@ -12,6 +13,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
+#include <cstring>
 #include <deque>
 #include <iterator>
 #include <map>
@@ -49,6 +51,15 @@ struct subfolder_t {
     watcher_t* watcher = nullptr;
     /// Where it is in the watcher's folder, as a key.
     std::string key;
+    /// The folder its handle watches, by its device and inode, which another at its path, as
+    /// when one's removed and made again before the events are read, doesn't have.
+    std::uint64_t device = 0;
+    std::uint64_t inode = 0;
+
+    /// libuv's callbacks for the handle: what happened to a name in the folder, and the handle's
+    /// gone.
+    static void on_event(uv_fs_event_t* handle, const char* name, int events, int status);
+    static void on_closed(uv_handle_t* handle);
 };
 #endif
 
@@ -65,6 +76,9 @@ struct watcher_t {
     std::set<std::string, std::less<>> listing;
     std::string listed_folder;
     std::uint64_t listed_at = 0;
+    /// The loop's time it last listed its folder again for events libuv says it lost, which only
+    /// that thread touches.
+    std::uint64_t rescanned_at = 0;
     /// The Tasks of the Awaits for the next event.
     std::vector<fb_task_t*> waiting;
     /// The path the program gave, which events' paths start with, and where it was when the
@@ -283,9 +297,7 @@ void queue(watcher_t& watcher, std::vector<event_t> events) {
 }
 
 #ifdef __linux__
-void on_subfolder_event(uv_fs_event_t* handle, const char* name, int events, int status);
-
-void on_subfolder_closed(uv_handle_t* handle) {
+void subfolder_t::on_closed(uv_handle_t* handle) {
     auto* subfolder = static_cast<subfolder_t*>(handle->data);
     watcher_t* watcher = subfolder->watcher;
     delete subfolder;
@@ -303,31 +315,83 @@ void watch_subfolder(watcher_t& watcher, const std::string& key) {
     uv_fs_event_init(watcher.handle.loop, &subfolder->handle);
     subfolder->handle.data = subfolder;
     watcher.owners.fetch_add(1, std::memory_order_relaxed);
-    const int error =
-        uv_fs_event_start(&subfolder->handle, on_subfolder_event, real_in(watcher, key).c_str(), 0);
+    const std::string at = real_in(watcher, key);
+    const int error = uv_fs_event_start(&subfolder->handle, subfolder_t::on_event, at.c_str(), 0);
     if (error != 0) {
         // One that went already is told of by its parent's handle, and one the program can't
         // read has nothing to tell of, but one past inotify's limits would go untold of.
-        if ((error == UV_ENOSPC || error == UV_ENOMEM) && watcher.unwatched == 0) {
+        if (error == UV_ENOSPC && watcher.unwatched == 0) {
+            watcher.unwatched = fb::runtime::too_many_watches;
+        } else if (error == UV_ENOMEM && watcher.unwatched == 0) {
             watcher.unwatched = error;
         }
 
-        uv_close(reinterpret_cast<uv_handle_t*>(&subfolder->handle), on_subfolder_closed);
+        uv_close(reinterpret_cast<uv_handle_t*>(&subfolder->handle), subfolder_t::on_closed);
         return;
     }
 
+    uv_fs_t call{};
+    if (uv_fs_lstat(nullptr, &call, at.c_str(), nullptr) == 0) {
+        subfolder->device = call.statbuf.st_dev;
+        subfolder->inode = call.statbuf.st_ino;
+    }
+
+    uv_fs_req_cleanup(&call);
     watcher.subfolders.emplace(key, subfolder);
 }
 
-/// Stops watching the folder at `key` and the folders in it with their own handles.
+/// Stops watching the folder at `key` and the folders in it with their own handles, which are
+/// the keys after `key/`, though a sibling like "art.old" sorts between "art" and "art/maps", or
+/// every folder for the watcher's own "".
 void unwatch_subfolders(watcher_t& watcher, const std::string_view key) {
-    const std::string inside = key.empty() ? std::string() : std::string(key) + '/';
-    auto at = watcher.subfolders.lower_bound(key);
-    while (at != watcher.subfolders.end() && (at->first == key || at->first.starts_with(inside))) {
+    const auto unwatch = [&](const auto at) {
         uv_fs_event_stop(&at->second->handle);
-        uv_close(reinterpret_cast<uv_handle_t*>(&at->second->handle), on_subfolder_closed);
-        at = watcher.subfolders.erase(at);
+        uv_close(reinterpret_cast<uv_handle_t*>(&at->second->handle), subfolder_t::on_closed);
+        return watcher.subfolders.erase(at);
+    };
+    if (key.empty()) {
+        for (auto at = watcher.subfolders.begin(); at != watcher.subfolders.end();) {
+            at = unwatch(at);
+        }
+
+        return;
     }
+
+    if (const auto own = watcher.subfolders.find(key); own != watcher.subfolders.end()) {
+        unwatch(own);
+    }
+
+    const std::string inside = std::string(key) + '/';
+    for (auto at = watcher.subfolders.lower_bound(inside);
+         at != watcher.subfolders.end() && at->first.starts_with(inside);) {
+        at = unwatch(at);
+    }
+}
+
+/// Whether the folder a recursive watcher's handle watches at `key` isn't the one there now: a
+/// file, nothing, or another folder, made where one was removed or renamed over it before the
+/// events were read, which inotify tells of only as a change.
+bool replaced(const watcher_t& watcher, const std::string_view key) {
+    const auto watched = watcher.subfolders.find(key);
+    if (watched == watcher.subfolders.end()) {
+        return false;
+    }
+
+    uv_fs_t call{};
+    const bool same = uv_fs_lstat(nullptr, &call, real_in(watcher, key).c_str(), nullptr) == 0 &&
+                      (call.statbuf.st_mode & S_IFMT) == S_IFDIR &&
+                      call.statbuf.st_dev == watched->second->device &&
+                      call.statbuf.st_ino == watched->second->inode;
+    uv_fs_req_cleanup(&call);
+    return !same;
+}
+
+/// Whether libuv tells of the watched folder's own change, as of its times, rather than of a
+/// name in it: for that, it names the folder by a pointer into the handle's path, after its last
+/// '/', so a name in it like the folder's own isn't taken for it.
+bool own_event(const uv_fs_event_t* handle, const char* name) {
+    const char* slash = std::strrchr(handle->path, '/');
+    return name == (slash != nullptr ? slash + 1 : handle->path);
 }
 #endif
 
@@ -521,14 +585,56 @@ void told(watcher_t& watcher, const uv_loop_t* loop, const std::string& key, con
         event.kind = EVENT_REMOVED;
         found.push_back(std::move(event));
     } else if (there) {
+#ifdef __linux__
+        // One replaced went, with what it had, and the one there came, with what it has.
+        if (watcher.recursive && replaced(watcher, key)) {
+            forget(watcher, key, found);
+            found.push_back({ .kind = EVENT_REMOVED, .path = event.path });
+            event.kind = EVENT_CREATED;
+            found.push_back(std::move(event));
+            if (is_folder(real_in(watcher, key))) {
+                adopt(watcher, key, &found);
+            }
+
+            queue(watcher, std::move(found));
+            return;
+        }
+#endif
         found.push_back(std::move(event));
     }
 
     queue(watcher, std::move(found));
 }
 
-/// A folder's event without a name is libuv's word that it lost some, which a new listing finds.
-/// Windows names what's in a recursive watcher's folders by their paths from it, with '\'s.
+/// Lists a folder watcher's folder again for the events libuv says it lost, once a turn of the
+/// loop, though each of a recursive watcher's handles on Linux says so.
+void relist(watcher_t& watcher, const uv_loop_t* loop) {
+    const std::uint64_t now = uv_now(loop) + 1;
+    if (watcher.rescanned_at == now) {
+        return;
+    }
+
+    watcher.rescanned_at = now;
+    queue(watcher, rescanned(watcher));
+}
+
+/// The key of what libuv's `name` is in a folder watcher's folder, with '/'s, as Windows names
+/// what's in a recursive one's folders by their paths from it with '\'s, or a file watcher's "".
+std::string key_for(const watcher_t& watcher, const char* name) {
+#ifdef _WIN32
+    std::string key = watcher.folder ? name : "";
+    std::ranges::replace(key, '\\', '/');
+    return key;
+#else
+    return watcher.folder ? std::string(name) : std::string();
+#endif
+}
+
+/// A folder's event without a name is libuv's word that it lost some, which a new listing finds:
+/// Windows gives one when ReadDirectoryChangesW has more than its buffer holds, Linux when
+/// inotify's queue overflows, by third_party/CMakeLists.txt's patch of libuv, which drops that,
+/// and macOS's FSEvents one for the folder itself. On Linux, the folder's own change, as of its
+/// times, isn't about what's in it.
 void watcher_t::on_event(uv_fs_event_t* handle, const char* name, const int events,
                          const int status) {
     auto& watcher = *static_cast<watcher_t*>(handle->data);
@@ -537,22 +643,23 @@ void watcher_t::on_event(uv_fs_event_t* handle, const char* name, const int even
     }
 
     if (watcher.folder && (name == nullptr || *name == '\0')) {
-        queue(watcher, rescanned(watcher));
+        relist(watcher, handle->loop);
         return;
     }
 
-    std::string key = watcher.folder ? name : "";
-#ifdef _WIN32
-    std::ranges::replace(key, '\\', '/');
+#ifdef __linux__
+    if (watcher.folder && own_event(handle, name)) {
+        return;
+    }
 #endif
-    told(watcher, handle->loop, key, events);
+    told(watcher, handle->loop, key_for(watcher, name), events);
 }
 
 #ifdef __linux__
-/// What happened to a name in a recursive watcher's folder's folder, as its handle tells. One
-/// without a name says it lost some, as the watcher's own does.
-void on_subfolder_event(uv_fs_event_t* handle, const char* name, const int events,
-                        const int status) {
+/// What happened to a name in a recursive watcher's folder's folder, as its handle tells, as the
+/// watcher's own does.
+void subfolder_t::on_event(uv_fs_event_t* handle, const char* name, const int events,
+                           const int status) {
     auto& subfolder = *static_cast<subfolder_t*>(handle->data);
     watcher_t& watcher = *subfolder.watcher;
     if (status < 0) {
@@ -560,7 +667,11 @@ void on_subfolder_event(uv_fs_event_t* handle, const char* name, const int event
     }
 
     if (name == nullptr || *name == '\0') {
-        queue(watcher, rescanned(watcher));
+        relist(watcher, handle->loop);
+        return;
+    }
+
+    if (own_event(handle, name)) {
         return;
     }
 

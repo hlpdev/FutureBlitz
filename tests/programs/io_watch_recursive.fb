@@ -108,6 +108,23 @@ Local gone = [(FileEventKind.REMOVED, "moved/inner/c.txt"), (FileEventKind.REMOV
 Print("folder removed {Await Saw(tree, gone)}")
 tree.Close()
 
+// A folder moved out beside one whose name sorts between it and its folders ("assets.bak"
+// between "assets" and "assets/art"), then made again, is watched again, its folders too.
+Try Dir.CreateAll(root / "assets" / "art")
+Try Dir.Create(root / "assets.bak")
+Local siblings = Try FileWatcher(root, recursive: True)
+Try File.Move(root / "assets", outside.Path / "assets")
+Local movedOut = [(FileEventKind.REMOVED, "assets/art"), (FileEventKind.REMOVED, "assets")]
+Print("moved beside a sibling {Await Saw(siblings, movedOut)}")
+Try Dir.CreateAll(root / "assets" / "art")
+Local again = [(FileEventKind.CREATED, "assets"), (FileEventKind.CREATED, "assets/art")]
+Print("made again {Await Saw(siblings, again)}")
+Await RealWait(200.Milliseconds)
+Drain(siblings)
+Try File.WriteText(root / "assets" / "art" / "hero.png", "x")
+Print("watched again {Await Saw(siblings, [(FileEventKind.CREATED, "assets/art/hero.png")])}")
+siblings.Close()
+
 // A watcher that isn't recursive tells of nothing deeper than its folder.
 Local flat = Try FileWatcher(root)
 Print("{flat.Recursive}")
