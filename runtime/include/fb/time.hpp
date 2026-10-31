@@ -59,4 +59,10 @@ namespace fb::time {
 [[nodiscard]] std::chrono::steady_clock::time_point
 sleep_end(std::chrono::steady_clock::time_point now, std::int64_t nanoseconds);
 
+/// Blocks the thread for `time`, to about a millisecond, though the OS can wake it a little
+/// early. On Windows, whose sleeps wait for its 15.6 ms timer tick, it's a high-resolution
+/// waitable timer of the thread's, or where Windows has none, a sleep with the timer at 1 ms for
+/// the sleep alone; the process's timer resolution stays as it was.
+void sleep_precisely(std::chrono::nanoseconds time);
+
 } // namespace fb::time
