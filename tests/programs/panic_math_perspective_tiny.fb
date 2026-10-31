@@ -1,0 +1,7 @@
+// Perspective takes a field of view whose matrix is finite, so one so small that
+// 1 / Tan(fieldOfView / 2) is Inf panics where it's called.
+Import std.core
+Import std.math
+
+Print(Mat4.Perspective(1e-30, 1, 1, 10).y.y > 1e29)
+Print(Mat4.Perspective(1e-45, 1, 1, 10))

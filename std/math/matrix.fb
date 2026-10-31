@@ -196,42 +196,51 @@ Public Struct Mat4 Implements Equatable, Printable
 
     /// A perspective projection, with the field of view from the bottom of the view to its top, in
     /// radians, and the `aspect`, its width over its height: depth goes from 0 at `near` to 1 at
-    /// `far`. A field of view outside 0 to Pi, an aspect that isn't finite and above 0, or a near
-    /// and `far` that aren't finite with 0 < `near` < `far`, panics.
+    /// `far`. A field of view outside 0 to Pi, an aspect that isn't finite and above 0, a near and
+    /// `far` that aren't finite with 0 < `near` < `far`, or values whose matrix isn't finite, as a
+    /// field of view so small that 1 / Tan(fieldOfView / 2) is Inf, panics.
     @PanicsAtCaller
     Public Static Method Perspective(fieldOfView: Float, aspect: Float, near: Float,
                                      far: Float): Mat4
+        Local tangent = Tan(fieldOfView / 2)
+        Local across = 1 / (aspect * tangent)
+        Local up = 1 / tangent
+        Local depth = far / (near - far)
+        Local moved = near * depth
         If !(fieldOfView > 0 && fieldOfView < Pi && aspect > 0 && IsFinite(aspect) && near > 0 &&
-             near < far && IsFinite(far))
+             near < far && IsFinite(far) && IsFinite(across) && IsFinite(up) && IsFinite(depth) &&
+             IsFinite(moved))
             Panic("Perspective takes a field of view between 0 and Pi, a finite aspect above 0, " +
-                  "and 0 < near < far with a finite far, not {fieldOfView}, {aspect}, {near}, " +
-                  "and {far}")
+                  "and 0 < near < far with a finite far, whose matrix is finite, not " +
+                  "{fieldOfView}, {aspect}, {near}, and {far}")
         End If
 
-        Local tangent = Tan(fieldOfView / 2)
-        Local depth = far / (near - far)
-        Return Mat4(Vec4(1 / (aspect * tangent), 0, 0, 0), Vec4(0, 1 / tangent, 0, 0),
-                    Vec4(0, 0, depth, -1), Vec4(0, 0, near * depth, 0))
+        Return Mat4(Vec4(across, 0, 0, 0), Vec4(0, up, 0, 0), Vec4(0, 0, depth, -1),
+                    Vec4(0, 0, moved, 0))
     End Method
 
     /// An orthographic projection of the box from `left` to `right`, `bottom` to `top`, and `near`
     /// to `far` in front of the camera, to -1 to 1 across and up, and depth from 0 at `near` to 1
-    /// at `far`. A box whose sides aren't finite, or where two that face each other are at one
-    /// place, panics.
+    /// at `far`. A box whose sides aren't finite, where two that face each other are at one place,
+    /// or whose matrix isn't finite, as one so thin that 2 / its height is Inf, panics.
     @PanicsAtCaller
     Public Static Method Orthographic(left: Float, right: Float, bottom: Float, top: Float,
                                       near: Float, far: Float): Mat4
-        If !(IsFinite(right - left) && IsFinite(top - bottom) && IsFinite(far - near) &&
-             left != right && bottom != top && near != far)
-            Panic("Orthographic takes a box whose facing sides are apart, not {left} to {right}, " +
-                  "{bottom} to {top}, and {near} to {far}")
-        End If
-
         Local width = right - left
         Local height = top - bottom
         Local depth = far - near
-        Return Mat4(Vec4(2 / width, 0, 0, 0), Vec4(0, 2 / height, 0, 0), Vec4(0, 0, -1 / depth, 0),
-                    Vec4(-(right + left) / width, -(top + bottom) / height, -near / depth, 1))
+        Local across = 2 / width
+        Local up = 2 / height
+        Local deep = -1 / depth
+        Local moved = Vec4(-(right + left) / width, -(top + bottom) / height, -near / depth, 1)
+        If !(IsFinite(width) && IsFinite(height) && IsFinite(depth) && left != right &&
+             bottom != top && near != far && IsFinite(across) && IsFinite(up) && IsFinite(deep) &&
+             IsFinite(moved.x) && IsFinite(moved.y) && IsFinite(moved.z))
+            Panic("Orthographic takes a box whose facing sides are apart, whose matrix is " +
+                  "finite, not {left} to {right}, {bottom} to {top}, and {near} to {far}")
+        End If
+
+        Return Mat4(Vec4(across, 0, 0, 0), Vec4(0, up, 0, 0), Vec4(0, 0, deep, 0), moved)
     End Method
 
     /// The `point` transformed, with its w taken as 1, for a matrix that moves, turns, and scales.

@@ -1,0 +1,7 @@
+// Orthographic takes a box whose matrix is finite, so one so far out that its sides' sum is
+// Inf panics where it's called.
+Import std.core
+Import std.math
+
+Print(Mat4.Orthographic(1e37, 2e37, -1, 1, 0, 1).w.x)
+Print(Mat4.Orthographic(2e38, 3e38, -1, 1, 0, 1))

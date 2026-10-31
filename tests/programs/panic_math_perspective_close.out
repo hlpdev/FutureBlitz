@@ -1,0 +1,2 @@
+True
+panic: Perspective takes a field of view between 0 and Pi, a finite aspect above 0, and 0 < near < far with a finite far, whose matrix is finite, not 1.5707964, 1, 1e38, and 1.000001e38 at panic_math_perspective_close.fb:7:7

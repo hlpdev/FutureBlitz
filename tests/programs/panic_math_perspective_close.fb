@@ -1,0 +1,7 @@
+// Perspective takes a near and far whose matrix is finite, so a near so close to a huge far
+// that near times its depth is Inf panics where it's called.
+Import std.core
+Import std.math
+
+Print(Mat4.Perspective(Pi / 2, 1, 1e30, 1.000001e30).w.z < 0)
+Print(Mat4.Perspective(Pi / 2, 1, 1e38, 1.000001e38))

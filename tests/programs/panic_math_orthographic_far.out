@@ -1,0 +1,2 @@
+-3.0000002
+panic: Orthographic takes a box whose facing sides are apart, whose matrix is finite, not 2e38 to 3e38, -1 to 1, and 0 to 1 at panic_math_orthographic_far.fb:7:7

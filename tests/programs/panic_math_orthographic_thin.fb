@@ -1,0 +1,7 @@
+// Orthographic takes a box whose matrix is finite, so one so thin that 2 / its height is Inf
+// panics where it's called.
+Import std.core
+Import std.math
+
+Print(Mat4.Orthographic(-1, 1, 0, 1e-30, 0, 1).y.y > 1e29)
+Print(Mat4.Orthographic(-1, 1, 0, 1e-45, 0, 1))
