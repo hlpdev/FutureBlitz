@@ -27,6 +27,12 @@ one only with `As?`, since it can be an array's. Interface files write it as `Ob
 fb-lsp completes it. tests/programs/objects.fb keeps any Class's object in a holder and gets it
 back typed; panic_object_cast.fb panics on the wrong Class.
 
+A package's tests see its Package members: the tests/ folder's package, `<name>.tests`, and the
+doc examples', `<name>.doctests`, are its tests in the module table (`add_tests()` and
+`sees_package()`), which sema's `sees()` and `can_use()` and fb-lsp's completion use, while
+Private names stay their files' and Public what other packages see. The tested package's
+tests/ folder calls a Package Function.
+
 ## 1.0.1
 
 (2026-10-30.) Linux's fb-bindgen read no header that includes `<stdint.h>`: release.yml gathered

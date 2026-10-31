@@ -512,7 +512,7 @@ The style, std's own (settled with the user 2026-10-29), which `fb fmt` enforces
 
 - `@Test` Functions, which take nothing and return nothing or throw, anywhere in a package,
   seeing their file's Private names, are left out of `fb build`; a package's tests/ folder holds
-  tests that use it from outside, as another package does.
+  tests that import it as another package does, and see its Package names, as its own files do.
 - std.test: `Expect(a == b)` is built in, and on failure prints the expression and each side's
   value, and the test goes on; `ExpectThrows`, `Fail`, and `Skip`. A panic or an Assert in a test
   fails it.
@@ -521,8 +521,8 @@ The style, std's own (settled with the user 2026-10-29), which `fb fmt` enforces
   leaks it didn't check; filters by name, a summary, and leaks reported per test.
 - Doc tests: the examples in `///` comments' `# Examples` compile and run as tests, each a test
   named after its declaration, like `game.shapes.Circle.Grow (example)`, in a package of their
-  own, `<name>.doctests`, that uses the package from outside (spec 09). `fb test std` runs std's,
-  and `fb test` on a `.fb` file outside a package runs that file's.
+  own, `<name>.doctests`, that imports the package and sees its Package names (spec 09). `fb test
+  std` runs std's, and `fb test` on a `.fb` file outside a package runs that file's.
 
 ## Docs from the code (step 8)
 
