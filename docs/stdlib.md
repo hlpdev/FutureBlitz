@@ -875,7 +875,10 @@ std/io/.
 #### std.time
 
 - `Duration`, written `2.Seconds`, `1.5.Minutes`, `500.Milliseconds`; the timing built-ins take
-  one too: `Await Wait(500.Milliseconds)`, and `RealWait`.
+  one too: `Await Wait(500.Milliseconds)`, and `RealWait`. `Sleep(time)` blocks the thread. Both
+  are to about a millisecond on Windows too, whose own sleeps wait for its 15.6 ms timer tick: the
+  runtime's sleeps are on a high-resolution waitable timer (`fb::time::sleep_precisely()`), or
+  before Windows 10 1803, with `timeBeginPeriod(1)` for the sleep alone.
 - A type for each meaning: `Timestamp` (a point in time, UTC), `Date`, `TimeOfDay`,
   `LocalDateTime` (no zone), and `ZonedDateTime`, with `TimeZone` (embedded IANA data, and the
   OS's local zone, `TimeZone.System()`); arithmetic that clamps (Jan 31 plus a month is Feb 28 or
@@ -1775,8 +1778,11 @@ std.io. `Import std.image` brings in all of std/image/.
   `INVALID_DATA` for bytes that aren't the format or are broken, `UNEXPECTED_END` for
   ones that end too soon, where the decoder can tell, and `OTHER` for an image whose pixels, all
   its frames' counted, are more than the limit, or that uses what isn't supported, like a BMP's
-  run-length encoding or an animated WebP. The limit is the most an Image holds unless it's given
-  a smaller one, which guards against data made to decode huge; a negative one panics.
+  run-length encoding or an animated WebP. A TGA whose pixels, uncompressed or run-length
+  encoded, end before its header's width and height do is `INVALID_DATA`, though stb_image would
+  read the rest as 0s (`tga_whole()` in stb.cpp). The limit is the most an Image holds unless
+  it's given a smaller one, which guards against data made to decode huge; a negative one
+  panics.
 - `Animation(width, height, plays)`: frames of one size, each a `Frame` of an `Image` and its
   `Delay` in milliseconds, from 0 to 65535000, APNG's longest, with `Add(image, delay)`, which
   keeps the image rather than a copy, `Count`, `Frames`, `[index]`, and `Plays`, how many times

@@ -162,6 +162,20 @@ no code after it is indented to, png.cpp's chunks take the sequence number as a 
 in place of a vector of it and the data, and tls_roots.cpp checks the key usage's size first.
 sema.cpp's lambda in resolve_type no longer shadows `id`, from 1.1's Object fixes.
 
+RealWait and Sleep to about a millisecond on Windows (fbengine's assets lane found it): the
+scheduler's run_until slept 1 ms with sleep_for while a timer was due, which Windows makes its
+15.6 ms tick, so `Await RealWait(1.Milliseconds)` took 15.5 ms. `fb::time::sleep_precisely()`
+sleeps on a thread's high-resolution waitable timer (CreateWaitableTimerExW with
+CREATE_WAITABLE_TIMER_HIGH_RESOLUTION), or before Windows 10 1803 with winmm's timeBeginPeriod(1),
+loaded then, for the sleep alone; run_until and fb_time_sleep use it. tests/programs/
+time_realwait.fb waits and sleeps a millisecond 100 times, each under 300 ms.
+
+A TGA that ends before its pixels do is an IOError of INVALID_DATA (fbengine's GPU review found
+it): stb_image read what's past the end as 0s, so an 18-byte header of a 16384 by 16384 image
+decoded into a gigabyte of nothing. `tga_whole()` in stb.cpp walks the header, ID, and color map,
+then the pixels, uncompressed or by run-length packets, before stb_image reads it.
+tests/programs/image_tga_short.fb.
+
 ## 1.0.1
 
 (2026-10-30.) Linux's fb-bindgen read no header that includes `<stdint.h>`: release.yml gathered

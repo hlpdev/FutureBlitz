@@ -242,7 +242,10 @@ Rules:
   `Await RealWait(time)` the real clock's, ignoring both. A time is std.time's `Duration`, like
   `2.Seconds` or `500.Milliseconds`, so either one needs `Import std.time`. NextTick, Wait, and
   RealWait give a Task that the scheduler running the code finishes, so only the main thread
-  calls them.
+  calls them. A wait is to about a millisecond on every OS, as std.time's `Sleep` is: on Windows,
+  whose own sleeps wait for its 15.6 ms timer tick, the runtime sleeps on a high-resolution
+  waitable timer, or where Windows has none, with the timer at 1 ms for that sleep alone, never
+  changing it for the process.
 - An I/O await resumes on the scheduler that started it, at its next tick. Coroutine code
   never runs on a background thread. A coroutine that starts waiting during a tick waits for the
   next one, even for a Task that's done.
