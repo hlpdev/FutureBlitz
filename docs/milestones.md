@@ -24,8 +24,8 @@ Timeline: honors project begins **fall 2027**, so there is plenty of runway.
 
 ## The engine
 
-The engine is a development phase of its own, after phase 1, which these milestones don't
-number; it's planned on its own ([engine.md](engine.md)). It's packages built on top of
+The engine is phase 2, after phase 1, in milestones of its own, E0 to E14, planned in
+[engine.md](engine.md): fbengine's packages, in hlpdev/fbengine. It's packages built on top of
 FutureBlitz, never part of the language: the language, compiler, runtime, std, and spec depend on
 none of its features (the user, 2026-10-30).
 

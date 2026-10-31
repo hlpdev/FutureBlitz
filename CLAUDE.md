@@ -40,6 +40,9 @@ v1.0.0 tag, and production's deploy. The engine is packages built on FutureBlitz
 language, compiler, runtime, or std (the user, 2026-10-30): the main scheduler runs at a top-level
 Await, Wait(), and the end of top-level code, and a loop of a program's own or a library's calls
 `Scheduler.Main.Step()`. docs/milestones.md's Deferred work lists everything left for later.
+v1.0.0 is released (2026-10-30), with winget's manifest in review. Phase 2, the engine, is planned
+in docs/engine.md: fbengine's packages, in the public repo hlpdev/fbengine, in milestones E0 to
+E14; E0, its setup, is next.
 
 ## History
 Each milestone's steps, in detail (what each added, by name, and each review's fixes), are in

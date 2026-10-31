@@ -1068,6 +1068,7 @@ Planned 2026-10-20 with the user; the design is in [stdlib.md](stdlib.md#m6s-des
 | Windows, Linux, macOS first | |
 | The engine is a separate C++ project with a C API, shipped as a package with prebuilt DLLs and wrapped by FB code, not part of the runtime or std (2026-10-22) | the engine is large and C++, and as a package it keeps std small and the language independent of it |
 | Standardized asset system (VFS, cache, async, typed refs, cooking, glTF) | Blitz's asset handling is a mess |
+| The engine is fbengine, in a public repository of its own, hlpdev/fbengine, under Apache-2.0, as packages released together at one version: `fbengine` (the window, input, 2D, the 3D scene, animation, the renderer, loading assets, and Blitz's collisions and picks, in one DLL), `fbengine_audio` (miniaudio's DLL), `fbengine_physics` (Jolt's DLL), and `fbengine_ui` and `fbengine_tools` in FB; its milestones are E0 to E14 ([engine.md](engine.md)) (the user, 2026-10-30) | a game leaves out what it doesn't use, while the parts that share a window, a GPU device, and a frame stay one DLL, and no package's C++ links to another's |
 
 ## Tooling and process
 

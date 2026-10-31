@@ -1,23 +1,80 @@
 # Engine
 
-The engine is a development phase of its own, after phase 1 (M0 to M10), which the milestones
-don't number. This doc records the direction; detailed API design comes later.
+The engine is phase 2, after phase 1 (M0 to M10). Its milestones are E0 to E14, below; each
+module's API is designed in its milestone.
 
 The engine is packages built on top of FutureBlitz, never part of the language (the user,
 2026-10-30). The language, compiler, runtime, std, and spec depend on none of its features: it
 uses what any library can, Extern blocks over its C API, `@MainThread`, and the main scheduler's
 `Scheduler.Main.Step()`, and a program uses it by importing its packages.
 
-## Its parts, in the order planned so far
+Its goal: any Blitz3D game can be remade with it, looking nearly identical, and a modern game can
+be made with it from the start.
 
-1. Bootstrap: window, input, and the frame loop, whose `Flip()` calls `Scheduler.Main.Step()`.
-2. 2D: images, drawing, and fonts, on std.image's.
-3. The 3D scene: entities, cameras, lights, and the hierarchy.
-4. The Vulkan renderer and materials.
-5. The asset pipeline: the VFS, the cooker, pak files, typed references, and hot reload.
-6. Audio and physics (miniaudio, Jolt).
-7. The IDE.
-8. The migrator, and porting a real Blitz3D game as the final proof.
+## Packages
+
+The engine is **fbengine**, in its own public repository, hlpdev/fbengine, under Apache-2.0. Its
+packages are released together, at one version (the user, 2026-10-30):
+
+| Package | What's in it | Native code |
+|---|---|---|
+| `fbengine` | the window, input and gamepads, the frame loop and `Flip`, timing; 2D: images, drawing, fonts; the 3D scene: entities, cameras, lights, meshes, terrain, sprites; animation; the renderer, Blitz's look and PBR; loading assets; Blitz's collisions and picks, in `UpdateWorld` | one DLL: SDL3, Vulkan through volk and VMA, fastgltf, KTX |
+| `fbengine_audio` | sounds, channels, 3D sound, streamed music, buses, effects | one DLL: miniaudio |
+| `fbengine_physics` | rigid bodies, shapes, joints, the character controller, triggers, casts | one DLL: Jolt |
+| `fbengine_ui` | a game's UI: widgets, layout, themes, gamepad focus; and a debug UI | none, on fbengine's 2D |
+| `fbengine_tools` | the cooker, pak files, typed references, and the mesh converter for .b3d, .x, and .3ds | none |
+
+The editor and the migrator are programs built on these.
+
+- The split is where a game can do without a part: a 2D game without Jolt and 3D, a server
+  without a window, audio and physics without each other. The window, the GPU device, 2D, the
+  scene, and the renderer share one window, device, and frame, and every Blitz3D game uses them
+  together, so they're one package.
+- Each package's DLL is called only by its own FB code, so no package's C++ links to another's:
+  physics gets a mesh's vertices from fbengine's FB API and hands them to Jolt, as M7 step 6's
+  stand-in did with one DLL per package.
+- Each DLL is C++23 behind a C API of fixed-size types, wrapped by FB code through fb-bindgen's
+  bindings, with its C++ runtime linked in, as tests/native/engine is.
+
+## Milestones
+
+Each is done when its last column holds. Tests render headless, on lavapipe or SwiftShader in
+CI and SDL's offscreen driver, and never open a window on a developer's machine; macOS's
+rendering is checked on a Mac.
+
+| | Goal | Done when |
+|---|---|---|
+| **E0** | Setup: the repository, CMake, CI building each DLL for every target into its package's archives, trusted publishing, headless rendering in CI | a hello package is added with `fb add` and runs on Windows, Linux, and macOS |
+| **E1** | App and input: SDL3 windows and graphics modes, fullscreen and high DPI, frame timing, `Flip` stepping `Scheduler.Main`; keyboard, mouse, gamepads, text input, input actions and rebinding | under the offscreen driver, a test reads input and its coroutines resume once per frame |
+| **E2** | The GPU core: Vulkan through volk and VMA, the swapchain and frames in flight, shaders in Slang compiled to SPIR-V, bindless textures, offscreen targets, MoltenVK on macOS | a triangle and a textured quad match their golden images |
+| **E3** | 2D: Blitz's 2D commands, modernized: images, frames, handles, and masks, primitives, text and fonts, viewports and origins, pixel access through a CPU staging path, CopyRect, image collisions, drawing into images, batched sprites | a whole small arcade game runs, and its frames match their golden images |
+| **E4** | The scene: entities and the hierarchy, every transform and TForm, cameras (projection, viewports, picking, fog), lights, meshes and surfaces, the primitive shapes, sprites, terrain, BSP and MD2, EntityFX, EntityOrder, alpha, auto-fade; Blitz's collisions and picks | transforms, picks, and collision responses match Blitz3D's source |
+| **E5** | The Blitz look: `Shading.Vertex`, DX7's fixed-function lighting, linear fog, every TextureBlend mode, eight texture layers, texture flags, sphere and cube maps, Blitz's alpha sorting | reference scenes match screenshots taken in Blitz3D within a tolerance |
+| **E6** | The modern renderer: PBR with glTF's materials, image-based lighting, cascaded, spot, and point shadows, HDR and tonemapping, bloom, SSAO, TAA, FXAA, and MSAA, clustered lights, instancing, culling and LOD, GPU particles, decals, sky, materials with their own shaders | Khronos's glTF sample models match their reference images |
+| **E7** | Animation: skeletons from glTF and .b3d, blending, morph targets, vertex animation, Blitz's Animate, SetAnimTime, and ExtractAnimSeq | animated sample models match their reference frames |
+| **E8** | Assets: `res://` paths on std.vfs, a refcounted cache, async loading with progress, sidecar import settings, the cooker (BC7 and ASTC in KTX2, meshoptimizer), pak files, typed references, hot reload | a game runs from cooked paks in a release build and reloads changed assets in a dev build |
+| **E9** | Audio: Blitz's sound commands, channels, 3D sound with Doppler, streaming, buses, effects | on miniaudio's null backend, tests mix to known buffers |
+| **E10** | Physics: Jolt's bodies, shapes, joints, character controller, triggers, and casts, deterministic when asked | Jolt's sample scenes stay stable, and a deterministic run repeats exactly |
+| **E11** | UI: widgets, layout, themes, gamepad focus, SDF text, localization hooks, a debug UI | a sample game's menus and HUD work with a mouse and with a gamepad |
+| **E12** | The editor: code on fb-lsp, a scene editor and inspector, an asset browser, play in the editor, the debugger | a scene is made, saved, played, and debugged in the editor |
+| **E13** | The migrator ([migration.md](migration.md)): a .bb parser after Blitz3D's source, the deterministic translation to fbengine's API, the AI-assisted pass, the mesh converter | the sample games that come with Blitz3D translate and run |
+| **E14** | The proof: SCP: Containment Breach ported end to end, looking nearly identical, and a modern showcase game | both run on Windows, Linux, and macOS |
+
+The engine's docs are `fb doc`'s, on its packages' pages; futureblitz.dev's stay the language's.
+
+## What the engine needs from the language
+
+The engine is the largest FutureBlitz code yet, so it'll find bugs. Each is fixed in FutureBlitz,
+with a test, in a 1.0.x or 1.1 release. What it needs that phase 1 left out, all of it things any
+library could use ([open-questions.md](open-questions.md)):
+
+| What | Needed by |
+|---|---|
+| Build steps or tools in a package, which the cooker and typed references run | E8 |
+| Setting a reflected Property or Static Field (milestones.md's Deferred work) | E12's inspector, and saving scenes |
+| `Plugin.Load` and `DynamicLibrary` (Deferred work) | mods, and reloading game code in the editor |
+| Re-exports, so a package can hand on another's names | only an umbrella package, which the engine can do without |
+| A Callback taking or giving a Struct by value (Deferred work) | nothing, while the C APIs pass Structs by pointer |
 
 ## API style (Locked: modern)
 
@@ -107,15 +164,15 @@ Compatibility traps to handle:
 The original Blitz3D source is open (zlib license) and should be used as the reference for
 exact behavior, rather than guessing.
 
-## Engine modules (draft)
+## Modules (draft)
 
 | Module | Contents |
 |---|---|
-| `engine.app` | window, graphics mode, `Flip`, frame timing |
-| `engine.input` | keyboard, mouse, gamepad, input actions |
-| `engine.gfx2d` | images, drawing, fonts, text |
-| `engine.scene` | entities, pivots, cameras, lights, meshes, hierarchy |
-| `engine.render` | materials, shaders, shading models, shadows, post-FX |
-| `engine.assets` | see [assets.md](assets.md) |
-| `engine.physics` | Blitz-style collisions and picks, raycasts, Jolt backend |
-| `engine.audio` | sounds, 3D audio, music streaming (miniaudio) |
+| `fbengine.app` | window, graphics mode, `Flip`, frame timing |
+| `fbengine.input` | keyboard, mouse, gamepad, input actions |
+| `fbengine.gfx2d` | images, drawing, fonts, text |
+| `fbengine.scene` | entities, pivots, cameras, lights, meshes, hierarchy, Blitz's collisions and picks |
+| `fbengine.render` | materials, shaders, shading models, shadows, post-FX |
+| `fbengine.assets` | see [assets.md](assets.md) |
+| `fbengine_physics` | Jolt's bodies, joints, characters, and casts |
+| `fbengine_audio` | sounds, 3D audio, music streaming (miniaudio) |
