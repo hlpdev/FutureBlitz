@@ -1,0 +1,134 @@
+// A recursive FileWatcher, in a temporary folder: what happens in the folders in it, the ones
+// that come after it's made too, and folders that come and go with what's in them, each come as
+// their events, with paths from the watched folder. OSes tell of more than these, and at their
+// own times, so each check waits, for ten seconds at most, until the events it's after come,
+// and prints only whether they did.
+Import std.core
+Import std.io
+Import std.text
+Import std.time
+
+Local temp = Try TempDir("fb-watch-tree-")
+Local root = temp.Path
+
+// The path of an event's file or folder from `watcher`'s folder, with '/'s.
+Function Inside(watcher: FileWatcher, event: FileEvent): String
+    Return event.Path.RelativeTo(watcher.Path)?.Text ?? "?"
+End Function
+
+// Whether each of `wanted`'s kinds comes for its path from the watched folder, among what
+// `watcher` tells of, within ten seconds.
+Async Function Saw(watcher: FileWatcher, wanted: (FileEventKind, String)[]): Bool
+    Local left = wanted.Clone()
+    For tries = 1 To 1000
+        Loop
+            Local event = watcher.TryNext()
+            If event == Null Then Break
+            For i = 0 Until left.Count
+                If left[i].0 == event.Kind && left[i].1 == Inside(watcher, event)
+                    left.RemoveAt(i)
+                    Break
+                End If
+            End For
+
+            If left.Count == 0 Then Return True
+        End Loop
+
+        Await RealWait(10.Milliseconds)
+    End For
+
+    Return False
+End Function
+
+// Takes what's come, so the next check only sees what follows.
+Function Drain(watcher: FileWatcher)
+    While watcher.TryNext() != Null
+    End While
+End Function
+
+Try Dir.CreateAll(root / "old" / "deep")
+Local tree = Try FileWatcher(root, recursive: True)
+Print("{tree.Recursive} {tree.Path == root} {tree.TryNext() == Null}")
+
+// In a folder that was there.
+Try File.WriteText(root / "old" / "deep" / "a.txt", "one")
+Print("deep created {Await Saw(tree, [(FileEventKind.CREATED, "old/deep/a.txt")])}")
+Await RealWait(200.Milliseconds)
+Drain(tree)
+Try File.AppendText(root / "old" / "deep" / "a.txt", " two")
+Print("deep changed {Await Saw(tree, [(FileEventKind.CHANGED, "old/deep/a.txt")])}")
+
+// In folders that come after, one in another.
+Await RealWait(200.Milliseconds)
+Drain(tree)
+Try Dir.Create(root / "new")
+Print("folder created {Await Saw(tree, [(FileEventKind.CREATED, "new")])}")
+Try File.WriteText(root / "new" / "b.txt", "b")
+Try Dir.Create(root / "new" / "inner")
+Await RealWait(100.Milliseconds)
+Try File.WriteText(root / "new" / "inner" / "c.txt", "c")
+Local made = [(FileEventKind.CREATED, "new/b.txt"), (FileEventKind.CREATED, "new/inner"),
+              (FileEventKind.CREATED, "new/inner/c.txt")]
+Print("new folders' files {Await Saw(tree, made)}")
+
+// A folder renamed takes what's in it, and brings it back by its new name.
+Await RealWait(200.Milliseconds)
+Drain(tree)
+Try File.Move(root / "new", root / "moved")
+Local moved = [(FileEventKind.REMOVED, "new"), (FileEventKind.REMOVED, "new/b.txt"),
+               (FileEventKind.REMOVED, "new/inner/c.txt"), (FileEventKind.CREATED, "moved"),
+               (FileEventKind.CREATED, "moved/b.txt"), (FileEventKind.CREATED, "moved/inner/c.txt")]
+Print("folder renamed {Await Saw(tree, moved)}")
+
+// And what's in a folder moved there is told of, though the OS tells only of the folder.
+Await RealWait(200.Milliseconds)
+Drain(tree)
+Local outside = Try TempDir("fb-watch-out-")
+Try Dir.Create(outside.Path / "brought")
+Try File.WriteText(outside.Path / "brought" / "x.txt", "x")
+Try File.Move(outside.Path / "brought", root / "brought")
+Local brought = [(FileEventKind.CREATED, "brought"), (FileEventKind.CREATED, "brought/x.txt")]
+Print("folder moved in {Await Saw(tree, brought)}")
+
+// The new name's folders are watched too.
+Await RealWait(200.Milliseconds)
+Drain(tree)
+Try File.WriteText(root / "moved" / "inner" / "d.txt", "d")
+Try File.WriteText(root / "brought" / "y.txt", "y")
+Local later = [(FileEventKind.CREATED, "moved/inner/d.txt"),
+               (FileEventKind.CREATED, "brought/y.txt")]
+Print("renamed folders watched {Await Saw(tree, later)}")
+
+// A folder removed with what's in it.
+Await RealWait(200.Milliseconds)
+Drain(tree)
+Try Dir.RemoveAll(root / "moved")
+Local gone = [(FileEventKind.REMOVED, "moved/inner/c.txt"), (FileEventKind.REMOVED, "moved/inner"),
+              (FileEventKind.REMOVED, "moved")]
+Print("folder removed {Await Saw(tree, gone)}")
+tree.Close()
+
+// A watcher that isn't recursive tells of nothing deeper than its folder.
+Local flat = Try FileWatcher(root)
+Print("{flat.Recursive}")
+Try File.WriteText(root / "old" / "deep" / "z.txt", "z")
+Await RealWait(200.Milliseconds)
+Try File.WriteText(root / "top.txt", "top")
+Local deeper = False
+Local top = False
+For tries = 1 To 1000
+    Local event = flat.TryNext()
+    If event == Null
+        If top Then Break
+        Await RealWait(10.Milliseconds)
+        Continue
+    End If
+
+    If Inside(flat, event).Contains("/") Then deeper = True
+    If Inside(flat, event) == "top.txt" Then top = True
+End For
+
+Print("flat {top} {deeper}")
+flat.Close()
+Try outside.Close()
+Try temp.Close()

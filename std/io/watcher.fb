@@ -30,7 +30,7 @@ Import std.io.path
 Import std.io.request
 
 Extern "runtime"
-    Function fb_io_watcher_new(path: String): Ptr<Void>
+    Function fb_io_watcher_new(path: String, recursive: Int32): Ptr<Void>
     Function fb_io_watcher_error(watcher: Ptr<Void>): Int64
     Function fb_io_watcher_next(watcher: Ptr<Void>, wait: Int32): Int32
     Function fb_io_watcher_wait_async(watcher: Ptr<Void>): Task<Int64>
@@ -55,7 +55,8 @@ End Enum
 Public Struct FileEvent
     /// What happened.
     Public ReadOnly Field Kind: FileEventKind
-    /// The file or folder it happened to.
+    /// The file or folder it happened to: the watcher's Path joined with where it is from there,
+    /// like `assets/art/hero.png` in a recursive watcher of `assets`.
     Public ReadOnly Field Path: Path
 
     Package New(kind: FileEventKind, path: Path)
@@ -64,15 +65,16 @@ Public Struct FileEvent
     End New
 End Struct
 
-/// Watches a file, or what's in a folder, but not the folders in it, from when it's made until
-/// it's closed or its last reference goes. An OS can tell of one change more than once, as when a
-/// write comes in parts, and of a change it makes itself, as of a folder's times. A watched file
-/// or folder that's removed may go unwatched on some OSes, even once it's back.
+/// Watches a file, or what's in a folder, and a recursive one what's in the folders in it too,
+/// and theirs, from when it's made until it's closed or its last reference goes. An OS can tell
+/// of one change more than once, as when a write comes in parts, and of a change it makes itself,
+/// as of a folder's times. A watched file or folder that's removed may go unwatched on some OSes,
+/// even once it's back.
 ///
 /// # Examples
 ///
 /// ```fb no_run
-/// Local watcher = Try FileWatcher(Path("assets"))
+/// Local watcher = Try FileWatcher(Path("assets"), recursive: True)
 /// Local event = watcher.Next()
 /// While event != Null
 ///     Print("{event.Kind}: {event.Path}")
@@ -82,14 +84,23 @@ End Struct
 Public Class FileWatcher
     /// The file or folder it watches.
     Public ReadOnly Field Path: Path
+    /// Whether it watches the folders in its folder too, and theirs.
+    Public ReadOnly Field Recursive: Bool
     /// The runtime's watcher, which keeps whether it's closed, so no Field of this one changes
     /// once it's made.
     ReadOnly Field Native: Ptr<Void>
 
-    /// Starts watching what's at the `path`, which has to be there.
-    Public New(path: Path) Throws IOError
+    /// Starts watching what's at the `path`, which has to be there. With `recursive`, a folder's
+    /// watcher watches the folders in it too, and theirs, the ones that come later as well, but
+    /// not through links. A folder that comes brings a CREATED for each thing in it, and one that
+    /// goes a REMOVED for each it had, what's in a folder before it. A file's watcher is the same
+    /// either way. On Linux, which watches each folder apart, a tree with more folders than
+    /// inotify watches, as `fs.inotify.max_user_watches` says, is an IOError, and a folder that
+    /// comes past that goes unwatched.
+    Public New(path: Path, recursive: Bool = False) Throws IOError
         Path = path
-        Native = fb_io_watcher_new(path.Text)
+        Recursive = recursive
+        Native = fb_io_watcher_new(path.Text, recursive As Int32)
         Local error = fb_io_watcher_error(Native)
         If error != 0
             fb_io_watcher_free(Native)
