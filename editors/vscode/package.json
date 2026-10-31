@@ -2,7 +2,7 @@
   "name": "futureblitz",
   "displayName": "FutureBlitz",
   "description": "A compiled, general-purpose language with BASIC's readability and native speed. FutureBlitz (.fb) in VS Code: highlighting, the language server, tasks, and debugging.",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "publisher": "futureblitz",
   "license": "Apache-2.0",
   "icon": "images/icon.png",
