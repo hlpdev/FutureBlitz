@@ -226,6 +226,17 @@ void client_t::settle() {
     answer_requests();
 }
 
+json_t client_t::errors(const std::string& uri) const {
+    json_t found = json_t::array();
+    for (const json_t& diagnostic : diagnostics(uri)) {
+        if (diagnostic["severity"] == 1) {
+            found.push_back(diagnostic);
+        }
+    }
+
+    return found;
+}
+
 json_t client_t::diagnostics(const std::string& uri) const {
     const std::scoped_lock lock(m_mutex);
     json_t last;

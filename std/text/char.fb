@@ -4,8 +4,6 @@
 //! and its own uppercase and lowercase, through the runtime's fb_unicode_ functions over utf8proc.
 //! Whitespace and ASCII need no Unicode data.
 
-Import std.core
-
 Extern "runtime"
     Function fb_unicode_category(code: UInt32): Int32
     Function fb_unicode_upper(code: UInt32): UInt32

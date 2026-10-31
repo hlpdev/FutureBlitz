@@ -4,6 +4,7 @@
 #include "fb/doc.hpp"
 #include "fb/driver.hpp"
 #include "fb/interface.hpp"
+#include "fb/lint.hpp"
 #include "fb/lower.hpp"
 #include "fb/process.hpp"
 #include "fb/utf8.hpp"
@@ -57,9 +58,15 @@ std::string without_lines(const std::string_view text) {
 }
 
 /// "<file>: <source text>: message" for each diagnostic, in order.
+/// A compilation's diagnostics, but the inspections', which inspect_tests.cpp tests, as the
+/// driver's tests are of what it loads.
 std::vector<std::string> errors_of(const fb::compilation_t& compilation) {
     std::vector<std::string> errors;
     for (const fb::diagnostic_t& diagnostic : compilation.diagnostics.diagnostics()) {
+        if (diagnostic.lint && fb::lint_info(*diagnostic.lint).inspection) {
+            continue;
+        }
+
         const fb::source_file_t& file = compilation.sources.get(diagnostic.span.file);
         errors.push_back(std::format("{}: {}: {}", file.path(), file.slice(diagnostic.span),
                                      diagnostic.message));
@@ -1389,6 +1396,50 @@ constexpr std::string_view app_toml = "[project]\n"
                                       "lib = { path = \"../lib\" }\n";
 
 } // namespace
+
+TEST_CASE("each package's [lints] give its own code's warnings their levels", "[driver]") {
+    const packages_t packages;
+    packages.write("lib/project.toml",
+                   std::format("{}\n[lints]\nunused_local = \"off\"\n", lib_toml));
+    packages.write("lib/lib.fb", "Public Function Lib(): Int\n"
+                                 "    Local quiet = 1\n"
+                                 "    Local shadow = 2\n"
+                                 "    Return 3\n"
+                                 "End Function\n"
+                                 "Global shadow = 4\n"
+                                 "Public Function Shadow(): Int => shadow\n");
+    packages.write(
+        "app/project.toml",
+        std::format("{}\n[lints]\nunused_local = \"error\"\nshadowed = \"off\"\n", app_toml));
+    packages.write("app/main.fb", "Import std.core\n"
+                                  "Import lib\n"
+                                  "Global Lib = 1\n"
+                                  "Function F(): Int\n"
+                                  "    Local Lib = 2\n"
+                                  "    Return Lib\n"
+                                  "End Function\n"
+                                  "Local unused = 1\n"
+                                  "Print(F() + Shadow())\n");
+    const std::expected<fb::compilation_t, std::string> compiled =
+        fb::compile_file(packages / "app");
+    REQUIRE(compiled);
+    std::vector<std::string> found;
+    for (const fb::diagnostic_t& diagnostic : compiled->diagnostics.diagnostics()) {
+        const fb::source_file_t& file = compiled->sources.get(diagnostic.span.file);
+        found.push_back(std::format(
+            "{} {}: {}", diagnostic.severity == fb::severity_t::ERROR ? "error" : "warning",
+            file.slice(diagnostic.span), diagnostic.code));
+    }
+
+    // The app's Global that its Local hides, whose warning is off, and its unused Local, an
+    // error; and lib's shadowed Global, while its unused Locals' are off.
+    CHECK(found == std::vector<std::string>{
+                       "warning Lib: unused_private",
+                       "error unused: unused_local",
+                       "warning shadow: shadowed",
+                   });
+    packages.remove();
+}
 
 TEST_CASE("a file reached through a link in the program's folder loads once", "[driver]") {
     const packages_t files;
@@ -4754,6 +4805,28 @@ std::vector<std::string> own_modules(const fb::compilation_t& compilation) {
 }
 
 } // namespace
+
+TEST_CASE("check_files's inspections look unless it's asked not to, as references' checks are",
+          "[driver]") {
+    const packages_t packages;
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"0.1.0\"\n");
+    packages.write("app/a.fb", "Public Function A(): Int\n    Local unused = 1\n    Return 2\nEnd "
+                               "Function\n");
+    const auto lints_in = [&](const bool inspect) {
+        const std::expected<fb::compilation_t, std::string> checked =
+            fb::check_files({ .files = { packages / "app/a.fb" }, .inspect = inspect });
+        REQUIRE(checked);
+        std::vector<std::string> found;
+        for (const fb::diagnostic_t& diagnostic : checked->diagnostics.diagnostics()) {
+            found.push_back(diagnostic.code);
+        }
+
+        return found;
+    };
+    CHECK(lints_in(true) == std::vector<std::string>{ "unused_local" });
+    CHECK(lints_in(false).empty());
+    packages.remove();
+}
 
 TEST_CASE("check_files checks only the files it's given, and what they import", "[driver]") {
     const packages_t packages;

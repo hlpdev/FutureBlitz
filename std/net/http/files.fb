@@ -5,7 +5,6 @@
 //! Partial Content for a request for one range of a file's bytes.
 
 Import std.core
-Import std.collections
 Import std.io.file
 Import std.io.path
 Import std.time

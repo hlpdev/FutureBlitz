@@ -5,6 +5,7 @@
 #include "fb/driver.hpp"
 #include "fb/format.hpp"
 #include "fb/lexer.hpp"
+#include "fb/lint.hpp"
 #include "fb/lsp/protocol.hpp"
 #include "fb/lsp/query.hpp"
 #include "fb/parser.hpp"
@@ -484,6 +485,25 @@ json_t diagnostic_json(const compilation_t& compilation, const diagnostic_t& dia
     };
     if (!diagnostic.code.empty()) {
         out["code"] = diagnostic.code;
+    }
+
+    // The LSP's DiagnosticTag: 1 for code nothing needs, which editors fade, and 2 for what's
+    // deprecated, which they strike through.
+    if (diagnostic.lint) {
+        switch (*diagnostic.lint) {
+        case lint_t::UNUSED_LOCAL:
+        case lint_t::UNUSED_PARAMETER:
+        case lint_t::UNUSED_IMPORT:
+        case lint_t::UNUSED_PRIVATE:
+        case lint_t::UNREACHABLE:
+            out["tags"] = json_t::array({ 1 });
+            break;
+        case lint_t::DEPRECATED:
+            out["tags"] = json_t::array({ 2 });
+            break;
+        default:
+            break;
+        }
     }
 
     json_t related = json_t::array();

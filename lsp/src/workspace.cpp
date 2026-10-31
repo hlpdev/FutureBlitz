@@ -1073,6 +1073,8 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
         .disk = disk,
         .examples = job.examples,
         .workspace = std::move(workspace),
+        // References' and renames' checks aren't published.
+        .inspect = !job.examples,
     });
     std::shared_ptr<const compilation_t> compilation =
         result ? std::make_shared<const compilation_t>(std::move(*result)) : nullptr;

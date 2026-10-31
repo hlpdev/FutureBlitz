@@ -42,7 +42,6 @@ Import std.io.path
 Import std.io.streams
 Import std.log
 Import std.time
-Import std.net.acme
 Import std.net.acme_client
 Import std.net.address
 Import std.net.tcp
@@ -780,7 +779,6 @@ Public Class HttpServer Extends HttpRouter
         Local open = True
         While open && !Stopping
             stream.ReadTimeout = Idle
-            Local response: HttpResponse? = Null
             Local request: HttpRequest? = Null
             Try
                 Local head = Try Await connection.Input.ReadHeadAsync(True)

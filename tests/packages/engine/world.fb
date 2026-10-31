@@ -3,7 +3,6 @@
 // engine.c.engine.
 
 Import std.core
-Import std.ffi
 Import "./c/engine"
 
 Public Const MaxBodies: Int32 = ENGINE_MAX_BODIES

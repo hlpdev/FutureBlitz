@@ -49,6 +49,7 @@
 #include <string_view>
 #include <system_error>
 #include <thread>
+#include <tuple>
 #include <utf8proc.h>
 #include <utility>
 #include <variant>
@@ -115,6 +116,9 @@ struct package_t {
     std::filesystem::path generated;
     /// Its build step's own program, by its path in the program, which isn't one of its modules.
     std::string build_program;
+    /// Its project.toml's [lints], for its own code. nullopt for a registry's package, and for
+    /// fb test's package of its examples, whose warnings aren't the program's to fix.
+    std::optional<lints_t> lints;
 };
 
 /// A file the compiler makes, in memory: a module of a doc comment's example, which messages show
@@ -158,6 +162,15 @@ struct file_set_t {
     /// Only the main file's and the extra files' functions have their bodies checked, as the
     /// LSP's checks want, which publish only theirs; every body is when one of them needs it.
     bool root_bodies = false;
+    /// Without a project.toml, the lints of the program's own files: each a warning on disk,
+    /// and in memory, for compile(), without the inspections, unless it's given others.
+    std::optional<lints_t> lints;
+    /// The standard library's lints, when it's the code being checked: in fb-lsp, and for a
+    /// check of std itself. nullopt for a program's build.
+    std::optional<lints_t> std_lints;
+    /// Whether the inspections look, which a check that only answers questions, as references
+    /// do, doesn't need.
+    bool inspect = true;
 };
 
 /// Notes that `id`'s file is at `path` on disk.
@@ -1953,6 +1966,10 @@ private:
                               !m_files.packages.empty() && package_of(loaded.path) == 0 &&
                               has_code(m_items[index]),
             };
+            module.lints = lints_of(loaded, module.prebuilt);
+            if (module.lints && !m_files.inspect) {
+                module.lints->inspect = false;
+            }
             if (module.prebuilt) {
                 module.package_names =
                     prebuilt_package_names(m_compilation.sources.get(loaded.file));
@@ -1979,6 +1996,32 @@ private:
         }
 
         m_compilation.ast.sort_items();
+    }
+
+    /// The lints of a loaded file's code: its package's, but for a prebuilt module's, a .proto
+    /// file's, and the files a build step made, whose code isn't written by hand.
+    [[nodiscard]] std::optional<lints_t> lints_of(const loaded_t& loaded,
+                                                  const bool prebuilt) const {
+        if (loaded.path.starts_with("std/")) {
+            return m_files.std_lints;
+        }
+
+        if (prebuilt || loaded.proto != nullptr) {
+            return std::nullopt;
+        }
+
+        if (m_files.packages.empty()) {
+            return m_files.lints;
+        }
+
+        const package_t& package = m_files.packages[package_of(loaded.path).value_or(0)];
+        const std::filesystem::path on_disk = m_compilation.disk_path(loaded.file);
+        if (!package.generated.empty() && !on_disk.empty() &&
+            is_under(on_disk, package.generated)) {
+            return std::nullopt;
+        }
+
+        return package.lints;
     }
 
     /// What the standard library's modules that aren't loaded declare Public, for the error that
@@ -2122,6 +2165,51 @@ private:
     }
 };
 
+/// Gives each warning about a lint the level its module's [lints] has for it: it's left out of
+/// a module without lints, as the standard library's and a registry's packages' are, or where
+/// it's off, and an error where [lints] makes it one. An inspection's warnings in a file with
+/// errors are left out, as what an error left unchecked can look unused or unreachable, and
+/// code checked more than once, as generic code is, gives each one once.
+void apply_lints(compilation_t& compilation) {
+    const module_table_t& modules = compilation.ast.modules();
+    std::set<file_id_t> failed;
+    for (const diagnostic_t& diagnostic : compilation.diagnostics.diagnostics()) {
+        if (diagnostic.severity == severity_t::ERROR) {
+            failed.insert(diagnostic.span.file);
+        }
+    }
+
+    diagnostic_bag_t kept;
+    std::set<std::tuple<lint_t, file_id_t, std::uint32_t, std::uint32_t, std::string>> given;
+    for (diagnostic_t diagnostic : compilation.diagnostics.diagnostics()) {
+        if (!diagnostic.lint) {
+            kept.report(std::move(diagnostic));
+            continue;
+        }
+
+        const lint_t lint = *diagnostic.lint;
+        const std::optional<module_id_t> module = modules.of(diagnostic.span.file);
+        const std::optional<lints_t> lints =
+            module ? modules.get(*module).lints : std::optional<lints_t>();
+        if (!lints || !lints->on(lint) ||
+            (lint_info(lint).inspection && failed.contains(diagnostic.span.file)) ||
+            !given
+                 .emplace(lint, diagnostic.span.file, diagnostic.span.begin, diagnostic.span.end,
+                          diagnostic.message)
+                 .second) {
+            continue;
+        }
+
+        if (lints->level(lint) == lint_level_t::ERROR) {
+            diagnostic.severity = severity_t::ERROR;
+        }
+
+        kept.report(std::move(diagnostic));
+    }
+
+    compilation.diagnostics = std::move(kept);
+}
+
 /// The main file is in `compilation` already, at `path` in the program, and the files it
 /// imports come from `files`.
 void run_front_end(compilation_t& compilation, file_set_t files, const std::string& path,
@@ -2146,6 +2234,7 @@ void run_front_end(compilation_t& compilation, file_set_t files, const std::stri
         compilation.analysis = analyze(compilation.sources, compilation.ast,
                                        compilation.diagnostics, mode, embeds, &roots);
         if (!compilation.analysis.needs_every_body) {
+            apply_lints(compilation);
             compilation.diagnostics.sort();
             return;
         }
@@ -2155,6 +2244,7 @@ void run_front_end(compilation_t& compilation, file_set_t files, const std::stri
 
     compilation.analysis =
         analyze(compilation.sources, compilation.ast, compilation.diagnostics, mode, embeds);
+    apply_lints(compilation);
     // Each stage adds its own diagnostics, so sorting puts them back in source order.
     compilation.diagnostics.sort();
 }
@@ -2458,6 +2548,10 @@ private:
         }
 
         read_prebuilt(*manifest, package);
+        // A registry's package isn't the program's to fix, nor is a prebuilt library's code.
+        if (locked == nullptr && package.interface.empty()) {
+            package.lints = manifest->lints;
+        }
 
         // Only a program's own package builds an executable; the ones it uses are libraries.
         if (named != nullptr &&
@@ -3084,6 +3178,7 @@ std::optional<package_t> tests_package(const package_t& own) {
         .prefix = own.name + ".tests/",
         .dependencies = { own.name },
         .tests = own.name,
+        .lints = own.lints,
     };
     std::ranges::copy(own.dependencies, std::back_inserter(tests.dependencies));
     return tests;
@@ -4165,6 +4260,7 @@ std::expected<compilation_t, std::string> compile_package(
                           .cache = request != nullptr ? request->cache : nullptr,
                           .generated = std::move(generated),
                           .root_bodies = request != nullptr,
+                          .inspect = request == nullptr || request->inspect,
                       },
                       path, mode);
         record_builds(compilation, others);
@@ -4193,6 +4289,7 @@ std::expected<compilation_t, std::string> compile_package(
                       .cache = request != nullptr ? request->cache : nullptr,
                       .generated = std::move(generated),
                       .root_bodies = request != nullptr,
+                      .inspect = request == nullptr || request->inspect,
                   },
                   path, mode);
     record_builds(compilation, others);
@@ -4334,9 +4431,12 @@ compilation_t compile(std::string path, std::string text) {
 }
 
 compilation_t compile(std::string path, std::string text, std::vector<library_file_t> library,
-                      const build_mode_t mode) {
+                      const build_mode_t mode, const std::optional<lints_t>& lints) {
     // A path given twice keeps its first text.
-    file_set_t files{ .files = std::move(library) };
+    file_set_t files{
+        .files = std::move(library),
+        .lints = lints.value_or(lints_t{ .inspect = false }),
+    };
     std::ranges::stable_sort(files.files, {}, &library_file_t::path);
 
     // The main file's path in the program is its name, from its own folder.
@@ -4364,11 +4464,10 @@ std::optional<std::string> unreadable_std() {
 
 /// A .fb file outside a package, with the files it imports from its folder, and `read`'s texts
 /// in place of theirs on disk, with the std names `cache` has.
-std::expected<compilation_t, std::string> compile_loose(const std::filesystem::path& path,
-                                                        const build_mode_t mode,
-                                                        const source_reader_t& read,
-                                                        std_names_cache_t* cache = nullptr,
-                                                        const bool root_bodies = false) {
+std::expected<compilation_t, std::string>
+compile_loose(const std::filesystem::path& path, const build_mode_t mode,
+              const source_reader_t& read, std_names_cache_t* cache = nullptr,
+              const bool root_bodies = false, const bool inspect = true) {
     compilation_t compilation;
     const std::expected<file_id_t, std::string> file = load_main(compilation, path, read);
     if (!file) {
@@ -4378,7 +4477,14 @@ std::expected<compilation_t, std::string> compile_loose(const std::filesystem::p
     compilation.file = *file;
     const std::filesystem::path folder = path.has_parent_path() ? path.parent_path() : ".";
     run_front_end(compilation,
-                  { .root = folder, .read = read, .cache = cache, .root_bodies = root_bodies },
+                  {
+                      .root = folder,
+                      .read = read,
+                      .cache = cache,
+                      .root_bodies = root_bodies,
+                      .lints = lints_t{},
+                      .inspect = inspect,
+                  },
                   to_utf8(path.filename()), mode);
     return compilation;
 }
@@ -4434,6 +4540,8 @@ std::expected<compilation_t, std::string> check_files(const check_request_t& req
                           .read = request.read,
                           .cache = request.cache,
                           .root_bodies = true,
+                          .std_lints = lints_t{},
+                          .inspect = request.inspect,
                       },
                       "(std).fb", request.mode);
         return compilation;
@@ -4444,7 +4552,7 @@ std::expected<compilation_t, std::string> check_files(const check_request_t& req
                                request.build_steps);
     }
 
-    return compile_loose(first, request.mode, request.read, request.cache, true);
+    return compile_loose(first, request.mode, request.read, request.cache, true, request.inspect);
 }
 
 std::expected<compilation_t, std::string> compile_file(const std::filesystem::path& path,
@@ -4601,13 +4709,14 @@ compile_docs(const std::filesystem::path& path, const build_mode_t mode, const s
                            std::nullopt, status);
 }
 
-std::expected<compilation_t, std::string> compile_standard_docs(const build_mode_t mode) {
+std::expected<compilation_t, std::string>
+compile_standard_docs(const build_mode_t mode, const std::optional<lints_t>& lints) {
     if (const std::optional<std::string> unreadable = unreadable_std()) {
         return std::unexpected(*unreadable);
     }
 
     std::error_code error;
-    file_set_t files{ .root = std::filesystem::current_path(error) };
+    file_set_t files{ .root = std::filesystem::current_path(error), .std_lints = lints };
     files.extra = std_files(files);
     return compile_standard(compilation_t(), std::move(files), mode);
 }

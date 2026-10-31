@@ -761,7 +761,7 @@ TEST_CASE("code actions make the fix-its fb has", "[lsp]") {
     const folder_t folder({});
     const std::string uri = folder.uri("fixed.fb");
     const std::string text = "Import std.core\n"
-                             "Function Biggest<T>(a: T, b: T): T\n"
+                             "Function Biggest<T>(a: T, _b: T): T\n"
                              "    Where T: Comparable\n"
                              "    Return a\n"
                              "End Function\n"
@@ -825,6 +825,44 @@ TEST_CASE("each of a diagnostic's suggestions is a code action, the likeliest pr
     CHECK(actions[1]["isPreferred"] == false);
     CHECK(actions[1]["edit"]["changes"][uri][0]["newText"] == "Try? ");
     CHECK(actions[1]["edit"]["changes"][uri][0]["range"]["start"] == client_t::position(4, 0));
+}
+
+TEST_CASE("an inspection's warning has its lint's name, and what's unused is faded", "[lsp]") {
+    const folder_t folder({ { "project.toml", "[project]\nname = \"app\"\nversion = \"0.1.0\"\n"
+                                              "\n[lints]\nshadowed = \"error\"\n" } });
+    const std::string uri = folder.uri("main.fb");
+    const std::string text = "Import std.core\n"
+                             "Global count = 0\n"
+                             "Function F(): Int\n"
+                             "    Local count = 1\n"
+                             "    Local unused = 2\n"
+                             "    Return count\n"
+                             "End Function\n"
+                             "Print(F() + count)\n";
+    client_t client({});
+    client.open(uri, text);
+    client.settle();
+    const json_t diagnostics = client.diagnostics(uri);
+    REQUIRE(diagnostics.size() == 2);
+    // [lints] makes the hidden Global's an error.
+    CHECK(diagnostics[0]["code"] == "shadowed");
+    CHECK(diagnostics[0]["severity"] == 1);
+    CHECK(!diagnostics[0].contains("tags"));
+    CHECK(diagnostics[1]["code"] == "unused_local");
+    CHECK(diagnostics[1]["severity"] == 2);
+    CHECK(diagnostics[1]["tags"] == json_t::array({ 1 }));
+    CHECK(diagnostics[1]["range"]["start"] == client_t::position(4, 10));
+
+    const json_t actions =
+        client.request("textDocument/codeAction",
+                       {
+                           { "textDocument", { { "uri", uri } } },
+                           { "range", diagnostics[1]["range"] },
+                           { "context", { { "diagnostics", json_t::array({ diagnostics[1] }) } } },
+                       });
+    REQUIRE(actions.size() == 2);
+    CHECK(actions[0]["title"] == "Remove 'unused'");
+    CHECK(actions[1]["title"] == "Rename to '_unused'");
 }
 
 TEST_CASE("a miscased keyword's code action says what it writes", "[lsp]") {

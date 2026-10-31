@@ -822,7 +822,7 @@ Class TomlReader
                 Throw Fail(start, "a decimal number doesn't start with 0")
             End If
         Else
-            Try Digits(digits, start)
+            Try Digits(digits)
         End If
 
         Local float = False
@@ -834,7 +834,7 @@ Class TomlReader
                 Throw Fail(start, "a float's '.' has digits after it")
             End If
 
-            Try Digits(digits, start)
+            Try Digits(digits)
         End If
 
         If At < Bytes.Count && (Bytes[At] == 101 || Bytes[At] == 69)
@@ -850,7 +850,7 @@ Class TomlReader
                 Throw Fail(start, "a float's exponent has digits")
             End If
 
-            Try Digits(digits, start)
+            Try Digits(digits)
         End If
 
         If float
@@ -881,7 +881,7 @@ Class TomlReader
     End Method
 
     /// Adds the decimal digits at At to out, with a '_' only between two of them.
-    Method Digits(out: UInt8[], start: Int) Throws ParseError
+    Method Digits(out: UInt8[]) Throws ParseError
         Loop
             out.Add(Bytes[At])
             At += 1

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "fb/diagnostic.hpp"
+#include "fb/lint.hpp"
 #include "fb/semver.hpp"
 #include "fb/source.hpp"
 
@@ -119,6 +120,8 @@ struct manifest_t {
     std::vector<native_t> natives;
     /// `[format] width`: the line width `fb fmt` formats its code to.
     std::optional<std::uint32_t> format_width;
+    /// [lints]: each lint's level in its code, a warning unless it says otherwise.
+    lints_t lints;
     /// [build], its build step, if it has one.
     std::optional<build_step_t> build;
     /// What a registry shows of it, which `fb publish` needs some of: a line about it, its

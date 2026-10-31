@@ -3,7 +3,6 @@
 //! Process.OnInterrupt and Process.OnTerminate: handlers for the signals every OS has, which the
 //! program then gets instead of ending at once, until its code is done.
 
-Import std.core
 Import std.os.process
 
 Extern "runtime"

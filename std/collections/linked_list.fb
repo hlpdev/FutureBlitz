@@ -8,7 +8,6 @@
 //! the others.
 
 Import std.core
-Import std.collections.array
 
 /// One value of a LinkedList, with the ones before and after it, which inserting and removing next
 /// to it go through.

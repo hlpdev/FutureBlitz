@@ -23,6 +23,12 @@ CodeLLDB. The design is in [docs/tooling.md](https://github.com/hlpdev/FutureBli
   `.not`, `.try`, and `.local` write it into what they say, and in a Class's body, the Methods
   it can override or implement are written out. VS Code's own word suggestions are off for .fb
   files, so the language server's are what's shown.
+- **Fixes and inspections**: an error's likely fixes are quick fixes (the Import a name needs, a
+  name spelled nearly so, Try for a call that throws, what nothing declares written out, a
+  missing End or Return, and more), and the inspections' warnings come with theirs: what nothing
+  uses or reaches is faded, with a fix that removes it, and a name that hides another, an As that
+  changes nothing, and a condition that's always True or False are reported. A warning's code is
+  its lint, which project.toml's `[lints]` turns off or makes an error.
 - **Reading code**: inlay hints show the types of Locals, For variables, and lambda parameters
   where none is written, and the parameters' names at a call's arguments (each a setting). A
   name's other uses in its file are highlighted, reads and writes apart; blocks, each If branch,

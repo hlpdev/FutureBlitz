@@ -198,7 +198,6 @@ std::string module_text(const shape_t& shape, const std::size_t layer, const std
     std::ostringstream out;
     out << std::format("//! The generated program's module {}, which fb-lsp's benchmark edits.\n\n",
                        own);
-    out << "Import std.core\nImport std.collections\n";
     for (const std::size_t module : below) {
         out << std::format("Import bench.l{}.m{}\n", layer - 1, module);
     }

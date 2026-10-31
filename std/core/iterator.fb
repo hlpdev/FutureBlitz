@@ -678,8 +678,6 @@ Final Class Flattened<S, T, U> Implements Iterator<U>
             If outer == Null Then Return Null
             Current = outer.Iterate()
         End While
-
-        Return Null
     End Method
 End Class
 

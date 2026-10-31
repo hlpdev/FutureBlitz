@@ -1,10 +1,12 @@
 #pragma once
 
+#include "fb/lint.hpp"
 #include "fb/source.hpp"
 
 #include <cstddef>
 #include <cstdint>
 #include <format>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -41,8 +43,11 @@ struct suggestion_t {
 /// One error, warning, or note for the user.
 struct diagnostic_t {
     severity_t severity = severity_t::ERROR;
-    /// An optional code like "E0102", shown as "error[E0102]". Empty for none.
+    /// An optional code like "E0102", shown as "error[E0102]", or a lint's name. Empty for
+    /// none.
     std::string code;
+    /// The lint a warning is about, which [lints] can turn off or make an error.
+    std::optional<lint_t> lint;
     std::string message;
     /// Where the problem is.
     span_t span;
@@ -91,6 +96,19 @@ public:
     diagnostic_t& warning(const span_t span, std::format_string<Args...> fmt, Args&&... args) {
         return report({
             .severity = severity_t::WARNING,
+            .message = std::format(fmt, std::forward<Args>(args)...),
+            .span = span,
+        });
+    }
+
+    /// Reports a warning about `lint`, named by it, as "warning[unused_local]".
+    template <typename... Args>
+    diagnostic_t& lint(const lint_t about, const span_t span, std::format_string<Args...> fmt,
+                       Args&&... args) {
+        return report({
+            .severity = severity_t::WARNING,
+            .code = std::string(lint_info(about).name),
+            .lint = about,
             .message = std::format(fmt, std::forward<Args>(args)...),
             .span = span,
         });

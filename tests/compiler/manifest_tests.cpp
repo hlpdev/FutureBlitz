@@ -566,6 +566,32 @@ TEST_CASE("[format] gives fb fmt's line width", "[manifest]") {
           diagnostics_t{ "error: format: 'format' is a table, [format], with the line width" });
 }
 
+TEST_CASE("[lints] gives each lint it names its level", "[manifest]") {
+    constexpr std::string_view project = "[project]\nname = \"game\"\nversion = \"0.1.0\"\n";
+    CHECK(read(project).manifest.value_or(fb::manifest_t{}).lints == fb::lints_t{});
+    const read_t set = read(std::format(
+        "{}[lints]\nunused_local = \"off\"\nshadowed = \"error\"\ndeprecated = \"warning\"\n",
+        project));
+    CHECK(set.diagnostics.empty());
+    const fb::lints_t lints = set.manifest.value_or(fb::manifest_t{}).lints;
+    CHECK(lints.level(fb::lint_t::UNUSED_LOCAL) == fb::lint_level_t::OFF);
+    CHECK(lints.level(fb::lint_t::SHADOWED) == fb::lint_level_t::ERROR);
+    CHECK(lints.level(fb::lint_t::DEPRECATED) == fb::lint_level_t::WARNING);
+    CHECK(lints.level(fb::lint_t::UNREACHABLE) == fb::lint_level_t::WARNING);
+    CHECK(lints.inspect);
+
+    const read_t bad = read(std::format("{}[lints]\nunused_local = \"deny\"\n", project));
+    CHECK_FALSE(bad.manifest);
+    CHECK(bad.diagnostics ==
+          diagnostics_t{ "error: \"deny\": [lints]'s unused_local is \"off\", \"warning\", or "
+                         "\"error\"" });
+    CHECK(read(std::format("{}[lints]\nunused = \"off\"\n", project)).diagnostics ==
+          diagnostics_t{ "warning: unused: there's no lint 'unused'" });
+    CHECK(read(std::format("lints = 5\n{}", project)).diagnostics ==
+          diagnostics_t{ "error: lints: 'lints' is a table, [lints], with a level for each lint it "
+                         "names, like unused_local = \"off\"" });
+}
+
 TEST_CASE("text in a project.toml that isn't UTF-8 is reported at its first bad byte",
           "[manifest]") {
     CHECK(read("[project]\nname = \"ab\xff\xfe\"\n").diagnostics ==

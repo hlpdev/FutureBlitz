@@ -5,7 +5,6 @@
 //! from their own private keys and each other's public ones. Keys are bytes, as each one's Methods
 //! say; Key reads and writes them as PEM. A key or signature that isn't one verifies nothing.
 
-Import std.core
 Import std.crypto.random
 
 Extern "runtime"

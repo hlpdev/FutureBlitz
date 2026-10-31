@@ -3,7 +3,6 @@
 //! CommonMark, with tables, task lists, strikethrough, and autolinks as asked, over md4c: Markdown
 //! as HTML, and as a tree of its blocks, spans, and text to walk.
 
-Import std.core
 Import std.collections
 
 Extern "runtime"

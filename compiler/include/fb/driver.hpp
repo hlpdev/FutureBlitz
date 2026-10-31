@@ -195,10 +195,13 @@ resolve_import(std::string_view target, bool quoted, std::string_view importer);
 [[nodiscard]] compilation_t compile(std::string path, std::string text);
 
 /// Like compile(), but its imports find their files among `library`, in place of the standard
-/// library and the disk, for a build of `mode`, which #If can test.
+/// library and the disk, for a build of `mode`, which #If can test. The program's own files
+/// have `lints`, or without them, a warning for each lint, but for the inspections, which don't
+/// look.
 [[nodiscard]] compilation_t compile(std::string path, std::string text,
                                     std::vector<library_file_t> library,
-                                    build_mode_t mode = build_mode_t::DEBUG);
+                                    build_mode_t mode = build_mode_t::DEBUG,
+                                    const std::optional<lints_t>& lints = std::nullopt);
 
 /// Which of a compilation's packages' build steps run before it, each after the steps of the
 /// packages it depends on.
@@ -298,6 +301,9 @@ struct check_request_t {
     /// The workspace's packages' folders, whose builds made the files of a registry's package's
     /// build step, which a check while code is typed takes, as it never runs one.
     std::vector<std::filesystem::path> workspace;
+    /// Whether the inspections look: for the checks whose diagnostics are published, but not
+    /// for references' and renames', which only need what's declared and used.
+    bool inspect = true;
 };
 
 /// For the LSP, which checks only the files an edit touches: `request`'s files, each a module of
@@ -318,10 +324,12 @@ compile_standard_tests(build_mode_t mode = build_mode_t::DEBUG);
 compile_docs(const std::filesystem::path& path, build_mode_t mode = build_mode_t::DEBUG,
              const status_t& status = {});
 
-/// For `fb doc std`: every module of the standard library, with an empty main file. Fails when
-/// the standard library can't be read.
+/// For `fb doc std`: every module of the standard library, with an empty main file. Its code
+/// has `lints`, as a package's own does, when it's given them, for a check of std itself. Fails
+/// when the standard library can't be read.
 [[nodiscard]] std::expected<compilation_t, std::string>
-compile_standard_docs(build_mode_t mode = build_mode_t::DEBUG);
+compile_standard_docs(build_mode_t mode = build_mode_t::DEBUG,
+                      const std::optional<lints_t>& lints = std::nullopt);
 
 /// The tests fb test runs from a compilation: the @Test Functions of its main file's package and
 /// that package's tests/ folder, in source order, each named by its module, like

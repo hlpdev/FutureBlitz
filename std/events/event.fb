@@ -6,7 +6,6 @@
 //! goes once the owner does. An Event and its Subscriptions stay on the thread that made them, as a
 //! Class's objects do.
 
-Import std.core
 Import std.collections.array
 
 /// What a Subscription cancels: a handler's place on its Event.

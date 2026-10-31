@@ -6,7 +6,6 @@
 //! 1 in 2^33 after 2^32 messages under one key, which is as many as a key should seal. Open gives
 //! Null for anything Seal didn't make with that key and associated data.
 
-Import std.core
 Import std.crypto.random
 
 Extern "runtime"

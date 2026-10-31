@@ -162,6 +162,22 @@ Method to override, or the Class made Abstract (`member_stub`, `suggest_implemen
 (`added_end`, `changed_end`). `@MainThread` has no error it fixes, and `fb add`'s fix is in Deferred
 work. Tests: tests/compiler/fixes_tests.cpp, each fix made and its program compiled.
 
+Step 6, inspections (2026-10-31, on dev/m11): `lint_t`, `lint_level_t`, `lints_t`, `lints()`,
+`lint_info`, and `lint_named` (fb/lint.hpp, lint.cpp); `diagnostic_t::lint` and
+`diagnostic_bag_t::lint`, which name a warning by its lint's `code`; `[lints]` in project.toml
+(`read_lints`, `manifest_t::lints`); each module's `lints`, from its package's (`package_t::lints`,
+`file_set_t::lints` and `std_lints`, `lints_of`), and `apply_lints` after sema; `compile()`'s and
+`compile_standard_docs()`'s `lints`. Sema's warnings have their lints, the Null and Try ones
+fixes, and the inspections: `check_unused` with `usage_t`, `uses_of`, `check_unused_local`,
+`pure`, `check_unused_parameters`, `stub`, `check_unused_private`, `type_used`, and
+`check_unused_imports`, `m_reflected_types`, `m_extends_interfaces`, and `m_importers`;
+`report_unreachable`, `removal`, and `declaration_removal`; `report_shadowing` and `self_member`;
+`typed_alone`; `report_constant_condition`, `literals_only`, `check_integer_bounds`, and
+`whole_t`; `directive_lines`. fb-lsp's diagnostics have tags. fb_compiler builds with
+`-Wa,-mbig-obj` on MinGW, as sema.cpp's object passed COFF's 32767 sections. std's 77 warnings
+fixed. Tests: tests/compiler/inspect_tests.cpp, and in manifest_tests, driver_tests, and
+feature_tests.
+
 A string's escapes in their own color (2026-10-31, the user): fb-lsp's semantic tokens gave each
 string literal one `string` token, which VS Code colors over the grammar's
 `constant.character.escape`, so `\n` looked like the rest of the string. `string_pieces()` in

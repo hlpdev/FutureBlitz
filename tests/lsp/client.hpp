@@ -113,6 +113,9 @@ public:
     /// The diagnostics published last for a file, which some must have been.
     [[nodiscard]] json_t diagnostics(const std::string& uri) const;
 
+    /// The errors among them, for code that only has to compile.
+    [[nodiscard]] json_t errors(const std::string& uri) const;
+
     /// Waits for the diagnostics published for the document's text as the client has it, and
     /// gives them.
     json_t published(const std::string& uri,

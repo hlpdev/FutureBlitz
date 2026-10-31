@@ -33,16 +33,16 @@ namespace {
 std::vector<std::pair<std::string, std::string>> layers() {
     return {
         { "project.toml", "[project]\nname = \"layers\"\nversion = \"0.1.0\"\n" },
-        { "base.fb", "Import std.core\nPublic Function Base(): Int => 1\n" },
+        { "base.fb", "// A module.\nPublic Function Base(): Int => 1\n" },
         {
             "middle.fb",
-            "Import std.core\nImport \"./base\"\nPublic Function Middle(): Int => Base() + 1\n",
+            "// A module.\nImport \"./base\"\nPublic Function Middle(): Int => Base() + 1\n",
         },
         {
             "top.fb",
-            "Import std.core\nImport \"./middle\"\nPublic Function Top(): Int => Middle() + 1\n",
+            "// A module.\nImport \"./middle\"\nPublic Function Top(): Int => Middle() + 1\n",
         },
-        { "alone.fb", "Import std.core\nPublic Function Alone(): Int => 5\n" },
+        { "alone.fb", "// A module.\nPublic Function Alone(): Int => 5\n" },
     };
 }
 
@@ -88,7 +88,7 @@ std::vector<std::string> messages_of(const json_t& diagnostics) {
 TEST_CASE("the workspace's packages are checked whole once, with every file's diagnostics",
           "[lsp]") {
     std::vector<std::pair<std::string, std::string>> files = layers();
-    files.emplace_back("broken.fb", "Import std.core\nPublic Function Broken(): Int => \"no\"\n");
+    files.emplace_back("broken.fb", "// A module.\nPublic Function Broken(): Int => \"no\"\n");
     const folder_t folder(files);
     client_t client({ .folders = { folder.root() } });
     client.settle();
@@ -114,8 +114,8 @@ TEST_CASE("an edit checks its file, and then only the files that import it", "[l
     // Nothing imports alone.fb, so its edit checks it alone, with what it imports.
     std::size_t before = checks(client);
     const std::string alone = folder.uri("alone.fb");
-    client.open(alone, "Import std.core\nPublic Function Alone(): Int => 5\n");
-    client.change(alone, "Import std.core\nPublic Function Alone(): Int => 6\n");
+    client.open(alone, "// A module.\nPublic Function Alone(): Int => 5\n");
+    client.change(alone, "// A module.\nPublic Function Alone(): Int => 6\n");
     client.settle();
     for (const std::set<std::string>& roots : roots_since(client, before)) {
         CHECK(roots == std::set<std::string>{ "alone.fb" });
@@ -126,10 +126,10 @@ TEST_CASE("an edit checks its file, and then only the files that import it", "[l
 
     // middle.fb and top.fb import base.fb, one through the other, but alone.fb doesn't.
     const std::string base = folder.uri("base.fb");
-    client.open(base, "Import std.core\nPublic Function Base(): Int => 1\n");
+    client.open(base, "// A module.\nPublic Function Base(): Int => 1\n");
     client.settle();
     before = checks(client);
-    client.change(base, "Import std.core\nPublic Function Base(): Int => 2\n");
+    client.change(base, "// A module.\nPublic Function Base(): Int => 2\n");
     client.settle();
     CHECK(roots_since(client, before) ==
           std::vector<std::set<std::string>>{ { "base.fb" }, { "middle.fb", "top.fb" } });
@@ -137,7 +137,7 @@ TEST_CASE("an edit checks its file, and then only the files that import it", "[l
     // top.fb has nothing that imports it.
     before = checks(client);
     const std::string top = folder.uri("top.fb");
-    client.open(top, "Import std.core\nImport \"./middle\"\nPublic Function Top(): Int => 3\n");
+    client.open(top, "// A module.\nImport \"./middle\"\nPublic Function Top(): Int => 3\n");
     client.settle();
     CHECK(roots_since(client, before) == std::vector<std::set<std::string>>{ { "top.fb" } });
 }
@@ -148,11 +148,11 @@ TEST_CASE("breaking a module shows in the modules that import it, and fixing it 
     client_t client({ .folders = { folder.root() } });
     const std::string base = folder.uri("base.fb");
     const std::string middle = folder.uri("middle.fb");
-    client.open(base, "Import std.core\nPublic Function Base(): Int => 1\n");
+    client.open(base, "// A module.\nPublic Function Base(): Int => 1\n");
     client.settle();
 
     // middle.fb isn't open, but it's checked again, as it imports base.fb.
-    client.change(base, "Import std.core\nPublic Function Bottom(): Int => 1\n");
+    client.change(base, "// A module.\nPublic Function Bottom(): Int => 1\n");
     client.settle();
     json_t diagnostics = client.diagnostics(middle);
     REQUIRE(diagnostics.size() == 1);
@@ -161,13 +161,13 @@ TEST_CASE("breaking a module shows in the modules that import it, and fixing it 
     // top.fb uses Middle, which is still there.
     CHECK(client.diagnostics(folder.uri("top.fb")).empty());
 
-    client.change(base, "Import std.core\nPublic Function Base(): Int => 1\n");
+    client.change(base, "// A module.\nPublic Function Base(): Int => 1\n");
     client.settle();
     diagnostics = client.diagnostics(middle);
     CHECK(diagnostics.empty());
 
     // Closing a document without saving it checks its text on disk again.
-    client.change(base, "Import std.core\nPublic Function Bottom(): Int => 1\n");
+    client.change(base, "// A module.\nPublic Function Bottom(): Int => 1\n");
     client.settle();
     CHECK(client.diagnostics(middle).size() == 1);
     client.close(base);
@@ -184,7 +184,7 @@ TEST_CASE("files that change on disk are checked again, with what imports them",
     client.settle();
     const std::string middle = folder.uri("middle.fb");
 
-    folder.write("base.fb", "Import std.core\nPublic Function Bottom(): Int => 1\n");
+    folder.write("base.fb", "// A module.\nPublic Function Bottom(): Int => 1\n");
     client.notify(
         "workspace/didChangeWatchedFiles",
         { { "changes", json_t::array({ { { "uri", folder.uri("base.fb") }, { "type", 2 } } }) } });
@@ -192,7 +192,7 @@ TEST_CASE("files that change on disk are checked again, with what imports them",
     CHECK(client.diagnostics(middle).size() == 1);
 
     // A file made, and one deleted.
-    folder.write("extra.fb", "Import std.core\nPublic Function Extra(): Int => \"no\"\n");
+    folder.write("extra.fb", "// A module.\nPublic Function Extra(): Int => \"no\"\n");
     std::filesystem::remove(folder.path("base.fb"));
     client.notify("workspace/didChangeWatchedFiles",
                   {
@@ -243,21 +243,20 @@ TEST_CASE("after edits, each file's diagnostics are those a check from nothing g
     };
 
     // A body, a declaration that what imports it sees, and an Import.
-    edit("base.fb",
-         "Import std.core\nPublic Function Base(): Int\n    Return \"no\"\nEnd Function\n");
+    edit("base.fb", "// A module.\nPublic Function Base(): Int\n    Return \"no\"\nEnd Function\n");
     same_as_new();
-    edit("base.fb", "Import std.core\nPublic Function Base(): String => \"1\"\n");
+    edit("base.fb", "// A module.\nPublic Function Base(): String => \"1\"\n");
     same_as_new();
     REQUIRE(!client.diagnostics(folder.uri("middle.fb")).empty());
-    edit("top.fb", "Import std.core\nPublic Function Top(): Int => Middle() + 1\n");
+    edit("top.fb", "// A module.\nPublic Function Top(): Int => Middle() + 1\n");
     same_as_new();
     REQUIRE(!client.diagnostics(folder.uri("top.fb")).empty());
 }
 
 TEST_CASE("a folder deleted on disk takes its files, and what imports them sees it", "[lsp]") {
     std::vector<std::pair<std::string, std::string>> files = layers();
-    files.emplace_back("parts/wheel.fb", "Import std.core\nPublic Function Wheel(): Int => 4\n");
-    files.emplace_back("car.fb", "Import std.core\nImport \"./parts/wheel\"\n"
+    files.emplace_back("parts/wheel.fb", "// A module.\nPublic Function Wheel(): Int => 4\n");
+    files.emplace_back("car.fb", "// A module.\nImport \"./parts/wheel\"\n"
                                  "Public Function Car(): Int => Wheel()\n");
     const folder_t folder(files);
     client_t client({ .folders = { folder.root() }, .watches = true });
@@ -290,7 +289,7 @@ TEST_CASE("the checks share what they know of the disk only while the client wat
 
     // A file made without a word from the client: a check that asks the disk itself finds it,
     // and one that shares what the checks before it found doesn't, until the client says.
-    folder.write("extra.fb", "Import std.core\nPublic Function Extra(): Int => 1\n");
+    folder.write("extra.fb", "// A module.\nPublic Function Extra(): Int => 1\n");
     client.change(main, "Import std.core\nImport \"./extra\"\nPrint(Extra())\n\n");
     client.settle();
     CHECK(client.diagnostics(main).empty() == !watches);
@@ -306,7 +305,7 @@ TEST_CASE("the checks share what they know of the disk only while the client wat
 TEST_CASE("a package that depends on another is checked again when the other changes", "[lsp]") {
     const folder_t folder({
         { "lib/project.toml", "[project]\nname = \"lib\"\nversion = \"0.1.0\"\n" },
-        { "lib/shapes.fb", "Import std.core\nPublic Function Area(): Int => 4\n" },
+        { "lib/shapes.fb", "// A module.\nPublic Function Area(): Int => 4\n" },
         {
             "app/project.toml",
             "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n"
@@ -317,16 +316,16 @@ TEST_CASE("a package that depends on another is checked again when the other cha
     client_t client({ .folders = { folder.root() } });
     const std::string shapes = folder.uri("lib/shapes.fb");
     const std::string main = folder.uri("app/main.fb");
-    client.open(shapes, "Import std.core\nPublic Function Area(): Int => 4\n");
+    client.open(shapes, "// A module.\nPublic Function Area(): Int => 4\n");
     client.settle();
     CHECK(client.diagnostics(main).empty());
 
-    client.change(shapes, "Import std.core\nPublic Function Size(): Int => 4\n");
+    client.change(shapes, "// A module.\nPublic Function Size(): Int => 4\n");
     client.settle();
     REQUIRE(client.diagnostics(main).size() == 1);
 
     // Its definition is in the other package's file.
-    client.change(shapes, "Import std.core\nPublic Function Area(): Int => 4\n");
+    client.change(shapes, "// A module.\nPublic Function Area(): Int => 4\n");
     client.open(main, "Import std.core\nImport lib.shapes\nPrint(Area())\n");
     const json_t area = client.request("textDocument/definition", client.at(main, "Area"));
     CHECK(fb::lsp::test::place_of(area) ==
@@ -342,7 +341,7 @@ TEST_CASE("a package's main file, another main file, and its tests' files are ch
         { "project.toml", "[project]\nname = \"tool\"\nversion = \"0.1.0\"\n" },
         { "main.fb", "Import std.core\nImport \"./shared\"\nLocal n: Int = Common()\nPrint(n)\n" },
         { "other.fb", "Import std.core\nLocal s: String = 5\nPrint(s)\n" },
-        { "shared.fb", "Import std.core\nPublic Function Common(): Int => 2\n" },
+        { "shared.fb", "// A module.\nPublic Function Common(): Int => 2\n" },
         {
             "tests/shared_tests.fb",
             "Import std.test\nImport tool.shared\n"
@@ -624,7 +623,7 @@ TEST_CASE("the client is asked to watch every file, and trusted to once it says 
           std::vector<json_t>{ json_t::array({ { { "globPattern", "**/*" } } }) });
 
     // Until the client takes the registration, the checks don't share what they know.
-    folder.write("extra.fb", "Import std.core\nPublic Function Extra(): Int => 1\n");
+    folder.write("extra.fb", "// A module.\nPublic Function Extra(): Int => 1\n");
     client.change(main, text + "\n");
     client.settle();
     CHECK(client.diagnostics(main).empty() == !answers);
@@ -675,7 +674,7 @@ TEST_CASE("a folder of modules moved in is read once the client says it was made
     REQUIRE(!client.diagnostics(main).empty());
 
     // The client says the folder was made, not each file in it.
-    folder.write("parts/wheel.fb", "Import std.core\nPublic Function Wheel(): Int => 4\n");
+    folder.write("parts/wheel.fb", "// A module.\nPublic Function Wheel(): Int => 4\n");
     saw(client, folder.uri("parts"), 1);
     client.change(main, text + "\n");
     client.settle();
@@ -689,7 +688,7 @@ TEST_CASE("a package outside the client's folders is watched with a folder of it
     const bool relative = GENERATE(false, true);
     const folder_t folder({
         { "lib/project.toml", "[project]\nname = \"lib\"\nversion = \"0.1.0\"\n" },
-        { "lib/shapes.fb", "Import std.core\nPublic Function Area(): Int => 4\n" },
+        { "lib/shapes.fb", "// A module.\nPublic Function Area(): Int => 4\n" },
         {
             "app/project.toml",
             "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n"
@@ -716,7 +715,7 @@ TEST_CASE("a package outside the client's folders is watched with a folder of it
                    fb::lsp::path_of(folder.uri("lib"));
     });
     CHECK(lib_watched == relative);
-    folder.write("lib/shapes.fb", "Import std.core\nPublic Function Size(): Int => 4\n");
+    folder.write("lib/shapes.fb", "// A module.\nPublic Function Size(): Int => 4\n");
     if (relative) {
         saw(client, folder.uri("lib/shapes.fb"), 2);
     }

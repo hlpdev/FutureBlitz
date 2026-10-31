@@ -3,7 +3,6 @@
 //! `Set<T>`: values without repeats, in the order they were added, which a Map holds as its keys.
 
 Import std.core
-Import std.collections.array
 Import std.collections.map
 
 /// A hash set: values, each held once, in the order they were added.

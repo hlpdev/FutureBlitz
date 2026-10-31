@@ -667,7 +667,7 @@ a half times it:
 | 3 | **Completion that knows** (done 2026-10-31). Names from every module the file can import (its package's, std's, its dependencies'), not only those it imports, with the Import added when one is chosen; ranked by the type expected where the cursor is, then by scope and use; an Enum's members where an Enum is expected; named arguments; the members a Class can override and an Interface's to implement, written out with their signatures; keywords only where they can go; postfix completions (`.if`, `.ifnull`, `.for`, `.not`, `.try`, `.local`); completion on a word as it's typed, not only after `.` | each kind has a test of what's offered and in what order, and choosing an unimported name adds its Import |
 | 4 | **The editor's basics** (done 2026-10-31). Inlay hints (a Local's inferred type, parameter names at calls, each a setting); highlighting a symbol's other uses; folding by blocks, comments, and Import groups; expanding a selection by syntax; go to type definition and to implementations; call and type hierarchies; code lenses for references; run and debug for each `@Test` and main file in VS Code's Testing panel and the gutter | each request has tests, and the extension's Testing panel runs and debugs a package's tests |
 | 5 | **Quick fixes** (done 2026-10-31, but for `fb add`'s, in Deferred work). Every error that has a likely fix offers it, from the compiler: import the module that declares an unknown name (and `fb add` the registry package that has it, when one does); "did you mean" for a misspelled name; add `Try`, `Try?`, or a Throws; create the Function, Method, Field, Property, Local, or Enum member a use names, with its types from the use; implement an Interface's members or an Abstract Class's; add a missing `End`; a conversion with `As`; a Null check or `?` for nullability; make a declaration Public or Package for a use that can't see it; add `@MainThread`; wrap in `Unsafe`; add a missing Return; fix a keyword's case | each fix has a test that applies it and checks the file compiles |
-| 6 | **Inspections.** Warnings, with fixes, from the compiler: unused Locals, parameters, Imports, and Private members; unreachable code; a name that shadows another; a redundant `As` or `?`; a condition that's always True or False. `fb check` and `fb build` show them; project.toml's `[lints]` turns each off or makes it an error | each inspection has tests of when it warns and when it doesn't, and std builds with none |
+| 6 | **Inspections** (done 2026-10-31). Warnings, with fixes, from the compiler: unused Locals, parameters, Imports, and Private members; unreachable code; a name that shadows another; a redundant `As` or `?`; a condition that's always True or False. `fb check` and `fb build` show them; project.toml's `[lints]` turns each off or makes it an error | each inspection has tests of when it warns and when it doesn't, and std builds with none |
 | 7 | **Refactorings.** Extract a Local, a Function, or a Method from a selection (with its parameters and its result worked out); inline a Local or a Function; change a signature (add, remove, rename, and reorder parameters, updating every call); organize Imports (sorted, unused ones removed), on save if asked | each refactoring has tests over std-sized code that check the result compiles and behaves the same |
 | 8 | **project.toml.** fb-lsp serves project.toml too: completion and hover for its keys and values from what fb reads, the errors fb gives for it as you type, package names completed from the registry's search, versions from its index, hover with a package's description and newest version, quick fixes to update a dependency or add what `fb publish` needs; offline, from the cache | completing a dependency's name and version against a test registry works, and every project.toml error fb has shows in the editor |
 | 9 | **AI that knows FutureBlitz.** `fb mcp`, an MCP server over stdio, gives any assistant tools to search the spec and std's reference (fb doc's JSON), look up the project's symbols, check a file or a snippet and read its errors, and format code; the VS Code extension offers it to Copilot through VS Code's MCP and language-model tool APIs, so agent mode uses it without setup; `fb new` writes an AGENTS.md with a short primer on the language and `fb mcp`, which Copilot, Claude Code, and Cursor read | an assistant given only `fb mcp` writes a program that compiles from a one-line request, in a test with a scripted client |
@@ -945,6 +945,60 @@ declare.
 
 Each fix has a test that makes it and checks the program then compiles (tests/compiler/
 fixes_tests.cpp), and fb-lsp's code actions their own.
+
+**Step 6, inspections** (2026-10-31): every warning sema gives has a lint now (`lint_t`, in
+fb/lint.hpp), whose name `diagnostic_t::code` is, as `fb check` shows it, `warning[unused_local]`,
+and which project.toml's `[lints]` turns off or makes an error for the package's own code (the
+spec's [packages](spec/11-modules.md#packages) lists them). Each module has its package's
+`lints_t`, or none for std's code, a registry's package's, a prebuilt library's, and generated
+files', and the driver gives each warning its level after sema (`apply_lints`), leaving an
+inspection's out of a file with errors and giving what code checked more than once found once.
+The inspections, which `lints_t::inspect` says look, are on for every check of files on disk and
+fb-lsp's, and off for `compile()` in memory, as the compiler's unit tests have it, unless it's
+given lints. What they find:
+
+- **unused_local**: a Local, a name a tuple is taken apart into, or a Const in a function, that
+  nothing reads, "never used", or that's only set by `=`, "set, but never read". Remove it, for
+  one whose value is only literals and names, which leaving out changes nothing; rename it with a
+  `_`, as std's Locals that hold an old value until their method returns are; or `_` for a
+  tuple's name.
+- **unused_parameter**: rename it with a `_`, and the calls that name it too.
+- **unused_import**: no use in the file of what the Import's modules declare, or of its
+  qualifier, the Import's and From lines' own names left out. Remove the line, or a From
+  line's name. An Import is kept when the module it's the only one of has an Extend that gives
+  another module's type an Interface, which code uses without naming anything, and which without
+  it isn't loaded; and std.test's is, for its built-ins.
+- **unused_private**: a Private Function, Method, Property, Global, Const, type, or Alias that
+  nothing in its file uses but its own code, a member of an unused type left to the type's
+  warning. Remove it, with its doc comment and attributes.
+- **unreachable**: from the first statement nothing reaches, as sema's flow has it, to its
+  block's end. Remove it.
+- **shadowed**: a Local or parameter with the name of a Global, Const, Function, or type its
+  module declares or imports, or a Local with a Field's or Property's of Self.
+- **redundant_as**: an As of a variable, Self, a member, an index, or a call of a function that
+  isn't generic, whose type is the As's; a literal, Null, a lambda, an array, a New, or a
+  generic call takes its type from the As. Remove the As.
+- **constant_condition**, new: a condition of literals alone, as `1 > 2`, but True or False alone
+  and a Const, and an integer compared with a literal past what its type holds, as `u < 0` for a
+  UInt32.
+- **redundant_null** and **redundant_try** have fixes now: `?.` made `.`, `??` and what's after
+  it left out, and a Try left out.
+
+The unused checks are one pass over the analysis's uses once the code is checked, about 2 ms
+for an edit's check of one file on a Debug build and under a millisecond a file for a whole
+package's; references' and renames' checks, which aren't published, leave them out
+(`check_request_t::inspect`).
+
+fb-lsp sends each lint's name as its diagnostic's `code`, the unused ones and unreachable code
+tagged Unnecessary, which editors fade, and what's deprecated tagged Deprecated. The rules for
+what isn't reported, which keep what code needs from looking unused, are the spec's.
+
+std builds with none: its 77 were fixed, most an Import of std.core where nothing uses it, the
+Locals that hold an old value until their method returns renamed with a `_`, unused parameters
+taken out, a Return after an endless loop, redundant As's, and bits.fb's unsigned comparisons
+with 0. Each inspection has tests of when it warns and when it doesn't, and of its fixes
+(tests/compiler/inspect_tests.cpp), with std's, `[lints]`'s (manifest_tests.cpp,
+driver_tests.cpp), and fb-lsp's (feature_tests.cpp).
 
 ## Not in M8
 

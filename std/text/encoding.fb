@@ -17,7 +17,6 @@
 //! Expect(Escape("tab\there") == "tab\\there" && Unescape("tab\\there") == "tab\there")
 //! ```
 
-Import std.core
 Import std.collections
 Import std.text.builder
 Import std.text.char

@@ -2,8 +2,6 @@
 //!
 //! Process, the program's own: its Id, and Exit, which ends it with a code for what started it.
 
-Import std.core
-
 Extern "runtime"
     Function fb_exit(code: Int32)
     Function fb_process_id(): Int64

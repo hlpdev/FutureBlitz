@@ -236,7 +236,7 @@ End Function
 /// for a number, a String, an array, or an HttpRequest, whatever the Object has.
 Function FromObject<A>(): Bool
     Try
-        Local made = Load<A>(Value.Object())
+        Local _made = Load<A>(Value.Object())
     Catch e As ParseError
         Return e.Kind != ParseErrorKind.WRONG_TYPE
     End Try

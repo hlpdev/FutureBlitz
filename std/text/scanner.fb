@@ -4,7 +4,6 @@
 //! parser, and keeps the Line and Column of what it reads next, where an error can point. A line
 //! ends at "\n", and a column counts characters, code points, from 1.
 
-Import std.core
 Import std.text.char
 Import std.text.string
 

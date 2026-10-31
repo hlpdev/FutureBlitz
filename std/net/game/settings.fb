@@ -1,6 +1,5 @@
 //! The settings a GameHost and its peers share, and why a connection ends.
 
-Import std.core
 Import std.time.duration
 Import std.net.game.channel
 

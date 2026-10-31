@@ -1190,11 +1190,14 @@ TEST_CASE("an example sees its package's Package names, as the package's files d
         });
     const std::expected<fb::compilation_t, std::string> compiled = fb::compile_tests(folder);
     REQUIRE(compiled);
-    // A Private one's example is outside its file, so it can't call it.
+    // A Private one's example is outside its file, so it can't call it, and nothing in its file
+    // does.
     const std::vector<std::string> lines = lines_of(*compiled, compiled->diagnostics);
-    REQUIRE(lines.size() == 1);
-    CHECK(lines.front().starts_with("15: 'Three' is private to "));
-    CHECK(lines.front().ends_with("math.fb"));
+    REQUIRE(lines.size() == 2);
+    CHECK(std::ranges::count_if(lines, [](const std::string& line) {
+              return line.starts_with("15: 'Three' is private to ") && line.ends_with("math.fb");
+          }) == 1);
+    CHECK(std::ranges::contains(lines, "17: the Function 'Three' is never used"));
 }
 
 TEST_CASE("fb test runs a module's examples, ones that throw and declare, and overloads' apart",

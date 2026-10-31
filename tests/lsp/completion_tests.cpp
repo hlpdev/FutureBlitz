@@ -377,7 +377,7 @@ TEST_CASE("a generic Class's and Interface's Methods are written with the type a
                         "\n\n    Method Put(x: String)\n    End Method\n"
                         "End Class\n");
     fresh.settle();
-    CHECK(fresh.diagnostics(uri).empty());
+    CHECK(fresh.errors(uri).empty());
 }
 
 TEST_CASE("after '@', completion offers only attributes", "[lsp]") {

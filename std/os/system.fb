@@ -3,8 +3,6 @@
 //! System, what the program knows of the machine it runs on: the platform and architecture it was
 //! built for, how many threads can run at once, the memory, and the machine's and user's names.
 
-Import std.core
-
 Extern "runtime"
     Function fb_os_platform(): Int32
     Function fb_os_arch(): Int32

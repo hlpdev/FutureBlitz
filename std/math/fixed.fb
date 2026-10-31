@@ -67,9 +67,6 @@ Function MultiplyWide(a: UInt64, b: UInt64): Wide
                 (middle << 32) | (lowLow & 0xFFFFFFFF))
 End Function
 
-/// The Int64 as a Wide.
-Function WideOf(value: Int64): Wide => Wide(value < 0 ? 0xFFFFFFFFFFFFFFFF : 0, value As UInt64)
-
 Function Negate(w: Wide): Wide
     Local low = (~w.Low).WrappingAdd(1)
     Return Wide((~w.High).WrappingAdd(low == 0 ? 1 : 0), low)

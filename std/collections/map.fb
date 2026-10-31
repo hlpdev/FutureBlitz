@@ -66,7 +66,7 @@ Public Class Map<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, Default
         Local found = IndexOf(key, hash)
         If found >= 0
             // The old value goes as this returns.
-            Local old = Entries[found].Value
+            Local _old = Entries[found].Value
             Entries[found].Value = value
             Return
         End If
@@ -151,7 +151,7 @@ Public Class Map<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, Default
         // returns.
         If Changes != changes Then found = IndexOf(key, hash)
         If found < 0 Then Return True
-        Local old = Entries[found].Value
+        Local _old = Entries[found].Value
         Entries[found].Value = value
         Return True
     End Method
@@ -198,7 +198,7 @@ Public Class Map<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, Default
     /// Takes every entry out.
     Public Method Clear()
         // The entries go as this returns, once the Map is empty.
-        Local cleared = Entries
+        Local _cleared = Entries
         Entries = []
         For i = 0 Until Buckets.Count
             Buckets[i] = -1
@@ -334,7 +334,7 @@ Public Class Map<K: Hashable, V> Implements Iterable<(K, V)>, Cloneable, Default
     /// Takes the entry at index out of its bucket's chain and the order, and moves the last
     /// entry into its place. The entry goes as this returns.
     Method Take(index: Int)
-        Local taken = Entries[index]
+        Local _taken = Entries[index]
         Unlink(index)
         Local before = Entries[index].Before
         Local after = Entries[index].After

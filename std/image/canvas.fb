@@ -7,12 +7,10 @@
 //! exact part of each pixel the region covers, antialiased, or wholly where it holds the pixel's
 //! center.
 
-Import std.core
 Import std.math.color
 Import std.math.geometry
 Import std.math.scalar
 Import std.math.vector
-Import std.image.codec
 Import std.image.font
 Import std.image.image
 
@@ -316,7 +314,7 @@ Package Function CoordsOf(rings: Vec2[][]): (Float64[], Int32[])
             coords.Add(point.x)
             coords.Add(point.y)
         End For
-        counts.Add(ring.Count As Int32)
+        counts.Add(ring.Count)
     End For
     Return (coords, counts)
 End Function

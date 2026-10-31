@@ -164,6 +164,44 @@ layout = { path = "../layout", version = "0.4" }    # its folder here, 0.4 once 
   from the cache.
 - `[format]` has `width`, the line width `fb fmt` formats the package's code to: a whole number
   of columns from 40 to 1000, 100 without it. A width outside that range is an error.
+- `[lints]` gives a level to each lint it names: `"off"`, `"warning"`, or `"error"`, which the
+  package's own code's warnings about it have; `unused_local = "error"` makes a Local that's
+  never read an error. Each is a warning without it. A name that isn't a lint is a warning, and
+  another level an error. The standard library's code, a registry's packages', a prebuilt
+  library's, and the files a build step or a .proto makes get none of these warnings, as they
+  aren't the program's to fix. The lints, by their names:
+
+  | Lint | Warns about |
+  |---|---|
+  | `unused_local` | a Local, or a Const in a function, that's never read |
+  | `unused_parameter` | a parameter its function's code never uses |
+  | `unused_import` | an Import, or a From line's name, that nothing in its file uses |
+  | `unused_private` | a Private declaration that nothing in its file uses |
+  | `unreachable` | code after what always leaves its block |
+  | `shadowed` | a Local or parameter named as a Global, Const, Function, type, or Field of Self |
+  | `redundant_as` | an As whose value has its type already |
+  | `redundant_null` | `?.`, `??`, or a comparison with Null on what can't be Null |
+  | `constant_condition` | a condition that's always True or always False |
+  | `redundant_try` | a Try around calls that don't throw |
+  | `deprecated` | a use of what `@Deprecated` marks |
+  | `constraint_style` | a constraint inline that goes on a Where line, or the other way round |
+  | `self_cycle` | a lambda that captures Self, kept in a field of Self |
+
+  The first seven are inspections, and so are the conditions `constant_condition` finds of
+  literals alone, as `1 > 2`, and of an integer compared with a literal past what its type holds,
+  as `count < 0` for a UInt32; `fb check`, `build`, `run`, and `test` and the editor give them. A name that starts with `_` is one that's meant to go unused, so a Local's or a
+  parameter's, or a Private declaration's, isn't reported, nor is a variable a For loop or a
+  Catch declares, which its line has to name. A parameter isn't reported when something else
+  sets the function's parameters: a Public function's, which callers outside the package see,
+  an Interface's or a base Class's Method's that it implements or overrides, what overrides it,
+  an Operator's, a Property's Set's, one used as a value, an Extern's, and one whose body is
+  only a Todo, Panic, or Unreachable. A Private Field isn't reported, as equality, a debug form,
+  Save, and a C layout read Fields without naming them, nor what runs without its name being
+  written: a New, a Destroy, OnLoaded, ToString, or Hash, an Operator, a `@Test`, what has
+  attributes, and the members of a type a For Method or For Property loop goes over. Code an
+  `#If`'s branch that's off may leave out, which no check sees, can use what looks unused, so a
+  function with an `#If` in it isn't looked at for its Locals and parameters, nor a file with
+  one for its Imports and Private declarations; and neither is code in a file with errors.
 - A dependency's own project.toml names it as `[dependencies]` does, and so do the packages it
   depends on, each read once, by whatever path reaches its folder, however many packages depend
   on it. Two packages of one name, and packages that depend on each other in a cycle, are

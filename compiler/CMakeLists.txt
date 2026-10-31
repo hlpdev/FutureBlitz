@@ -53,6 +53,11 @@ if(NOT FB_RUNTIME_ONLY)
     target_link_libraries(fb_compiler PRIVATE ${CMAKE_DL_LIBS})
   endif()
   target_compile_definitions(fb_compiler PRIVATE TOML_EXCEPTIONS=0)
+  # MinGW's GCC gives each inline function sections of its own, and sema.cpp has more than
+  # COFF's 32767 without big objects.
+  if(MINGW)
+    target_compile_options(fb_compiler PRIVATE -Wa,-mbig-obj)
+  endif()
   fb_set_warnings(fb_compiler)
 endif()
 

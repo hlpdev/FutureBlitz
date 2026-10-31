@@ -421,8 +421,8 @@ Package Function ParseV6(chars: UInt8[]): IpAddress?
         If stop == chars.Count && Contains(chars, i, 46)
             Local v4 = ParseV4(chars, i, stop)
             If v4 == Null Then Return Null
-            groups.Add(((v4 As Int64) >> 16) As Int)
-            groups.Add(((v4 As Int64) & 0xFFFF) As Int)
+            groups.Add((v4 >> 16) As Int)
+            groups.Add((v4 & 0xFFFF) As Int)
             i = stop
             Break
         End If

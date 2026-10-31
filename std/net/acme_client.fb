@@ -10,7 +10,6 @@
 //! a NetError of OTHER.
 
 Import std.core
-Import std.collections
 Import std.concurrent
 Import std.crypto
 Import std.data.json

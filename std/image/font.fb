@@ -10,7 +10,6 @@ Import std.core
 Import std.io.file
 Import std.io.path
 Import std.math.scalar
-Import std.image.codec
 
 Package Extern "runtime"
     Function fb_font_parse(data: UInt8[]): Ptr<Void>

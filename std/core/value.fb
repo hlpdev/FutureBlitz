@@ -8,7 +8,6 @@
 //! a change to it shows in each; ToString, ==, Hash, and Clone go through each place, however
 //! deep, without recursing.
 
-Import std.core.error
 Import std.core.interfaces
 Import std.core.values
 Import std.collections.map

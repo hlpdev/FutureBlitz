@@ -2,7 +2,6 @@
 // an Assert, and one exits; and one that leaks a cycle of Nodes, which fails it.
 Import std.core
 Import std.os
-Import std.test
 
 Class Node
     Field next: Node?

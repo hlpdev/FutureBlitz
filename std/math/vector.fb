@@ -32,7 +32,6 @@
 //! ```
 
 Import std.core
-Import std.math.numbers
 Import std.math.scalar
 Import std.math.int_vector
 

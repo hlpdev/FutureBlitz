@@ -225,7 +225,7 @@ TEST_CASE("ranged changes edit the text in UTF-16, UTF-8, across CRLF lines, and
                          }));
         CHECK(symbol_names(client, uri) == std::vector<std::string>{ "s", "b" });
         client.settle();
-        CHECK(client.diagnostics(uri).empty());
+        CHECK(client.errors(uri).empty());
         // Several changes in one, each on the text the one before left, over a line break.
         client.edit(uri, json_t::array({
                              change(2, 0, 3, 0, ""),
@@ -239,7 +239,7 @@ TEST_CASE("ranged changes edit the text in UTF-16, UTF-8, across CRLF lines, and
         client.open(uri, "Import std.core\nLocal s = \"\xF0\x9F\x98\x80\" + \"x\"\nLocal a = 1\n");
         client.edit(uri, json_t::array({ change(1, 19, 1, 22, "\"y\"") }), fb::column_unit_t::UTF8);
         client.settle();
-        CHECK(client.diagnostics(uri).empty());
+        CHECK(client.errors(uri).empty());
         const json_t hover = client.request("textDocument/hover", client.at(uri, "+ \"y\"", 3));
         CHECK(hover["range"]["start"] == client_t::position(1, 19));
         CHECK(client.text(uri).contains("+ \"y\""));
