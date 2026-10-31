@@ -48,7 +48,7 @@ namespace {
 std::wstring wide_of(const std::string_view text) {
     const int size =
         MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
-    std::wstring wide(static_cast<std::size_t>(std::max(size, 0)), L'\0');
+    std::wstring wide(static_cast<std::size_t>(std::max<int>(size, 0)), L'\0');
     MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), wide.data(), size);
     return wide;
 }
@@ -56,7 +56,7 @@ std::wstring wide_of(const std::string_view text) {
 std::string utf8_of(const std::wstring_view text) {
     const int size = WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()),
                                          nullptr, 0, nullptr, nullptr);
-    std::string bytes(static_cast<std::size_t>(std::max(size, 0)), '\0');
+    std::string bytes(static_cast<std::size_t>(std::max<int>(size, 0)), '\0');
     WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), bytes.data(), size,
                         nullptr, nullptr);
     return bytes;
@@ -1364,14 +1364,44 @@ namespace fb::runtime {
 
 std::string os_path(const std::string_view path) {
 #ifdef _WIN32
-    // A path from a drive's or a share's root, which comes no longer than its bytes, is checked
-    // as it is, and another, as from the current folder, by its full path, as Windows makes it.
     constexpr std::size_t longest = MAX_PATH - 12;
     const auto separator = [](const char c) { return c == '/' || c == '\\'; };
+    // "\\?\" and "\\.\", or with '/'s, go past Windows' rules and to a device.
+    const auto marked = [&](const std::string_view text, const char mark) {
+        return text.size() > 3 && separator(text[0]) && separator(text[1]) && text[2] == mark &&
+               separator(text[3]);
+    };
+    const auto drive = [](const std::string_view text) {
+        return text.size() > 1 && text[1] == ':' &&
+               ((text[0] >= 'A' && text[0] <= 'Z') || (text[0] >= 'a' && text[0] <= 'z'));
+    };
+
+    // An NT path, "\??\C:\...", goes to the OS as it is.
+    if (path.contains('\0') || path.starts_with(R"(\??\)")) {
+        return std::string(path);
+    }
+
+    // A "\\?\" path is read without Windows' rules, so a drive's or a share's takes '\'s only,
+    // which Path and the runtime write as '/'s.
+    if (marked(path, '?')) {
+        std::string text = R"(\\?\)" + std::string(path.substr(4));
+        const std::string_view after = path.substr(4);
+        const bool share = after.size() > 3 &&
+                           (after.starts_with("UNC") || after.starts_with("unc")) &&
+                           separator(after[3]);
+        if (drive(after) || share) {
+            std::ranges::replace(text, '/', '\\');
+        }
+
+        return text;
+    }
+
+    // A path from a drive's or a share's root, which comes no longer than its bytes, is checked
+    // as it is, and another, as from the current folder, or one with "." or "..", by its full
+    // path, as Windows makes it.
     const bool rooted = path.size() > 2 && ((path[1] == ':' && separator(path[2])) ||
                                             (separator(path[0]) && separator(path[1])));
-    if ((rooted && path.size() < longest) || path.starts_with(R"(\\?\)") ||
-        path.starts_with(R"(\\.\)") || path.contains('\0')) {
+    if (rooted && path.size() < longest) {
         return std::string(path);
     }
 
@@ -1384,9 +1414,25 @@ std::string os_path(const std::string_view path) {
         return std::string(path);
     }
 
+    // One long as it's written but short once its "."s and ".."s go is that, which Windows
+    // takes as it is.
     full.resize(written);
     if (full.size() < longest) {
-        return std::string(path);
+        return path.size() < longest ? std::string(path) : utf8_of(full);
+    }
+
+    // What GetFullPathNameW made of "//?/", or of a device's "\\.\" path, is its own, but a
+    // drive's through a device is the drive's, and "\\server\share" is a share.
+    if (full.starts_with(LR"(\\?\)")) {
+        return utf8_of(full);
+    }
+
+    if (full.starts_with(LR"(\\.\)")) {
+        const std::wstring_view after = std::wstring_view(full).substr(4);
+        const bool lettered =
+            after.size() > 1 && after[1] == L':' &&
+            ((after[0] >= L'A' && after[0] <= L'Z') || (after[0] >= L'a' && after[0] <= L'z'));
+        return lettered ? utf8_of(LR"(\\?\)" + full.substr(4)) : utf8_of(full);
     }
 
     if (full.starts_with(LR"(\\)")) {

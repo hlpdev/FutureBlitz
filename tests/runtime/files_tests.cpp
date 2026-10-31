@@ -25,3 +25,36 @@ TEST_CASE("a recursive FileWatcher past inotify's watches says which setting say
     CHECK(take(fb_io_error_message(fb::runtime::too_many_watches)) ==
           "it holds more folders than inotify watches, as fs.inotify.max_user_watches says");
 }
+
+#ifdef _WIN32
+TEST_CASE("a path Windows' calls take only with their prefix goes to them so, however it's spelled",
+          "[runtime]") {
+    using fb::runtime::os_path;
+    const std::string name(300, 'a');
+    // A short one as it is, and a long one after "\\?\", with '\'s.
+    CHECK(os_path(R"(C:\saves\one.dat)") == R"(C:\saves\one.dat)");
+    CHECK(os_path("C:/" + name + "/x") == R"(\\?\C:\)" + name + R"(\x)");
+    CHECK(os_path("save.dat") == "save.dat");
+    // One the program writes after "\\?\" or "//?/" keeps it, a drive's or a share's with '\'s.
+    CHECK(os_path("//?/C:/x/y") == R"(\\?\C:\x\y)");
+    CHECK(os_path(R"(\\?\C:/x/y)") == R"(\\?\C:\x\y)");
+    CHECK(os_path(R"(\\?\UNC\server/share/x)") == R"(\\?\UNC\server\share\x)");
+    // An NT path, and a device's, as they are, but a long one of a drive's through a device as
+    // the drive's.
+    CHECK(os_path(R"(\??\C:\x)") == R"(\??\C:\x)");
+    CHECK(os_path(R"(\\.\pipe\name)") == R"(\\.\pipe\name)");
+    CHECK(os_path("//./C:/" + name) == R"(\\?\C:\)" + name);
+    // A share's after "\\?\UNC\".
+    CHECK(os_path(R"(\\server\share\)" + name) == R"(\\?\UNC\server\share\)" + name);
+    // One long as it's written, but short once its ".."s go, as that.
+    std::string dots = "C:";
+    for (int i = 0; i < 70; ++i) {
+        dots += R"(\aaaa\..)";
+    }
+
+    CHECK(os_path(dots + R"(\x)") == R"(C:\x)");
+    // What the OS gives back for one, without what os_path() put before it.
+    CHECK(fb::runtime::plain_path(R"(\\?\C:\x)") == R"(C:\x)");
+    CHECK(fb::runtime::plain_path(R"(\\?\UNC\server\share\x)") == R"(\\server\share\x)");
+}
+#endif
