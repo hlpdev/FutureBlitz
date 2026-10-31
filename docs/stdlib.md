@@ -765,7 +765,9 @@ std/io/.
   POSIX permissions, which replaces a file another handle holds open, as a mounted pak is, and
   the handle reads on in the file it had: on Windows the rename has POSIX semantics, through
   `SetFileInformationByHandle`'s `FileRenameInfoEx`, where Windows 10 1709 and later and the disk
-  have them, and is `MoveFileExW`'s, which can't, elsewhere), `Exists` (a file, not a folder), `Size`, `Metadata` (its `Kind`, `Size`,
+  have them, and is `MoveFileExW`'s, which can't, elsewhere, and only a handle that shares
+  delete, as std's do, can be open, while one that doesn't, as Python's open() makes, makes it
+  fail as BUSY), `Exists` (a file, not a folder), `Size`, `Metadata` (its `Kind`, `Size`,
   `Modified` and `Accessed` Timestamps, its `Created` Timestamp, which is Null where the OS
   doesn't say, and `IsReadOnly`; through links unless asked), `Copy` and `Move` (which replace a
   file there, and copy a file to another disk; a folder moves only where nothing is, and neither
@@ -833,7 +835,10 @@ std/io/.
   last one's, and a mount is a folder, though its folder isn't there yet. So a place that a later
   mount is at or under, or where a later mount has a folder, is a folder for every call, though an
   earlier mount has a file there: `KindOf` and `Entries` say so, and `ReadBytes`, `ReadText`, and
-  `ReadLines`, Async or not, throw an IOError of `IS_A_DIRECTORY`, as for any folder. Glob's patterns take `/`
+  `ReadLines`, Async or not, throw an IOError of `IS_A_DIRECTORY`, as for any folder. And a
+  later mount's file on the way to a path hides what an earlier mount has under it, as a path
+  through a file on the disk is nothing: `KindOf`, `Entries`, and the reads throw
+  `NOT_A_DIRECTORY`, and `Exists` is False. Glob's patterns take `/`
   or `\` between names, as its paths do. A `VfsSource` gives a file's bytes, what's at a path, and
   a folder's names: `FolderSource` reads a folder on the disk as it's asked, with nothing outside
   it (by Windows' rules a name with a `:` isn't there), and is Final, so its Async reads are its

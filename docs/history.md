@@ -51,7 +51,13 @@ registry uses the range; and `fb publish` writes the archive's project.toml with
 line, a table's or a dotted key's, and reads the result back as the same manifest), refusing a
 dependency with only a path as before, with how to add a version. `dependency_t` has `range_span`
 for where the range is written, apart from `path_span`, and `path_entry_span`. A path with a
-version can name a registry, as a path alone can't.
+version can name a registry, as a path alone can't. From 1.1's review: `fb publish` refuses, unless
+`--offline`, a dependency with a path and a version whose folder's version the registry doesn't
+have unyanked ("publish shapes v0.3.9 first"), and builds the archive unpacked in
+build/package/<name>-<version>/ from the registry's packages alone, with its registries on disk
+named whole (`verify_package()`), which `--no-verify` skips, as Cargo does; a dotted key's names
+go with its path (`dotted_start()`); and a registry package without its project.toml is an error
+at its range.
 
 A built-in `Object`, what every Class's object is: `builtin_interfaces_t::object`, an Interface
 without members that sema declares with its built-ins and resolves by the name when the module
@@ -80,15 +86,20 @@ five more panic_math_ programs.
 std.io's `Vfs` agrees with itself where a later mount sits at or under a place an earlier mount
 has a file, or a later mount has a folder there: its reads, Async too, throw IS_A_DIRECTORY, as
 `KindOf` and `Entries` say it's a folder, where they read the earlier file before (`Holds()` and
-`FolderError()`; fbengine's review found it). tests/programs/io_vfs_shadowed.fb.
+`FolderError()`; fbengine's review found it). The other way round too, from 1.1's review: a
+later mount's file on the way to a path hides what an earlier mount has under it, and KindOf,
+Entries, and the reads throw NOT_A_DIRECTORY there, and Exists is False (`Through()`).
+tests/programs/io_vfs_shadowed.fb.
 
 `File.WriteBytesAtomic` and every atomic write (WriteTextAtomic, Preferences, the HTTP client's
 Download) replace a file another handle holds open on Windows too, as a game's updater writes a
 new pak over a mounted one: atomic_file_t's commit renames with POSIX semantics,
 `SetFileInformationByHandle(FileRenameInfoEx, FILE_RENAME_FLAG_REPLACE_IF_EXISTS |
 FILE_RENAME_FLAG_POSIX_SEMANTICS)` (`replace_file()`), and falls back to libuv's `MoveFileExW`
-where Windows or the disk doesn't have them, and the open handle reads on in the old file
-(fbengine's assets lane found it). tests/programs/io_file_atomic_open.fb.
+where Windows or the disk doesn't have them, and the open handle reads on in the old file: on
+Windows a handle that shares delete, as std's do, while one that doesn't, as Python's open()
+makes, makes it fail as BUSY (fbengine's assets lane found it).
+tests/programs/io_file_atomic_open.fb.
 
 A package's build step, `[build]` with `program` and maybe `package` (`build_step_t` in
 manifest.hpp; `build` under [project] is an error that says so): before a build, check, test, or

@@ -314,17 +314,22 @@ tools = { version = "2", registry = "company" }
   the dashboard, and asks the registry about it (`GET /me`) before it keeps it, so one that's
   mistyped, revoked, or expired is refused, leaving the token there was. Each says the account
   it signed in as. `fb logout` removes the stored one.
-- `fb publish [folder] [--dry-run] [--registry <name>]` builds the archives, writes `fb doc`'s
-  JSON, and checks what the registry checks: a library (an executable can't be a dependency) whose
-  name the registry takes (not `std`, `fb`, `futureblitz`, `apt`, `rpm`, or `releases`, even with
-  `_`s), with a description of one line, at most 300 characters as the registry counts them, in
-  UTF-16, a license that's an SPDX expression, a license file, and a readme in UTF-8 under 1 MB;
-  only versioned dependencies, a dependency with a path and a version going into the archive's
-  project.toml without its path, and one with only a path refused; paths the archive can hold; the size limits, a target's 200 MB only
-  for a registry on disk, since one on the network raises it per package, and each archive's
-  20,000 files and 8 times its limit unpacked; and for a prebuilt package each target's debug and release builds and
-  their .fbi agreeing. `--dry-run` stops there and lists each archive's files; otherwise it checks
-  the version is new, uploads each archive and the docs (in parts when they're over 64 MB), and
+- `fb publish [folder] [--dry-run] [--no-verify] [--registry <name>]` builds the archives, writes
+  `fb doc`'s JSON, and checks what the registry checks: a library (an executable can't be a
+  dependency) whose name the registry takes (not `std`, `fb`, `futureblitz`, `apt`, `rpm`, or
+  `releases`, even with `_`s), with a description of one line, at most 300 characters as the
+  registry counts them, in UTF-16, a license that's an SPDX expression, a license file, and a
+  readme in UTF-8 under 1 MB; only versioned dependencies, a dependency with a path and a version
+  going into the archive's project.toml without its path, and one with only a path refused; paths
+  the archive can hold; the size limits, a target's 200 MB only for a registry on disk, since one
+  on the network raises it per package, and each archive's 20,000 files and 8 times its limit
+  unpacked; and for a prebuilt package each target's debug and release builds and their .fbi
+  agreeing. As Cargo does, a dependency with a path and a version has to have its folder's version
+  on the registry, not yanked ("publish shapes v0.3.9 first"), which `--offline` can't ask; and
+  the archive, unpacked in build/package/<name>-<version>/, has to build from the registry's
+  packages alone, from the cache with `--offline`, which `--no-verify` skips. `--dry-run` stops
+  there and lists each archive's files; otherwise it checks the version is new, uploads each
+  archive and the docs (in parts when they're over 64 MB), and
   publishes them. Its sizes are in the registry's units, as its limits are, a KB a thousand bytes
   and an MB a million, and Uploading says the size Packaged did. In a GitHub workflow without
   `FB_REGISTRY_TOKEN`, fb asks GitHub for an OIDC token for the registry's audience, exchanges it
