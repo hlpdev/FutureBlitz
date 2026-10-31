@@ -38,6 +38,7 @@
 #include <optional>
 #include <ranges>
 #include <span>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -186,6 +187,7 @@ std::string package_help(const command_t command, const style_t& style) {
         out += entry("    --limit <n>", "Show at most n packages, from 1 to 100 (10)");
     } else if (command == command_t::PUBLISH) {
         out += entry("    --dry-run", "Build and check the archives, and list their files");
+        out += entry("    --no-verify", "Don't build the archive from the registry's packages");
     } else if (command == command_t::YANK) {
         out += entry("    --undo", "Take the yank back");
     } else if (command == command_t::OWNER) {
@@ -692,7 +694,8 @@ int compile_command(const options_t& options) {
 
     // This only fails when the file can't be read, or a folder isn't a package's, which counts as
     // bad usage.
-    const std::expected<compilation_t, std::string> compiled = compile_file(*input, options.mode);
+    const std::expected<compilation_t, std::string> compiled =
+        compile_file(*input, options.mode, build_steps_t::RUN, console.statuses());
     if (!compiled) {
         console.error(compiled.error());
         return usage_exit_code;
@@ -819,9 +822,10 @@ struct report_record_t {
 /// A report's records: each is "<kind> <index> <length>" on a line, -1 for no test, then that
 /// many bytes of text, and a line break. One the executable didn't finish writing is left out.
 std::vector<report_record_t> read_report(const std::filesystem::path& path) {
-    std::ifstream file(path, std::ios::binary);
-    const std::string text{ std::istreambuf_iterator<char>(file),
-                            std::istreambuf_iterator<char>() };
+    const std::ifstream file(path, std::ios::binary);
+    std::ostringstream read;
+    read << file.rdbuf();
+    const std::string text = std::move(read).str();
     std::vector<report_record_t> records;
     std::size_t at = 0;
     while (at < text.size()) {
@@ -1089,7 +1093,8 @@ int test_command(const options_t& options) {
     }
 
     const std::expected<compilation_t, std::string> compiled =
-        standard ? compile_standard_tests(options.mode) : compile_tests(*input, options.mode);
+        standard ? compile_standard_tests(options.mode)
+                 : compile_tests(*input, options.mode, console.statuses());
     if (!compiled) {
         console.error(compiled.error());
         return usage_exit_code;
@@ -1264,7 +1269,8 @@ int doc_command(const options_t& options) {
     }
 
     const std::expected<compilation_t, std::string> compiled =
-        standard ? compile_standard_docs(options.mode) : compile_docs(*input, options.mode);
+        standard ? compile_standard_docs(options.mode)
+                 : compile_docs(*input, options.mode, console.statuses());
     if (!compiled) {
         console.error(compiled.error());
         return usage_exit_code;

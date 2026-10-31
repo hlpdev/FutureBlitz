@@ -290,6 +290,109 @@ TEST_CASE("a dependency with a path and a version builds from its folder", "[pac
     CHECK(world.run() == "physics 1.2.0 with shapes 0.3.4\n");
 }
 
+TEST_CASE("a build step's program can be a registry package's, which builds from the cache",
+          "[packages]") {
+    const world_t world;
+    // tools, from the registry, has the program, which uses shapes, from the registry too.
+    const std::string generate = "Import std.core\nImport std.io\nImport std.os\nImport shapes\n"
+                                 "Local out = Path(Env.Get(\"FB_BUILD_OUT\") ?? \"\")\n"
+                                 "Local quote = \"\\\"\"\n"
+                                 "Try File.WriteText(out / \"made.fb\", \"Public Function Made(): "
+                                 "String => {quote}made with {Version()}{quote}\\n\")\n";
+    world.sandbox.library("tools", "tools", "1.0.0", shapes_dependency,
+                          { { "generate.fb", generate }, { "tools.fb", "// tools\n" } });
+    world.sandbox.publish("tools", world.index);
+    world.sandbox.library("names", "names", "1.0.0",
+                          "tools = { version = \"1\", registry = \"local\" }\n\n[build]\npackage = "
+                          "\"tools\"\nprogram = \"generate.fb\"\n",
+                          { { "names.fb", "// names\n" } });
+    world.game("names = { path = \"../names\" }\n");
+    world.sandbox.write("game/main.fb", "Import std.core\nImport names.made\nPrint(Made())\n");
+    said_t said;
+    const std::expected<fb::sync_result_t, std::string> synced = world.sync(said);
+    INFO((synced ? std::string() : synced.error()));
+    REQUIRE(synced);
+    CHECK(said.lines == std::vector<std::string>{ "Adding shapes v0.3.4", "Adding tools v1.0.0" });
+    CHECK(world.run() == "made with shapes 0.3.4\n");
+}
+
+TEST_CASE("a check never runs a registry package's build step, and takes the workspace's build's "
+          "files",
+          "[packages]") {
+    const world_t world;
+    // counts, from the registry, makes its own counts.made with its step.
+    const std::string generate = "Import std.core\nImport std.io\nImport std.os\n"
+                                 "Local out = Path(Env.Get(\"FB_BUILD_OUT\") ?? \"\")\n"
+                                 "Try File.WriteText(out / \"made.fb\", \"Public Const COUNT = "
+                                 "3\\n\")\n";
+    const std::string counts = "Import counts.made\nPublic Function Count(): Int => COUNT\n";
+    world.sandbox.library("counts", "counts", "1.0.0", "",
+                          { { "generate.fb", generate }, { "counts.fb", counts } });
+    world.sandbox.write("counts/project.toml", world.sandbox.read("counts/project.toml") +
+                                                   "\n[build]\nprogram = \"generate.fb\"\n");
+    world.sandbox.publish("counts", world.index);
+    world.game("counts = { version = \"1\", registry = \"local\" }\n");
+    world.sandbox.write("game/main.fb", "Import std.core\nImport counts\nPrint(\"{Count()}\")\n");
+    said_t said;
+    REQUIRE(world.sync(said));
+    const std::filesystem::path cached = fb::package_cache_folder(world.index, "counts", "1.0.0");
+    const std::filesystem::path game = world.sandbox / "game";
+    const auto check = [&](const std::filesystem::path& file) {
+        return fb::check_files({ .files = { file }, .workspace = { game } });
+    };
+    const auto messages = [](const fb::compilation_t& compilation) {
+        std::vector<std::string> found;
+        for (const fb::diagnostic_t& diagnostic : compilation.diagnostics.diagnostics()) {
+            found.push_back(diagnostic.message);
+        }
+
+        return found;
+    };
+
+    // Before a build, a check says to build, of the game's file and of the package's, and nothing's
+    // written in the cache.
+    const std::string unbuilt =
+        "counts's build step hasn't run here; run fb build to make counts's generated files";
+    for (const std::filesystem::path& file : { game / "main.fb", cached / "counts.fb" }) {
+        const std::expected<fb::compilation_t, std::string> checked = check(file);
+        REQUIRE(checked);
+        CHECK(std::ranges::contains(messages(*checked), unbuilt));
+    }
+
+    CHECK_FALSE(std::filesystem::exists(cached / "build"));
+    CHECK_FALSE(std::filesystem::exists(game / "build"));
+
+    // fb build runs it into the game's build folder, whose files the checks take. Importing the
+    // package's folder leaves its step's program out.
+    CHECK(world.run() == "3\n");
+    CHECK_FALSE(std::filesystem::exists(cached / "build"));
+    for (const std::filesystem::path& file : { game / "main.fb", cached / "counts.fb" }) {
+        const std::expected<fb::compilation_t, std::string> checked = check(file);
+        REQUIRE(checked);
+        CHECK(messages(*checked).empty());
+    }
+
+    CHECK_FALSE(std::filesystem::exists(cached / "build"));
+}
+
+TEST_CASE("a registry package without its project.toml is an error at its range", "[packages]") {
+    const world_t world;
+    said_t said;
+    REQUIRE(world.sync(said));
+    std::filesystem::remove(fb::package_cache_folder(world.index, "physics", "1.2.0") /
+                            "project.toml");
+    const std::expected<fb::compilation_t, std::string> game =
+        fb::compile_file(world.sandbox / "game");
+    REQUIRE(game);
+    const auto missing = std::ranges::find_if(
+        game->diagnostics.diagnostics(), [](const fb::diagnostic_t& diagnostic) {
+            return diagnostic.message.contains("there's no project.toml");
+        });
+    REQUIRE(missing != game->diagnostics.diagnostics().end());
+    CHECK(game->sources.get(missing->span.file).slice(missing->span) == "\"1\"");
+    CHECK(missing->message.ends_with(", which physics names"));
+}
+
 TEST_CASE("an unresolvable range says why, before anything's written", "[packages]") {
     const world_t world;
     world.game("physics = { version = \"7\", registry = \"local\" }\n");

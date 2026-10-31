@@ -14,6 +14,7 @@
 #include <iterator>
 #include <limits>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -183,8 +184,10 @@ std::expected<file_id_t, std::string> source_manager_t::load(const std::filesyst
         return std::unexpected(std::format("cannot open '{}'", name));
     }
 
-    std::string text{ std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>() };
-    return add(std::move(name), std::move(text));
+    // Through its buffer, as a release build's GCC can follow.
+    std::ostringstream text;
+    text << file.rdbuf();
+    return add(std::move(name), std::move(text).str());
 }
 
 const source_file_t& source_manager_t::get(const file_id_t id) const {

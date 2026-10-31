@@ -9,7 +9,9 @@
 #include "fb/diagnostic_render.hpp"
 #include "fb/doc.hpp"
 #include "fb/driver.hpp"
+#include "fb/interface.hpp"
 #include "fb/manifest.hpp"
+#include "fb/package_archive.hpp"
 #include "fb/packages.hpp"
 #include "fb/process.hpp"
 #include "fb/registry.hpp"
@@ -25,6 +27,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <iterator>
 #include <memory>
@@ -591,6 +594,164 @@ int search_command(const console_t& console, const options_t& options) {
     return 0;
 }
 
+/// Whether the registry has the version of each of `manifest`'s dependencies with a path and a
+/// version that its folder has, not yanked, which the published package depends on: what the
+/// package builds with here is what another computer gets, so it's published first, as Cargo has
+/// it. Says what isn't.
+bool published_path_versions(const console_t& console, const options_t& options,
+                             const std::filesystem::path& root, const manifest_t& manifest) {
+    for (const dependency_t& dependency : manifest.dependencies) {
+        if (dependency.path.empty() || !dependency.range) {
+            continue;
+        }
+
+        const std::optional<manifest_t> folder =
+            manifest_of(root / path_from_utf8(dependency.path));
+        const std::optional<std::string> index =
+            registry_index(dependency.registry, manifest.registries, root);
+        if (!folder || !index) {
+            continue;
+        }
+
+        registry_t registry(*index, send_http, options.offline, {});
+        const std::expected<std::vector<index_entry_t>, std::string> versions =
+            registry.versions(dependency.name);
+        if (!versions) {
+            console.error(versions.error());
+            return false;
+        }
+
+        // A yanked version can't be published again, so it's undone or the folder moves on.
+        const auto found = std::ranges::find(*versions, folder->version, &index_entry_t::version);
+        if (found != versions->end() && found->yanked) {
+            console.error(std::format(
+                "{} builds with {} v{} from its folder, '{}', which the registry has yanked, so "
+                "no one could build the published package; undo the yank with `fb yank {}@{} "
+                "--undo`, or give the folder a new version and publish that first",
+                manifest.name, dependency.name, folder->version, dependency.path, dependency.name,
+                folder->version));
+            return false;
+        }
+
+        if (found == versions->end()) {
+            console.error(std::format(
+                "{} builds with {} v{} from its folder, '{}', which the registry doesn't have, so "
+                "no one could build the published package; publish {} v{} first",
+                manifest.name, dependency.name, folder->version, dependency.path, dependency.name,
+                folder->version));
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/// project.toml's text with each registry on disk that [registries] names by a relative folder
+/// named by its whole path, from `root`, so the package builds from another folder.
+std::string with_whole_registries(const std::string& text, const std::filesystem::path& root) {
+    const source_file_t file(file_id_t{}, "project.toml", text);
+    diagnostic_bag_t ignored;
+    const std::optional<manifest_t> manifest = read_manifest(file, ignored);
+    if (!manifest) {
+        return text;
+    }
+
+    std::string out = text;
+    std::vector<const registry_entry_t*> entries;
+    for (const registry_entry_t& entry : manifest->registries) {
+        if (is_local_index(entry.index) && !entry.index.starts_with("file:") &&
+            !path_from_utf8(entry.index).is_absolute()) {
+            entries.push_back(&entry);
+        }
+    }
+
+    // From the last, so the places before stay where they are.
+    std::ranges::sort(entries, std::ranges::greater{},
+                      [](const registry_entry_t* entry) { return entry->index_span.begin; });
+    for (const registry_entry_t* entry : entries) {
+        std::error_code error;
+        std::string whole =
+            to_utf8(std::filesystem::weakly_canonical(root / path_from_utf8(entry->index), error));
+        std::ranges::replace(whole, '\\', '/');
+        out.replace(entry->index_span.begin, entry->index_span.end - entry->index_span.begin,
+                    std::format("\"{}\"", whole));
+    }
+
+    return out;
+}
+
+/// Builds the package as its archives have it, unpacked in build/package/<name>-<version>/,
+/// from the registry's packages alone, as another computer would, so what a path dependency's
+/// folder has that its published version doesn't is found before it's published. Says why it
+/// doesn't build.
+bool verify_package(const console_t& console, const options_t& options,
+                    const std::filesystem::path& root, const prepared_package_t& package) {
+    const std::string shown =
+        std::format("{} v{}", package.manifest.name, package.manifest.version);
+    const std::filesystem::path archives = root / "build" / "package";
+    const std::filesystem::path folder =
+        archives / std::format("{}-{}", package.manifest.name, package.manifest.version);
+    std::error_code error;
+    std::filesystem::remove_all(folder, error);
+    console.status("Verifying", std::format("{} as the registry would have it", shown));
+    if (const std::expected<void, std::string> unpacked =
+            unpack_archive(archives / package.source.file, folder, "source",
+                           package.source.ref.sha256, most_source_unpacked);
+        !unpacked) {
+        console.error(std::format("couldn't unpack {}: {}", package.source.file, unpacked.error()));
+        return false;
+    }
+
+    for (const built_archive_t& target : package.targets) {
+        if (target.target != build_target()) {
+            continue;
+        }
+
+        if (const std::expected<void, std::string> unpacked =
+                unpack_archive(archives / target.file, folder, target.target, target.ref.sha256,
+                               most_target_unpacked);
+            !unpacked) {
+            console.error(std::format("couldn't unpack {}: {}", target.file, unpacked.error()));
+            return false;
+        }
+    }
+
+    const std::optional<std::string> text = read_text(folder / "project.toml");
+    if (!text || !write_text(folder / "project.toml", with_whole_registries(*text, root))) {
+        console.error(std::format("couldn't write {}", to_utf8(folder / "project.toml")));
+        return false;
+    }
+
+    if (!report_sync(console, sync_packages(folder, sync_options(console, options)))) {
+        return false;
+    }
+
+    const std::expected<compilation_t, std::string> compiled =
+        compile_file(folder, build_mode_t::DEBUG, build_steps_t::RUN, console.statuses());
+    if (!compiled) {
+        console.error(compiled.error());
+        return false;
+    }
+
+    const std::size_t errors = compiled->diagnostics.error_count();
+    for (const diagnostic_t& diagnostic : compiled->diagnostics.diagnostics()) {
+        if (diagnostic.severity == severity_t::ERROR) {
+            console_t::print_error(
+                render_pretty(diagnostic, compiled->sources, console.diagnostics()));
+        }
+    }
+
+    if (errors > 0) {
+        console.error(std::format(
+            "{} doesn't build as the registry would have it, from its packages, because of {} "
+            "error{}; --no-verify publishes it anyway",
+            shown, errors, errors == 1 ? "" : "s"));
+        return false;
+    }
+
+    return true;
+}
+
 int publish_command(const console_t& console, const options_t& options) {
     // --offline keeps fb off the network, which publishing can't be.
     if (options.offline && !options.dry_run) {
@@ -615,7 +776,8 @@ int publish_command(const console_t& console, const options_t& options) {
         return compile_errors_exit_code;
     }
 
-    const std::expected<compilation_t, std::string> compiled = compile_docs(*root);
+    const std::expected<compilation_t, std::string> compiled =
+        compile_docs(*root, build_mode_t::DEBUG, console.statuses());
     if (!compiled) {
         console.error(compiled.error());
         return usage_exit_code;
@@ -645,6 +807,12 @@ int publish_command(const console_t& console, const options_t& options) {
         return compile_errors_exit_code;
     }
 
+    // What a path dependency's folder builds with has to be the registry's, which --offline can't
+    // ask.
+    if (!options.offline && !published_path_versions(console, options, *root, package->manifest)) {
+        return compile_errors_exit_code;
+    }
+
     const std::string shown =
         std::format("{} v{}", package->manifest.name, package->manifest.version);
     console.status("Packaging", std::format("{} ({})", shown, to_utf8(*root)));
@@ -669,6 +837,10 @@ int publish_command(const console_t& console, const options_t& options) {
                 console_t::print(std::format("{}  {}\n", archive->file, path));
             }
         }
+    }
+
+    if (!options.no_verify && !verify_package(console, options, *root, *package)) {
+        return compile_errors_exit_code;
     }
 
     if (options.dry_run) {

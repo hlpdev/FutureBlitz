@@ -665,7 +665,8 @@ private:
                     out += slice(unit.begin, unit.end);
                     newline(out);
                 } else {
-                    write_comment(unit, next_indent(*next_code(index + 1)), out);
+                    const unit_t* next = next_code(index + 1);
+                    write_comment(unit, next != nullptr ? next_indent(*next) : 0, out);
                 }
             }
 

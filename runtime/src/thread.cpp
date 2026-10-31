@@ -730,9 +730,10 @@ public:
                 continue;
             }
 
-            // A timer is due soon, or a Task finishes elsewhere meanwhile.
+            // A timer is due soon, or a Task finishes elsewhere meanwhile, so it looks again in a
+            // millisecond, which Windows' own sleep would make its 15.6 ms tick.
             if (!m_timers.empty()) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                fb::time::sleep_precisely(std::chrono::milliseconds(1));
                 continue;
             }
 

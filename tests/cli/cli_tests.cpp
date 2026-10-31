@@ -2465,6 +2465,174 @@ TEST_CASE("fb test runs a package's examples, each a test named after its declar
     CHECK_FALSE(traced.output.contains("DocTest__Example"));
 }
 
+TEST_CASE("fb test's stack traces end at the test, and call a Global's initializer top-level code",
+          "[cli]") {
+    // A test on the main thread is called by the tests' main, as one on the pool is by a worker,
+    // and a trace leaves both out, not showing main at the line of the last Global it set, as
+    // std.text's.
+    const std::filesystem::path traced =
+        write_source("traces/traced.fb", "Import std.core\n"
+                                         "Import std.test\n"
+                                         "Import std.text\n"
+                                         "\n"
+                                         "Function Third(values: Int[]): Int\n"
+                                         "    Return values[2]\n"
+                                         "End Function\n"
+                                         "\n"
+                                         "@Test\n"
+                                         "@MainThread\n"
+                                         "Function OnTheMainThread()\n"
+                                         "    Print(Third([1, 2]))\n"
+                                         "End Function\n"
+                                         "\n"
+                                         "@Test\n"
+                                         "Function OnThePool()\n"
+                                         "    Print(Third([1]))\n"
+                                         "End Function\n");
+    // The traces show a file outside a package by its full path.
+    const auto full = [](const std::filesystem::path& path) {
+        std::string text = fb::to_utf8(path);
+        std::ranges::replace(text, '\\', '/');
+        return text;
+    };
+    const std::string file = full(traced);
+    for (const auto& [name, line] :
+         { std::pair("OnTheMainThread", 12), std::pair("OnThePool", 17) }) {
+        const fb::process_result_t ran =
+            fb_run({ "test", fb::to_utf8(traced), "--filter", name, "--color", "never" });
+        INFO(ran.output);
+        CHECK(ran.exit_code == 1);
+        CHECK(ran.output.contains(std::format("    at Third ({}:6)\n", file)));
+        CHECK(ran.output.contains(std::format("    at {} ({}:{})\n", name, file, line)));
+        CHECK_FALSE(ran.output.contains("top-level code"));
+    }
+
+    // Setting the Globals is top-level code, which runs before the tests.
+    const std::filesystem::path global =
+        write_source("traces/global.fb", "Import std.core\n"
+                                         "Import std.test\n"
+                                         "\n"
+                                         "Function Third(values: Int[]): Int\n"
+                                         "    Return values[2]\n"
+                                         "End Function\n"
+                                         "\n"
+                                         "Global third = Third([1, 2])\n"
+                                         "\n"
+                                         "@Test\n"
+                                         "Function Runs()\n"
+                                         "End Function\n");
+    const fb::process_result_t set = fb_run({ "test", fb::to_utf8(global), "--color", "never" });
+    INFO(set.output);
+    CHECK(set.exit_code == 1);
+    CHECK(set.output.contains(std::format("    at Third ({}:5)\n", full(global))));
+    CHECK(set.output.contains(std::format("    at top-level code ({}:8)\n", full(global))));
+}
+
+TEST_CASE("a build step ends when fb does, however fb ends, and the next build runs at once",
+          "[cli]") {
+    // The step counts in beats.txt every 20 ms for good, until something ends it.
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "tied";
+    std::filesystem::remove_all(folder);
+    const std::filesystem::path app = folder / "app";
+    const auto write = [](const std::filesystem::path& file, const std::string_view text) {
+        std::filesystem::create_directories(file.parent_path());
+        std::ofstream(file, std::ios::binary) << text;
+    };
+    write(app / "project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\n\n"
+                                "[build]\nprogram = \"beat.fb\"\n");
+    write(app / "main.fb", "Import std.core\nPrint(\"main\")\n");
+    write(app / "beat.fb", "Import std.core\n"
+                           "Import std.io\n"
+                           "Import std.os\n"
+                           "Import std.time\n"
+                           "Local beats = Path(Env.Get(\"FB_BUILD_FOLDER\") ?? \"\") / "
+                           "\"../beats.txt\"\n"
+                           "Local count = 0\n"
+                           "While True\n"
+                           "    count += 1\n"
+                           "    Try File.WriteText(beats, \"{count}\")\n"
+                           "    Sleep(20.Milliseconds)\n"
+                           "End While\n");
+    const auto beat = [&] {
+        std::ifstream in(folder / "beats.txt", std::ios::binary);
+        std::string text;
+        std::getline(in, text);
+        return text;
+    };
+
+    // fb ends once the step beats: on Windows as a crash ends it, from TerminateProcess, and
+    // elsewhere from Ctrl+C's SIGINT and a closed terminal's SIGHUP, and on Linux SIGKILL too.
+    // Each time, the step ends with it, so its beats stop, and fb has left no stamp, so the next
+    // build runs it again.
+    const std::string fb_program = FB_CLI;
+    const std::string app_folder = fb::to_utf8(app);
+    const std::filesystem::path stamp =
+        app / std::format("build/steps/{}/debug/app/stamp", fb::build_target());
+#ifdef _WIN32
+    const std::vector<int> ends{ 0 };
+#elifdef __linux__
+    const std::vector<int> ends{ SIGINT, SIGHUP, SIGKILL };
+#else
+    const std::vector<int> ends{ SIGINT, SIGHUP };
+#endif
+    for (const int end : ends) {
+        CAPTURE(end);
+        std::filesystem::remove(folder / "beats.txt");
+#ifdef _WIN32
+        std::wstring command = std::format(L"\"{}\" build \"{}\"",
+                                           fb::path_from_utf8(fb_program).wstring(), app.wstring());
+        STARTUPINFOW startup{};
+        startup.cb = sizeof(startup);
+        PROCESS_INFORMATION process{};
+        REQUIRE(CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
+                               nullptr, nullptr, &startup, &process) != 0);
+#else
+        posix_spawn_file_actions_t actions;
+        posix_spawn_file_actions_init(&actions);
+        posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
+        posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
+        std::string program = fb_program;
+        std::string build = "build";
+        std::string argument = app_folder;
+        std::array<char*, 4> argv{ program.data(), build.data(), argument.data(), nullptr };
+        pid_t pid = 0;
+        REQUIRE(posix_spawn(&pid, program.c_str(), &actions, nullptr, argv.data(), environ) == 0);
+        posix_spawn_file_actions_destroy(&actions);
+#endif
+        for (int tries = 0; tries < 6000 && beat().empty(); ++tries) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+
+        CHECK_FALSE(beat().empty());
+#ifdef _WIN32
+        TerminateProcess(process.hProcess, 1);
+        WaitForSingleObject(process.hProcess, INFINITE);
+        CloseHandle(process.hProcess);
+        CloseHandle(process.hThread);
+#else
+        kill(pid, end);
+        int status = 0;
+        waitpid(pid, &status, 0);
+        CHECK((WIFSIGNALED(status) && WTERMSIG(status) == end));
+#endif
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        const std::string stopped = beat();
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        CHECK(beat() == stopped);
+        CHECK_FALSE(std::filesystem::exists(stamp));
+    }
+
+    // Nothing holds the step's folder, so the next build runs it at once, and says so.
+    write(app / "beat.fb", "Import std.core\nPrint(\"done\")\n");
+    const fb::process_result_t built = fb_run({ "build", app_folder, "--color", "never" });
+    INFO(built.output);
+    CHECK(built.exit_code == 0);
+    CHECK(built.output.contains("     Running app's build step\n"));
+    CHECK_FALSE(built.output.contains("Waiting"));
+    std::filesystem::remove_all(folder);
+}
+
 TEST_CASE("fb doc writes a package's public API as JSON, and warns about its doc comments",
           "[cli]") {
     const std::filesystem::path documented = copied_package("documented");

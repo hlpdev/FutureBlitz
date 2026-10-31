@@ -762,7 +762,12 @@ std/io/.
 - `File`: `ReadBytes`, `ReadText`, `ReadLines`, `WriteBytes`, `WriteText`, `WriteLines`,
   `AppendBytes`, `AppendText`, `AppendLines`, `WriteBytesAtomic` and `WriteTextAtomic` (a new
   temporary file in the same folder, synced to the disk, then renamed over the file, keeping its
-  POSIX permissions), `Exists` (a file, not a folder), `Size`, `Metadata` (its `Kind`, `Size`,
+  POSIX permissions, which replaces a file another handle holds open, as a mounted pak is, and
+  the handle reads on in the file it had: on Windows the rename has POSIX semantics, through
+  `SetFileInformationByHandle`'s `FileRenameInfoEx`, where Windows 10 1709 and later and the disk
+  have them, and is `MoveFileExW`'s, which can't, elsewhere, and only a handle that shares
+  delete, as std's do, can be open, while one that doesn't, as Python's open() makes, makes it
+  fail as BUSY), `Exists` (a file, not a folder), `Size`, `Metadata` (its `Kind`, `Size`,
   `Modified` and `Accessed` Timestamps, its `Created` Timestamp, which is Null where the OS
   doesn't say, and `IsReadOnly`; through links unless asked), `Copy` and `Move` (which replace a
   file there, and copy a file to another disk; a folder moves only where nothing is, and neither
@@ -830,8 +835,14 @@ std/io/.
   last one's, and a mount is a folder, though its folder isn't there yet. So a place that a later
   mount is at or under, or where a later mount has a folder, is a folder for every call, though an
   earlier mount has a file there: `KindOf` and `Entries` say so, and `ReadBytes`, `ReadText`, and
-  `ReadLines`, Async or not, throw an IOError of `IS_A_DIRECTORY`, as for any folder. Glob's patterns take `/`
-  or `\` between names, as its paths do. A `VfsSource` gives a file's bytes, what's at a path, and
+  `ReadLines`, Async or not, throw an IOError of `IS_A_DIRECTORY`, as for any folder. And a
+  mount's file at a place, or on the way to a path, cuts off what earlier mounts have there, as a
+  path through a file on the disk is nothing, in the reads, `KindOf`, and `Entries` alike: a path
+  under it throws `NOT_A_DIRECTORY`, and `Exists` is False, or where a still later mount makes the
+  file's place a folder again, it's nothing there, which the reads throw `NOT_FOUND` for, and a
+  listing of the folder has only the later mounts' names. `ReadBytesAsync` asks a folder on the
+  disk what's on the way to a path without blocking the main thread. Glob's patterns take `/` or
+  `\` between names, as its paths do. A `VfsSource` gives a file's bytes, what's at a path, and
   a folder's names: `FolderSource` reads a folder on the disk as it's asked, with nothing outside
   it (by Windows' rules a name with a `:` isn't there), and is Final, so its Async reads are its
   reads and a source that changes them wraps one; `EmbeddedSource` the `Map<String, UInt8[]>`
@@ -867,7 +878,10 @@ std/io/.
 #### std.time
 
 - `Duration`, written `2.Seconds`, `1.5.Minutes`, `500.Milliseconds`; the timing built-ins take
-  one too: `Await Wait(500.Milliseconds)`, and `RealWait`.
+  one too: `Await Wait(500.Milliseconds)`, and `RealWait`. `Sleep(time)` blocks the thread. Both
+  are to about a millisecond on Windows too, whose own sleeps wait for its 15.6 ms timer tick: the
+  runtime's sleeps are on a high-resolution waitable timer (`fb::time::sleep_precisely()`), or
+  before Windows 10 1803, with `timeBeginPeriod(1)` for the sleep alone.
 - A type for each meaning: `Timestamp` (a point in time, UTC), `Date`, `TimeOfDay`,
   `LocalDateTime` (no zone), and `ZonedDateTime`, with `TimeZone` (embedded IANA data, and the
   OS's local zone, `TimeZone.System()`); arithmetic that clamps (Jan 31 plus a month is Feb 28 or
@@ -1767,8 +1781,11 @@ std.io. `Import std.image` brings in all of std/image/.
   `INVALID_DATA` for bytes that aren't the format or are broken, `UNEXPECTED_END` for
   ones that end too soon, where the decoder can tell, and `OTHER` for an image whose pixels, all
   its frames' counted, are more than the limit, or that uses what isn't supported, like a BMP's
-  run-length encoding or an animated WebP. The limit is the most an Image holds unless it's given
-  a smaller one, which guards against data made to decode huge; a negative one panics.
+  run-length encoding or an animated WebP. A TGA whose pixels, uncompressed or run-length
+  encoded, end before its header's width and height do is `INVALID_DATA`, though stb_image would
+  read the rest as 0s (`tga_whole()` in stb.cpp). The limit is the most an Image holds unless
+  it's given a smaller one, which guards against data made to decode huge; a negative one
+  panics.
 - `Animation(width, height, plays)`: frames of one size, each a `Frame` of an `Image` and its
   `Delay` in milliseconds, from 0 to 65535000, APNG's longest, with `Add(image, delay)`, which
   keeps the image rather than a copy, `Count`, `Frames`, `[index]`, and `Plays`, how many times

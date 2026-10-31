@@ -234,6 +234,19 @@ TEST_CASE("a published package's project.toml has its dependencies' versions, no
     CHECK(published(project + "[dependencies]\nengine = {version=\"0.1\" ,path=\"../engine\"}\n") ==
           project + "[dependencies]\nengine = {version=\"0.1\"}\n");
 
+    // A dotted key in an inline table goes with its dotted names, bare or quoted.
+    CHECK(published("dependencies = { engine.path = \"../engine\", engine.version = \"0.1\" }\n" +
+                    project) == "dependencies = { engine.version = \"0.1\" }\n" + project);
+    CHECK(
+        published("dependencies = { engine.version = \"0.1\", \"engine\" . 'path' = \"../e\" }\n" +
+                  project) == "dependencies = { engine.version = \"0.1\" }\n" + project);
+    CHECK(published("dependencies.engine.path = \"../engine\"\ndependencies.engine.version = "
+                    "\"0.1\"\n" +
+                    project) == "dependencies.engine.version = \"0.1\"\n" + project);
+    CHECK(published(project + "[dependencies]\nengine . path = \"../engine\"\nengine . version = "
+                              "\"0.1\"\n") ==
+          project + "[dependencies]\nengine . version = \"0.1\"\n");
+
     // A table's line goes, with its comment, and so does a dotted key's, in CRLF's lines too.
     CHECK(published(project + "[dependencies.engine]\nversion = \"0.1\"\n  path = \"../engine\" "
                               "# beside this one\nlink = \"beside\"\n") ==
@@ -246,6 +259,43 @@ TEST_CASE("a published package's project.toml has its dependencies' versions, no
     CHECK(published(project + "[dependencies]\nlocal = { path = \"../local\" }\n") ==
           project + "[dependencies]\nlocal = { path = \"../local\" }\n");
     CHECK(published(project + "# no dependencies\n") == project + "# no dependencies\n");
+}
+
+TEST_CASE("[build] names the program a package's build step runs, its own or a dependency's",
+          "[manifest]") {
+    const std::string_view project = "[project]\nname = \"game\"\nversion = \"0.1.0\"\n";
+    const read_t own =
+        read(std::format("{}[build]\nprogram = \"tools\\\\generate.fb\"\nnice = 1\n", project));
+    CHECK(own.diagnostics == diagnostics_t{ "warning: nice: [build] doesn't use 'nice'" });
+    const fb::manifest_t manifest = own.manifest.value_or(fb::manifest_t{});
+    CHECK(manifest.build.has_value());
+    CHECK(manifest.build.value_or(fb::build_step_t{}).program == "tools/generate.fb");
+    CHECK_FALSE(manifest.build.value_or(fb::build_step_t{}).package);
+
+    // A dependency's, which [dependencies] can name after it.
+    const read_t theirs = read(std::format(
+        "{}[build]\npackage = \"tools\"\nprogram = \"cook.fb\"\n\n[dependencies]\ntools = {{ path "
+        "= \"../tools\" }}\n",
+        project));
+    CHECK(theirs.diagnostics.empty());
+    const fb::manifest_t named = theirs.manifest.value_or(fb::manifest_t{});
+    CHECK(named.build.value_or(fb::build_step_t{}).package == "tools");
+
+    CHECK(read(std::format("build = \"tools/generate.fb\"\n{}", project)).diagnostics ==
+          diagnostics_t{ "error: build: 'build' is a table, [build], with the program its build "
+                         "step runs" });
+    CHECK(read(std::format("{}build = \"tools/generate.fb\"\n", project)).diagnostics ==
+          diagnostics_t{ "error: build: a build step is a table of its own, [build], with the "
+                         "program it runs, like program = \"tools/generate.fb\"" });
+    CHECK(read(std::format("{}[build]\nprogram = \"generate.txt\"\n", project)).diagnostics ==
+          diagnostics_t{ "error: \"generate.txt\": [build]'s program is a .fb file in its "
+                         "package's folder, like \"tools/generate.fb\", not \"generate.txt\"" });
+    CHECK(read(std::format("{}[build]\nprogram = 5\n", project)).diagnostics ==
+          diagnostics_t{ "error: 5: 'program' is text, like \"tools/generate.fb\"" });
+    CHECK(read(std::format("{}[build]\nprogram = \"a.fb\"\npackage = \"tools\"\n", project))
+              .diagnostics ==
+          diagnostics_t{ "error: \"tools\": [build]'s package is one of [dependencies], whose "
+                         "program the build step is, and there's no tools there" });
 }
 
 TEST_CASE("[registries] names registries by their indexes", "[manifest]") {

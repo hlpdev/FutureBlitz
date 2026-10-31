@@ -26,7 +26,11 @@ them is designed here and in [website.md](website.md), and built in M10.
 5. **Interface files.** A prebuilt library comes with an interface file: its Public declarations,
    and the bodies of its generic, @Inline, and Const code, which callers compile themselves (like
    C++ headers with templates, or Swift's .swiftinterface). The rest is only in the binary, so a
-   library can be closed source.
+   library can be closed source, and its tests/ folder's tests see only what the interface file
+   has: its Public names, and the Package members of its Public types, while its top-level
+   Package declarations are only named, in each module's `// package` line, for the error. A
+   built-in type a module's own type of that name hides, as its own Object would hide the
+   built-in, can't be written in it, which the build says.
 6. **Exact-version ABI.** A program is built against one exact build of each library. Each binary
    carries an ABI hash, and linking or loading a mismatched one is an error that names both builds.
    Layouts and Method tables can change freely between versions.
@@ -125,7 +129,13 @@ engine = { version = "0.4", link = "beside" }        # engine.dll beside space-g
 - The registry is at futureblitz.dev, designed in [website.md](website.md), with a sparse index of
   each package's versions and each archive's SHA-256.
 - A package's archives hold project.toml, a license, a readme, and its .fb source, or its prebuilt
-  `.fblib` per target and mode (with the .fbi), and its natives per target.
+  `.fblib` per target and mode (with the .fbi), and its natives per target. A package with a
+  build step (spec 11) ships its `[build]` and its program's source, but not what the step made,
+  which is under build/: a program that depends on it runs the step into its own build folder,
+  so building it runs the package's program on the machine that builds, as Cargo's build scripts
+  do, and a prebuilt package's step ran where it was built, its modules in its interface file.
+  fb-lsp never runs a registry package's step, and takes what the program's build made. The
+  registry reads only `[project]` and `[dependencies]`.
 - `physics = "1.2"` means 1.2 or any later 1.x; `fb.lock` pins each package's exact version and
   hash; `fb add`, `fb update`, and `fb publish`; downloads go to a cache folder per user. Signing
   comes later.
@@ -310,23 +320,28 @@ tools = { version = "2", registry = "company" }
   the dashboard, and asks the registry about it (`GET /me`) before it keeps it, so one that's
   mistyped, revoked, or expired is refused, leaving the token there was. Each says the account
   it signed in as. `fb logout` removes the stored one.
-- `fb publish [folder] [--dry-run] [--registry <name>]` builds the archives, writes `fb doc`'s
-  JSON, and checks what the registry checks: a library (an executable can't be a dependency) whose
-  name the registry takes (not `std`, `fb`, `futureblitz`, `apt`, `rpm`, or `releases`, even with
-  `_`s), with a description of one line, at most 300 characters as the registry counts them, in
-  UTF-16, a license that's an SPDX expression, a license file, and a readme in UTF-8 under 1 MB;
-  only versioned dependencies, a dependency with a path and a version going into the archive's
-  project.toml without its path, and one with only a path refused; paths the archive can hold; the size limits, a target's 200 MB only
-  for a registry on disk, since one on the network raises it per package, and each archive's
-  20,000 files and 8 times its limit unpacked; and for a prebuilt package each target's debug and release builds and
-  their .fbi agreeing. `--dry-run` stops there and lists each archive's files; otherwise it checks
-  the version is new, uploads each archive and the docs (in parts when they're over 64 MB), and
-  publishes them. Its sizes are in the registry's units, as its limits are, a KB a thousand bytes
-  and an MB a million, and Uploading says the size Packaged did. In a GitHub workflow without
-  `FB_REGISTRY_TOKEN`, fb asks GitHub for an OIDC token for the registry's audience, exchanges it
-  for a short-lived token, publishes with it, and revokes it. A package the exchange doesn't name,
-  as it names only packages already on the registry that trust the workflow, is refused before
-  anything's uploaded: a package's first version comes from `fb login` or `FB_REGISTRY_TOKEN`.
+- `fb publish [folder] [--dry-run] [--no-verify] [--registry <name>]` builds the archives, writes
+  `fb doc`'s JSON, and checks what the registry checks: a library (an executable can't be a
+  dependency) whose name the registry takes (not `std`, `fb`, `futureblitz`, `apt`, `rpm`, or
+  `releases`, even with `_`s), with a description of one line, at most 300 characters as the
+  registry counts them, in UTF-16, a license that's an SPDX expression, a license file, and a readme
+  in UTF-8 under 1 MB; only versioned dependencies, a dependency with a path and a version going
+  into the archive's project.toml without its path, and one with only a path refused; paths the
+  archive can hold; the size limits, a target's 200 MB only for a registry on disk, since one on the
+  network raises it per package, and each archive's 20,000 files and 8 times its limit unpacked; and
+  for a prebuilt package each target's debug and release builds and their .fbi agreeing. As Cargo
+  does, a dependency with a path and a version has to have its folder's version on the registry, not
+  yanked ("publish shapes v0.3.9 first"), which `--offline` can't ask; and the archive, unpacked in
+  build/package/<name>-<version>/, has to build from the registry's packages alone, from the cache
+  with `--offline`, which `--no-verify` skips. `--dry-run` stops there and lists each archive's
+  files; otherwise it checks the version is new, uploads each archive and the docs (in parts when
+  they're over 64 MB), and publishes them. Its sizes are in the registry's units, as its limits are,
+  a KB a thousand bytes and an MB a million, and Uploading says the size Packaged did. In a GitHub
+  workflow without `FB_REGISTRY_TOKEN`, fb asks GitHub for an OIDC token for the registry's
+  audience, exchanges it for a short-lived token, publishes with it, and revokes it. A package the
+  exchange doesn't name, as it names only packages already on the registry that trust the workflow,
+  is refused before anything's uploaded: a package's first version comes from `fb login` or
+  `FB_REGISTRY_TOKEN`.
 - `fb yank <name>@<version> [--undo]`, `fb owner <name> [--add <who> | --remove <who>]`, and
   `fb search <words>`, each with `--registry`. The package's name is checked first, and `<who>`
   is a username or `team:<name>`. `fb owner` lists the owners, and the invites to own the package

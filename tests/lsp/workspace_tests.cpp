@@ -360,6 +360,29 @@ TEST_CASE("a package's main file, another main file, and its tests' files are ch
     CHECK(client.diagnostics(folder.uri("tests/shared_tests.fb")).size() == 1);
 }
 
+TEST_CASE("a package's files see what its build step made, which runs if it never ran", "[lsp]") {
+    const folder_t folder({
+        {
+            "project.toml",
+            "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n[build]\nprogram = "
+            "\"tools/generate.fb\"\n",
+        },
+        {
+            "tools/generate.fb",
+            "Import std.io\nImport std.os\n"
+            "Try File.WriteText(Path(Env.Get(\"FB_BUILD_OUT\") ?? \"\") / \"made.fb\", "
+            "\"Public Const COUNT = 2\\n\")\n",
+        },
+        { "main.fb", "Import std.core\nImport app.made\nLocal n: Int = COUNT\nPrint(n)\n" },
+    });
+    client_t client({ .folders = { folder.root() } });
+    client.settle();
+    INFO(client.diagnostics(folder.uri("main.fb")).dump());
+    INFO(client.diagnostics(folder.uri("tools/generate.fb")).dump());
+    CHECK(client.diagnostics(folder.uri("main.fb")).empty());
+    CHECK(client.diagnostics(folder.uri("tools/generate.fb")).empty());
+}
+
 TEST_CASE("std's files are checked quickly, with only what they import", "[lsp][std]") {
     const std::filesystem::path fuzzy =
         fb::path_from_utf8(fb::build_config::std_directory) / "text" / "fuzzy.fb";

@@ -454,8 +454,10 @@ private:
     /// which lower_library() lowers.
     std::vector<global_id_t> m_thread_initializers;
     /// The functions besides main whose uncaught errors end the program: the ThreadLocals'
-    /// initializers.
+    /// initializers, a library's modules', and a test build's top-level code.
     std::unordered_set<function_id_t> m_ending_functions;
+    /// The function that sets the Globals: main, or a test build's top-level code of its own.
+    function_id_t m_top_level{};
     /// Each instance's Static Fields of a generic type, by the field and the type arguments.
     std::map<std::pair<symbol_id_t, std::vector<type_id_t>>, global_id_t> m_instance_globals;
     /// Each Class's Method table, by its type, made when it's first needed.
@@ -863,6 +865,7 @@ private:
 
         m_module.entry = static_cast<function_id_t>(m_module.functions.size());
         m_module.functions.push_back({ .name = "main" });
+        m_top_level = m_module.entry;
     }
 
     function_id_t declare_function(const symbol_id_t id) {
@@ -2496,11 +2499,17 @@ private:
     /// Globals whose values aren't known at compile time are set first, in source order. Then
     /// the rest of the top-level code runs.
     void lower_top_level() {
-        begin_function(m_module.entry);
-        // A test build's report has a panic in a Global's initializer too.
+        // A test build's main, which runs the tests, is code the compiler makes, which a stack
+        // trace leaves out, as it does a test's own thread's. It sets the Globals in top-level
+        // code of its own, after it starts the report, which has a panic in one's initializer
+        // too.
         if (m_testing) {
-            emit(evaluate_t{ call_t{ .function = test_runtime("fb_test_begin", {}) } });
+            m_top_level = static_cast<function_id_t>(m_module.functions.size());
+            m_module.functions.push_back({ .name = "(globals)", .trace_name = "top-level code" });
+            m_ending_functions.insert(m_top_level);
         }
+
+        begin_function(m_top_level);
 
         // The Globals are set module by module, in the modules' order. A library's build sets
         // its own in its modules' initializers, and a prebuilt library's binary its own, which
@@ -2552,6 +2561,10 @@ private:
 
         // A test build runs its tests in place of the main file's top-level code.
         if (m_testing) {
+            finish_function();
+            begin_function(m_module.entry);
+            emit(evaluate_t{ call_t{ .function = test_runtime("fb_test_begin", {}) } });
+            emit(evaluate_t{ call_t{ .function = m_top_level } });
             add_tests();
             finish_function();
             return;
@@ -2774,7 +2787,7 @@ private:
                 m_module.globals[index(global)].linkage == mir_linkage_t::IMPORTED) {
                 emit(ready_t{ .global = global, .span = m_ast.get(use).span });
             }
-        } else if (m_function != m_module.entry && m_module.globals[index(global)].set_in_main) {
+        } else if (m_function != m_top_level && m_module.globals[index(global)].set_in_main) {
             emit(ready_t{ .global = global, .span = m_ast.get(use).span });
         }
 
@@ -10255,13 +10268,18 @@ private:
         switch (field.modifiers.visibility) {
         case visibility_t::PUBLIC:
             return std::nullopt;
-        case visibility_t::PACKAGE:
-            if (package(field.span.file) == package(span.file)) {
+        case visibility_t::PACKAGE: {
+            // Its package's tests can change it too, as they can by its name.
+            const std::optional<package_id_t> declared = package(field.span.file);
+            const std::optional<package_id_t> here = package(span.file);
+            if (declared == here || (declared && here && modules.sees_package(*here, *declared))) {
                 return std::nullopt;
             }
 
-            return std::format("'{}' is Package, so f.Set outside its package can't change it",
+            return std::format("'{}' is Package, so f.Set outside its package and its tests can't "
+                               "change it",
                                field.name);
+        }
         case visibility_t::PROTECTED:
             // In the code of a Class extending its own.
             for (type_id_t code = m_self ? type_of(place_t{ *m_self }) : type_id_t::INVALID;

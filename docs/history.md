@@ -166,7 +166,13 @@ registry uses the range; and `fb publish` writes the archive's project.toml with
 line, a table's or a dotted key's, and reads the result back as the same manifest), refusing a
 dependency with only a path as before, with how to add a version. `dependency_t` has `range_span`
 for where the range is written, apart from `path_span`, and `path_entry_span`. A path with a
-version can name a registry, as a path alone can't.
+version can name a registry, as a path alone can't. From 1.1's review: `fb publish` refuses, unless
+`--offline`, a dependency with a path and a version whose folder's version the registry doesn't
+have unyanked ("publish shapes v0.3.9 first"), and builds the archive unpacked in
+build/package/<name>-<version>/ from the registry's packages alone, with its registries on disk
+named whole (`verify_package()`), which `--no-verify` skips, as Cargo does; a dotted key's names
+go with its path (`dotted_start()`); and a registry package without its project.toml is an error
+at its range.
 
 A built-in `Object`, what every Class's object is: `builtin_interfaces_t::object`, an Interface
 without members that sema declares with its built-ins and resolves by the name when the module
@@ -178,13 +184,23 @@ program's. `As?` and `As` convert to and from a type parameter that's a Class's,
 it, making one, and showing one. Struct values aren't Objects, and an Interface's value becomes
 one only with `As?`, since it can be an array's. Interface files write it as `Object`, and
 fb-lsp completes it. tests/programs/objects.fb keeps any Class's object in a holder and gets it
-back typed; panic_object_cast.fb panics on the wrong Class.
+back typed; panic_object_cast.fb panics on the wrong Class. From 1.1's review: an interface file
+refuses to write the built-in Object or Scheduler where the module's own type of that name, or
+an imported one, would hide it (`builtin_name()`); only a type or Alias of the name takes the
+built-in's place, not a Function; beside a declared Object, a message names "the built-in
+Object"; `[Object]`, `[Scheduler]`, `[Task]`, `[Weak]`, and the language's other named types
+are built-in links in doc comments; a Class constraint's error leaves out the array hint for
+Object; and "every B is an Object".
 
 A package's tests see its Package members: the tests/ folder's package, `<name>.tests`, and the
 doc examples', `<name>.doctests`, are its tests in the module table (`add_tests()` and
 `sees_package()`), which sema's `sees()` and `can_use()` and fb-lsp's completion use, while
 Private names stay their files' and Public what other packages see. The tested package's
-tests/ folder calls a Package Function.
+tests/ folder calls a Package Function. From the review: `f.Set` changes a Package Field in the
+package's tests too, and a prebuilt library's tests, which see only what its interface file has,
+its Public names and the Package members of its Public types, say so where they use one of its
+top-level Package declarations, which each module's part of the interface file names in a
+`// package` line (`module_t::package_names`), and not for a typo.
 
 std.math's `Mat4.Perspective` and `Mat4.Orthographic` panic, with their values, for values
 whose matrix isn't finite, which they gave as Inf before: a field of view, an aspect, or a
@@ -195,7 +211,113 @@ five more panic_math_ programs.
 std.io's `Vfs` agrees with itself where a later mount sits at or under a place an earlier mount
 has a file, or a later mount has a folder there: its reads, Async too, throw IS_A_DIRECTORY, as
 `KindOf` and `Entries` say it's a folder, where they read the earlier file before (`Holds()` and
-`FolderError()`; fbengine's review found it). tests/programs/io_vfs_shadowed.fb.
+`FolderError()`; fbengine's review found it). The other way round too, from 1.1's review: a
+later mount's file on the way to a path hides what an earlier mount has under it, and KindOf,
+Entries, and the reads throw NOT_A_DIRECTORY there, and Exists is False (`Through()`).
+tests/programs/io_vfs_shadowed.fb.
+
+`File.WriteBytesAtomic` and every atomic write (WriteTextAtomic, Preferences, the HTTP client's
+Download) replace a file another handle holds open on Windows too, as a game's updater writes a
+new pak over a mounted one: atomic_file_t's commit renames with POSIX semantics,
+`SetFileInformationByHandle(FileRenameInfoEx, FILE_RENAME_FLAG_REPLACE_IF_EXISTS |
+FILE_RENAME_FLAG_POSIX_SEMANTICS)` (`replace_file()`), and falls back to libuv's `MoveFileExW`
+where Windows or the disk doesn't have them, and the open handle reads on in the old file: on
+Windows a handle that shares delete, as std's do, while one that doesn't, as Python's open()
+makes, makes it fail as BUSY (fbengine's assets lane found it).
+tests/programs/io_file_atomic_open.fb.
+
+A package's build step, `[build]` with `program` and maybe `package` (`build_step_t` in
+manifest.hpp; `build` under [project] is an error that says so): before a build, check, test, or
+doc compiles, `run_build_steps()` runs each package's that's out of date, after its
+dependencies', into build/steps/<target>/<mode>/<package>/out/ of the package being built. A
+step's program builds as a program of its package, in debug, with `build_steps_t::SKIP` and the
+build's fb.lock (a registry package's in the cache loads as fb.lock's), and runs with
+`FB_BUILD_PACKAGE`, `FB_BUILD_FOLDER`, `FB_BUILD_OUT`, `FB_BUILD_TARGET`, and `FB_BUILD_MODE`
+(run_process() takes an environment now, CreateProcessW's block and posix_spawn's envp). Its
+stamp keeps fb's version, its program's files, and what it read, from `fb:rerun-if-changed=`
+lines or its package's files; `fb:warning=` lines are warnings. A package's `generated` folder
+is where `disk_path()` finds what its own folder doesn't have, which `folder_files()` and
+`library_files()` list and `linked_away()` takes as the package's; a step's file the package
+has too, a program that doesn't build, and an exit code other than 0 are errors at [build].
+`step_lock_t` takes turns, by a mutex and a lock folder. fb-lsp checks with
+`build_steps_t::MISSING`. Driver, manifest, packages (a registry package's program), and fb-lsp
+tests. From 1.1's review: a step's inputs are read before it runs (`input_lines()`' `before`),
+and one written after its start is "changed", as Cargo counts it; inputs of 1 MB or less are
+hashed (FNV-1a), bigger ones are a size and a time in nanoseconds (`modified_time()`, as MinGW's
+std::filesystem rounds to seconds); the stamp's program lines have fb's commit (fb/commit.hpp,
+the compiler's now, so the stamp and `fb --version` agree), the build's fb.lock's hash, and the
+files the program embeds; a new program empties out/; a stamp is written to stamp.partial and
+renamed, and one without an input line is stale; `fb:rerun-if-changed=` folders leave out
+build/ and hidden files; a file the package has at a generated path is an error at every build
+(`apart()`). The lock is the system's (`file_lock_t`, LockFileEx and flock), which a crash or
+Ctrl+C lets go of, with no timeout and "Waiting for another fb's build step" while it waits, and
+`run_process()`' `process_life_t::TIED` ends the step with fb: a job that closes with fb on
+Windows, and on POSIX a process group of its own that SIGINT and SIGTERM end first. A failed
+run's stamp keeps its error and notes, which a check while code is typed gives again, checking
+the rest, until its inputs or program change; a check never runs a registry package's step,
+taking the workspace's build's files (`take_built()`, `check_request_t::workspace`) or warning
+to run fb build, and writes nothing in the cache. A failure's output and the program's errors
+are notes, a line each. `compile_file()`, `compile_tests()`, and `compile_docs()` take a
+status_t, so fb build, run, test, check, doc, and publish say "Running <package>'s build step".
+The VS Code extension declares untrusted workspaces unsupported. Importing a package's folder
+leaves its step's program out (`folder_files()`), as `library_files()` did. Driver, packages,
+and CLI tests, the last ending fb mid-step. From the check of those fixes: the stamp is taken out
+before the program builds, out/ empties, or the step runs, as Cargo deletes a fingerprint, so an
+fb that's ended mid-step leaves none to trust; a message or note of several lines, as lld's or
+render_short()'s, is a note a line (`lines_of()`), and a stamp with a line read_stamp() doesn't
+know is stale; a file line names its file normal, with '/'s (`stamped_name()`), so the `*` walk
+and a folder's agree, and a file a walk before the run had that's gone keeps its line, and one
+it would have had that's new is "changed" (`in_package_files()`); an embed's source line is
+whole; a clash is a failure, with its stamp; a failure to empty out/ is one. A tied program is
+waited for, then its job or group is ended, then its output is drained, so what it left can't
+keep fb waiting; SIGHUP and SIGQUIT end it too, on Linux it starts through a fork with
+PR_SET_PDEATHSIG and a session of its own (`spawn_tied()`), so SIGKILL ends it as well, and on
+macOS posix_spawn's POSIX_SPAWN_SETSID gives it no terminal. Driver tests of each, the CLI test
+ending fb by each signal, and a check of process.cpp on Linux by hand.
+
+A test's stack trace ends at the test (the input lane's review found it): a @MainThread test's
+trace went on to main, which runs the tests, and named it top-level code at the line of the last
+Global it set, as std/text/humanize.fb:138, since the calls that run the tests have no place of
+their own. A test build's main sets the Globals in top-level code of their own, `(globals)`, so
+main itself has no place and a trace leaves it out, as it does a worker's frames, and a panic in
+a Global's initializer is still at top-level code (`m_top_level` in lower.cpp). A CLI test.
+
+A release build without warnings (the M11 lane found them): GCC 15's -O3 warned of a null
+pointer in reading a whole file through `std::istreambuf_iterator`, so source.cpp, fmt.cpp,
+commands.cpp, package_archive.cpp, workspace.cpp, and driver.cpp (`bytes_of()`) read through
+`rdbuf()`. And of its false positives elsewhere: evaluate.cpp's format results are made in place
+(`std::in_place`), registry_api.cpp's archive is made whole, format.cpp says what a comment with
+no code after it is indented to, png.cpp's chunks take the sequence number as a head of their own
+in place of a vector of it and the data, and tls_roots.cpp checks the key usage's size first.
+sema.cpp's lambda in resolve_type no longer shadows `id`, from 1.1's Object fixes.
+
+RealWait and Sleep to about a millisecond on Windows (fbengine's assets lane found it): the
+scheduler's run_until slept 1 ms with sleep_for while a timer was due, which Windows makes its
+15.6 ms tick, so `Await RealWait(1.Milliseconds)` took 15.5 ms. `fb::time::sleep_precisely()`
+sleeps on a thread's high-resolution waitable timer (CreateWaitableTimerExW with
+CREATE_WAITABLE_TIMER_HIGH_RESOLUTION), or before Windows 10 1803 with winmm's timeBeginPeriod(1),
+loaded then, for the sleep alone; run_until and fb_time_sleep use it. tests/programs/
+time_realwait.fb waits and sleeps a millisecond 100 times, each under 300 ms.
+
+A TGA that ends before its pixels do is an IOError of INVALID_DATA (fbengine's GPU review found
+it): stb_image read what's past the end as 0s, so an 18-byte header of a 16384 by 16384 image
+decoded into a gigabyte of nothing. `tga_whole()` in stb.cpp walks the header, ID, and color map,
+then the pixels, uncompressed or by run-length packets, before stb_image reads it.
+tests/programs/image_tga_short.fb.
+
+The check of 1.1's fixes: for every built-in type's name, as for Object and Scheduler, only a type
+or an Alias takes the built-in's place (`is_typed()` in resolve_type), not a Function or a Global,
+and `Channel<Int>(4)` makes the built-in where only a Function that isn't generic has the name
+(`in_place_maker()`, `generic_function_named()`). Analysis records each module's types that hide a
+built-in by sema's own lookup (`builtin_hider()`, `analysis_t::builtin_hiders`), so an Import As,
+a From line that names something else, and another module's Private type don't, and the
+interface writer refuses Task, Channel, Thread, Ptr, Atomic, Mutex, and Weak there too, saying
+which module's type hides it. A Vfs mount's file at a place, or on the way to a path, cuts off what
+earlier mounts have there in the reads, KindOf, and listings alike (`FileOnTheWay()`), a path there
+NOT_FOUND where a later mount makes the file's place a folder again (`FolderAfter()`), and
+ReadBytesAsync asks a folder on the disk with MetadataAsync (`KindAtAsync()`). fb publish says a
+path dependency's yanked version is yanked, and how to go on. The error of a prebuilt library's
+tests says a name is Package only for one of its top-level Package declarations.
 
 ## 1.0.1
 

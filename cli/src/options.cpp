@@ -171,7 +171,8 @@ parse_package_arguments(const std::span<const std::string_view> arguments, optio
         case command_t::SEARCH:
             return name == "--registry" || name == "--limit";
         case command_t::PUBLISH:
-            return name == "--registry" || name == "--dry-run" || name == "--offline";
+            return name == "--registry" || name == "--dry-run" || name == "--offline" ||
+                   name == "--no-verify";
         case command_t::YANK:
             return name == "--registry" || name == "--undo";
         case command_t::OWNER:
@@ -234,7 +235,7 @@ parse_package_arguments(const std::span<const std::string_view> arguments, optio
         if (!takes(name)) {
             if (name == "--registry" || name == "--beside" || name == "--offline" ||
                 name == "--limit" || name == "--dry-run" || name == "--undo" || name == "--add" ||
-                name == "--remove" || name == "--token") {
+                name == "--remove" || name == "--token" || name == "--no-verify") {
                 return std::unexpected(std::format("'{}' doesn't work with {}", name, usage));
             }
 
@@ -242,7 +243,7 @@ parse_package_arguments(const std::span<const std::string_view> arguments, optio
         }
 
         const bool flag = name == "--beside" || name == "--offline" || name == "--dry-run" ||
-                          name == "--undo" || name == "--token";
+                          name == "--undo" || name == "--token" || name == "--no-verify";
         if (flag && equals != std::string_view::npos) {
             return std::unexpected(std::format("'{}' takes no value", name));
         }
@@ -253,6 +254,8 @@ parse_package_arguments(const std::span<const std::string_view> arguments, optio
             options.offline = true;
         } else if (name == "--dry-run") {
             options.dry_run = true;
+        } else if (name == "--no-verify") {
+            options.no_verify = true;
         } else if (name == "--undo") {
             options.undo = true;
         } else if (name == "--token") {

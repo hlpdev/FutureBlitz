@@ -51,6 +51,9 @@ struct module_t {
     package_id_t package{};
     /// From a prebuilt library's interface file, whose code is in the library's binary.
     bool prebuilt = false;
+    /// For a prebuilt module, the names of its top-level Package declarations, which its interface
+    /// file leaves out but names, as its first comment.
+    std::vector<std::string> package_names;
     /// A library's beside the executable, whose code is in its file of its own.
     bool beside = false;
     /// In fb test's build, a file of the package with top-level code, another main file, as a
@@ -145,6 +148,9 @@ public:
     /// Whether code in the package `here` sees the Package declarations of the package
     /// `declared`: its own, or the package's it tests.
     [[nodiscard]] bool sees_package(package_id_t here, package_id_t declared) const;
+
+    /// The package `package` is tests of, if it's tests.
+    [[nodiscard]] std::optional<package_id_t> tested(package_id_t package) const;
 
     /// The module that declares the member `name` an Extend adds to the built-in type named
     /// `type`, among the standard library's that the program doesn't load. nullopt when none

@@ -271,6 +271,86 @@ TEST_CASE("fb publish, add, search, and yank work with a registry on disk", "[cl
     CHECK(fb_run({ "update", "nope" }).output.contains("fb.lock has no package nope to update"));
 }
 
+TEST_CASE("fb publish checks a path dependency's version is the registry's, and builds the "
+          "archive from the registry's packages",
+          "[cli-packages]") {
+    const fb::testing::sandbox_t sandbox;
+    const std::string index = fb::to_utf8(sandbox / "registry/index");
+    (void)sandbox.registry();
+    const std::string version_code =
+        "Public Function Version(): String\n    Return \"shapes\"\nEnd Function\n";
+    sandbox.library("shapes", "shapes", "0.3.0", "", { { "area.fb", version_code } });
+    REQUIRE(fb_run({ "publish", fb::to_utf8(sandbox / "shapes"), "--registry", index }).exit_code ==
+            0);
+
+    // The folder physics builds with has a version the registry doesn't, with what it doesn't.
+    sandbox.library("shapes_local", "shapes", "0.3.9", "",
+                    { { "area.fb", version_code + "Public Function Extra(): Int => 1\n" } });
+    sandbox.library("physics", "physics", "1.2.0",
+                    "shapes = { path = \"../shapes_local\", version = \"0.3\", registry = "
+                    "\"local\" }\n",
+                    { { "world.fb", "Import shapes\nPublic Function Uses(): Int => Extra()\n" } });
+    const fb::process_result_t unpublished =
+        fb_run({ "publish", fb::to_utf8(sandbox / "physics"), "--registry", index });
+    INFO(unpublished.output);
+    CHECK(unpublished.exit_code == 1);
+    CHECK(unpublished.output.contains(
+        "physics builds with shapes v0.3.9 from its folder, '../shapes_local', which the "
+        "registry doesn't have, so no one could build the published package; publish shapes "
+        "v0.3.9 first"));
+
+    // At the registry's version, the archive builds from the registry's shapes, which has no
+    // Extra, in a dry run too.
+    sandbox.library("shapes_local", "shapes", "0.3.0", "",
+                    { { "area.fb", version_code + "Public Function Extra(): Int => 1\n" } });
+    for (const bool dry : { true, false }) {
+        std::vector<std::string> arguments{
+            "publish",
+            fb::to_utf8(sandbox / "physics"),
+            "--registry",
+            index,
+        };
+        if (dry) {
+            arguments.emplace_back("--dry-run");
+        }
+
+        const fb::process_result_t unbuilt = fb_run(arguments);
+        INFO(unbuilt.output);
+        CHECK(unbuilt.exit_code == 1);
+        CHECK(unbuilt.output.contains("Verifying physics v1.2.0 as the registry would have it"));
+        CHECK(unbuilt.output.contains("'Extra' isn't declared"));
+        CHECK(unbuilt.output.contains("physics v1.2.0 doesn't build as the registry would have "
+                                      "it, from its packages, because of 1 error; --no-verify "
+                                      "publishes it anyway"));
+    }
+
+    CHECK_FALSE(std::filesystem::exists(sandbox / "registry/index/ph/ys/physics"));
+    const fb::process_result_t unverified =
+        fb_run({ "publish", fb::to_utf8(sandbox / "physics"), "--registry", index, "--no-verify" });
+    INFO(unverified.output);
+    CHECK(unverified.exit_code == 0);
+    CHECK_FALSE(unverified.output.contains("Verifying"));
+    CHECK(unverified.output.contains("Published physics v1.2.0"));
+
+    // A yanked version can't be published again, so the message says what can be done instead.
+    const fb::process_result_t yanked = fb_run({ "yank", "shapes@0.3.0", "--registry", index });
+    INFO(yanked.output);
+    REQUIRE(yanked.exit_code == 0);
+    sandbox.library(
+        "physics", "physics", "1.3.0",
+        "shapes = { path = \"../shapes_local\", version = \"0.3\", registry = "
+        "\"local\" }\n",
+        { { "world.fb", "Import shapes\nPublic Function Uses(): String => Version()\n" } });
+    const fb::process_result_t withdrawn =
+        fb_run({ "publish", fb::to_utf8(sandbox / "physics"), "--registry", index });
+    INFO(withdrawn.output);
+    CHECK(withdrawn.exit_code == 1);
+    CHECK(withdrawn.output.contains(
+        "physics builds with shapes v0.3.0 from its folder, '../shapes_local', which the "
+        "registry has yanked, so no one could build the published package; undo the yank with "
+        "`fb yank shapes@0.3.0 --undo`, or give the folder a new version and publish that first"));
+}
+
 // Against a registry's real API, which FB_TEST_REGISTRY names by its index's URL, like
 // http://index.localhost:8787/ for futureblitz-web's workers/api under `wrangler dev`, and
 // FB_TEST_REGISTRY_TOKEN gives a token of, with the publish scopes: one computer logs in with it,

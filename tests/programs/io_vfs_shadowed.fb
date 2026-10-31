@@ -1,6 +1,9 @@
 // A later mount at a place, or under it, makes the place a folder for every call, though an
-// earlier mount has a file there, and so does a later mount's folder there: KindOf, Entries, and
-// the reads, Async or not, all say so. Everything on the disk is in a temporary folder.
+// earlier mount has a file there, and so does a later mount's folder there; and a later mount's
+// file hides what's under it, and cuts off what earlier mounts have there, though a still later
+// mount makes its place a folder again: KindOf, Exists, Entries, and the reads, Async or not, all
+// say so.
+// Everything on the disk is in a temporary folder.
 Import std.core
 Import std.io
 
@@ -66,5 +69,53 @@ Local over = Vfs()
 over.MountEmbedded("data", {"four.txt": "four".Bytes})
 over.MountEmbedded("", {"data": "the file".Bytes})
 Print("  {Says(over, "data")}, later: {Await ReadsLater(over, "data")}")
+
+// What's under it is hidden, as a path through a file on the disk is.
+Function Hidden(vfs: Vfs, path: String): String
+    Try
+        vfs.KindOf(path)
+    Catch e As IOError
+        Return "KindOf gives {e.Kind}, so {Says(vfs, path)}, exists: {vfs.Exists(path)}"
+    End Try
+
+    Return "not hidden"
+End Function
+
+Print("  {Hidden(over, "data/four.txt")}, later: {Await ReadsLater(over, "data/four.txt")}")
+over.MountEmbedded("data/deep", {"five.txt": "five".Bytes})
+Print("  [{Try over.ReadText("data/deep/five.txt")}], as a later mount under it")
+Try Dir.CreateAll(root / "mod" / "maps")
+Try File.WriteText(root / "mod" / "maps" / "six.txt", "six")
+Local folders = Vfs()
+folders.MountFolder("", root / "mod")
+folders.MountEmbedded("", {"maps": "a file".Bytes})
+Print("  {Hidden(folders, "maps/six.txt")}")
+
+// The names in a folder.
+Function Names(vfs: Vfs, path: String): String Throws IOError
+    Local names = ""
+    For entry In Try vfs.Entries(path)
+        names = names == "" ? entry.Name() : names + " " + entry.Name()
+    End For
+
+    Return names
+End Function
+
+Print("a still later mount makes the file's place a folder again, but the file still cuts off")
+Print("what earlier mounts have there, which is nothing")
+Print("  {Says(over, "data/four.txt")}, later: {Await ReadsLater(over, "data/four.txt")}")
+Print("  data has: {Try Names(over, "data")}")
+Local three = Vfs()
+three.MountEmbedded("", {"a/b.txt": "zero".Bytes})
+three.MountEmbedded("", {"a": "one".Bytes})
+three.MountEmbedded("", {"a/c.txt": "two".Bytes})
+Print("  {Says(three, "a")}, a has: {Try Names(three, "a")}")
+Print("  {Says(three, "a/b.txt")}, later: {Await ReadsLater(three, "a/b.txt")}")
+Print("  [{Try three.ReadText("a/c.txt")}]")
+Try Dir.CreateAll(root / "more" / "maps")
+Try File.WriteText(root / "more" / "maps" / "seven.txt", "seven")
+folders.MountFolder("", root / "more")
+Print("  {Says(folders, "maps/six.txt")}, later: {Await ReadsLater(folders, "maps/six.txt")}")
+Print("  seven later: {Await ReadsLater(folders, "maps/seven.txt")}, maps has: {Try Names(folders, "maps")}")
 
 Try temp.Close()

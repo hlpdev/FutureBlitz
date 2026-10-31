@@ -626,8 +626,11 @@ private:
 
         const std::expected<format_spec_t, format_spec_error_t> spec =
             parse_format_spec(std::get<std::string>(arguments.back().data));
+        // Each made in its result, which a release build's GCC follows, where it doesn't a
+        // value_t moved into one.
         if (!spec || format_spec_misfit(*spec, subject, "")) {
-            return value_t{ const_value_t{ .type = type_id_t::STRING, .data = nullptr } };
+            return result_t(std::in_place,
+                            const_value_t{ .type = type_id_t::STRING, .data = nullptr });
         }
 
         const_value_t value = arguments[0];
@@ -640,10 +643,11 @@ private:
             format_spec_t padding = *spec;
             padding.kind = 0;
             padding.alternate = false;
-            return value_t{ make_string(format_text(std::get<std::string>(value.data), padding)) };
+            return result_t(std::in_place,
+                            make_string(format_text(std::get<std::string>(value.data), padding)));
         }
 
-        return value_t{ make_string(formatted(value, *spec).value_or("")) };
+        return result_t(std::in_place, make_string(formatted(value, *spec).value_or("")));
     }
 
     /// What a variable of `type` starts with: zero, False, "", Null, or a Struct, tuple, or

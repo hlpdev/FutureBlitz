@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -62,6 +63,40 @@ const char* name_of(const std::int32_t format) {
     }
 }
 
+/// Whether a TGA has every pixel its header says: after the 18 bytes of the header, its ID and its
+/// color map, its width times its height of them, uncompressed, or run-length encoded, in packets
+/// that each start with a byte of how many pixels it has and whether it's one of them repeated.
+bool tga_whole(const std::span<const std::uint8_t> all) {
+    const std::size_t pixel_bytes = (static_cast<std::size_t>(all[16]) + 7) / 8;
+    std::size_t at = 18 + std::size_t{ all[0] };
+    if (all[1] == 1) {
+        at += little16_at(all, 5) * ((static_cast<std::size_t>(all[7]) + 7) / 8);
+    }
+
+    const std::uint64_t pixels = std::uint64_t{ little16_at(all, 12) } * little16_at(all, 14);
+    if (all[2] < 9) {
+        return at <= all.size() && (all.size() - at) / pixel_bytes >= pixels;
+    }
+
+    for (std::uint64_t done = 0; done < pixels;) {
+        if (at >= all.size()) {
+            return false;
+        }
+
+        const auto packet = static_cast<unsigned>(all[at++]);
+        const std::size_t count = (packet & 0x7FU) + 1;
+        const std::size_t length = (packet & 0x80U) != 0 ? pixel_bytes : count * pixel_bytes;
+        if (all.size() - at < length) {
+            return false;
+        }
+
+        at += length;
+        done += count;
+    }
+
+    return true;
+}
+
 image_t* decode(const fb_array_t* data, const std::int32_t format, const std::int64_t limit) {
     if (fb_image_format(data) != format) {
         return failed(RESULT_INVALID, std::string("it isn't ") + name_of(format));
@@ -81,6 +116,13 @@ image_t* decode(const fb_array_t* data, const std::int32_t format, const std::in
     if (format == FORMAT_BMP && all.size() >= 34 && little16_at(all, 14) != 12 &&
         (all[30] == 1 || all[30] == 2) && all[31] == 0 && all[32] == 0 && all[33] == 0) {
         return failed(RESULT_UNSUPPORTED, "it's run-length encoded, which stb_image doesn't read");
+    }
+
+    // stb_image reads a TGA's pixels past its end as 0s, so one that ends before its image does,
+    // as a header of a 16384 by 16384 image with nothing after it does, would be a gigabyte of
+    // nothing.
+    if (format == FORMAT_TGA && !tga_whole(all)) {
+        return failed(RESULT_INVALID, "its pixels end before the image does");
     }
 
     const auto* bytes = static_cast<const stbi_uc*>(data->data);

@@ -135,15 +135,16 @@ panic: index 5 is out of range for 3 elements at app.fb:12:17
     at top-level code (app.fb:25)
 ```
 
-- A panic's trace, and an uncaught error's, has a line for each call of the program's code that
-  it's in, the innermost first: `    at <function> (<file>:<line>)`, with the file named as the
-  panic names it. A Method or Property is `Class.Method`, a generic Function's instance names its
-  type arguments, a function value's code and a Parallel For's body are named by where they're
-  written, as `Parallel For at app.fb:9:5`, a function of another module than the program's
-  main one has its module first, and a module's top-level code is `top-level code`. A call whose
-  line a release build loses, as when it merges calls on several lines into one, is
-  `    at <function> (<file>)`. The runtime's frames, the C code's, and those of the code the
-  compiler makes itself are left out.
+- A panic's trace, and an uncaught error's, has a line for each call of the program's code that it's
+  in, the innermost first: `    at <function> (<file>:<line>)`, with the file named as the panic
+  names it. A Method or Property is `Class.Method`, a generic Function's instance names its type
+  arguments, a function value's code and a Parallel For's body are named by where they're written,
+  as `Parallel For at app.fb:9:5`, a function of another module than the program's main one has its
+  module first, and a module's top-level code is `top-level code`. A call whose line a release build
+  loses, as when it merges calls on several lines into one, is `    at <function> (<file>)`. The
+  runtime's frames, the C code's, and those of the code the compiler makes itself are left out, as
+  the code that runs a test build's tests is, so a test's trace ends at the test, on the main thread
+  or a worker; the Globals it sets before them are top-level code.
 - It shows the innermost 100 places, then `    and more calls, which aren't shown` when the
   stack goes on.
 - An uncaught error's trace is where it was first thrown, the Throw that set its Place, though a
@@ -178,15 +179,15 @@ End Function
   It sees its file's Private names, as the file's other code does. `fb build` and `fb run` leave
   tests out, and the code only they reach; a library's binary and interface file leave the tests
   out.
-- Each example in the doc comments of a package's `.fb` files, a code block under `# Examples`
-  (see [01](01-lexical.md#doc-comments)), is a test of its own, named after its declaration, as
+- Each example in the doc comments of a package's `.fb` files, a code block under `# Examples` (see
+  [01](01-lexical.md#doc-comments)), is a test of its own, named after its declaration, as
   `geometry.shapes.Circle.Grow (example)`, and its second `(example 2)`. It's a module of a package
-  of its own, `<name>.doctests`, which depends on the package and what it depends on, so it uses
-  the package as a reader's code would, but sees its Package names too, as the package's own
-  files do, so a Package declaration's example runs; a file's Private names stay its own. It has `Import std.core`,
-  `Import std.test`, and an Import of its declaration's module, unless it writes them itself, and
-  writes any other Import at its top, as a file does; its declarations, like a Struct that
-  implements an Interface, go outside its test, and its other code is the test's body. Its
+  of its own, `<name>.doctests`, which depends on the package and what it depends on, so it uses the
+  package as a reader's code would, but sees its Package names too, as the package's own files do,
+  so a Package declaration's example runs; a file's Private names stay its own. It has `Import
+  std.core`, `Import std.test`, and an Import of its declaration's module, unless it writes them
+  itself, and writes any other Import at its top, as a file does; its declarations, like a Struct
+  that implements an Interface, go outside its test, and its other code is the test's body. Its
   failures, panics, and stack traces show its lines in the doc comment. `fb test std` runs the
   standard library's examples. For a `.fb` file outside a package, `fb test` runs that file's
   examples, each a module beside it that imports it by its path, as `Import "./geometry"`, so it
@@ -195,9 +196,12 @@ End Function
   depends on the package and on what it depends on, so their tests import it as another package
   would. They see its Package names too, as its own files do, so a test checks what the package
   keeps to itself without making it Public, but not a file's Private names, or a dependency's
-  Package ones; Public stays what other packages use. They import each other by their paths. A package
-  builds without its tests/ folder, so its own files don't import them. A tests/ folder with a
-  project.toml of its own is a package of its own, which `fb test` leaves alone.
+  Package ones; Public stays what other packages use. A prebuilt library's tests see only what its
+  interface file has: its Public names, and the Package Fields, Methods, and Properties of its
+  Public types, but not its top-level Package declarations, which the interface file names, so using
+  one says it's Package. They import each other by their paths. A package builds without its tests/
+  folder, so its own files don't import them. A tests/ folder with a project.toml of its own is a
+  package of its own, which `fb test` leaves alone.
 - A test build has each of the package's `.fb` files, and runs the tests in place of the main
   file's top-level code, once the Globals are set; another main file's top-level code, as a
   tool's in the package can have, is left out too. The tests run in parallel, on as many threads

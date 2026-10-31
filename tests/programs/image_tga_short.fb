@@ -1,0 +1,40 @@
+// A TGA whose pixels end before its image does is an IOError, not an image of the 0s stb_image
+// reads past its end: a header of a 16384 by 16384 image with nothing after it, an uncompressed
+// image a pixel short, and a run-length encoded one whose last packet is cut short.
+
+Import std.core
+Import std.image
+Import std.math
+
+Function Decoded(data: UInt8[]): String
+    Try
+        Local image = Tga.Decode(data)
+        Return "an image of {image.Width} by {image.Height}"
+    Catch e As IOError
+        Return "{e.Kind} {e.Message}"
+    End Try
+End Function
+
+// The first `count` of the bytes.
+Function Start(bytes: UInt8[], count: Int): UInt8[]
+    Local part: UInt8[] = []
+    For i = 0 Until count
+        part.Add(bytes[i])
+    End For
+    Return part
+End Function
+
+Print(Decoded([0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x00, 0x40, 0x00, 0x40, 32, 8]))
+
+// 2 by 2, uncompressed, of 32 bits a pixel.
+Local plain: UInt8[] = [0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 2, 0, 32, 8,
+                        1, 2, 3, 255, 4, 5, 6, 255, 7, 8, 9, 255, 10, 11, 12, 255]
+Print(Decoded(plain))
+Print(Decoded(Start(plain, plain.Count - 4)))
+
+// Tga.Encode's are run-length encoded.
+Local image = Image(3, 2)
+image.Fill(Color32.Yellow)
+Local encoded = Tga.Encode(image)
+Print(Decoded(encoded))
+Print(Decoded(Start(encoded, encoded.Count - 1)))

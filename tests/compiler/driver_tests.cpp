@@ -1,4 +1,5 @@
 #include "binary_images.hpp"
+#include "fb/commit.hpp"
 #include "fb/doc.hpp"
 #include "fb/driver.hpp"
 #include "fb/interface.hpp"
@@ -7,6 +8,7 @@
 #include "fb/utf8.hpp"
 
 #include <algorithm>
+#include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <cctype>
 #include <chrono>
@@ -18,6 +20,7 @@
 #include <fstream>
 #include <ios>
 #include <iterator>
+#include <mutex>
 #include <optional>
 #include <ranges>
 #include <string>
@@ -1946,6 +1949,617 @@ TEST_CASE("a package in a folder of any name links its C libraries", "[driver]")
     packages.remove();
 }
 
+namespace {
+
+/// A build step's program, which makes made.fb, with what it read and what it was given, and
+/// data/first.txt, the first of names.txt's lines, says it read names.txt, and warns.
+constexpr std::string_view generate_program =
+    "Import std.core\n"
+    "Import std.io\n"
+    "Import std.os\n"
+    "Local out = Path(Env.Get(\"FB_BUILD_OUT\") ?? \"\")\n"
+    "Local folder = Path(Env.Get(\"FB_BUILD_FOLDER\") ?? \"\")\n"
+    "Local names = Try File.ReadLines(folder / \"names.txt\")\n"
+    "Local given = (Env.Get(\"FB_BUILD_PACKAGE\") ?? \"\") + \" \" + "
+    "(Env.Get(\"FB_BUILD_MODE\") ?? \"\")\n"
+    "Local quote = \"\\\"\"\n"
+    "Try Dir.CreateAll(out / \"data\")\n"
+    "Try File.WriteText(out / \"made.fb\", \"Public Const COUNT = {names.Count}\\n\" +\n"
+    "    \"Public Function Given(): String => {quote}{given}{quote}\\n\")\n"
+    "Try File.WriteText(out / \"data/first.txt\", names[0])\n"
+    "Print(\"fb:rerun-if-changed=names.txt\")\n"
+    "Print(\"fb:warning=made {names.Count} names\")\n";
+
+/// Builds the package in `folder` and runs it, giving what it printed, or its first message.
+std::string build_and_run(const packages_t& packages, const std::string& folder) {
+    const std::expected<fb::compilation_t, std::string> game = fb::compile_file(packages / folder);
+    if (!game) {
+        return game.error();
+    }
+
+    if (game->diagnostics.has_errors()) {
+        return packages.messages(*game).front();
+    }
+
+    std::filesystem::path program = packages / (folder + "/build/" + folder);
+    program += fb::executable_extension;
+    const fb::mir_module_t module = fb::lower(game->ast, game->analysis);
+    const std::expected<fb::process_result_t, std::string> ran =
+        fb::build_program(module, *game, program, fb::build_mode_t::DEBUG).and_then([&] {
+            return fb::run_process(program, {});
+        });
+    return ran ? ran->output : ran.error();
+}
+
+} // namespace
+
+TEST_CASE("a package's build step makes modules and the files they embed, before its build",
+          "[driver]") {
+    const packages_t packages;
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\n\n"
+                                       "[build]\nprogram = \"tools/generate.fb\"\n");
+    packages.write("app/tools/generate.fb", generate_program);
+    packages.write("app/names.txt", "ann\nbo\n");
+    packages.write("app/main.fb", "Import std.core\n"
+                                  "Import app.made\n"
+                                  "Print(\"{Given()} {COUNT}\")\n"
+                                  "Print(EmbedText(\"data/first.txt\"))\n");
+    const std::expected<fb::compilation_t, std::string> built = fb::compile_file(packages / "app");
+    REQUIRE(built);
+    CHECK(packages.messages(*built) ==
+          std::vector<std::string>{
+              "app/project.toml: \"tools/generate.fb\": app's build step says: made 2 names" });
+    CHECK(build_and_run(packages, "app") == "app debug 2\nann\n");
+
+    // Its files are in the build folder, out of the package's, and it runs again only once what
+    // it said it read changes.
+    const std::filesystem::path out =
+        packages / std::format("app/build/steps/{}/debug/app/out", fb::build_target());
+    CHECK(std::filesystem::is_regular_file(out / "made.fb"));
+    CHECK_FALSE(std::filesystem::exists(packages / "app/made.fb"));
+    std::filesystem::remove(out / "data/first.txt");
+    packages.write("app/other.txt", "not read");
+    const std::expected<fb::compilation_t, std::string> kept = fb::compile_file(packages / "app");
+    REQUIRE(kept);
+    CHECK(packages.messages(*kept) ==
+          std::vector<std::string>{ "app/main.fb: \"data/first.txt\": \"data/first.txt\" isn't a "
+                                    "file: there's nothing at app/data/first.txt" });
+    packages.write("app/names.txt", "cy\n");
+    CHECK(build_and_run(packages, "app") == "app debug 1\ncy\n");
+
+    // A library's check, fb test's build, and fb doc's have them too.
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\ntype = "
+                                       "\"library\"\n\n[build]\nprogram = \"tools/generate.fb\"\n");
+    packages.write("app/main.fb", "Import app.made\nPublic Function Twice(): Int => COUNT * 2\n");
+    const std::array<std::expected<fb::compilation_t, std::string>, 3> compiled{
+        fb::compile_file(packages / "app"),
+        fb::compile_tests(packages / "app"),
+        fb::compile_docs(packages / "app"),
+    };
+    for (const std::expected<fb::compilation_t, std::string>& each : compiled) {
+        REQUIRE(each);
+        CHECK_FALSE(each->diagnostics.has_errors());
+    }
+
+    packages.remove();
+}
+
+TEST_CASE("a dependency's build step runs for the program, and a step's program can be a "
+          "dependency's",
+          "[driver]") {
+    const packages_t packages;
+    // tools has the program, which names makes its modules with, and the game uses names.
+    packages.write("tools/project.toml", "[project]\nname = \"tools\"\nversion = \"1.0.0\"\ntype = "
+                                         "\"library\"\n");
+    packages.write("tools/generate.fb", generate_program);
+    packages.write("tools/shared.fb", "Public Function Unused(): Int => 0\n");
+    packages.write("names/project.toml",
+                   "[project]\nname = \"names\"\nversion = \"1.0.0\"\ntype = \"library\"\n\n"
+                   "[dependencies]\ntools = { path = \"../tools\" }\n\n"
+                   "[build]\nprogram = \"generate.fb\"\npackage = \"tools\"\n");
+    packages.write("names/names.txt", "dee\neve\nfay\n");
+    packages.write("game/project.toml", "[project]\nname = \"game\"\nversion = \"1.0.0\"\n\n"
+                                        "[dependencies]\nnames = { path = \"../names\" }\n");
+    packages.write("game/main.fb", "Import std.core\n"
+                                   "Import names.made\n"
+                                   "Print(\"{Given()} {COUNT}\")\n");
+    CHECK(build_and_run(packages, "game") == "names debug 3\n");
+    // The game's build folder has it, for the game's builds.
+    CHECK(std::filesystem::is_regular_file(
+        packages / std::format("game/build/steps/{}/debug/names/out/made.fb", fb::build_target())));
+
+    // [build]'s package is one of [dependencies].
+    packages.write("names/project.toml",
+                   "[project]\nname = \"names\"\nversion = \"1.0.0\"\ntype = \"library\"\n\n"
+                   "[build]\nprogram = \"generate.fb\"\npackage = \"tools\"\n");
+    CHECK(build_and_run(packages, "game") ==
+          "names/project.toml: \"tools\": [build]'s package is one of [dependencies], whose "
+          "program the build step is, and there's no tools there");
+    packages.remove();
+}
+
+TEST_CASE("a build step that doesn't build, fails, or makes a package's own file is an error",
+          "[driver]") {
+    const packages_t packages;
+    const auto with_program = [&](const std::string_view program) {
+        packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\n\n"
+                                           "[build]\nprogram = \"generate.fb\"\n");
+        packages.write("app/generate.fb", program);
+        packages.write("app/main.fb", "Import std.core\nPrint(\"main\")\n");
+    };
+
+    // Its errors, and what it printed, are the error's notes, a line each.
+    const auto notes = [&] {
+        const std::expected<fb::compilation_t, std::string> app =
+            fb::compile_file(packages / "app");
+        REQUIRE(app);
+        REQUIRE_FALSE(app->diagnostics.diagnostics().empty());
+        return app->diagnostics.diagnostics().front().notes;
+    };
+    with_program("Import std.core\nPrint(missing)\n");
+    CHECK(build_and_run(packages, "app") ==
+          "app/project.toml: \"generate.fb\": app's build step, generate.fb, doesn't build");
+    REQUIRE(notes().size() == 1);
+    CHECK(notes().front().contains("'missing' isn't declared"));
+
+    with_program("Import std.core\nImport std.os\nPrint(\"what went wrong\")\nPrint(\"and why\")\n"
+                 "Process.Exit(3)\n");
+    CHECK(build_and_run(packages, "app") ==
+          "app/project.toml: \"generate.fb\": app's build step, generate.fb, failed with exit "
+          "code 3");
+    CHECK(notes() == std::vector<std::string>{ "what went wrong", "and why" });
+
+    with_program("Import std.core\nImport std.io\nImport std.os\n"
+                 "Try File.WriteText(Path(Env.Get(\"FB_BUILD_OUT\") ?? \"\") / \"main.fb\", "
+                 "\"\")\n");
+    CHECK(build_and_run(packages, "app") ==
+          "app/project.toml: \"generate.fb\": app's build step made main.fb, which its folder "
+          "has too; a step's files go beside the package's own");
+
+    // And [build] needs its program, a .fb file in the package's folder.
+    packages.write("app/project.toml",
+                   "[project]\nname = \"app\"\nversion = \"1.0.0\"\n\n[build]\npackage = \"x\"\n");
+    CHECK(build_and_run(packages, "app") ==
+          "app/project.toml: build: [build] needs the program its build step runs, like program "
+          "= \"tools/generate.fb\"");
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\n\n"
+                                       "[build]\nprogram = \"../generate.fb\"\n");
+    CHECK(build_and_run(packages, "app") ==
+          "app/project.toml: \"../generate.fb\": [build]'s program is a .fb file in its package's "
+          "folder, like \"tools/generate.fb\", not \"../generate.fb\"");
+    packages.remove();
+}
+
+namespace {
+
+/// A build step's program that counts its runs in runs.txt, beside its package's folder, reads
+/// names.txt, does `extra`, makes made.fb with names.txt's count of lines, and says it read
+/// `read`.
+std::string counting_program(const std::string_view extra = "",
+                             const std::string_view read = "names.txt") {
+    return std::format("Import std.core\n"
+                       "Import std.io\n"
+                       "Import std.os\n"
+                       "Local folder = Path(Env.Get(\"FB_BUILD_FOLDER\") ?? \"\")\n"
+                       "Local out = Path(Env.Get(\"FB_BUILD_OUT\") ?? \"\")\n"
+                       "Try File.AppendText(folder / \"../runs.txt\", \"run\\n\")\n"
+                       "Local names = Try File.ReadLines(folder / \"names.txt\")\n"
+                       "{}"
+                       "Try File.WriteText(out / \"made.fb\", \"Public Const COUNT = "
+                       "{{names.Count}}\\n\")\n"
+                       "Print(\"fb:rerun-if-changed={}\")\n",
+                       extra, read);
+}
+
+/// The app package, whose step is `program`, and whose main file prints made.fb's count.
+void counting_app(const packages_t& packages, const std::string& program) {
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\n\n"
+                                       "[build]\nprogram = \"generate.fb\"\n");
+    packages.write("app/generate.fb", program);
+    packages.write("app/main.fb", "Import std.core\nImport app.made\nPrint(\"{COUNT}\")\n");
+    packages.write("app/names.txt", "ann\n");
+}
+
+/// How many times the step has run.
+std::size_t runs(const packages_t& packages) {
+    std::ifstream in(packages / "runs.txt", std::ios::binary);
+    std::size_t count = 0;
+    for (std::string line; std::getline(in, line);) {
+        ++count;
+    }
+
+    return count;
+}
+
+/// The app's step's folder, in its build folder.
+std::filesystem::path app_step(const packages_t& packages) {
+    return packages / std::format("app/build/steps/{}/debug/app", fb::build_target());
+}
+
+/// The lines of a file.
+std::vector<std::string> lines_of(const std::filesystem::path& file) {
+    std::ifstream in(file, std::ios::binary);
+    std::vector<std::string> lines;
+    for (std::string line; std::getline(in, line);) {
+        lines.push_back(line);
+    }
+
+    return lines;
+}
+
+} // namespace
+
+TEST_CASE("a build step runs again when fb, its program's files or embeds, or fb.lock change, and "
+          "its stamp is written whole",
+          "[driver]") {
+    const packages_t packages;
+    counting_app(packages, counting_program("Local template = EmbedText(\"template.txt\")\n"));
+    packages.write("app/template.txt", "first\n");
+    REQUIRE(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 1);
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 1);
+
+    // The stamp names the fb that built its program, as fb --version does, and the build's
+    // fb.lock, and it's renamed into place.
+    const std::filesystem::path stamp = app_step(packages) / "stamp";
+    const std::vector<std::string> stamped = lines_of(stamp);
+    REQUIRE(stamped.size() > 3);
+    CHECK(stamped[0] == std::format("fb {} ({}, {})", fb::build_config::version, fb::build_commit,
+                                    fb::build_config::toolchain_target));
+    CHECK(stamped[2] == "lock none");
+    CHECK_FALSE(std::filesystem::exists(app_step(packages) / "stamp.partial"));
+
+    // An edit that keeps the size, at once, is seen, since a small input's bytes are hashed.
+    packages.write("app/names.txt", "bob\n");
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 2);
+
+    // A file its program embeds is one of its program's, and a new program empties out/.
+    std::ofstream(app_step(packages) / "out" / "stale.txt", std::ios::binary) << "an older one's";
+    packages.write("app/template.txt", "second\n");
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 3);
+    CHECK_FALSE(std::filesystem::exists(app_step(packages) / "out/stale.txt"));
+
+    // fb update changes fb.lock, which its program was built with.
+    packages.write("app/fb.lock", "version = 1\n");
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 4);
+    CHECK(lines_of(stamp)[2] != "lock none");
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 4);
+
+    // A stamp cut short, without what the step read, is stale.
+    {
+        const std::vector<std::string> whole = lines_of(stamp);
+        std::ofstream cut(stamp, std::ios::binary);
+        cut << whole[0] << '\n' << whole[1] << '\n';
+    }
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 5);
+    packages.remove();
+}
+
+TEST_CASE("a build step's inputs are read before it runs, without build/ or hidden files",
+          "[driver]") {
+    const packages_t packages;
+    // An editor saves names.txt while the first run reads it, and the run writes .late, which it
+    // read, after it started: both make it run again, once.
+    counting_app(packages, counting_program(
+                               "If !File.Exists(folder / \"../saved\")\n"
+                               "    Try File.WriteText(folder / \"../saved\", \"\")\n"
+                               "    Try File.WriteText(folder / \"names.txt\", \"cy\\ndee\\n\")\n"
+                               "    Try File.WriteText(folder / \".late\", \"late\")\n"
+                               "End If\n",
+                               "names.txt\\nfb:rerun-if-changed=.late"));
+    REQUIRE(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 1);
+    CHECK(build_and_run(packages, "app") == "2\n");
+    CHECK(runs(packages) == 2);
+    CHECK(build_and_run(packages, "app") == "2\n");
+    CHECK(runs(packages) == 2);
+
+    // A folder it read is without the package's build/, which each run changes, and its hidden
+    // files.
+    counting_app(packages, counting_program("", "."));
+    REQUIRE(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 3);
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 3);
+    packages.write("app/.hidden", "not read");
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 3);
+    packages.write("app/notes.txt", "read");
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 4);
+
+    // A package file at one of its files' paths is an error, though the step didn't run.
+    packages.write("app/made.fb", "Public Const COUNT = 7\n");
+    counting_app(packages, counting_program());
+    REQUIRE(build_and_run(packages, "app") ==
+            "app/project.toml: \"generate.fb\": app's build step made made.fb, which its folder "
+            "has too; a step's files go beside the package's own");
+    std::filesystem::remove(packages / "app/made.fb");
+    REQUIRE(build_and_run(packages, "app") == "1\n");
+    const std::size_t ran = runs(packages);
+    packages.write("app/made.fb", "Public Const COUNT = 7\n");
+    CHECK(build_and_run(packages, "app") ==
+          "app/project.toml: \"generate.fb\": app's build step made made.fb, which its folder "
+          "has too; a step's files go beside the package's own");
+    CHECK(runs(packages) == ran);
+    packages.remove();
+}
+
+TEST_CASE("while code is typed, a failed build step's error stays until what it read changes, "
+          "and the rest is checked",
+          "[driver]") {
+    const packages_t packages;
+    counting_app(packages, counting_program("Print(\"it broke\")\nProcess.Exit(3)\n"));
+    packages.write("app/main.fb", "Import std.core\nPrint(undeclared)\n");
+    const auto check = [&] {
+        const std::expected<fb::compilation_t, std::string> checked = fb::check_files(
+            { .files = { packages / "app/main.fb" }, .main = packages / "app/main.fb" });
+        REQUIRE(checked);
+        std::vector<std::string> said;
+        for (const fb::diagnostic_t& diagnostic : checked->diagnostics.diagnostics()) {
+            said.push_back(diagnostic.message);
+            for (const std::string& note : diagnostic.notes) {
+                said.push_back("  " + note);
+            }
+        }
+
+        return said;
+    };
+    const auto said_it = [&] {
+        const std::vector<std::string> said = check();
+        CAPTURE(said);
+        CHECK(
+            std::ranges::contains(said, "app's build step, generate.fb, failed with exit code 3"));
+        CHECK(std::ranges::contains(said, "  it broke"));
+        CHECK(std::ranges::any_of(said, [](const std::string& message) {
+            return message.contains("'undeclared' isn't declared");
+        }));
+    };
+    said_it();
+    CHECK(runs(packages) == 1);
+    said_it();
+    CHECK(runs(packages) == 1);
+
+    // Once what it read changes, a check runs it again, and fb build always does.
+    packages.write("app/names.txt", "eve\nfay\n");
+    said_it();
+    CHECK(runs(packages) == 2);
+    CHECK(build_and_run(packages, "app") ==
+          "app/project.toml: \"generate.fb\": app's build step, generate.fb, failed with exit "
+          "code 3");
+    CHECK(runs(packages) == 3);
+    packages.remove();
+}
+
+TEST_CASE("one fb at a time runs a build step, waiting for the system's lock however old it is",
+          "[driver]") {
+    const packages_t packages;
+    counting_app(packages, counting_program());
+    REQUIRE(build_and_run(packages, "app") == "1\n");
+    packages.write("app/names.txt", "gus\nhal\n");
+
+    // Another fb holds the lock, made an hour ago, so the build waits, and says so.
+    const std::filesystem::path lock = app_step(packages) / "lock";
+    std::optional<std::expected<fb::file_lock_t, std::string>> held =
+        fb::file_lock_t::take(lock, [] { FAIL("nothing else holds the lock"); });
+    REQUIRE(*held);
+    std::filesystem::last_write_time(lock, std::filesystem::last_write_time(lock) -
+                                               std::chrono::hours(1));
+    std::mutex mutex;
+    std::vector<std::string> said;
+    bool built = false;
+    std::thread build([&] {
+        const fb::status_t status = [&](const std::string_view verb,
+                                        const std::string_view message) {
+            const std::scoped_lock locked(mutex);
+            said.push_back(std::format("{} {}", verb, message));
+        };
+        const std::expected<fb::compilation_t, std::string> app = fb::compile_file(
+            packages / "app", fb::build_mode_t::DEBUG, fb::build_steps_t::RUN, status);
+        built = app && !app->diagnostics.has_errors();
+    });
+    const auto waited = [&] {
+        const std::scoped_lock locked(mutex);
+        return said;
+    };
+    for (int tries = 0; tries < 1000 && waited().empty(); ++tries) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    CHECK(waited() == std::vector<std::string>{ "Waiting for another fb's build step" });
+
+    CHECK(runs(packages) == 1);
+    held.reset();
+    build.join();
+    CHECK(built);
+    CHECK(said == std::vector<std::string>{ "Waiting for another fb's build step",
+                                            "Running app's build step" });
+    CHECK(runs(packages) == 2);
+
+    // An older fb's lock was a folder, which goes.
+    std::filesystem::remove(lock);
+    std::filesystem::create_directories(lock / "left");
+    packages.write("app/names.txt", "ida\n");
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 3);
+    packages.remove();
+}
+
+namespace {
+
+/// The error, then each of its notes, that a check of the app's main file gives first, or
+/// nothing.
+std::vector<std::string> first_error(const packages_t& packages) {
+    const std::expected<fb::compilation_t, std::string> checked = fb::check_files(
+        { .files = { packages / "app/main.fb" }, .main = packages / "app/main.fb" });
+    REQUIRE(checked);
+    std::vector<std::string> said;
+    for (const fb::diagnostic_t& diagnostic : checked->diagnostics.diagnostics()) {
+        if (diagnostic.severity == fb::severity_t::ERROR) {
+            said.push_back(diagnostic.message);
+            std::ranges::copy(diagnostic.notes, std::back_inserter(said));
+            break;
+        }
+    }
+
+    return said;
+}
+
+} // namespace
+
+TEST_CASE("while code is typed, a step program that doesn't compile or link fails once, a line "
+          "a note",
+          "[driver]") {
+    const packages_t packages;
+    for (const auto& [program, why] : {
+             std::pair("Import std.core\nPrint(missing)\n", "doesn't build"),
+             std::pair("Import std.core\nExtern \"C\"\n    Function no_such_c_function(): "
+                       "Int32\nEnd Extern\nPrint(\"{no_such_c_function()}\")\n",
+                       "doesn't build: "),
+         }) {
+        counting_app(packages, program);
+        packages.write("app/main.fb", "Import std.core\nPrint(\"main\")\n");
+        const std::vector<std::string> said = first_error(packages);
+        CAPTURE(said);
+        REQUIRE(said.size() > 1);
+        CHECK(said.front().contains(why));
+        CHECK(std::ranges::none_of(said, [](const std::string& line) {
+            return line.empty() || line.contains('\n') || line.contains('\r');
+        }));
+
+        // Its stamp is one a check reads again, without building the program again.
+        const std::filesystem::path stamp = app_step(packages) / "stamp";
+        const auto written = std::filesystem::last_write_time(stamp);
+        CHECK(first_error(packages) == said);
+        CHECK(std::filesystem::last_write_time(stamp) == written);
+    }
+
+    packages.remove();
+}
+
+TEST_CASE("a build step runs again for a file a folder it read lost or gained while it ran, and "
+          "an embed's place is whole",
+          "[driver]") {
+    const packages_t packages;
+    // While the first run reads data/, old.txt goes from it, and moved.txt, made before the run,
+    // moves in, keeping its time.
+    packages.write("app/data/old.txt", "old");
+    packages.write("waiting/moved.txt", "moved");
+    counting_app(packages,
+                 counting_program("If !File.Exists(folder / \"../saved\")\n"
+                                  "    Try File.WriteText(folder / \"../saved\", \"\")\n"
+                                  "    Try File.Delete(folder / \"data/old.txt\")\n"
+                                  "    Try File.Move(folder / \"../waiting/moved.txt\", folder / "
+                                  "\"data/moved.txt\")\n"
+                                  "End If\n",
+                                  "data"));
+    std::filesystem::last_write_time(
+        packages / "waiting/moved.txt",
+        std::filesystem::last_write_time(packages / "waiting/moved.txt") - std::chrono::hours(1));
+    REQUIRE(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 1);
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 2);
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 2);
+
+    // A file its program embeds is named whole, so a build from another folder keeps it.
+    counting_app(packages, counting_program("Local template = EmbedText(\"template.txt\")\n"));
+    packages.write("app/template.txt", "the template");
+    REQUIRE(build_and_run(packages, "app") == "1\n");
+    const std::size_t ran = runs(packages);
+    const std::filesystem::path here = std::filesystem::current_path();
+    std::filesystem::current_path(packages / "app");
+    CHECK(build_and_run(packages, "app") == "1\n");
+    std::filesystem::current_path(here);
+    CHECK(runs(packages) == ran);
+    packages.remove();
+}
+
+TEST_CASE("a build step whose files clash, or whose out/ can't be emptied, fails, and a check "
+          "keeps the failure",
+          "[driver]") {
+    const packages_t packages;
+    counting_app(packages, counting_program());
+    packages.write("app/made.fb", "Public Const COUNT = 7\n");
+    const std::string clashed = "app's build step made made.fb, which its folder has too; a "
+                                "step's files go beside the package's own";
+    CHECK(build_and_run(packages, "app") == "app/project.toml: \"generate.fb\": " + clashed);
+    CHECK(runs(packages) == 1);
+    CHECK(first_error(packages) == std::vector<std::string>{ clashed });
+    CHECK(runs(packages) == 1);
+    std::filesystem::remove(packages / "app/made.fb");
+    REQUIRE(build_and_run(packages, "app") == "1\n");
+
+    // A file in out/ that can't be taken out, held open on Windows, or in a folder that can't be
+    // written elsewhere, keeps a new program from emptying it, which says so.
+    const std::filesystem::path out = app_step(packages) / "out";
+    std::optional<std::ifstream> held;
+#ifdef _WIN32
+    held.emplace(out / "made.fb", std::ios::binary);
+#else
+    std::filesystem::permissions(out, std::filesystem::perms::owner_read |
+                                          std::filesystem::perms::owner_exec);
+#endif
+    counting_app(packages, counting_program("Print(\"a new program\")\n"));
+    // Root writes in any folder, so there's nothing to see as root.
+#ifdef _WIN32
+    const bool writable = false;
+#else
+    const bool writable = static_cast<bool>(std::ofstream(out / "probe"));
+#endif
+    if (!writable) {
+        CHECK(build_and_run(packages, "app")
+                  .starts_with("app/project.toml: \"generate.fb\": can't empty app's build step's "
+                               "folder "));
+    }
+
+    held.reset();
+#ifndef _WIN32
+    std::filesystem::permissions(out, std::filesystem::perms::owner_all);
+#endif
+    packages.remove();
+}
+
+TEST_CASE("a build step ends what it left running, which can't keep fb waiting, and has no "
+          "terminal",
+          "[driver]") {
+    const packages_t packages;
+    // It starts a program that waits two minutes, with its output, and ends.
+    counting_app(packages, counting_program("#If PLATFORM_WINDOWS\n"
+                                            "Try Command(\"ping\").Args([\"-n\", \"120\", "
+                                            "\"127.0.0.1\"]).Spawn()\n"
+                                            "#Else\n"
+                                            "Try Command(\"sleep\").Arg(\"120\").Spawn()\n"
+                                            "#End If\n"));
+    const auto started = std::chrono::steady_clock::now();
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(std::chrono::steady_clock::now() - started < std::chrono::seconds(60));
+
+#ifndef _WIN32
+    // In a session of its own, so a program it runs that asks on /dev/tty fails at once.
+    counting_app(packages, counting_program("Extern \"C\"\n"
+                                            "    Function getsid(pid: Int32): Int32\n"
+                                            "    Function getppid(): Int32\n"
+                                            "End Extern\n"
+                                            "Print(\"fb:warning=own session {getsid(0) != "
+                                            "getsid(getppid())}\")\n"));
+    const std::expected<fb::compilation_t, std::string> app = fb::compile_file(packages / "app");
+    REQUIRE(app);
+    CHECK(packages.messages(*app) ==
+          std::vector<std::string>{
+              "app/project.toml: \"generate.fb\": app's build step says: own session True" });
+#endif
+    packages.remove();
+}
+
 TEST_CASE("a system library the linker can't find is an error at its project.toml line",
           "[driver]") {
     const packages_t packages;
@@ -2571,6 +3185,40 @@ TEST_CASE("a package's tests are in its files, and its tests/ folder's see its P
     packages.remove();
 }
 
+TEST_CASE("a package's tests change its Package Fields through f.Set, as by their names",
+          "[driver]") {
+    const packages_t packages;
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\n");
+    packages.write("app/main.fb", "Import std.core\n");
+    packages.write("app/counter.fb", "Public Class Counter\n"
+                                     "    Package Field count: Int = 3\n"
+                                     "    Public New()\n"
+                                     "    End New\n"
+                                     "End Class\n");
+    packages.write("app/tests/zero.fb", "Import std.core\n"
+                                        "Import std.test\n"
+                                        "Import app.counter\n"
+                                        "Function Zero<T>(ByRef target: T)\n"
+                                        "    For Field f: F In T\n"
+                                        "        Where F: Numeric\n"
+                                        "        f.Set(ByRef target, F.Zero())\n"
+                                        "    End For\n"
+                                        "End Function\n"
+                                        "@Test Function Zeroes()\n"
+                                        "    Local counter = Counter()\n"
+                                        "    Zero(ByRef counter)\n"
+                                        "    Expect(counter.count == 0)\n"
+                                        "End Function\n");
+    const std::expected<fb::compilation_t, std::string> tested =
+        fb::compile_tests(packages / "app");
+    REQUIRE(tested);
+    CHECK(packages.messages(*tested).empty());
+    const fb::mir_module_t module =
+        fb::lower_tests(tested->ast, tested->analysis, fb::package_tests(*tested));
+    CHECK_FALSE(module.error);
+    packages.remove();
+}
+
 TEST_CASE("a test build leaves out other main files' code, and builds leave out tests/",
           "[driver]") {
     const packages_t packages;
@@ -2634,6 +3282,156 @@ TEST_CASE("a test build leaves out other main files' code, and builds leave out 
     CHECK_FALSE(binary->interface.contains("AreaWorks"));
     CHECK(binary->binary.contains("Area"));
     CHECK_FALSE(binary->binary.contains("AreaWorks"));
+    packages.remove();
+}
+
+TEST_CASE("an interface file doesn't write a built-in type its module's own type hides",
+          "[driver]") {
+    const packages_t packages;
+    packages.write("lib/project.toml",
+                   "[project]\nname = \"lib\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    packages.write("lib/helpers.fb", "Public Class Rock\nEnd Class\n"
+                                     "Public Function MakeAny(): Object => Rock()\n"
+                                     "Public Function Ticker(): Scheduler => Scheduler()\n");
+    packages.write("lib/shapes.fb", "Import lib.helpers\n"
+                                    "Public Class Object\n    Public Field N: Int = 7\nEnd Class\n"
+                                    "Public Class Scheduler\nEnd Class\n"
+                                    "Public Global Kept = MakeAny()\n"
+                                    "Public Global Ticks = Ticker()\n");
+    const std::expected<fb::compilation_t, std::string> library =
+        fb::compile_file(packages / "lib");
+    REQUIRE(library);
+    CHECK(packages.messages(*library).empty());
+    fb::diagnostic_bag_t diagnostics;
+    CHECK_FALSE(fb::build_library(*library, fb::build_mode_t::DEBUG, diagnostics));
+    std::vector<std::string> messages;
+    for (const fb::diagnostic_t& diagnostic : diagnostics.diagnostics()) {
+        messages.push_back(diagnostic.message);
+    }
+
+    CHECK(messages == std::vector<std::string>{
+                          "this library's interface file names the built-in Object for 'Kept', "
+                          "which the module's own Object hides; name that type another way",
+                          "this library's interface file names the built-in Scheduler for "
+                          "'Ticks', which the module's own Scheduler hides; name that type "
+                          "another way",
+                      });
+    packages.remove();
+}
+
+TEST_CASE("an interface file doesn't write a built-in type that a type its module sees hides, "
+          "and only that",
+          "[driver]") {
+    const packages_t packages;
+    packages.write("lib/project.toml",
+                   "[project]\nname = \"lib\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    packages.write("lib/helpers.fb",
+                   "Import std.core\n"
+                   "Public Class Rock\nEnd Class\n"
+                   "Public Alias Pointer = Ptr<Int>\n"
+                   "Public Alias Handle = Thread\n"
+                   "Public Async Function Waits(): Int\n    Return 1\nEnd Function\n"
+                   "Public Function MakePipe(): Channel<Int> => Channel<Int>(4)\n"
+                   "Public Function Nowhere(): Pointer => Null\n"
+                   "Public Function Idle(): Handle? => Null\n"
+                   "Public Function MakeAny(): Object => Rock()\n");
+    // The module's own Task, Channel, Ptr, and Thread hide the built-ins its Globals have.
+    packages.write("lib/hides.fb", "Import lib.helpers\n"
+                                   "Public Class Task<T>\nEnd Class\n"
+                                   "Public Class Channel<T>\nEnd Class\n"
+                                   "Public Class Ptr<T>\nEnd Class\n"
+                                   "Public Class Thread\nEnd Class\n"
+                                   "Public Global A = Waits()\n"
+                                   "Public Global B = MakePipe()\n"
+                                   "Public Global C = Nowhere()\n"
+                                   "Public Global D = Idle()\n");
+    // An Object that an Import brings in hides it too, but not one an Import As or a From line
+    // that names something else keeps behind its name, nor a Private one.
+    packages.write("lib/objs.fb",
+                   "Public Class Object\nEnd Class\nPublic Class Thing\nEnd Class\n");
+    packages.write("lib/secret.fb", "Private Class Object\nEnd Class\n");
+    packages.write("lib/by_import.fb",
+                   "Import lib.helpers\nImport lib.objs\nPublic Global ByImport = MakeAny()\n");
+    packages.write("lib/by_as.fb",
+                   "Import lib.helpers\nImport lib.objs As o\nPublic Global ByAs = MakeAny()\n");
+    packages.write("lib/by_from.fb", "Import lib.helpers\nFrom lib.objs Import Thing\n"
+                                     "Public Global ByFrom = MakeAny()\n");
+    packages.write("lib/by_secret.fb",
+                   "Import lib.helpers\nImport lib.secret\nPublic Global BySecret = MakeAny()\n");
+    const std::expected<fb::compilation_t, std::string> library =
+        fb::compile_file(packages / "lib");
+    REQUIRE(library);
+    CHECK(packages.messages(*library).empty());
+    fb::diagnostic_bag_t diagnostics;
+    CHECK_FALSE(fb::build_library(*library, fb::build_mode_t::DEBUG, diagnostics));
+    std::vector<std::string> messages;
+    for (const fb::diagnostic_t& diagnostic : diagnostics.diagnostics()) {
+        messages.push_back(diagnostic.message);
+    }
+
+    const auto hidden = [](const std::string_view name, const std::string_view type,
+                           const std::string_view by) {
+        return std::format("this library's interface file names the built-in {} for '{}', which "
+                           "{} {} hides; name that type another way",
+                           type, name, by, type);
+    };
+    CHECK(messages == std::vector<std::string>{
+                          hidden("ByImport", "Object", "lib.objs's"),
+                          hidden("A", "Task", "the module's own"),
+                          hidden("B", "Channel", "the module's own"),
+                          hidden("C", "Ptr", "the module's own"),
+                          hidden("D", "Thread", "the module's own"),
+                      });
+    packages.remove();
+}
+
+TEST_CASE("a prebuilt library's tests see its Public names, and say why they see no others",
+          "[driver]") {
+    const packages_t packages;
+    const std::string manifest =
+        "[project]\nname = \"geo\"\nversion = \"0.1.0\"\ntype = \"library\"\n";
+    packages.write("geo/project.toml", manifest);
+    packages.write("geo/shapes.fb", "Public Function Twice(n: Int): Int => n * 2\n"
+                                    "Package Function Thrice(n: Int): Int => n * 3\n"
+                                    "Public Class Shape\n"
+                                    "    Package Field Sides: Int = 4\n"
+                                    "    Package Method Half(): Int => Sides / 2\n"
+                                    "End Class\n");
+    const std::expected<fb::compilation_t, std::string> library =
+        fb::compile_file(packages / "geo");
+    REQUIRE(library);
+    fb::diagnostic_bag_t diagnostics;
+    const std::expected<fb::library_build_t, std::string> build =
+        fb::build_library(*library, fb::build_mode_t::DEBUG, diagnostics);
+    REQUIRE(build);
+
+    // The prebuilt package has its builds in place of its .fb files.
+    const std::string folder = std::format("geo-prebuilt/lib/{}/debug/", fb::build_target());
+    packages.write("geo-prebuilt/project.toml", manifest);
+    packages.write(folder + "geo.fbi", build->interface);
+    packages.write(folder + "geo.fblib", build->binary);
+    // They see its Public names and the Package members of its Public types, which the interface
+    // file has; a Package Function, which it doesn't, says so, but a typo doesn't.
+    packages.write("geo-prebuilt/tests/both.fb", "Import std.test\n"
+                                                 "Import geo.shapes\n"
+                                                 "@Test Function Both()\n"
+                                                 "    Expect(Twice(2) == 4)\n"
+                                                 "    Expect(Shape().Sides == 4)\n"
+                                                 "    Expect(Shape().Half() == 2)\n"
+                                                 "    Expect(Thrice(2) == 6)\n"
+                                                 "    Expect(Twise(2) == 4)\n"
+                                                 "End Function\n");
+    const std::expected<fb::compilation_t, std::string> tested =
+        fb::compile_tests(packages / "geo-prebuilt");
+    REQUIRE(tested);
+    CHECK(packages.messages(*tested) ==
+          std::vector<std::string>{
+              "geo-prebuilt/tests/both.fb: Thrice: 'Thrice' isn't declared; it's Package, and a "
+              "prebuilt library's tests see only what its interface file has: its Public names, "
+              "and the Package members of its Public types",
+              "geo-prebuilt/tests/both.fb: Twise: 'Twise' isn't declared",
+          });
+    CHECK(build->interface.contains("// package Thrice\n"));
     packages.remove();
 }
 

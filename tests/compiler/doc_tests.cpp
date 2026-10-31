@@ -1142,6 +1142,36 @@ TEST_CASE("fb doc has Operators and Overrides, finds links as code would, and wa
     CHECK(paths_of(bytes->members) == std::vector<std::string>{ prefix + "UInt8[].Size" });
 }
 
+TEST_CASE("a link to a type the language has by name is a built-in's", "[doc]") {
+    const std::filesystem::path folder = write_package(
+        "builtin_links",
+        {
+            {
+                "project.toml",
+                "[project]\nname = \"linked\"\nversion = \"1.0.0\"\ntype = \"library\"\n",
+            },
+            {
+                "keep.fb",
+                "//! Keeping.\n\n/// Keeps an [Object] for a [Scheduler], a [Task], a [Thread], a "
+                "[Channel], "
+                "an\n/// [Atomic], a [Mutex], a [Weak], or a [Ptr].\nPublic Function Keep(thing: "
+                "Object): Object => thing\n",
+            },
+        });
+    const std::expected<fb::compilation_t, std::string> compiled = fb::compile_docs(folder);
+    REQUIRE(compiled);
+    REQUIRE_FALSE(compiled->diagnostics.has_errors());
+    fb::diagnostic_bag_t warnings;
+    const fb::doc_package_t package =
+        fb::document(*compiled, false, fb::build_mode_t::DEBUG, warnings);
+    CHECK(lines_of(*compiled, warnings).empty());
+    REQUIRE(package.modules.size() == 1);
+    REQUIRE(package.modules.front().items.size() == 1);
+    const std::vector<fb::doc_target_t>& links = package.modules.front().items.front().links;
+    CHECK(links.size() == 9);
+    CHECK(std::ranges::all_of(links, &fb::doc_target_t::builtin));
+}
+
 TEST_CASE("an example sees its package's Package names, as the package's files do", "[doc]") {
     const std::filesystem::path folder = write_package(
         "inside_tests",

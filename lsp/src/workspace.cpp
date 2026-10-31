@@ -25,6 +25,7 @@
 #include <mutex>
 #include <optional>
 #include <set>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -213,7 +214,9 @@ std::optional<std::string> read_disk(const std::filesystem::path& path) {
         return std::nullopt;
     }
 
-    return std::string{ std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>() };
+    std::ostringstream text;
+    text << file.rdbuf();
+    return std::move(text).str();
 }
 
 /// Whether an entry of a folder is a link, which a walk doesn't follow.
@@ -1045,6 +1048,15 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
         versions.emplace(key, document.version);
     }
 
+    // A registry's package's build step never runs here, and its files are the ones a build of
+    // one of the workspace's packages made.
+    std::vector<std::filesystem::path> workspace;
+    for (const unit_t& unit : m_units) {
+        if (unit.kind == unit_t::kind_t::PACKAGE && owns(unit.root)) {
+            workspace.push_back(unit.root);
+        }
+    }
+
     const std::uint64_t generation = m_generation;
     disk_cache_t* disk = m_watched ? &m_disk : nullptr;
     ++m_running;
@@ -1060,6 +1072,7 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
         .cache = &m_std_names,
         .disk = disk,
         .examples = job.examples,
+        .workspace = std::move(workspace),
     });
     std::shared_ptr<const compilation_t> compilation =
         result ? std::make_shared<const compilation_t>(std::move(*result)) : nullptr;

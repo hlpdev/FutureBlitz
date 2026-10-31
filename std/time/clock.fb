@@ -174,8 +174,9 @@ Public Function Measure(work: Func()): Duration
     Return Duration.FromNanoseconds(fb_time_monotonic() - start)
 End Function
 
-/// Blocks the thread for that long, and returns at once for a Duration that isn't above 0. In
-/// Async code, Await Wait or Timer.After waits without blocking.
+/// Blocks the thread for that long, to about a millisecond on every OS, Windows too, and returns
+/// at once for a Duration that isn't above 0. In Async code, Await Wait or Timer.After waits
+/// without blocking.
 ///
 /// # Examples
 ///

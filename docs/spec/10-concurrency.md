@@ -242,7 +242,10 @@ Rules:
   `Await RealWait(time)` the real clock's, ignoring both. A time is std.time's `Duration`, like
   `2.Seconds` or `500.Milliseconds`, so either one needs `Import std.time`. NextTick, Wait, and
   RealWait give a Task that the scheduler running the code finishes, so only the main thread
-  calls them.
+  calls them. A wait is to about a millisecond on every OS, as std.time's `Sleep` is: on Windows,
+  whose own sleeps wait for its 15.6 ms timer tick, the runtime sleeps on a high-resolution
+  waitable timer, or where Windows has none, with the timer at 1 ms for that sleep alone, never
+  changing it for the process.
 - An I/O await resumes on the scheduler that started it, at its next tick. Coroutine code
   never runs on a background thread. A coroutine that starts waiting during a tick waits for the
   next one, even for a Task that's done.
@@ -350,9 +353,9 @@ The compiler checks every `Spawn` capture, `Parallel For` body, and channel send
   Sendable`, which stands for one, and so are the Structs, tuples, and fixed arrays whose fields
   and elements all are, and a `T?` of any of them. A Ptr or CString isn't, since nothing keeps
   what it points at for another thread.
-- Classes, arrays, `Object`, other function values, and other `Weak<T>`s aren't, since an
-  object's refcount isn't atomic: an object stays on the thread that made it. Neither is a Struct that
-  holds one.
+- Classes, arrays, `Object`, other function values, and other `Weak<T>`s aren't, since an object's
+  refcount isn't atomic: an object stays on the thread that made it. Neither is a Struct that holds
+  one.
 - Generic code says a type parameter is Sendable with a constraint, `<T: Sendable>`, and an
   instance like `Box<Int>` is Sendable when its fields are.
 - No type has to list it. One that does, `Struct Packet Implements Sendable`, or that lists an

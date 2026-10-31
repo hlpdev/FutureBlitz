@@ -474,6 +474,7 @@ public:
 
         check_threads();
         check_expansion();
+        note_builtin_hiders();
         return std::move(m_analysis);
     }
 
@@ -8600,6 +8601,18 @@ private:
         }
     }
 
+    /// Whether a symbol is a type or an Alias, which takes the place of a built-in type of its
+    /// name, as a Function or a Global doesn't.
+    [[nodiscard]] static bool is_type_name(const symbol_t& symbol) {
+        return symbol.kind == symbol_kind_t::TYPE || symbol.kind == symbol_kind_t::ALIAS;
+    }
+
+    /// Whether `found` has a type or an Alias.
+    [[nodiscard]] bool is_typed(const std::vector<symbol_id_t>& found) {
+        return std::ranges::any_of(found,
+                                   [&](const symbol_id_t id) { return is_type_name(symbol(id)); });
+    }
+
     [[nodiscard]] static bool is_function(const symbol_t& symbol) {
         return symbol.kind == symbol_kind_t::FUNCTION ||
                symbol.kind == symbol_kind_t::BUILTIN_FUNCTION;
@@ -9305,6 +9318,69 @@ private:
         return in_module(*module, named.name, span);
     }
 
+    /// The type or Alias named `name` that takes the place of the built-in type of that name in
+    /// module `here`'s code, as type_symbols() finds it, without reporting anything: its own, or
+    /// past its Functions, one an Import brings in without a qualifier. A Function or a Global
+    /// of the name doesn't take the built-in's place, as spec 06 says.
+    [[nodiscard]] std::optional<symbol_id_t> builtin_hider(const std::size_t here,
+                                                           const std::string_view name) {
+        const auto typed = [&](const std::vector<symbol_id_t>& found) {
+            const auto type = std::ranges::find_if(
+                found, [&](const symbol_id_t id) { return is_type_name(symbol(id)); });
+            return type != found.end() ? std::optional(*type) : std::nullopt;
+        };
+        const std::vector<symbol_id_t> own = names_in(m_modules[here].names, name);
+        if (!own.empty() && !is_function(symbol(own.front()))) {
+            return typed(own);
+        }
+
+        for (const std::size_t imported : givers_of(here, name)) {
+            if (const std::optional<symbol_id_t> given = typed(seen_names(imported, here, name))) {
+                return given;
+            }
+        }
+
+        return std::nullopt;
+    }
+
+    /// Whether module `here`'s code sees a generic Function named `name`, its own or one an Import
+    /// brings in, which a call with type arguments is for.
+    [[nodiscard]] bool generic_function_named(const std::size_t here, const std::string_view name) {
+        const auto generic = [&](const symbol_id_t id) {
+            const symbol_t& found = symbol(id);
+            if (!is_function(found) || !found.declaration) {
+                return false;
+            }
+
+            const auto* function =
+                std::get_if<function_stmt_t>(&m_ast.get(*found.declaration).node);
+            return function != nullptr && !function->type_parameters.empty();
+        };
+        if (std::ranges::any_of(names_in(m_modules[here].names, name), generic)) {
+            return true;
+        }
+
+        return std::ranges::any_of(givers_of(here, name), [&](const std::size_t imported) {
+            return std::ranges::any_of(seen_names(imported, here, name), generic);
+        });
+    }
+
+    /// Each module's types that take the places of built-in types, for its interface file.
+    void note_builtin_hiders() {
+        static constexpr std::array plain{ "Object", "Scheduler", "Thread" };
+        static constexpr std::array generic{ "Task", "Channel", "Atomic", "Mutex", "Weak", "Ptr" };
+        m_analysis.builtin_hiders.resize(m_ast.modules().size());
+        for (std::size_t module = 0; module < m_ast.modules().size(); ++module) {
+            const auto note = [&](const std::string_view name) {
+                if (const std::optional<symbol_id_t> hider = builtin_hider(module, name)) {
+                    m_analysis.builtin_hiders[module].emplace(name, *hider);
+                }
+            };
+            std::ranges::for_each(plain, note);
+            std::ranges::for_each(generic, note);
+        }
+    }
+
     /// The type or variable that an import gives code at `span` by a name, past a Function of
     /// the code's own module, which hides only Functions; ambiguous when two imports give one.
     std::vector<symbol_id_t> imported_types(const std::string_view name, const span_t span) {
@@ -9629,6 +9705,11 @@ private:
                                  [&](const type_id_t other) { return alike(shown, other); }) &&
             !means_another(shown)) {
             return std::string(name_of(shown));
+        }
+
+        // The built-in Object is in no module, so beside another Object it says what it is.
+        if (shown != type_id_t::INVALID && shown == m_analysis.interfaces.object) {
+            return "the built-in Object";
         }
 
         return qualified(shown);
@@ -10643,8 +10724,10 @@ private:
                           is_parameter(bound.parameter)
                               ? std::format(" for {}", name_of(bound.parameter, argument))
                               : std::string(),
-                          is_interface(argument) ? "; an Interface's value can be an array too"
-                                                 : "");
+                          // An Object is always a Class's.
+                          is_interface(argument) && argument != m_analysis.interfaces.object
+                              ? "; an Interface's value can be an array too"
+                              : "");
                 }
             } else if (interface == m_analysis.interfaces.any_error) {
                 if (!implements(argument, interface)) {
@@ -13465,11 +13548,12 @@ private:
         }
 
         // "Weak<T>" refers to an object, so the T is a Class. A type named Weak that the code's
-        // module declares or imports takes its place, as one named Ptr or Task does.
+        // module declares or imports takes its place, as one named Ptr or Task does, but not a
+        // Function or a Global.
         if (const auto* weak = std::get_if<weak_type_t>(&type.node)) {
             const named_type_t own{ .name = "Weak", .arguments = { weak->inner } };
             if (const std::vector<symbol_id_t> found = type_symbols(own, type.span);
-                !found.empty()) {
+                is_typed(found)) {
                 return named_type(found, own, type.span);
             }
 
@@ -13518,19 +13602,21 @@ private:
             }
 
             // "Channel<T>", of a Sendable T. A built-in type's name is the code's own when its
-            // module declares or imports one.
+            // module declares or imports a type of the name, as spec 06 says, not a Function or a
+            // Global.
             const std::vector<symbol_id_t> found = type_symbols(*named, type.span);
-            if (named->name == "Ptr" && found.empty()) {
+            const bool typed = is_typed(found);
+            if (named->name == "Ptr" && !typed) {
                 return pointer_of(*named, type.span);
             }
 
-            if (named->name == "Void" && found.empty()) {
+            if (named->name == "Void" && !typed) {
                 error(type.span,
                       "Void is only a Ptr's type, as Ptr<Void>, which points at anything");
                 return type_id_t::INVALID;
             }
 
-            if (named->name == "Channel" && found.empty()) {
+            if (named->name == "Channel" && !typed) {
                 if (named->arguments.size() != 1) {
                     error(type.span, "Channel<T> takes one type argument");
                     return type_id_t::INVALID;
@@ -13539,7 +13625,7 @@ private:
                 return channel_of(resolve_type(named->arguments.front()), type.span);
             }
 
-            if (named->name == "Scheduler" && found.empty()) {
+            if (named->name == "Scheduler" && !typed) {
                 if (!named->arguments.empty()) {
                     error(type.span, "'Scheduler' isn't generic");
                 }
@@ -13547,7 +13633,7 @@ private:
                 return m_analysis.types.scheduler();
             }
 
-            if (named->name == "Object" && found.empty()) {
+            if (named->name == "Object" && !typed) {
                 if (!named->arguments.empty()) {
                     error(type.span, "'Object' isn't generic");
                 }
@@ -13556,7 +13642,7 @@ private:
             }
 
             // "Task<T>", "Task" for work that gives nothing, and "Thread".
-            if ((named->name == "Task" || named->name == "Thread") && found.empty()) {
+            if ((named->name == "Task" || named->name == "Thread") && !typed) {
                 if (named->name == "Thread" || named->arguments.empty()) {
                     if (named->name == "Thread" && !named->arguments.empty()) {
                         error(type.span, "'Thread' isn't generic");
@@ -13583,7 +13669,7 @@ private:
                       named->name);
             }
 
-            if ((named->name == "Atomic" || named->name == "Mutex") && found.empty()) {
+            if ((named->name == "Atomic" || named->name == "Mutex") && !typed) {
                 if (named->arguments.size() != 1) {
                     error(type.span, "{}<T> takes one type argument", named->name);
                     return type_id_t::INVALID;
@@ -19442,8 +19528,27 @@ private:
 
             error(span, "'{}' is called, as in {}", name, example);
         } else if (!from_failed_import(name, span) && !m_misplaced_externs.contains(name)) {
-            error(span, "'{}' isn't declared", name);
+            error(span, "'{}' isn't declared{}", name, prebuilt_tests_hint(name, span));
         }
+    }
+
+    /// For code in the tests of a prebuilt library, why it doesn't see a name that's one of the
+    /// library's top-level Package declarations, which its interface file leaves out but names;
+    /// nothing for any other name, as a typo.
+    [[nodiscard]] std::string prebuilt_tests_hint(const std::string_view name,
+                                                  const span_t span) const {
+        const module_table_t& modules = m_ast.modules();
+        const std::optional<package_id_t> here = package_of(module_of(span.file));
+        const std::optional<package_id_t> tested = here ? modules.tested(*here) : std::nullopt;
+        const bool package =
+            tested && std::ranges::any_of(modules.modules(), [&](const module_t& module) {
+                return module.package == *tested && module.prebuilt &&
+                       std::ranges::contains(module.package_names, name);
+            });
+        return package ? std::string("; it's Package, and a prebuilt library's tests see only "
+                                     "what its interface file has: its Public names, and the "
+                                     "Package members of its Public types")
+                       : std::string();
     }
 
     /// Whether an Import of the code's module that loaded nothing, which the driver reported,
@@ -21544,10 +21649,20 @@ private:
     }
 
     /// "Atomic", "Mutex", "Channel", or "Scheduler" as a call's callee, when the program doesn't
-    /// declare the name: the kind of what the call makes.
+    /// declare the name, or declares only a Function or Global of it and the call has type
+    /// arguments, which a Function that isn't generic doesn't take: only a type or an Alias takes
+    /// a built-in type's place, as spec 06 says. The kind of what the call makes.
     std::optional<type_kind_t> in_place_maker(const expr_id_t callee) {
         const auto* name = std::get_if<name_expr_t>(&m_ast.get(callee).node);
-        if (name == nullptr || declared_here(name->name, span_of(callee))) {
+        if (name == nullptr || find_local(name->name) || !own_members(name->name).empty()) {
+            return std::nullopt;
+        }
+
+        const span_t span = span_of(callee);
+        const std::size_t here = module_of(span.file);
+        if (builtin_hider(here, name->name) ||
+            (declared_here(name->name, span) &&
+             (name->type_arguments.empty() || generic_function_named(here, name->name)))) {
             return std::nullopt;
         }
 
@@ -26901,8 +27016,11 @@ private:
         }
 
         if (!is_nullable(source) && is_interface(target) && converts_plainly(object, target)) {
-            warning(span_of(id), "this is always True: every {} is a {}", name_of(object, target),
-                    name_of(target, object));
+            const std::string interface = name_of(target, object);
+            const bool vowel =
+                !interface.empty() && std::string_view("AEIOU").contains(interface[0]);
+            warning(span_of(id), "this is always True: every {} is {} {}", name_of(object, target),
+                    vowel ? "an" : "a", interface);
         } else if (!is_nullable(source) && m_analysis.types.extends(object, target)) {
             warning(span_of(id), "this is always True: '{}' is {} already", text(node.value),
                     shown_name(object));

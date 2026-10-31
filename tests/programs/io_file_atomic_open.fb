@@ -1,0 +1,32 @@
+// WriteBytesAtomic replaces a file another handle holds open, on every OS, as a game's updater
+// writes a new pak over a mounted one: the open handle reads on in the old file, and a read by
+// its path gets the new one. Everything on the disk is in a temporary folder.
+Import std.core
+Import std.ffi
+Import std.io
+Import std.text
+
+Local temp = Try TempDir("fb-atomic-open-")
+Local path = temp.Path / "pak.dat"
+Try File.WriteText(path, "the old pak")
+
+// What a read of up to `count` bytes gives, as text.
+Function ReadSome(stream: FileStream, count: Int64): String Throws IOError
+    Local into = Buffer<UInt8>(count)
+    Local read = Try stream.Read(into)
+    Return String.FromUtf8(into.Slice(0, read).ToArray()) ?? "not UTF-8"
+End Function
+
+Local held = Try File.Open(path)
+Print("[{Try ReadSome(held, 4)}]")
+Try File.WriteBytesAtomic(path, "the new pak".Bytes)
+Print("[{Try ReadSome(held, 100)}] [{Try File.ReadText(path)}]")
+
+// Again, while the file it replaced is still open, and through the text's own call.
+Local again = Try File.Open(path)
+Try File.WriteTextAtomic(path, "the third pak")
+Print("[{Try ReadSome(again, 100)}] [{Try File.ReadText(path)}]")
+held.Close()
+again.Close()
+Print("{Try File.ReadText(path)}, {(Try Dir.Entries(temp.Path)).Count} file")
+Try temp.Close()

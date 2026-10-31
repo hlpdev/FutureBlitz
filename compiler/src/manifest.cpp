@@ -4,6 +4,7 @@
 #include "fb/utf8.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -89,6 +90,8 @@ public:
                 read_natives(*key, *node, manifest);
             } else if (name == "format") {
                 read_format(*key, *node, manifest);
+            } else if (name == "build") {
+                read_build(*key, *node, manifest);
             } else if (name == "registries") {
                 read_registries(*key, *node, manifest);
             } else {
@@ -100,6 +103,17 @@ public:
         if (!project) {
             fail({ .file = m_file.id() },
                  "project.toml needs a [project] table, with the package's name and version");
+        }
+
+        // [dependencies] can come after the [build] that names one of them.
+        const build_step_t step = manifest.build.value_or(build_step_t{});
+        if (step.package && step.package_span &&
+            std::ranges::find(manifest.dependencies, *step.package, &dependency_t::name) ==
+                manifest.dependencies.end()) {
+            fail(*step.package_span,
+                 "[build]'s package is one of [dependencies], whose program the build step is, "
+                 "and there's no {} there",
+                 *step.package);
         }
 
         // [registries] can come after the dependencies that name its registries.
@@ -164,6 +178,54 @@ private:
         };
         const std::uint32_t begin = offset(region.begin);
         return { .file = m_file.id(), .begin = begin, .end = std::max(begin, offset(region.end)) };
+    }
+
+    /// Where the key at `begin` starts with the dotted keys before it, as `engine.` in
+    /// `engine.path`, quoted or not, with spaces around the dots, which toml++ leaves out of the
+    /// last key's place.
+    [[nodiscard]] std::uint32_t dotted_start(const std::uint32_t begin) const {
+        const std::string_view text = m_file.text();
+        const auto blank = [&](const std::size_t at) {
+            return text[at] == ' ' || text[at] == '\t';
+        };
+        std::size_t start = begin;
+        while (true) {
+            std::size_t at = start;
+            while (at > 0 && blank(at - 1)) {
+                --at;
+            }
+
+            if (at == 0 || text[at - 1] != '.') {
+                return static_cast<std::uint32_t>(start);
+            }
+
+            --at;
+            while (at > 0 && blank(at - 1)) {
+                --at;
+            }
+
+            // The key before the dot: quoted, as "engine" or 'engine', or bare.
+            if (at > 0 && (text[at - 1] == '"' || text[at - 1] == '\'')) {
+                const std::size_t open = text.rfind(text[at - 1], at - 2);
+                if (at < 2 || open == std::string_view::npos) {
+                    return static_cast<std::uint32_t>(start);
+                }
+
+                at = open;
+            } else {
+                const std::size_t end = at;
+                while (at > 0 && (std::isalnum(static_cast<unsigned char>(text[at - 1])) != 0 ||
+                                  text[at - 1] == '_' || text[at - 1] == '-')) {
+                    --at;
+                }
+
+                if (at == end) {
+                    return static_cast<std::uint32_t>(start);
+                }
+            }
+
+            start = at;
+        }
     }
 
     /// A key's string value, or nullopt after reporting that it isn't one.
@@ -283,6 +345,10 @@ private:
                 } else if (text) {
                     manifest.main = with_slashes(*text);
                 }
+            } else if (name == "build") {
+                fail(span_of(field.source()),
+                     "a build step is a table of its own, [build], with the program it runs, "
+                     "like program = \"tools/generate.fb\"");
             } else {
                 m_diagnostics.warning(span_of(field.source()), "[project] doesn't use '{}'", name);
             }
@@ -327,6 +393,58 @@ private:
             }
 
             manifest.format_width = static_cast<std::uint32_t>(*width);
+        }
+    }
+
+    /// [build]: the program a build step runs, the package's own or a dependency's.
+    void read_build(const toml::key& key, const toml::node& node, manifest_t& manifest) {
+        const toml::table* table = node.as_table();
+        if (table == nullptr) {
+            fail(span_of(key.source()),
+                 "'build' is a table, [build], with the program its build step runs");
+            return;
+        }
+
+        build_step_t step;
+        bool named = false;
+        bool failed = false;
+        for (const auto& [key_of_field, node_of_field] : in_order(*table)) {
+            const toml::key& field = *key_of_field;
+            const toml::node& value = *node_of_field;
+            if (field.str() == "program") {
+                named = true;
+                const std::optional<std::string> text =
+                    string_of(field, value, "\"tools/generate.fb\"");
+                step.program_span = span_of(value.source());
+                if (text && !is_package_file(*text)) {
+                    fail(step.program_span,
+                         "[build]'s program is a .fb file in its package's folder, like "
+                         "\"tools/generate.fb\", not \"{}\"",
+                         *text);
+                }
+
+                failed = failed || !text || !is_package_file(*text);
+                step.program = with_slashes(text.value_or(""));
+            } else if (field.str() == "package") {
+                const std::optional<std::string> text = string_of(field, value, "\"tools\"");
+                step.package_span = span_of(value.source());
+                failed = failed || !text;
+                step.package = text;
+            } else {
+                m_diagnostics.warning(span_of(field.source()), "[build] doesn't use '{}'",
+                                      field.str());
+            }
+        }
+
+        if (!named) {
+            fail(span_of(key.source()),
+                 "[build] needs the program its build step runs, like program = "
+                 "\"tools/generate.fb\"");
+            return;
+        }
+
+        if (!failed) {
+            manifest.build = std::move(step);
         }
     }
 
@@ -447,7 +565,7 @@ private:
                     dependency.path_span = span_of(setting->source());
                     dependency.path_entry_span = {
                         .file = m_file.id(),
-                        .begin = span_of(detail->source()).begin,
+                        .begin = dotted_start(span_of(detail->source()).begin),
                         .end = dependency.path_span.end,
                     };
                     failed = failed || !path;

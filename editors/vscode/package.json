@@ -28,6 +28,12 @@
     "Formatters",
     "Snippets"
   ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "FutureBlitz's language server runs a package's build step, a program in the workspace, so it runs only in a trusted workspace."
+    }
+  },
   "keywords": [
     "futureblitz",
     "fb",

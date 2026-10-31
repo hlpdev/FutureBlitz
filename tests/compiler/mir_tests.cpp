@@ -3520,7 +3520,7 @@ TEST_CASE("For Field's f.Set changes only what the code could assign by name", "
     CHECK(error_of(std::format("{}Local x = Hidden()\nZero(ByRef x)", zero)) ==
           "'Secret' is Private, so f.Set outside its file can't change it");
     CHECK(error_of(std::format("{}Local x = Common()\nZero(ByRef x)", zero)) ==
-          "'Count' is Package, so f.Set outside its package can't change it");
+          "'Count' is Package, so f.Set outside its package and its tests can't change it");
     CHECK(error_of(std::format("{}Local x = Kept()\nZero(ByRef x)", zero)) ==
           "'Count' is Protected, so f.Set outside its file and the Classes extending Kept can't "
           "change it");
