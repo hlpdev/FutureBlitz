@@ -64,8 +64,9 @@ Public Struct Tga
     End New
 
     /// The image in `data`, a TGA of a palette, gray, or colors, run-length encoded or not. Throws
-    /// an IOError of INVALID_DATA when the `data` isn't a TGA or is broken, and OTHER when the
-    /// image has more pixels than `limit`. Panics when the `limit` is negative.
+    /// an IOError of INVALID_DATA when the `data` isn't a TGA, is broken, or ends before the
+    /// pixels its header says it has, and OTHER when the image has more pixels than `limit`.
+    /// Panics when the `limit` is negative.
     @PanicsAtCaller
     Public Static Method Decode(data: UInt8[], limit: Int = MOST_PIXELS): Image Throws IOError
         CheckLimit(limit)
