@@ -46,7 +46,8 @@ struct module_t {
     /// What it imports, in the order its lines say. std's names need an Import too, std.core's
     /// as well.
     std::vector<module_import_t> imports;
-    /// The package it's part of, whose modules see its Package declarations.
+    /// The package it's part of, whose modules see its Package declarations, as the package's
+    /// tests do.
     package_id_t package{};
     /// From a prebuilt library's interface file, whose code is in the library's binary.
     bool prebuilt = false;
@@ -134,6 +135,14 @@ public:
     /// Whether `package`'s project.toml names `on` as a dependency.
     [[nodiscard]] bool depends_on(package_id_t package, package_id_t on) const;
 
+    /// Records that `package` is tests of `tested`: its tests/ folder's, or its doc comments'
+    /// examples', whose modules see its Package declarations, as its own do.
+    void add_tests(package_id_t package, package_id_t tested);
+
+    /// Whether code in the package `here` sees the Package declarations of the package
+    /// `declared`: its own, or the package's it tests.
+    [[nodiscard]] bool sees_package(package_id_t here, package_id_t declared) const;
+
     /// The module that declares the member `name` an Extend adds to the built-in type named
     /// `type`, among the standard library's that the program doesn't load. nullopt when none
     /// does.
@@ -153,6 +162,8 @@ private:
     std::vector<std::optional<std::vector<std::string>>> m_natives;
     /// Each package's dependencies, by package_id_t.
     std::vector<std::vector<package_id_t>> m_dependencies;
+    /// The package each package tests, by package_id_t, if it tests one.
+    std::vector<std::optional<package_id_t>> m_tested;
     /// The standard library's package, once it's added.
     std::optional<package_id_t> m_standard;
     /// Each file's module, by file_id_t.

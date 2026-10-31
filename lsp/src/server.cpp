@@ -803,7 +803,8 @@ std::vector<std::string> server_t::import_names(const std::filesystem::path& pat
         }
     }
 
-    // A package's own files don't import its tests/ folder, whose tests use it from outside.
+    // A package's own files don't import its tests/ folder, whose tests import it as another
+    // package does.
     const std::string tests = file_key(unit.root / "tests");
     const std::string key = file_key(path);
     if (unit.kind == unit_t::kind_t::PACKAGE && !unit.name.empty() && key != tests &&

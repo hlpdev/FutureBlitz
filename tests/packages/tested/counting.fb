@@ -72,3 +72,6 @@ End Function
 Function Skipped()
     Skip("there's nothing to count")
 End Function
+
+// The package's own, which its tests/ folder's tests see too.
+Package Function Thrice(n: Int): Int => n * 3

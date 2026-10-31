@@ -567,6 +567,21 @@ TEST_CASE("an Import in a package's own file doesn't complete its tests/ folder'
               .contains("geo.tests.outside"));
 }
 
+TEST_CASE("completion in a package's tests/ folder offers its Package names", "[lsp]") {
+    std::vector<std::pair<std::string, std::string>> files = geo();
+    files.emplace_back("inside.fb", "Package Function Inner(): Int => 1\n"
+                                    "Function Hidden(): Int => 2\n");
+    files.emplace_back("tests/outside.fb", "Import geo.inside\n");
+    const folder_t folder(files);
+    client_t client({ .folders = { folder.root() }, .load_folders = false });
+    const std::string outside = folder.uri("tests/outside.fb");
+    client.open(outside, "Import geo.inside\nLocal x = In\n");
+    const std::set<std::string> names =
+        labels(client.request("textDocument/completion", client.at(outside, "= In", 4)));
+    CHECK(names.contains("Inner"));
+    CHECK(!names.contains("Hidden"));
+}
+
 TEST_CASE("signature help shows the parameters of the call being typed", "[lsp]") {
     const folder_t folder(geo());
     client_t client({ .folders = { folder.root() }, .load_folders = false });

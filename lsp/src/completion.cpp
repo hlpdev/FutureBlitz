@@ -410,7 +410,8 @@ private:
             const std::optional<module_id_t> mine = m_query.module();
             const std::optional<module_id_t> theirs = m_ast.modules().of(symbol.span.file);
             return mine && theirs &&
-                   m_ast.modules().get(*mine).package == m_ast.modules().get(*theirs).package;
+                   m_ast.modules().sees_package(m_ast.modules().get(*mine).package,
+                                                m_ast.modules().get(*theirs).package);
         }
         case visibility_t::PROTECTED:
             return symbol.kind != symbol_kind_t::FIELD;

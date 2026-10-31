@@ -88,6 +88,9 @@ struct package_t {
     std::string prefix;
     /// Its dependencies, by the names its project.toml gives them.
     std::vector<std::string> dependencies;
+    /// For fb test's package of a package's tests/ folder, or of its examples, the package they
+    /// test, by its name, whose Package declarations they see.
+    std::string tests;
     /// Its main file on disk, which isn't one of the modules an Import of its folder brings in,
     /// however project.toml spells it. Empty for a library.
     std::filesystem::path main;
@@ -1405,13 +1408,13 @@ private:
                 continue;
             }
 
-            // A package's tests/ folder is its tests', which use it from outside, so a package
-            // builds without it.
+            // A package's tests/ folder is its tests', which import it as another package does,
+            // so a package builds without it.
             if (in_tests_folder(importer, named)) {
                 m_compilation.diagnostics.error(
                     node.target_span,
-                    "{} is in the package's tests/ folder, whose tests use the package from "
-                    "outside, so the package's own files don't import them",
+                    "{} is in the package's tests/ folder, whose tests import the package as "
+                    "another package does, so the package's own files don't import them",
                     shown_path(m_files, named));
                 m_loaded[index].imports.emplace_back(id, std::move(targets));
                 continue;
@@ -1729,14 +1732,24 @@ private:
             packages.push_back(table.add_package(package.name, false, package.natives));
         }
 
+        // A package's tests see its Package declarations.
+        const auto id_of = [&](const std::string_view name) -> std::optional<package_id_t> {
+            const auto found = std::ranges::find(m_files.packages, name, &package_t::name);
+            return found != m_files.packages.end()
+                       ? std::optional(packages[static_cast<std::size_t>(
+                             std::distance(m_files.packages.begin(), found))])
+                       : std::nullopt;
+        };
         for (std::size_t i = 0; i < m_files.packages.size(); ++i) {
             for (const std::string& dependency : m_files.packages[i].dependencies) {
-                const auto on = std::ranges::find(m_files.packages, dependency, &package_t::name);
-                if (on != m_files.packages.end()) {
-                    table.add_dependency(packages[i],
-                                         packages[static_cast<std::size_t>(
-                                             std::distance(m_files.packages.begin(), on))]);
+                if (const std::optional<package_id_t> on = id_of(dependency)) {
+                    table.add_dependency(packages[i], *on);
                 }
+            }
+
+            if (const std::optional<package_id_t> tested = id_of(m_files.packages[i].tests);
+                tested && !m_files.packages[i].tests.empty()) {
+                table.add_tests(packages[i], *tested);
             }
         }
 
@@ -2794,8 +2807,8 @@ std::string program_path(const std::filesystem::path& root, const std::filesyste
 }
 
 /// A library's files, which its check loads: each .fb file from its folder down, but not its
-/// build/ folder, its tests/ folder, whose tests use it from outside, hidden folders, links, or
-/// the folders of other packages in it, which have their own project.toml.
+/// build/ folder, its tests/ folder, whose tests import it as another package does, hidden folders,
+/// links, or the folders of other packages in it, which have their own project.toml.
 std::vector<std::string> library_files(const package_t& package) {
     std::vector<std::string> files;
     std::error_code error;
@@ -2822,7 +2835,8 @@ std::vector<std::string> library_files(const package_t& package) {
 }
 
 /// For fb test, the package of a package's tests/ folder, if it has one: "<name>.tests", whose
-/// files use the package from outside, as one that depends on it does, with what it depends on.
+/// files use the package as one that depends on it does, with what it depends on, and see its
+/// Package declarations, as its own files do.
 /// A tests/ folder with a project.toml of its own is a package of its own, which fb test leaves
 /// alone.
 std::optional<package_t> tests_package(const package_t& own) {
@@ -2839,6 +2853,7 @@ std::optional<package_t> tests_package(const package_t& own) {
         .root = root,
         .prefix = own.name + ".tests/",
         .dependencies = { own.name },
+        .tests = own.name,
     };
     std::ranges::copy(own.dependencies, std::back_inserter(tests.dependencies));
     return tests;
@@ -3081,6 +3096,7 @@ compile_package(const std::filesystem::path& folder,
             .root = own.root,
             .prefix = own.name + ".doctests/",
             .dependencies = { own.name },
+            .tests = own.name,
         };
         std::ranges::copy(own.dependencies, std::back_inserter(examples.dependencies));
         packages->push_back(std::move(examples));

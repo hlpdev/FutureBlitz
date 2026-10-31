@@ -1142,6 +1142,31 @@ TEST_CASE("fb doc has Operators and Overrides, finds links as code would, and wa
     CHECK(paths_of(bytes->members) == std::vector<std::string>{ prefix + "UInt8[].Size" });
 }
 
+TEST_CASE("an example sees its package's Package names, as the package's files do", "[doc]") {
+    const std::filesystem::path folder = write_package(
+        "inside_tests",
+        {
+            {
+                "project.toml",
+                "[project]\nname = \"inside\"\nversion = \"1.0.0\"\ntype = \"library\"\n",
+            },
+            {
+                "math.fb",
+                "/// Twice n.\n///\n/// # Examples\n///\n/// ```\n/// Expect(Twice(2) == 4)\n/// "
+                "```\nPackage Function Twice(n: Int): Int => n * 2\n\n/// Three.\n///\n/// # "
+                "Examples\n///\n/// ```\n/// Expect(Three() == 3)\n/// ```\nFunction Three(): "
+                "Int => 3\n",
+            },
+        });
+    const std::expected<fb::compilation_t, std::string> compiled = fb::compile_tests(folder);
+    REQUIRE(compiled);
+    // A Private one's example is outside its file, so it can't call it.
+    const std::vector<std::string> lines = lines_of(*compiled, compiled->diagnostics);
+    REQUIRE(lines.size() == 1);
+    CHECK(lines.front().starts_with("15: 'Three' is private to "));
+    CHECK(lines.front().ends_with("math.fb"));
+}
+
 TEST_CASE("fb test runs a module's examples, ones that throw and declare, and overloads' apart",
           "[doc]") {
     const std::filesystem::path folder = write_package(

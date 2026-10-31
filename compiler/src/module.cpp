@@ -62,6 +62,7 @@ package_id_t module_table_t::add_package(std::string name, const bool standard,
     m_packages.push_back(std::move(name));
     m_natives.push_back(std::move(natives));
     m_dependencies.emplace_back();
+    m_tested.emplace_back();
     if (standard) {
         m_standard = id;
     }
@@ -79,6 +80,18 @@ bool module_table_t::depends_on(const package_id_t package, const package_id_t o
     const auto index = std::to_underlying(package);
     assert(index < m_dependencies.size());
     return std::ranges::contains(m_dependencies[index], on);
+}
+
+void module_table_t::add_tests(const package_id_t package, const package_id_t tested) {
+    const auto index = std::to_underlying(package);
+    assert(index < m_tested.size());
+    m_tested[index] = tested;
+}
+
+bool module_table_t::sees_package(const package_id_t here, const package_id_t declared) const {
+    const auto index = std::to_underlying(here);
+    assert(index < m_tested.size());
+    return here == declared || m_tested[index] == declared;
 }
 
 bool module_table_t::is_standard(const package_id_t id) const {

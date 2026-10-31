@@ -8780,6 +8780,14 @@ private:
         return m_ast.modules().get(static_cast<module_id_t>(module)).package;
     }
 
+    /// Whether code in module `here` sees the Package declarations of module `declared`: one in
+    /// the same package, or in the tests of its package.
+    [[nodiscard]] bool sees_package(const std::size_t here, const std::size_t declared) const {
+        const std::optional<package_id_t> mine = package_of(here);
+        const std::optional<package_id_t> theirs = package_of(declared);
+        return mine == theirs || (mine && theirs && m_ast.modules().sees_package(*mine, *theirs));
+    }
+
     /// Whether a symbol's visibility says who can use it: one declared in the source, and the
     /// New a Struct or Class gets. A default an Interface gives a type has the Interface's,
     /// which take_default() copies, since an Extend can give a type an Interface its other users
@@ -8826,7 +8834,7 @@ private:
         case visibility_t::PUBLIC:
             return true;
         case visibility_t::PACKAGE:
-            return package_of(module) == package_of(here);
+            return sees_package(here, module);
         default:
             return false;
         }
@@ -8882,7 +8890,7 @@ private:
         case visibility_t::PUBLIC:
             return true;
         case visibility_t::PACKAGE:
-            return package_of(module_of(declared.span.file)) == package_of(module_of(span.file));
+            return sees_package(module_of(span.file), module_of(declared.span.file));
         case visibility_t::PRIVATE:
             return false;
         case visibility_t::PROTECTED:

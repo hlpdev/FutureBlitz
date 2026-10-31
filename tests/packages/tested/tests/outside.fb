@@ -1,4 +1,5 @@
-// Tests that use the package as another package would: its Public names, and what it depends on.
+// Tests that use the package as another package would, and what it depends on, seeing its
+// Package names too, as its own files do.
 Import std.core
 Import std.test
 Import tested.counting
@@ -8,5 +9,6 @@ Import "./helpers"
 @Test
 Function CountsFromOutside()
     Expect(Counted(3) == 3)
+    Expect(Thrice(Counted(1)) == 3)
     Expect(Vec(1.0, 2.0).y == 2.0)
 End Function

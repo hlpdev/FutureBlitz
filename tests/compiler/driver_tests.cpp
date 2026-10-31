@@ -2503,7 +2503,7 @@ TEST_CASE("a quoted Import names a file, and only a .fb file builds", "[driver]"
     packages.remove();
 }
 
-TEST_CASE("a package's tests are in its files, and its tests/ folder's use it from outside",
+TEST_CASE("a package's tests are in its files, and its tests/ folder's see its Package names",
           "[driver]") {
     const packages_t packages;
     packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\n"
@@ -2552,17 +2552,21 @@ TEST_CASE("a package's tests are in its files, and its tests/ folder's use it fr
         CHECK(module.path != "app/math.fb");
     }
 
-    // The tests/ folder's files see only what the package makes Public.
+    // The tests/ folder's files see what the package makes Public or Package, as its own files
+    // do, but not a file's Private names, or a dependency's Package ones.
+    packages.write("lib/shared.fb", "Public Function One(): Int => 1\n"
+                                    "Package Function Two(): Int => 2\n");
     packages.write("app/tests/outside.fb", "Import app.math\n"
-                                           "Function Uses(): Int => Twice(1) + Secret()\n");
+                                           "Import lib.shared\n"
+                                           "Function Uses(): Int => Twice(1) + Secret() + Two()\n");
     const std::expected<fb::compilation_t, std::string> outside =
         fb::compile_tests(packages / "app");
     REQUIRE(outside);
     CHECK(packages.messages(*outside) ==
           std::vector<std::string>{
-              "app/tests/outside.fb: Twice: 'Twice' is Package in app/math.fb, so only the "
-              "package app can use it",
               "app/tests/outside.fb: Secret: 'Secret' is private to app/math.fb",
+              "app/tests/outside.fb: Two: 'Two' is Package in lib/shared.fb, so only the package "
+              "lib can use it",
           });
     packages.remove();
 }
@@ -2599,8 +2603,9 @@ TEST_CASE("a test build leaves out other main files' code, and builds leave out 
     packages.write("app/tests/helpers.fb", "Public Function Helped(): Int => 1\n");
     const std::expected<fb::compilation_t, std::string> built = fb::compile_file(packages / "app");
     REQUIRE(built);
-    const std::string message = "is in the package's tests/ folder, whose tests use the package "
-                                "from outside, so the package's own files don't import them";
+    const std::string message = "is in the package's tests/ folder, whose tests import the "
+                                "package as another package does, so the package's own files "
+                                "don't import them";
     CHECK(packages.messages(*built) ==
           std::vector<std::string>{
               "app/main.fb: app.tests.helpers: app/tests/helpers.fb " + message,
