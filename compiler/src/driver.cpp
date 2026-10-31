@@ -3168,22 +3168,60 @@ std::string file_stamp(const std::filesystem::path& path) {
     return time ? std::format("{} at {}", size, *time) : std::string("missing");
 }
 
+/// A file's name in a stamp's line: its whole path, normal, with '/'s, the same however a walk
+/// that found it spelled it.
+std::string stamped_name(const std::filesystem::path& file) {
+    return "file " + with_forward_slashes(to_utf8(file.lexically_normal()));
+}
+
+/// Whether the package's files, as "*" walks them, have `file`: one in its folder, but not in its
+/// build/ or tests/ folders, or a hidden one.
+bool in_package_files(const std::filesystem::path& root, const std::filesystem::path& file) {
+    const std::filesystem::path relative =
+        file.lexically_normal().lexically_relative(root.lexically_normal());
+    if (relative.empty() || *relative.begin() == ".." || *relative.begin() == "build" ||
+        *relative.begin() == "tests") {
+        return false;
+    }
+
+    return std::ranges::none_of(
+        relative, [](const std::filesystem::path& part) { return to_utf8(part).starts_with('.'); });
+}
+
 /// The lines a stamp has for what a build step read, as `inputs` names it, from the package's
 /// folder `root`: each input, then each file under it, with file_stamp()'s. "*" is the package's
 /// own files, as its archives have them; a folder's are without the package's build/ and hidden
 /// files and folders, as there too. A file that `before`, the lines read before the step ran,
 /// has keeps its line from then, and one written since `started` is "changed", so a file saved
-/// while the step ran makes it run again.
+/// while the step ran makes it run again. So does a file that one of the folders `before` walked
+/// lost or gained meanwhile: one it had keeps its line though it's gone, and one it didn't have
+/// is "changed", whatever its time, as a file moved in keeps the time it had.
 std::vector<std::string> input_lines(const std::filesystem::path& root,
                                      const std::vector<std::string>& inputs,
                                      const std::vector<std::string>& before = {},
                                      const std::optional<std::int64_t> started = std::nullopt) {
     std::map<std::string_view, std::string_view> earlier;
+    std::vector<std::filesystem::path> walked;
+    bool whole = false;
     for (const std::string& line : before) {
-        if (const std::size_t tab = line.find('\t'); tab != std::string::npos) {
+        if (line.starts_with("input ")) {
+            const std::string_view input = std::string_view(line).substr(6);
+            whole = whole || input == "*";
+            walked.push_back((root / path_from_utf8(input)).lexically_normal());
+        } else if (const std::size_t tab = line.find('\t'); tab != std::string::npos) {
             earlier.emplace(std::string_view(line).substr(0, tab), line);
         }
     }
+
+    // Whether the walks before the run would have found `file` there.
+    const auto seen_before = [&](const std::filesystem::path& file) {
+        const std::filesystem::path normal = file.lexically_normal();
+        return (whole && in_package_files(root, normal)) ||
+               std::ranges::any_of(walked, [&](const std::filesystem::path& folder) {
+                   const std::filesystem::path relative = normal.lexically_relative(folder);
+                   return !relative.empty() && *relative.begin() != "..";
+               });
+    };
 
     const std::filesystem::path built = root.lexically_normal() / "build";
     std::vector<std::string> lines;
@@ -3219,18 +3257,39 @@ std::vector<std::string> input_lines(const std::filesystem::path& root,
             found.push_back(path);
         }
 
-        std::ranges::sort(found);
+        std::vector<std::string> names;
+        names.reserve(found.size());
         for (const std::filesystem::path& file : found) {
-            const std::string named = "file " + to_utf8(file);
+            names.push_back(stamped_name(file));
+        }
+
+        const std::size_t first = lines.size();
+        for (std::size_t i = 0; i < found.size(); ++i) {
+            const std::string& named = names[i];
             if (const auto kept = earlier.find(named); kept != earlier.end()) {
                 lines.emplace_back(kept->second);
-            } else if (const std::optional<std::int64_t> time = modified_time(file);
-                       started && time && *time >= *started) {
+            } else if (const std::optional<std::int64_t> time = modified_time(found[i]);
+                       started && (seen_before(found[i]) || (time && *time >= *started))) {
                 lines.push_back(named + "\tchanged");
             } else {
-                lines.push_back(named + "\t" + file_stamp(file));
+                lines.push_back(named + "\t" + file_stamp(found[i]));
             }
         }
+
+        // A file the walks before had under it that's gone keeps its line.
+        if (started) {
+            const std::string folder = stamped_name(path) + "/";
+            for (const auto& [named, line] : earlier) {
+                const bool under = input == "*"
+                                       ? in_package_files(root, path_from_utf8(named.substr(5)))
+                                       : named.starts_with(folder);
+                if (under && !std::ranges::contains(names, named)) {
+                    lines.emplace_back(line);
+                }
+            }
+        }
+
+        std::sort(lines.begin() + static_cast<std::ptrdiff_t>(first), lines.end());
     }
 
     return lines;
@@ -3246,7 +3305,8 @@ struct step_stamp_t {
     std::vector<std::string> notes;
 };
 
-/// A stamp, or nullopt for none, or for one without its inputs, as one cut short has.
+/// A stamp, or nullopt for none, for one without its inputs, as one cut short has, or for one
+/// with a line it doesn't know.
 std::optional<step_stamp_t> read_stamp(const std::filesystem::path& path) {
     std::ifstream in(path, std::ios::binary);
     if (!in) {
@@ -3259,9 +3319,13 @@ std::optional<step_stamp_t> read_stamp(const std::filesystem::path& path) {
             stamp.failure = line.substr(7);
         } else if (line.starts_with("note ")) {
             stamp.notes.push_back(line.substr(5));
+        } else if (line.starts_with("input ") || line.starts_with("file ")) {
+            stamp.inputs.push_back(line);
+        } else if (line.starts_with("fb ") || line.starts_with("program ") ||
+                   line.starts_with("lock ") || line.starts_with("source ")) {
+            stamp.program.push_back(line);
         } else {
-            (line.starts_with("input ") || line.starts_with("file ") ? stamp.inputs : stamp.program)
-                .push_back(line);
+            return std::nullopt;
         }
     }
 
@@ -3341,8 +3405,11 @@ std::vector<std::string> program_lines(const std::filesystem::path& program,
     if (compiled != nullptr) {
         std::ranges::copy_if(compiled->on_disk, std::back_inserter(files),
                              [](const std::filesystem::path& file) { return !file.empty(); });
+        // An embed is named as messages name it, from fb's folder, which the next build's
+        // needn't be.
         for (const std::string& embedded : compiled->embedded) {
-            files.push_back(path_from_utf8(embedded));
+            std::error_code ignored;
+            files.push_back(std::filesystem::absolute(path_from_utf8(embedded), ignored));
         }
     } else {
         files.push_back(program);
@@ -3425,12 +3492,28 @@ bool in_cache(const std::filesystem::path& path) {
     return at && cache && is_under(*at, *cache);
 }
 
+/// `text`'s lines, without the line break after the last.
+std::vector<std::string> lines_of(const std::string_view text) {
+    std::vector<std::string> lines;
+    std::istringstream read{ std::string(text) };
+    for (std::string line; std::getline(read, line);) {
+        if (line.ends_with('\r')) {
+            line.pop_back();
+        }
+
+        lines.push_back(std::move(line));
+    }
+
+    return lines;
+}
+
 /// A compilation's errors, each rendered on a line of its own, as a message's notes.
 std::vector<std::string> error_notes(const compilation_t& compilation) {
     std::vector<std::string> notes;
     for (const diagnostic_t& diagnostic : compilation.diagnostics.diagnostics()) {
         if (diagnostic.severity == severity_t::ERROR) {
-            notes.push_back(render_short(diagnostic, compilation.sources));
+            std::ranges::copy(lines_of(render_short(diagnostic, compilation.sources)),
+                              std::back_inserter(notes));
         }
     }
 
@@ -3450,10 +3533,9 @@ struct step_build_t {
     const status_t* status = nullptr;
 };
 
-/// The error a build step's file has when its package's folder has a file at its path too,
-/// which would hide it: none, or false after reporting it at the step's [build].
-bool apart(compilation_t& compilation, const package_t& package, const build_step_t& step,
-           const std::filesystem::path& out) {
+/// The error of a build step's file when its package's folder has a file at its path too, which
+/// would hide it, or nullopt.
+std::optional<std::string> clash(const package_t& package, const std::filesystem::path& out) {
     std::error_code error;
     for (auto entry = std::filesystem::recursive_directory_iterator(out, error);
          !error && entry != std::filesystem::recursive_directory_iterator();
@@ -3462,13 +3544,22 @@ bool apart(compilation_t& compilation, const package_t& package, const build_ste
         const std::filesystem::path relative = entry->path().lexically_relative(out);
         if (entry->is_regular_file(ignored) &&
             std::filesystem::exists(package.root / relative, ignored)) {
-            compilation.diagnostics.error(
-                step.program_span,
-                "{}'s build step made {}, which its folder has too; a step's files go beside the "
-                "package's own",
-                package.name, to_utf8(relative));
-            return false;
+            return std::format("{}'s build step made {}, which its folder has too; a step's files "
+                               "go beside the package's own",
+                               package.name, to_utf8(relative));
         }
+    }
+
+    return std::nullopt;
+}
+
+/// Whether a build step's files are apart from its package's own, as clash() finds them, or
+/// false after reporting it at the step's [build].
+bool apart(compilation_t& compilation, const package_t& package, const build_step_t& step,
+           const std::filesystem::path& out) {
+    if (const std::optional<std::string> error = clash(package, out)) {
+        compilation.diagnostics.error(step.program_span, "{}", *error);
+        return false;
     }
 
     return true;
@@ -3577,18 +3668,34 @@ bool run_build_step(compilation_t& compilation, package_t& package, const build_
     // A failure's stamp keeps its error, which a check gives again until something changes, and
     // a check goes on with what out/ has.
     std::vector<std::string> lines = program_kept ? stamp->program : std::vector<std::string>();
+    // A message of more than a line, as lld's, has its first line, and the rest are notes, as a
+    // note of more than a line is notes.
     const auto fail = [&](const std::string& message, const std::vector<std::string>& notes) {
-        report(message, notes);
+        std::vector<std::string> all = lines_of(message);
+        const std::string first = all.empty() ? std::string() : all.front();
+        if (!all.empty()) {
+            all.erase(all.begin());
+        }
+
+        for (const std::string& note : notes) {
+            std::ranges::copy(lines_of(note), std::back_inserter(all));
+        }
+
+        report(first, all);
         std::vector<std::string> failed = lines;
         std::ranges::copy(before, std::back_inserter(failed));
-        failed.push_back("failed " + message);
-        for (const std::string& note : notes) {
+        failed.push_back("failed " + first);
+        for (const std::string& note : all) {
             failed.push_back("note " + note);
         }
 
         static_cast<void>(write_stamp(stamp_path, failed));
         return typing;
     };
+
+    // An fb that ends while the step builds or runs leaves no stamp, so the next one runs it
+    // again, as Cargo takes out a fingerprint before it runs a build script.
+    std::filesystem::remove(stamp_path, error);
 
     // Its program builds without build steps, so it can't use what one makes, as a program of
     // its package, whose registry packages are the ones the build's fb.lock has, though a
@@ -3622,7 +3729,10 @@ bool run_build_step(compilation_t& compilation, package_t& package, const build_
         // What it made for its older program, or for another fb, goes, so a step that keeps
         // out/ between its runs only has to take out what it no longer makes.
         std::filesystem::remove_all(out, error);
-        std::filesystem::create_directories(out, error);
+        if (!error) {
+            std::filesystem::create_directories(out, error);
+        }
+
         if (error) {
             return fail(std::format("can't empty {}'s build step's folder {}: {}", package.name,
                                     to_utf8(shown_disk_path(out)), error.message()),
@@ -3677,8 +3787,8 @@ bool run_build_step(compilation_t& compilation, package_t& package, const build_
     }
 
     // What it makes is the package's, beside the package's own files, not over them.
-    if (!apart(compilation, package, step, out)) {
-        return typing;
+    if (const std::optional<std::string> clashed = clash(package, out)) {
+        return fail(*clashed, {});
     }
 
     // Without lines of what it read, it reads the package's files.

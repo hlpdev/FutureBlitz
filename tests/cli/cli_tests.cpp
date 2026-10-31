@@ -2526,52 +2526,67 @@ TEST_CASE("a build step ends when fb does, however fb ends, and the next build r
     };
 
     // fb ends once the step beats: on Windows as a crash ends it, from TerminateProcess, and
-    // elsewhere from Ctrl+C's SIGINT.
+    // elsewhere from Ctrl+C's SIGINT and a closed terminal's SIGHUP, and on Linux SIGKILL too.
+    // Each time, the step ends with it, so its beats stop, and fb has left no stamp, so the next
+    // build runs it again.
     const std::string fb_program = FB_CLI;
     const std::string app_folder = fb::to_utf8(app);
+    const std::filesystem::path stamp =
+        app / std::format("build/steps/{}/debug/app/stamp", fb::build_target());
 #ifdef _WIN32
-    std::wstring command = std::format(L"\"{}\" build \"{}\"",
-                                       fb::path_from_utf8(fb_program).wstring(), app.wstring());
-    STARTUPINFOW startup{};
-    startup.cb = sizeof(startup);
-    PROCESS_INFORMATION process{};
-    REQUIRE(CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
-                           nullptr, nullptr, &startup, &process) != 0);
+    const std::vector<int> ends{ 0 };
+#elifdef __linux__
+    const std::vector<int> ends{ SIGINT, SIGHUP, SIGKILL };
 #else
-    posix_spawn_file_actions_t actions;
-    posix_spawn_file_actions_init(&actions);
-    posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
-    posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
-    std::string program = fb_program;
-    std::string build = "build";
-    std::string argument = app_folder;
-    std::array<char*, 4> argv{ program.data(), build.data(), argument.data(), nullptr };
-    pid_t pid = 0;
-    REQUIRE(posix_spawn(&pid, program.c_str(), &actions, nullptr, argv.data(), environ) == 0);
-    posix_spawn_file_actions_destroy(&actions);
+    const std::vector<int> ends{ SIGINT, SIGHUP };
 #endif
-    for (int tries = 0; tries < 6000 && beat().empty(); ++tries) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    for (const int end : ends) {
+        CAPTURE(end);
+        std::filesystem::remove(folder / "beats.txt");
+#ifdef _WIN32
+        std::wstring command = std::format(L"\"{}\" build \"{}\"",
+                                           fb::path_from_utf8(fb_program).wstring(), app.wstring());
+        STARTUPINFOW startup{};
+        startup.cb = sizeof(startup);
+        PROCESS_INFORMATION process{};
+        REQUIRE(CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
+                               nullptr, nullptr, &startup, &process) != 0);
+#else
+        posix_spawn_file_actions_t actions;
+        posix_spawn_file_actions_init(&actions);
+        posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
+        posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
+        std::string program = fb_program;
+        std::string build = "build";
+        std::string argument = app_folder;
+        std::array<char*, 4> argv{ program.data(), build.data(), argument.data(), nullptr };
+        pid_t pid = 0;
+        REQUIRE(posix_spawn(&pid, program.c_str(), &actions, nullptr, argv.data(), environ) == 0);
+        posix_spawn_file_actions_destroy(&actions);
+#endif
+        for (int tries = 0; tries < 6000 && beat().empty(); ++tries) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+
+        CHECK_FALSE(beat().empty());
+#ifdef _WIN32
+        TerminateProcess(process.hProcess, 1);
+        WaitForSingleObject(process.hProcess, INFINITE);
+        CloseHandle(process.hProcess);
+        CloseHandle(process.hThread);
+#else
+        kill(pid, end);
+        int status = 0;
+        waitpid(pid, &status, 0);
+        CHECK((WIFSIGNALED(status) && WTERMSIG(status) == end));
+#endif
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        const std::string stopped = beat();
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        CHECK(beat() == stopped);
+        CHECK_FALSE(std::filesystem::exists(stamp));
     }
-
-    CHECK_FALSE(beat().empty());
-#ifdef _WIN32
-    TerminateProcess(process.hProcess, 1);
-    WaitForSingleObject(process.hProcess, INFINITE);
-    CloseHandle(process.hProcess);
-    CloseHandle(process.hThread);
-#else
-    kill(pid, SIGINT);
-    int status = 0;
-    waitpid(pid, &status, 0);
-    CHECK((WIFSIGNALED(status) && WTERMSIG(status) == SIGINT));
-#endif
-
-    // The step ended with it, so its beats stop.
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    const std::string stopped = beat();
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
-    CHECK(beat() == stopped);
 
     // Nothing holds the step's folder, so the next build runs it at once, and says so.
     write(app / "beat.fb", "Import std.core\nPrint(\"done\")\n");

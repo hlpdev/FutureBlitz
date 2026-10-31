@@ -2392,6 +2392,174 @@ TEST_CASE("one fb at a time runs a build step, waiting for the system's lock how
     packages.remove();
 }
 
+namespace {
+
+/// The error, then each of its notes, that a check of the app's main file gives first, or
+/// nothing.
+std::vector<std::string> first_error(const packages_t& packages) {
+    const std::expected<fb::compilation_t, std::string> checked = fb::check_files(
+        { .files = { packages / "app/main.fb" }, .main = packages / "app/main.fb" });
+    REQUIRE(checked);
+    std::vector<std::string> said;
+    for (const fb::diagnostic_t& diagnostic : checked->diagnostics.diagnostics()) {
+        if (diagnostic.severity == fb::severity_t::ERROR) {
+            said.push_back(diagnostic.message);
+            std::ranges::copy(diagnostic.notes, std::back_inserter(said));
+            break;
+        }
+    }
+
+    return said;
+}
+
+} // namespace
+
+TEST_CASE("while code is typed, a step program that doesn't compile or link fails once, a line "
+          "a note",
+          "[driver]") {
+    const packages_t packages;
+    for (const auto& [program, why] : {
+             std::pair("Import std.core\nPrint(missing)\n", "doesn't build"),
+             std::pair("Import std.core\nExtern \"C\"\n    Function no_such_c_function(): "
+                       "Int32\nEnd Extern\nPrint(\"{no_such_c_function()}\")\n",
+                       "doesn't build: "),
+         }) {
+        counting_app(packages, program);
+        packages.write("app/main.fb", "Import std.core\nPrint(\"main\")\n");
+        const std::vector<std::string> said = first_error(packages);
+        CAPTURE(said);
+        REQUIRE(said.size() > 1);
+        CHECK(said.front().contains(why));
+        CHECK(std::ranges::none_of(said, [](const std::string& line) {
+            return line.empty() || line.contains('\n') || line.contains('\r');
+        }));
+
+        // Its stamp is one a check reads again, without building the program again.
+        const std::filesystem::path stamp = app_step(packages) / "stamp";
+        const auto written = std::filesystem::last_write_time(stamp);
+        CHECK(first_error(packages) == said);
+        CHECK(std::filesystem::last_write_time(stamp) == written);
+    }
+
+    packages.remove();
+}
+
+TEST_CASE("a build step runs again for a file a folder it read lost or gained while it ran, and "
+          "an embed's place is whole",
+          "[driver]") {
+    const packages_t packages;
+    // While the first run reads data/, old.txt goes from it, and moved.txt, made before the run,
+    // moves in, keeping its time.
+    packages.write("app/data/old.txt", "old");
+    packages.write("waiting/moved.txt", "moved");
+    counting_app(packages,
+                 counting_program("If !File.Exists(folder / \"../saved\")\n"
+                                  "    Try File.WriteText(folder / \"../saved\", \"\")\n"
+                                  "    Try File.Delete(folder / \"data/old.txt\")\n"
+                                  "    Try File.Move(folder / \"../waiting/moved.txt\", folder / "
+                                  "\"data/moved.txt\")\n"
+                                  "End If\n",
+                                  "data"));
+    std::filesystem::last_write_time(
+        packages / "waiting/moved.txt",
+        std::filesystem::last_write_time(packages / "waiting/moved.txt") - std::chrono::hours(1));
+    REQUIRE(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 1);
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 2);
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 2);
+
+    // A file its program embeds is named whole, so a build from another folder keeps it.
+    counting_app(packages, counting_program("Local template = EmbedText(\"template.txt\")\n"));
+    packages.write("app/template.txt", "the template");
+    REQUIRE(build_and_run(packages, "app") == "1\n");
+    const std::size_t ran = runs(packages);
+    const std::filesystem::path here = std::filesystem::current_path();
+    std::filesystem::current_path(packages / "app");
+    CHECK(build_and_run(packages, "app") == "1\n");
+    std::filesystem::current_path(here);
+    CHECK(runs(packages) == ran);
+    packages.remove();
+}
+
+TEST_CASE("a build step whose files clash, or whose out/ can't be emptied, fails, and a check "
+          "keeps the failure",
+          "[driver]") {
+    const packages_t packages;
+    counting_app(packages, counting_program());
+    packages.write("app/made.fb", "Public Const COUNT = 7\n");
+    const std::string clashed = "app's build step made made.fb, which its folder has too; a "
+                                "step's files go beside the package's own";
+    CHECK(build_and_run(packages, "app") == "app/project.toml: \"generate.fb\": " + clashed);
+    CHECK(runs(packages) == 1);
+    CHECK(first_error(packages) == std::vector<std::string>{ clashed });
+    CHECK(runs(packages) == 1);
+    std::filesystem::remove(packages / "app/made.fb");
+    REQUIRE(build_and_run(packages, "app") == "1\n");
+
+    // A file in out/ that can't be taken out, held open on Windows, or in a folder that can't be
+    // written elsewhere, keeps a new program from emptying it, which says so.
+    const std::filesystem::path out = app_step(packages) / "out";
+    std::optional<std::ifstream> held;
+#ifdef _WIN32
+    held.emplace(out / "made.fb", std::ios::binary);
+#else
+    std::filesystem::permissions(out, std::filesystem::perms::owner_read |
+                                          std::filesystem::perms::owner_exec);
+#endif
+    counting_app(packages, counting_program("Print(\"a new program\")\n"));
+    // Root writes in any folder, so there's nothing to see as root.
+#ifdef _WIN32
+    const bool writable = false;
+#else
+    const bool writable = static_cast<bool>(std::ofstream(out / "probe"));
+#endif
+    if (!writable) {
+        CHECK(build_and_run(packages, "app")
+                  .starts_with("app/project.toml: \"generate.fb\": can't empty app's build step's "
+                               "folder "));
+    }
+
+    held.reset();
+#ifndef _WIN32
+    std::filesystem::permissions(out, std::filesystem::perms::owner_all);
+#endif
+    packages.remove();
+}
+
+TEST_CASE("a build step ends what it left running, which can't keep fb waiting, and has no "
+          "terminal",
+          "[driver]") {
+    const packages_t packages;
+    // It starts a program that waits two minutes, with its output, and ends.
+    counting_app(packages, counting_program("#If PLATFORM_WINDOWS\n"
+                                            "Try Command(\"ping\").Args([\"-n\", \"120\", "
+                                            "\"127.0.0.1\"]).Spawn()\n"
+                                            "#Else\n"
+                                            "Try Command(\"sleep\").Arg(\"120\").Spawn()\n"
+                                            "#End If\n"));
+    const auto started = std::chrono::steady_clock::now();
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(std::chrono::steady_clock::now() - started < std::chrono::seconds(60));
+
+#ifndef _WIN32
+    // In a session of its own, so a program it runs that asks on /dev/tty fails at once.
+    counting_app(packages, counting_program("Extern \"C\"\n"
+                                            "    Function getsid(pid: Int32): Int32\n"
+                                            "    Function getppid(): Int32\n"
+                                            "End Extern\n"
+                                            "Print(\"fb:warning=own session {getsid(0) != "
+                                            "getsid(getppid())}\")\n"));
+    const std::expected<fb::compilation_t, std::string> app = fb::compile_file(packages / "app");
+    REQUIRE(app);
+    CHECK(packages.messages(*app) ==
+          std::vector<std::string>{
+              "app/project.toml: \"generate.fb\": app's build step says: own session True" });
+#endif
+    packages.remove();
+}
+
 TEST_CASE("a system library the linker can't find is an error at its project.toml line",
           "[driver]") {
     const packages_t packages;

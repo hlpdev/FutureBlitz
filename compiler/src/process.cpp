@@ -43,6 +43,10 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
+
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
 #endif
@@ -275,13 +279,25 @@ run_process(const std::filesystem::path& program, std::span<const std::string> a
     }
 
     process_result_t result;
-    std::array<char, 4096> buffer{};
-    DWORD count = 0;
-    // Read everything before waiting: a child with lots of output would block on a full pipe.
-    while (ReadFile(read_end, buffer.data(), static_cast<DWORD>(buffer.size()), &count, nullptr) !=
-               0 &&
-           count > 0) {
-        result.output.append(buffer.data(), count);
+    // Read everything while it runs: a child with lots of output would block on a full pipe.
+    const auto drain = [&result, read_end] {
+        std::array<char, 4096> buffer{};
+        DWORD count = 0;
+        while (ReadFile(read_end, buffer.data(), static_cast<DWORD>(buffer.size()), &count,
+                        nullptr) != 0 &&
+               count > 0) {
+            result.output.append(buffer.data(), count);
+        }
+    };
+    // A tied program's output is read beside it, since what it started and left running can
+    // hold the pipe open: once it ends, its job ends them, and then the output ends.
+    if (job != nullptr) {
+        std::thread reader(drain);
+        WaitForSingleObject(process.hProcess, INFINITE);
+        TerminateJobObject(job, 1);
+        reader.join();
+    } else {
+        drain();
     }
 
     if (writer.joinable()) {
@@ -447,11 +463,18 @@ bool open_pipe(std::array<int, 2>& ends) {
 /// The process groups of the tied programs running, each in a slot of its own, 0 for a free one,
 /// which a signal handler reads. A program started when they're all taken isn't tied.
 std::array<std::atomic<pid_t>, 64> tied_groups{};
-/// What SIGINT and SIGTERM did before end_tied() took them.
-struct sigaction before_interrupt{};
-struct sigaction before_terminate{};
+/// The signals that end a tied program with this process: a terminal's Ctrl+C and Ctrl+\, its
+/// closing, and kill's, and what each did before end_tied() took it.
+constexpr std::array tying_signals{ SIGINT, SIGTERM, SIGHUP, SIGQUIT };
+std::array<struct sigaction, tying_signals.size()> before_tied{};
 
-/// SIGINT's and SIGTERM's handler once a program is tied: it ends the tied programs' groups, then
+/// What `number` did before end_tied() took it.
+struct sigaction& before_of(const int number) {
+    const auto* at = std::ranges::find(tying_signals, number);
+    return before_tied.at(static_cast<std::size_t>(at - tying_signals.begin()));
+}
+
+/// The tying signals' handler once a program is tied: it ends the tied programs' groups, then
 /// does what the signal did before, which by default ends this process.
 void end_tied(const int number, siginfo_t* const info, void* const context) {
     for (const std::atomic<pid_t>& group : tied_groups) {
@@ -460,7 +483,7 @@ void end_tied(const int number, siginfo_t* const info, void* const context) {
         }
     }
 
-    const struct sigaction& before = number == SIGINT ? before_interrupt : before_terminate;
+    const struct sigaction& before = before_of(number);
     if ((static_cast<unsigned>(before.sa_flags) & static_cast<unsigned>(SA_SIGINFO)) != 0) {
         before.sa_sigaction(number, info, context);
     } else if (before.sa_handler != SIG_DFL) {
@@ -472,12 +495,12 @@ void end_tied(const int number, siginfo_t* const info, void* const context) {
     }
 }
 
-/// Ends `group` with this process, from SIGINT or SIGTERM, but for one this process ignores.
+/// Ends `group` with this process, from the tying signals, but for one this process ignores.
 void tie(const pid_t group) {
     static std::once_flag handled;
     std::call_once(handled, [] {
-        for (const int number : { SIGINT, SIGTERM }) {
-            struct sigaction& before = number == SIGINT ? before_interrupt : before_terminate;
+        for (const int number : tying_signals) {
+            struct sigaction& before = before_of(number);
             sigaction(number, nullptr, &before);
             const bool information =
                 (static_cast<unsigned>(before.sa_flags) & static_cast<unsigned>(SA_SIGINFO)) != 0;
@@ -509,7 +532,8 @@ void untie(const pid_t group) {
 /// Starts a program, which isn't looked up on PATH; `actions` can be null. It starts with SIGINT,
 /// SIGQUIT, and SIGPIPE at their defaults, as one a shell starts has them, though this process
 /// ignores the first two while it waits for a program in its terminal, and SIGPIPE once it has
-/// written a program's input. A tied one is in a process group of its own.
+/// written a program's input. A tied one is in a session of its own, its process group's
+/// leader, with no terminal, so one that asks on /dev/tty fails at once.
 std::expected<pid_t, std::string> spawn(const std::filesystem::path& program,
                                         const std::span<const std::string> arguments,
                                         const posix_spawn_file_actions_t* actions,
@@ -557,8 +581,12 @@ std::expected<pid_t, std::string> spawn(const std::filesystem::path& program,
     posix_spawnattr_setsigdefault(&attributes, &defaults);
     unsigned flags = POSIX_SPAWN_SETSIGDEF;
     if (life == process_life_t::TIED) {
+#ifdef POSIX_SPAWN_SETSID
+        flags |= static_cast<unsigned>(POSIX_SPAWN_SETSID);
+#else
         posix_spawnattr_setpgroup(&attributes, 0);
         flags |= static_cast<unsigned>(POSIX_SPAWN_SETPGROUP);
+#endif
     }
 
     posix_spawnattr_setflags(&attributes, static_cast<short>(flags));
@@ -572,6 +600,105 @@ std::expected<pid_t, std::string> spawn(const std::filesystem::path& program,
 
     return pid;
 }
+
+#ifdef __linux__
+
+/// Starts a tied program on Linux with what spawn() gives it, its output on `output`'s write end
+/// and its input on `input`'s read end, or this process's for -1, but through a fork, which
+/// posix_spawn can't do: with PR_SET_PDEATHSIG, so it ends when this process does, by SIGKILL
+/// too. Between the fork and the exec, the child does only what's safe in a process with
+/// threads.
+std::expected<pid_t, std::string> spawn_tied(const std::filesystem::path& program,
+                                             const std::span<const std::string> arguments,
+                                             const environment_t environment,
+                                             const std::array<int, 2>& output,
+                                             const std::array<int, 2>& input) {
+    std::string path = program.string();
+    std::vector<std::string> copies(arguments.begin(), arguments.end());
+    std::vector<char*> argv{ path.data() };
+    for (std::string& argument : copies) {
+        argv.push_back(argument.data());
+    }
+
+    argv.push_back(nullptr);
+    std::vector<std::string> entries;
+    for (const auto& [name, value] : environment) {
+        entries.push_back(name + "=" + value);
+    }
+
+    for (char** at = environ; *at != nullptr; ++at) {
+        const std::string_view entry(*at);
+        const std::string_view name = entry.substr(0, entry.find('='));
+        if (std::ranges::none_of(environment,
+                                 [&](const auto& variable) { return variable.first == name; })) {
+            entries.emplace_back(entry);
+        }
+    }
+
+    std::vector<char*> envp;
+    for (std::string& entry : entries) {
+        envp.push_back(entry.data());
+    }
+
+    envp.push_back(nullptr);
+    // The child says why its exec failed through a pipe that the exec closes.
+    std::array<int, 2> report{};
+    if (!open_pipe(report)) {
+        return std::unexpected(std::format("couldn't run {}: {}", path, std::strerror(errno)));
+    }
+
+    const pid_t parent = getpid();
+    const pid_t pid = fork();
+    if (pid == 0) {
+        setsid();
+        prctl(PR_SET_PDEATHSIG, SIGKILL);
+        if (getppid() != parent) {
+            _exit(127);
+        }
+
+        dup2(output[1], STDOUT_FILENO);
+        dup2(output[1], STDERR_FILENO);
+        if (input[0] >= 0) {
+            dup2(input[0], STDIN_FILENO);
+        }
+
+        struct sigaction defaults{};
+        defaults.sa_handler = SIG_DFL;
+        sigemptyset(&defaults.sa_mask);
+        for (const int number : { SIGINT, SIGQUIT, SIGPIPE }) {
+            sigaction(number, &defaults, nullptr);
+        }
+
+        execve(path.c_str(), argv.data(), envp.data());
+        const int error = errno;
+        if (write(report[1], &error, sizeof(error)) != sizeof(error)) {
+            _exit(126);
+        }
+
+        _exit(127);
+    }
+
+    const int forked = errno;
+    close(report[1]);
+    if (pid < 0) {
+        close(report[0]);
+        return std::unexpected(std::format("couldn't run {}: {}", path, std::strerror(forked)));
+    }
+
+    int error = 0;
+    ssize_t got = 0;
+    while ((got = read(report[0], &error, sizeof(error))) < 0 && errno == EINTR) {}
+
+    close(report[0]);
+    if (got == sizeof(error)) {
+        waitpid(pid, nullptr, 0);
+        return std::unexpected(std::format("couldn't run {}: {}", path, std::strerror(error)));
+    }
+
+    return pid;
+}
+
+#endif
 
 /// The exit code, or 128 plus the signal number when a signal ended it, the way shells report.
 int wait_for(const pid_t pid) {
@@ -614,8 +741,15 @@ run_process(const std::filesystem::path& program, std::span<const std::string> a
         posix_spawn_file_actions_addclose(&actions, input_ends[1]);
     }
 
+#ifdef __linux__
+    const std::expected<pid_t, std::string> pid =
+        life == process_life_t::TIED
+            ? spawn_tied(program, arguments, environment, pipe_ends, input_ends)
+            : spawn(program, arguments, &actions, environment, life);
+#else
     const std::expected<pid_t, std::string> pid =
         spawn(program, arguments, &actions, environment, life);
+#endif
     if (pid && life == process_life_t::TIED) {
         tie(*pid);
     }
@@ -657,11 +791,24 @@ run_process(const std::filesystem::path& program, std::span<const std::string> a
     }
 
     process_result_t result;
-    std::array<char, 4096> buffer{};
-    ssize_t count = 0;
-    // Read everything before waiting: a child with lots of output would block on a full pipe.
-    while ((count = read(pipe_ends[0], buffer.data(), buffer.size())) > 0) {
-        result.output.append(buffer.data(), static_cast<std::size_t>(count));
+    // Read everything while it runs: a child with lots of output would block on a full pipe.
+    const auto drain = [&result, end = pipe_ends[0]] {
+        std::array<char, 4096> buffer{};
+        ssize_t count = 0;
+        while ((count = read(end, buffer.data(), buffer.size())) > 0) {
+            result.output.append(buffer.data(), static_cast<std::size_t>(count));
+        }
+    };
+    // A tied program's output is read beside it, since what it started and left running can
+    // hold the pipe open: once it ends, so does its group, and then the output ends.
+    if (life == process_life_t::TIED) {
+        std::thread reader(drain);
+        result.exit_code = wait_for(*pid);
+        kill(-*pid, SIGKILL);
+        untie(*pid);
+        reader.join();
+    } else {
+        drain();
     }
 
     if (writer.joinable()) {
@@ -669,9 +816,8 @@ run_process(const std::filesystem::path& program, std::span<const std::string> a
     }
 
     close(pipe_ends[0]);
-    result.exit_code = wait_for(*pid);
-    if (life == process_life_t::TIED) {
-        untie(*pid);
+    if (life != process_life_t::TIED) {
+        result.exit_code = wait_for(*pid);
     }
 
     return result;
