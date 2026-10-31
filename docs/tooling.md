@@ -719,6 +719,39 @@ with other builds running, so the 95th percentiles are noisy; the 50th held acro
 - **Hover and the quick fixes** answer from the last check in a few milliseconds; their budgets
   are enforced from the start.
 
+**`fb mcp`** (step 9) is a Model Context Protocol server over stdio, JSON-RPC 2.0 a message a
+line, for the package the folder it's given is in, or the current folder's: `fb mcp [folder]`.
+It speaks MCP's 2025-06-18, 2025-03-26, and 2024-11-05, answers initialize with the primer below
+as its instructions, and has four tools, each answering in text:
+
+| Tool | Takes | Gives |
+|---|---|---|
+| `search_docs` | `query`, and `limit` (6, at most 20) | The spec's sections (docs/spec's chapters, which the build embeds) and std's declarations, fb doc's, that have the query's words, best first: a title's whole word over part of one, a declaration whose name is the word first, each with where it is; a long one is cut at a line, and overloads are one result |
+| `lookup` | `name`, a name or a dotted path's end | Each declaration of it: the package's own, from its files as they're saved, with their first lines; std's, with their docs; and the built-in functions, like Panic |
+| `check` | `code`, `file`, both, or neither | The errors and warnings, as `fb check` shows them without color, with each fix: of `code` as a program of its own, of a package's `file` as saved or with `code` as its text unsaved, or of the whole package |
+| `format` | `code` or `file`, and `width` (100) | The code as `fb fmt` formats it, writing nothing, or the errors that stop it |
+
+std's reference takes seconds to read, so initialize starts reading it on a thread of its own.
+A tool's failure, like a file that isn't there, is a result with `isError`; a message that isn't
+JSON, isn't a request, or names no method or tool is JSON-RPC's error.
+
+`fb new` writes the same primer as AGENTS.md, which Copilot, Claude Code, and Cursor read: what
+FutureBlitz looks like, a small program, the fb commands, and fb mcp's tools, with the advice to
+look a feature up and check code before saying it works, as FutureBlitz isn't another BASIC.
+
+The VS Code extension offers fb mcp to Copilot's agent mode without setup. Where VS Code has
+`lm.registerMcpServerDefinitionProvider`, the extension's provider (`futureblitz.mcp`) has VS
+Code start `fb mcp <first workspace folder>` with the fb the extension finds; where it has only
+`lm.registerTool`, the extension's four language-model tools (`#fbDocs`, `#fbLookup`, `#fbCheck`,
+`#fbFormat`) call an fb mcp of its own, and the `futureblitz.languageModelTools` context key
+shows them, so an assistant never has each tool twice. On older VS Code, it offers neither.
+
+The done-when's test, in tests/compiler/mcp_tests.cpp, is an assistant scripted as one that
+knows other BASICs would be: given "Print the squares of the numbers from 1 to 10." and only the
+server, it writes QBasic's loop, checks it and reads the errors, searches for a For loop and
+takes its end from the spec's section, looks up Print for its parentheses, and checks and
+formats what it writes again, which compiles.
+
 ## Not in M8
 
 The package manager and the registry (M10); the website (M9); the IDE (the engine phase).

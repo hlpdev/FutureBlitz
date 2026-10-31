@@ -1,6 +1,7 @@
 #include "fb/build_config.hpp"
 #include "fb/driver.hpp"
 #include "fb/interface.hpp"
+#include "fb/mcp.hpp"
 #include "fb/process.hpp"
 #include "fb/utf8.hpp"
 
@@ -19,7 +20,9 @@
 #include <ios>
 #include <iterator>
 #include <mutex>
+#include <nlohmann/json.hpp>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -440,6 +443,8 @@ TEST_CASE("fb new makes a package that fb runs", "[cli]") {
           "[project]\nname = \"hello\"\nversion = \"0.1.0\"\n");
     CHECK(read_file(package / "main.fb") == "Import std.core\n\nPrint(\"Hello, world!\")\n");
     CHECK(read_file(package / ".gitignore") == "build/\n");
+    // The primer on FutureBlitz and fb mcp that assistants read.
+    CHECK(read_file(package / "AGENTS.md") == fb::agents_primer());
 
     const fb::process_result_t ran = fb_run({ "run", fb::to_utf8(package) });
     INFO(ran.output);
@@ -537,6 +542,94 @@ TEST_CASE("fb new refuses a folder that isn't empty, and a name a package can't 
                       "'--release' doesn't work with 'fb new', whose only option is --color");
     CHECK(fb_run({ "help", "new" }).output.contains("Usage: fb new [options] <folder>"));
     CHECK(fb_run({}).output.contains("new                  Make a package in a new folder"));
+}
+
+TEST_CASE("fb mcp serves MCP over stdio, a message a line", "[cli]") {
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "mcp" / "squares";
+    std::filesystem::remove_all(folder);
+    REQUIRE(fb_run({ "new", fb::to_utf8(folder) }).exit_code == 0);
+
+    // A client's lines, one of them ending in "\r\n", one blank, and a notification, which has
+    // no answer.
+    const std::string program = "Import std.core\n\nFor i = 1 To 4\n  Print(i*i)\nEnd For\n";
+    const std::string input = std::format(
+        "{}\n{}\n\n{}\r\n{}\n{}\n",
+        R"({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}})",
+        R"({"jsonrpc":"2.0","method":"notifications/initialized"})",
+        R"({"jsonrpc":"2.0","id":2,"method":"tools/list"})",
+        nlohmann::json{
+            { "jsonrpc", "2.0" },
+            { "id", 3 },
+            { "method", "tools/call" },
+            { "params", { { "name", "check" }, { "arguments", { { "code", program } } } } } }
+            .dump(),
+        nlohmann::json{
+            { "jsonrpc", "2.0" },
+            { "id", 4 },
+            { "method", "tools/call" },
+            { "params", { { "name", "format" }, { "arguments", { { "code", program } } } } } }
+            .dump());
+    const std::expected<fb::process_result_t, std::string> served =
+        fb::run_process(FB_CLI, std::vector<std::string>{ "mcp", fb::to_utf8(folder) }, input);
+    REQUIRE(served);
+    INFO(served->output);
+    CHECK(served->exit_code == 0);
+    CHECK_FALSE(served->output.contains('\r'));
+
+    std::vector<nlohmann::json> answers;
+    for (const auto line : std::views::split(std::string_view(served->output), '\n')) {
+        if (!line.empty()) {
+            answers.push_back(nlohmann::json::parse(std::string_view(line.begin(), line.end())));
+        }
+    }
+
+    REQUIRE(answers.size() == 4);
+    for (std::size_t i = 0; i < answers.size(); ++i) {
+        CHECK(answers[i].at("id") == i + 1);
+    }
+
+    CHECK(answers[0].at("result").at("serverInfo").at("version") == fb::build_config::version);
+    CHECK(answers[0].at("result").at("instructions") == read_file(folder / "AGENTS.md"));
+    CHECK(answers[1].at("result").at("tools").size() == 4);
+    CHECK(answers[2].at("result").at("content")[0].at("text") == "No errors or warnings.");
+
+    // What format gives back is the program, formatted, which fb runs.
+    const std::string formatted = answers[3].at("result").at("content")[0].at("text");
+    CHECK(formatted == "Import std.core\n\nFor i = 1 To 4\n    Print(i * i)\nEnd For\n");
+    std::ofstream(folder / "main.fb", std::ios::binary) << formatted;
+    const fb::process_result_t ran = fb_run({ "run", fb::to_utf8(folder) });
+    INFO(ran.output);
+    CHECK(ran.output.ends_with("1\n4\n9\n16\n"));
+
+    // A client that's done doesn't wait for the server to read std's reference, which an
+    // initialize starts and a search waits for.
+    const std::string initialize =
+        std::format("{}\n", R"({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}})");
+    const auto timed = [&](const std::string& session) {
+        const auto start = std::chrono::steady_clock::now();
+        const std::expected<fb::process_result_t, std::string> done = fb::run_process(
+            FB_CLI, std::vector<std::string>{ "mcp", fb::to_utf8(folder) }, session);
+        REQUIRE(done);
+        CHECK(done->exit_code == 0);
+        return std::chrono::steady_clock::now() - start;
+    };
+    const auto searched = timed(
+        initialize +
+        R"({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"search_docs","arguments":{"query":"For"}}})" +
+        "\n");
+    CHECK(timed(initialize) < searched / 2);
+
+    check_usage_error(
+        { "mcp", "--release" },
+        "'--release' doesn't work with 'fb mcp', which takes only the package's folder");
+    check_usage_error({ "mcp", "a", "b" },
+                      "unexpected argument 'b'; 'fb mcp' takes the package's folder");
+    check_usage_error({ "mcp", fb::to_utf8(folder / "main.fb") },
+                      std::format("error: {} isn't a folder; 'fb mcp' takes the package's folder",
+                                  fb::to_utf8(folder / "main.fb")));
+    CHECK(fb_run({ "help", "mcp" }).output.contains("Usage: fb mcp [folder]"));
+    CHECK(fb_run({}).output.contains(
+        "mcp                  Give an assistant tools that know FutureBlitz, over MCP"));
 }
 
 TEST_CASE("fb shows help", "[cli]") {

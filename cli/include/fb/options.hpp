@@ -31,6 +31,8 @@ enum class command_t : std::uint8_t {
     FMT,
     /// Writes a package's public API as JSON, for its reference pages.
     DOC,
+    /// Serves MCP over stdio, with tools that know FutureBlitz, for an assistant.
+    MCP,
     /// Adds dependencies from a registry to project.toml, and locks and fetches them.
     ADD,
     /// Resolves the package's registry dependencies anew, from their newest versions.

@@ -2,6 +2,7 @@
 
 #include "fb/commands.hpp"
 #include "fb/manifest.hpp"
+#include "fb/mcp.hpp"
 #include "fb/style.hpp"
 #include "fb/terminal.hpp"
 #include "fb/utf8.hpp"
@@ -110,6 +111,7 @@ int new_command(const options_t& options) {
         { "project.toml", std::format("[project]\nname = \"{}\"\nversion = \"0.1.0\"\n", name) },
         { "main.fb", std::string(main_file) },
         { ".gitignore", "build/\n" },
+        { "AGENTS.md", std::string(agents_primer()) },
     });
     for (const auto& [file, text] : files) {
         const std::filesystem::path path = folder / file;

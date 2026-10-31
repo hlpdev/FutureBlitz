@@ -49,6 +49,12 @@ CodeLLDB. The design is in [docs/tooling.md](https://github.com/hlpdev/FutureBli
   It builds the program in debug, then CodeLLDB runs it with fb's lldb script, which shows
   Strings, arrays, Maps, nullables, and objects as their values. CodeLLDB's own settings, like
   `env` or `preRunCommands`, go in the same configuration.
+- **AI assistants**: Copilot's agent mode gets `fb mcp`'s tools without setup, for the first
+  workspace folder's package: searching the language's spec and std's reference, looking up a
+  name, checking code and reading its errors, and formatting code. Where VS Code starts MCP
+  servers, it's the FutureBlitz server in MCP: List Servers; elsewhere, they're the tools
+  `#fbDocs`, `#fbLookup`, `#fbCheck`, and `#fbFormat`. Other assistants run `fb mcp` in the
+  package's folder themselves, and read the AGENTS.md `fb new` writes.
 
 ## Settings
 

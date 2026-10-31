@@ -58,6 +58,25 @@ the pick, a Get loop without it, and through a generic Bump<T>, each refused for
 
 ## M11, the IDE
 
+Step 9, AI that knows FutureBlitz (2026-10-31): `fb mcp [folder]`, an MCP server over stdio
+(compiler/src/mcp.cpp's `mcp_server_t`, whose `handle()` answers a line of JSON-RPC, and
+cli/src/mcp_command.cpp's loop), with `search_docs`, `lookup`, `check`, and `format`, and
+`agents_primer()`, its instructions and the AGENTS.md `fb new` writes. compiler/CMakeLists.txt
+embeds docs/spec's chapters as generated/fb/spec_pages.hpp, in raw strings of at most 16,000
+bytes cut at lines, written only when one changes. A search scores a title's whole word over
+part of one and a declaration named the word, merges overloads, and cuts a long result at a line,
+never inside a character; `load_docs()` reads std's reference on a thread an initialize starts.
+Answers replace bytes that aren't UTF-8. The VS Code extension's src/mcp.ts has `McpClient`, a
+client of one fb mcp started at its first call and again after it stops, and src/assistant.ts
+offers fb mcp as an MCP server definition provider, `futureblitz.mcp`, or else as four
+language-model tools shown by the `futureblitz.languageModelTools` context key, each API found
+at run time. Tests: mcp_tests.cpp's lifecycle and errors, the primer's program, each tool, and
+the done-when's scripted assistant, which writes QBasic's loop, reads the errors, and fixes it
+from what search_docs and lookup give; cli_tests' fb mcp over stdio with a line ending in
+"\r\n", a blank line, and a notification, whose formatted program fb runs, its usage errors,
+and AGENTS.md; the extension's mcp.test.ts, its manifest's tools against fb mcp's, and
+`McpClient` over test/fixtures/fake-mcp.js and the real fb.
+
 Step 0, measuring (2026-10-31): tests/lsp/bench_tests.cpp, fb-lsp's benchmark, hidden from ctest
 (`fb_lsp_tests "[bench]"`), on a generated program of 300 modules in 10 layers and on std's own
 folder, with the editor's own delays. It times a syntax error's and a type error's diagnostics

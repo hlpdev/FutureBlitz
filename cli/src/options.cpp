@@ -34,6 +34,7 @@ std::expected<command_t, std::string> find_command(const std::string_view name) 
              command_t::BINDGEN,
              command_t::FMT,
              command_t::DOC,
+             command_t::MCP,
              command_t::ADD,
              command_t::UPDATE,
              command_t::SEARCH,
@@ -125,6 +126,8 @@ std::string_view command_name(const command_t command) {
         return "fmt";
     case command_t::DOC:
         return "doc";
+    case command_t::MCP:
+        return "mcp";
     case command_t::ADD:
         return "add";
     case command_t::UPDATE:
@@ -499,6 +502,12 @@ std::expected<void, std::string> parse_into(const std::span<const std::string_vi
                 std::format("'{}' doesn't work with 'fb new', whose only option is --color", name));
         }
 
+        // fb mcp takes the package's folder, and nothing else.
+        if (options.command == command_t::MCP && argument.starts_with('-')) {
+            return std::unexpected(std::format(
+                "'{}' doesn't work with 'fb mcp', which takes only the package's folder", name));
+        }
+
         // Stays a success unless an option's value is bad.
         std::expected<void, std::string> parsed;
         if (argument == "--offline") {
@@ -552,11 +561,12 @@ std::expected<void, std::string> parse_into(const std::span<const std::string_vi
         } else if (argument.starts_with('-')) {
             return std::unexpected(std::format("unknown option '{}'", argument));
         } else if (!options.input.empty()) {
-            return std::unexpected(std::format("unexpected argument '{}'; 'fb {}' takes {}",
-                                               argument, command_name(options.command),
-                                               options.command == command_t::NEW
-                                                   ? "the new package's folder"
-                                                   : "one .fb file or package folder"));
+            return std::unexpected(std::format(
+                "unexpected argument '{}'; 'fb {}' takes {}", argument,
+                command_name(options.command),
+                options.command == command_t::NEW   ? "the new package's folder"
+                : options.command == command_t::MCP ? "the package's folder"
+                                                    : "one .fb file or package folder"));
         } else {
             options.input = path_from_utf8(argument);
         }
