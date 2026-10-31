@@ -128,7 +128,7 @@ main = "main.fb"                    # the default
 
 [dependencies]
 geometry = { path = "../geometry" }
-engine = { path = "../engine", version = "0.1" }    # its folder here, 0.1 once published
+layout = { path = "../layout", version = "0.4" }    # its folder here, 0.4 once published
 ```
 
 - `[project]` needs `name`, an identifier other than `std`, and `version`, three numbers like

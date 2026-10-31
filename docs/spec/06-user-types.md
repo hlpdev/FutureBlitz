@@ -231,7 +231,7 @@ Class implements without listing it. A library keeps an object of any Class as o
 it back as the type it's asked for:
 
 ```vb
-Class Entity
+Class Session
     Field data: Object?
 
     Method SetData(value: Object?)
@@ -241,14 +241,14 @@ Class Entity
     Method Data<T: Class>(): T? => data As? T
 End Class
 
-entity.SetData(Guard("Ann"))
-Print(entity.Data<Npc>()?.Name ?? "none")     // Ann, as a Guard is an Npc
-Print(entity.Data<Door>() == Null)            // True
+session.SetData(Admin("ada"))
+Print(session.Data<User>()?.Name ?? "none")     // ada, as an Admin is a User
+Print(session.Data<Invoice>() == Null)          // True
 ```
 
 - An object of any Class converts to an `Object`, and so does a type parameter's that's a
   Class's, `Where T: Class`. `x As? C` gives it back as a Class or an Interface, or `Null` when it
-  isn't one, `x As C` panics then ("expected Npc, found Door"), and `x Is C` and `Case c As C`
+  isn't one, `x As C` panics then ("expected User, found Invoice"), and `x Is C` and `Case c As C`
   test it. `As?` and `As` convert to and from a type parameter that's a Class's too, checking
   each instance's Class. An Interface's value converts to an Object only with `As?` or `As`,
   since it can be an array's.

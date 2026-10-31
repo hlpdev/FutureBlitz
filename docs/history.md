@@ -24,7 +24,7 @@ program's. `As?` and `As` convert to and from a type parameter that's a Class's,
 `Weak<Object>` and `[Weak x]` of one; and errors for listing it, extending it, a constraint of
 it, making one, and showing one. Struct values aren't Objects, and an Interface's value becomes
 one only with `As?`, since it can be an array's. Interface files write it as `Object`, and
-fb-lsp completes it. tests/programs/objects.fb keeps any Class's object in an entity and gets it
+fb-lsp completes it. tests/programs/objects.fb keeps any Class's object in a holder and gets it
 back typed; panic_object_cast.fb panics on the wrong Class.
 
 ## 1.0.1
