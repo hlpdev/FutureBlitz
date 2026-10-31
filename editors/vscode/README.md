@@ -1,8 +1,9 @@
 # FutureBlitz for VS Code
 
-FutureBlitz (.fb) in VS Code: highlighting, the language server's errors as you type and
-formatting on save, tasks for `fb build`, `fb run`, `fb test`, and `fb fmt`, and debugging through
-CodeLLDB. The design is in [docs/tooling.md](https://github.com/hlpdev/FutureBlitz/blob/HEAD/docs/tooling.md#the-vs-code-extension-step-5).
+FutureBlitz (.fb) in VS Code: highlighting, the FutureBlitz logo as .fb files' icon, the language
+server's errors as you type and formatting on save, tasks for `fb build`, `fb run`, `fb test`, and
+`fb fmt`, and debugging through CodeLLDB. The design is in
+[docs/tooling.md](https://github.com/hlpdev/FutureBlitz/blob/HEAD/docs/tooling.md#the-vs-code-extension-step-5).
 
 ## What it needs
 

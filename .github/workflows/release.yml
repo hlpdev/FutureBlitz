@@ -889,6 +889,8 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/dist"
           npx vsce package --out "$GITHUB_WORKSPACE/dist/futureblitz-$VERSION.vsix"
           npx vsce ls | grep -x images/icon.png
+          npx vsce ls | grep -x images/file-light.svg
+          npx vsce ls | grep -x images/file-dark.svg
 
       - uses: actions/upload-artifact@v4
         with:
