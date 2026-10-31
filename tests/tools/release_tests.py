@@ -261,7 +261,27 @@ class LaunchCheckTests(unittest.TestCase):
                         "futureblitz.rb")
         self.files[self.winget] = installer.encode()
         self.files[self.formula] = packages.homebrew(self.version, sums, base).encode()
+        self.site = f"{launch_check.SITE}/download/"
+        self.files[self.site] = f"<h1>Download</h1><p>FutureBlitz {self.version} is fb</p>".encode()
+        self.apt = {arch: f"{launch_check.DL}/apt/dists/stable/main/binary-{arch}/Packages"
+                    for arch in ("amd64", "arm64")}
+        for arch, url in self.apt.items():
+            self.files[url] = (f"Package: futureblitz\nVersion: 1.2.2-1\nArchitecture: {arch}\n\n"
+                               f"Package: futureblitz\nVersion: {self.version}-1\n"
+                               f"Architecture: {arch}\n").encode()
+        self.primary = f"{launch_check.DL}/rpm/repodata/abc-primary.xml.gz"
+        self.files[f"{launch_check.DL}/rpm/repodata/repomd.xml"] = (
+            b'<data type="primary"><location href="repodata/abc-primary.xml.gz"/></data>')
+        self.files[self.primary] = gzip.compress(self.rpms("x86_64", "aarch64"))
         self.signed: dict[str, bool] = {}
+
+    def rpms(self, *arches: str) -> bytes:
+        """createrepo_c's primary.xml, with 1.2.2 and this version for each of `arches`."""
+        packages_xml = "".join(
+            f'<package type="rpm">\n  <name>futureblitz</name>\n  <arch>{arch}</arch>\n'
+            f'  <version epoch="0" ver="{ver}" rel="1"/>\n</package>\n'
+            for ver in ("1.2.2", self.version) for arch in arches)
+        return f'<metadata packages="{2 * len(arches)}">\n{packages_xml}</metadata>\n'.encode()
 
     def signature(self, path: Path) -> tuple[bool, str]:
         valid = self.signed.get(path.name, True)
@@ -319,6 +339,30 @@ class LaunchCheckTests(unittest.TestCase):
             "winget's manifest": "its InstallerSha256 isn't futureblitz-1.2.3-windows-x64.msi's",
             "the Homebrew formula": "hlpdev/homebrew-tap has no Formula/futureblitz.rb",
         })
+
+    def test_the_site_and_the_linux_repositories_have_to_be_at_the_version(self) -> None:
+        # 1.0.1 was released with futureblitz.dev still at 1.0.0.
+        self.files[self.site] = b"<p>FutureBlitz 1.2.2 is fb</p>"
+        self.files[self.apt["arm64"]] = b"Package: futureblitz\nVersion: 1.2.2-1\n"
+        del self.files[self.apt["amd64"]]
+        self.files[self.primary] = gzip.compress(self.rpms("x86_64"))
+        self.assertEqual(self.problems(), {
+            "futureblitz.dev": "its download page isn't at 1.2.3",
+            "apt's repository": "it hasn't 1.2.3-1 for amd64, arm64",
+            "dnf's repository": "it hasn't 1.2.3-1 for aarch64",
+        })
+        # A version that only starts like this one's isn't it.
+        self.files[self.apt["arm64"]] = b"Package: futureblitz\nVersion: 1.2.30-1\n"
+        self.files[self.primary] = b"not gzip"
+        del self.files[self.site]
+        self.assertEqual(self.problems(), {
+            "futureblitz.dev": "https://futureblitz.dev has no download page",
+            "apt's repository": "it hasn't 1.2.3-1 for amd64, arm64",
+            "dnf's repository": "its repodata/abc-primary.xml.gz isn't gzip'd",
+        })
+        del self.files[f"{launch_check.DL}/rpm/repodata/repomd.xml"]
+        self.assertEqual(self.problems()["dnf's repository"],
+                         "https://dl.futureblitz.dev/rpm has no repodata")
 
     @unittest.skipUnless(sys.platform == "win32", "Get-AuthenticodeSignature is Windows'")
     def test_an_unsigned_file_isnt_valid_to_windows(self) -> None:

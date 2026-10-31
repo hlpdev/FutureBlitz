@@ -35,8 +35,9 @@ gh variable set NAME -R hlpdev/FutureBlitz --body value
 | `R2_SECRET_ACCESS_KEY` | secret | publish.yml | R2 |
 | `R2_BUCKET` | variable | publish.yml | the bucket dl.futureblitz.dev serves |
 
-Without the Azure ones, a dispatch's Windows files are unsigned, with a warning; without
-REPO_SIGNING_KEY, its .rpms are, and publish.yml's linux job refuses them. A pushed tag's release
+A dispatch's Windows files are never signed, so a run by hand spends none of Azure's signing
+quota; a tag's sign every executable and DLL the release installs. Without REPO_SIGNING_KEY, a
+dispatch's .rpms are unsigned, and publish.yml's linux job refuses them. A pushed tag's release
 needs both, as the download page says its files are signed, and release.yml fails before it
 drafts anything without them. Each publish.yml job says which secret it lacks.
 
@@ -224,17 +225,30 @@ dl.futureblitz.dev. Each is true once its part above is done:
 
 ## A release, then
 
-1. Set CMakeLists.txt's version to the release's, push the tag (`git tag v1.0.0 && git push
-   origin v1.0.0`), and wait for release.yml's draft. A tag on a commit whose message has
+The release skill, .claude/skills/release/SKILL.md, is these steps with their commands.
+
+1. Set the version in CMakeLists.txt, editors/vscode/package.json, and package-lock.json's two
+   places, with the release's entry in docs/history.md, push the tag (`git tag v1.0.0 && git
+   push origin v1.0.0`), and wait for release.yml's draft. A tag on a commit whose message has
    `[skip ci]` starts nothing, as GitHub skips its push; then start it on the tag, which does
    the same: `gh workflow run release.yml --ref v1.0.0`.
 2. Check the draft, then publish it.
 3. `gh workflow run publish.yml -f version=1.0.0 -f winget=true -f homebrew=true -f linux=true -f
    vscode=true`, or only some of them.
-4. Once winget-pkgs has merged the pull request (a new package waits for its moderators), the
+4. futureblitz.dev at the version: futureblitz-web's `production` branch is what production
+   serves, the docs of the newest release, while master, which staging serves, follows
+   FutureBlitz's master. A patch release sets packages/ui/src/facts.js's version on both and
+   records production's outputs with the release's fb; a release with new features moves
+   `production` to master, synced to the release's tag. Then production's build and deploy, as
+   apps/site/README.md's Deploying says.
+5. Once winget-pkgs has merged the pull request (a new package waits for its moderators), the
    launch check: `python tools/release/launch_check.py 1.0.0`. It checks the published release
    has every file docs/tooling.md's Releases lists, each in its SHA256SUMS, that setup.exe and
    the MSI have valid Authenticode signatures (with PowerShell on Windows, or osslsigncode
-   elsewhere), that microsoft/winget-pkgs has the version's manifest with the MSI's hash, and
-   that the tap's formula is at the version, with each archive's hash. It prints each check and
-   exits 1 if one fails; the release isn't announced until they all pass.
+   elsewhere), that microsoft/winget-pkgs has the version's manifest with the MSI's hash, that
+   the tap's formula is at the version, with each archive's hash, that futureblitz.dev's
+   download page is at the version, and that apt's and dnf's repositories have it for both of
+   Linux's CPUs. It prints each check and exits 1 if one fails; the release isn't announced
+   until they all pass.
+6. What builds with fb's release elsewhere moves to it: fbengine's FB_VERSION, in its ci.yml and
+   publish.yml.

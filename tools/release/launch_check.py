@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Checks that a published release has what the download page promises: every file release.yml
 makes, each as SHA256SUMS has it; a valid Authenticode signature on setup.exe and the MSI; winget's
-manifest of the version in microsoft/winget-pkgs; and the Homebrew tap's formula at the version.
-docs/release-setup.md's launch checklist runs it once publish.yml is done.
+manifest of the version in microsoft/winget-pkgs; the Homebrew tap's formula at the version;
+futureblitz.dev's download page at the version; and apt's and dnf's repositories on
+dl.futureblitz.dev with it. docs/release-setup.md's launch checklist runs it once publish.yml is
+done and production's site is deployed.
 
     python tools/release/launch_check.py <version> [--repository owner/name] [--tap owner/name]
 
@@ -12,9 +14,11 @@ Windows, and osslsigncode elsewhere.
 """
 
 import argparse
+import gzip
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -29,6 +33,8 @@ import packages  # noqa: E402
 
 REPOSITORY = packages.REPOSITORY
 TAP = "hlpdev/homebrew-tap"
+SITE = "https://futureblitz.dev"
+DL = "https://dl.futureblitz.dev"
 TARGETS = ("windows-x64", "linux-x64", "linux-arm64", "macos-arm64", "macos-x64")
 # The files each release's Windows installers are; their signatures are checked.
 SIGNED = ("{base}-windows-x64-setup.exe", "{base}-windows-x64.msi")
@@ -167,7 +173,44 @@ def check(version: str, source: Source, signature: Callable[[Path], tuple[bool, 
             results.append(("the Homebrew formula", f"it hasn't {', '.join(stale)}'s SHA-256"))
         else:
             results.append(("the Homebrew formula", None))
+
+    # The site's version is facts.js's, which every page has, so the download page stands for all
+    # of them.
+    page = source.fetch(f"{SITE}/download/")
+    if page is None:
+        results.append(("futureblitz.dev", f"{SITE} has no download page"))
+    elif f"FutureBlitz {version}" not in page.decode(errors="replace"):
+        results.append(("futureblitz.dev", f"its download page isn't at {version}"))
+    else:
+        results.append(("futureblitz.dev", None))
+
+    stale = []
+    for arch in ("amd64", "arm64"):
+        index = source.fetch(f"{DL}/apt/dists/stable/main/binary-{arch}/Packages") or b""
+        if f"\nVersion: {version}-1\n" not in "\n" + index.decode(errors="replace"):
+            stale.append(arch)
+    results.append(("apt's repository",
+                    f"it hasn't {version}-1 for {', '.join(stale)}" if stale else None))
+
+    results.append(("dnf's repository", dnf_problem(version, source)))
     return results
+
+
+def dnf_problem(version: str, source: Source) -> str | None:
+    """Why dnf's repository hasn't the version for both of Linux's CPUs, or None when it has."""
+    repomd = source.fetch(f"{DL}/rpm/repodata/repomd.xml")
+    primary = re.search(r'href="(repodata/[^"]*primary\.xml\.gz)"', (repomd or b"").decode())
+    if primary is None:
+        return f"{DL}/rpm has no repodata"
+    body = source.fetch(f"{DL}/rpm/{primary.group(1)}")
+    try:
+        text = gzip.decompress(body or b"").decode(errors="replace")
+    except (OSError, EOFError):
+        return f"its {primary.group(1)} isn't gzip'd"
+    missing = [arch for arch in ("x86_64", "aarch64")
+               if not re.search(rf'<arch>{arch}</arch>\s*<version [^>]*ver="{re.escape(version)}"'
+                                r' rel="1"', text)]
+    return f"it hasn't {version}-1 for {', '.join(missing)}" if missing else None
 
 
 def main() -> int:

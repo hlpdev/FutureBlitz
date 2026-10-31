@@ -235,7 +235,13 @@ scheduler's run_until slept 1 ms with sleep_for while a timer was due, which Win
 sleeps on a thread's high-resolution waitable timer (CreateWaitableTimerExW with
 CREATE_WAITABLE_TIMER_HIGH_RESOLUTION), or before Windows 10 1803 with winmm's timeBeginPeriod(1),
 loaded then, for the sleep alone; run_until and fb_time_sleep use it. tests/programs/
-time_realwait.fb waits and sleeps a millisecond 100 times, each under 300 ms.
+time_realwait.fb waits and sleeps a millisecond 100 times, each under 1 s, which still catches
+Windows' tick (1.56 s): a loaded macOS runner took 795 ms, over the 300 ms it first had.
+
+A write to a child's closed stdin is EPIPE on every OS, as "broken pipe" (master's macOS CI found
+it): macOS's stdio pipes are socketpairs, where libuv gives ENOTCONN, "socket is not connected",
+which process.cpp's `write_error()` takes as EPIPE, as it does Windows' UV_EOF. os_process's
+"during:" line on macOS CI is its test.
 
 A TGA that ends before its pixels do is an IOError of INVALID_DATA (fbengine's GPU review found
 it): stb_image read what's past the end as 0s, so an 18-byte header of a 16384 by 16384 image
@@ -268,6 +274,31 @@ runs the installed release's fb-bindgen on tools/release/libc.h, a header of `<s
 `<stddef.h>`, `<stdint.h>`, and `<string.h>`. Windows' MinGW-w64 and winpthreads headers, and
 macOS's SDK, from `xcrun`, already had every header theirs include. A cli test whose name began
 with `--`, which Catch2 took as an option, so ctest never ran it, is "a --registry folder ...".
+After it, as futureblitz.dev still said 1.0.0: the launch check checks the download page's
+version and apt's and dnf's repositories for both CPUs; futureblitz-web's `production` branch is
+production's, the newest release's docs, apart from master's, staging's; and the `release` and
+`site` skills, in .claude/skills/, are a release's and the site's steps.
+
+## E2 and E3, the GPU core and 2D
+
+E2's steps 1 to 6 and E3's 1 to 4 (2026-11-01, the gpu lane, landed as a merge at e9d02d6; E3 step
+3's text core and step 5's collisions came from the input lane at 0d0c099). E2 added Vulkan
+through volk and VMA: a discrete GPU preferred and lavapipe in tests, the window's swapchain with
+two frames in flight, Flip's present with vsync or without, and resizing and minimizing; Slang
+shaders compiled to SPIR-V at build time and embedded, with a pipeline cache on disk and golden
+images compared within a tolerance; buffers and textures through staging, mipmaps, samplers, and
+bindless descriptors over buffer device addresses, in sRGB and linear; offscreen targets with
+reversed 32-bit depth, MSAA and resolve, readback, PNG screenshots, and a render size apart from
+the window's; the frame graph, its barriers from declared reads and writes and its transient
+targets reused; and device loss, a missing feature's clear error, MoltenVK, timings, and
+counters. E3 added the Canvas, drawing lines, rectangles, ovals, and polygons into the window or a
+target in few batches, with Blend2D for its blends; Sprite2D, images drawn with a handle,
+rotation, scale, color, frames of a sheet, tiles, and regions; text, the core's glyph pages
+uploaded as they change and drawn by Canvas.DrawText, underlines under each line the core breaks;
+and pixels, a texture or the window locked through one copy a frame, copies between them, and
+std.image's Image in and out. Every review's findings were fixed with tests, the last the swap's
+two: underlines at every break the core makes, and text ending at its first NUL. E3 step 6, the
+arcade example, is in review.
 
 ## E8, assets
 
