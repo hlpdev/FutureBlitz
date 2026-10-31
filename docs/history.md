@@ -49,6 +49,13 @@ generic Class too, the Interface's and its by-name twin's chains, a Get in a pic
 T?'s loops; mir's Protected Sets through a plain base and a Mine; and reflection_setters'
 inherited Holder<Int>.
 
+From the check of those fixes: `reflected_members()` takes members as lowering copies them, an
+Override in the place of what it overrides, settable or not (`overridden`), and another Property
+of its name as its own, where it went by names, so an Extend's `Property Level: String` beside a
+Private `Level: Int` in another file met none of the loop's Where lines, and lowering's copy of it
+made LLVM IR that doesn't check, with the pick or without it, as in 1.0.0. Tests: sema's three,
+the pick, a Get loop without it, and through a generic Bump<T>, each refused for the String.
+
 ## M11, the IDE
 
 Step 0, measuring (2026-10-31): tests/lsp/bench_tests.cpp, fb-lsp's benchmark, hidden from ctest
