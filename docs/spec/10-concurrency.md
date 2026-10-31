@@ -405,8 +405,9 @@ Spawn(Function() => SetTitle("done"))   // ✗ compile error: @MainThread
   Global's initializer, which runs on each thread that uses it (see
   [02](02-types.md#threadlocal-globals)), with everything it can run: what it calls, its lambdas,
   what overrides the Methods it calls, and what implements the Interface Methods it calls, with
-  each New's Class's Destroy(). A Shared Class's Destroy() is too, since whichever thread lets go
-  last runs it.
+  each New's Class's Destroy(), and what its loops over members get, set, and call (see
+  [13](13-compile-time.md#reflection)). A Shared Class's Destroy() is too, since whichever thread
+  lets go last runs it.
 - That code can't use a Global or Static Field unless it's an Atomic, a Mutex, a ThreadLocal
   Global, or a Static ReadOnly Field of a Sendable type, which keeps the value it starts with, or
   a top-level Const that isn't Sendable, or call a `@MainThread` Function or Method.

@@ -3,6 +3,36 @@
 What each milestone and step added, by name, and each review's fixes, as CLAUDE.md kept
 them while each was built. Newest first.
 
+## 1.2
+
+Reflection that sets (2026-10-31): a For Property's `p.Set(ByRef value, x)` calls the
+Property's Set, through the Method table for a Class (`accessor_of()`), and on a Struct's
+variable, and a For Static Field's `s.Set(x)` stores the Static Field, an instance's for a
+generic type's. lower.cpp's `unsettable()` says why a copy's Set can't change its member, for
+f.Set, p.Set, and s.Set alike: a ReadOnly Field or Static Field, a Property without a Set of its
+own or of what it overrides, or visibility. Its Protected check goes by the Class whose code the
+loop is in (`stmt_info_t::within`, from sema's `class_at()`), where it took m_self before, so a
+Static Method of a Class extending another can f.Set its Protected Field, as it can assign it by
+name. `Where p Has Set` (sema's `picks_set()`, `stmt_info_t::picks_settable`) picks the ones the
+loop's code can set (`settable_at()`, on `setter_of()` and `can_use()`), and `Where f Has Set`
+the Fields, by their `field_symbol()`s, and none of a T?'s; `bound_t::settable`,
+the loop's place, carries the pick in a generic loop's constraints, which `covers()` says
+another loop says when it goes over all of them or picks them in the same file and Class;
+`settable_text()` names the pick in errors, and another Where line on a For Property's or For
+Static Field's variable is an error that says which one they take. Sema's `reflected_members()`
+gives the members' symbols, which `reflected_types()` reads. From its own check: a loop's
+`p.Get`, `p.Set`, `s.Get`, `s.Set`, and `m.Call` weren't in the thread rules, so work on another
+thread could use a Static Field or call a @MainThread Method through one. Each is a
+`reflected_use_t` in `m_reflected_uses`, which an overload's trial takes back, and
+check_threads()'s `note_reflected_uses()` turns them into what the code runs: over a type, its
+members, and over a type parameter, the members of each type a call, an instance, or an
+Interface's conformance, for Self, gives it, or gives a type parameter given to it, as a call of
+an Interface's Method reaches each implementation. `note_thread_use()` takes the code it's for.
+Tests: sema's p.Set and s.Set, the pick and its constraints over a type and a type parameter,
+and the thread rules over a type, a type parameter, and one given through another; mir's errors
+at the copies and the picks that leave them out, an Override that uses its base's Set, and a
+Static Method's f.Set; tests/programs/reflection_setters.
+
 ## M11, the IDE
 
 Step 0, measuring (2026-10-31): tests/lsp/bench_tests.cpp, fb-lsp's benchmark, hidden from ctest

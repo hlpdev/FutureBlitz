@@ -181,7 +181,8 @@ End Function
   name: a Private one outside its file, a Package one outside its package and its tests, and a
   Protected one outside its file and the code of the Classes extending its Class. What a type keeps
   to itself, like the memory a std.ffi Buffer owns, stays as its own code has it, while `f.Get`
-  still reads every Field.
+  still reads every Field. `Where f Has Set` picks only the Fields the loop's code can set, as
+  `Where p Has Set` does Properties (below), and over a `T?`, none.
 - `For Method m In T` goes over the Methods of a Struct or Class that take nothing, give nothing,
   and throw nothing (the inherited ones first, each in the place of what it overrides), but not
   Destroy, Unsafe, or ByRef Methods, or Async ones, which give a Task. `m.Call(value)` calls it,
@@ -217,13 +218,29 @@ End Function
   goes over only the Methods with one of those Attributes, so no other Method gets a copy, or
   is checked against the loop's other Where lines. Each such line picks again, and an Override
   goes by its own attributes. Over a type parameter, another loop says its Where lines are met
-  only when it picks the same way. `Has` and `Or` are words only there. Only a For Method loop
-  picks; the other loops' bodies test `f.Has(A)`.
+  only when it picks the same way. `Has` and `Or` are words only there. The other loops pick
+  only the members they can set, with `Where f Has Set`; their bodies test `f.Has(A)`.
 - `For Property p: P In T` goes over a Struct's or Class's Properties (inherited ones first),
-  with `p.Name`, `p.Get(value)`, `p.Has(A)`, and `p.Attribute(A)`, and `For Static Field s: S In
-  T` over its own Static Fields, with `s.Get()`. They read; a Property without a Set and a
-  ReadOnly Static Field couldn't be told apart, so neither has a Set. Where lines on P or S work
-  as on F.
+  with `p.Name`, `p.Get(value)`, `p.Set(ByRef value, x)`, `p.Has(A)`, and `p.Attribute(A)`, and
+  `For Static Field s: S In T` over its own Static Fields, with `s.Get()` and `s.Set(x)`. Where
+  lines on P or S work as on F.
+- `p.Set` calls the Property's Set, through the Method table for a Class, as assigning it does,
+  and on a Struct it changes the variable. `s.Set` assigns the Static Field, the instance's for a
+  generic type's. Each changes only what its code could assign by name, as `f.Set` does, so in a
+  copy for a Property without a Set, its own or the one it overrides, for a ReadOnly Static
+  Field, or for one that visibility hides from the loop's code, it's an error where the copy is
+  made.
+- `Where p Has Set` picks only the Properties, or Static Fields with `Where s Has Set`, that the
+  loop's code can set, so an inspector can go over just the ones it can change, Fields too, and
+  only they get a copy or have to meet the loop's other Where lines. Over a type parameter,
+  another loop says those lines are met when it goes over all the members, or picks them the
+  same way in the same file and Class, since which ones its code can set depends on where it
+  is.
+- What each copy's `p.Get`, `p.Set`, `s.Get`, `s.Set`, and `m.Call` run is what its code can run,
+  for [10](10-concurrency.md)'s rules about work on another thread: the Property's Get or Set,
+  the Static Field, and the Method. Over a type parameter, it's what each type the code is ever
+  given for it has, as a call of an Interface's Method can run what each type implementing it
+  has.
 - The loops go over Private members too, and over what an Extend of the type, or of that one
   instance like `Box<Int>`, adds, but only where the loop's file sees the Extend's module, as a
   call there would. A Method or Property that Where lines on the type's parameters make
