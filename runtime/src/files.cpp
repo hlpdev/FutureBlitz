@@ -433,6 +433,79 @@ std::string temporary_beside(const std::string& path) {
     return temporary + ".tmp";
 }
 
+#ifdef _WIN32
+/// FILE_RENAME_INFO as Windows 10 1709's SDK has it, with Flags in place of ReplaceIfExists,
+/// which older MinGW headers lack, and FileRenameInfoEx's flags.
+struct rename_info_t {
+    DWORD flags;
+    HANDLE root;
+    DWORD length;
+    WCHAR name[1];
+};
+
+constexpr DWORD rename_replace_if_exists = 0x1;
+constexpr DWORD rename_posix_semantics = 0x2;
+constexpr auto file_rename_info_ex = static_cast<FILE_INFO_BY_HANDLE_CLASS>(22);
+
+/// Renames the file at `from` over the one at `to` with POSIX semantics, which replaces a file
+/// another handle holds open, sharing delete, as std's do, and which goes on reading the old
+/// one. Where Windows or the disk doesn't have them (before Windows 10 1709, or FAT), it's
+/// libuv's rename, MoveFileExW's, which can't.
+std::int64_t replace_file(const std::string& from, const std::string& to) {
+    const auto rename = [&] {
+        fs_t call;
+        return uv_fs_rename(nullptr, call.get(), from.c_str(), to.c_str(), nullptr);
+    };
+    const auto wide = [](const std::string& path) {
+        const int length = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, nullptr, 0);
+        std::wstring text(static_cast<std::size_t>(std::max(length, 1)), L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, text.data(), length);
+        text.resize(text.size() - 1);
+        return text;
+    };
+
+    // The new name is a whole path, as the handle's rename takes it.
+    const std::wstring target = wide(to);
+    const DWORD needed = GetFullPathNameW(target.c_str(), 0, nullptr, nullptr);
+    std::wstring full(needed, L'\0');
+    const DWORD written = GetFullPathNameW(target.c_str(), needed, full.data(), nullptr);
+    if (needed == 0 || written == 0 || written >= needed) {
+        return rename();
+    }
+
+    full.resize(written);
+    HANDLE file = CreateFileW(wide(from).c_str(), DELETE | SYNCHRONIZE,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                              OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        return rename();
+    }
+
+    const std::size_t size = offsetof(rename_info_t, name) + ((full.size() + 1) * sizeof(WCHAR));
+    std::vector<std::byte> buffer(size);
+    auto* info = reinterpret_cast<rename_info_t*>(buffer.data());
+    info->flags = rename_replace_if_exists | rename_posix_semantics;
+    info->root = nullptr;
+    info->length = static_cast<DWORD>(full.size() * sizeof(WCHAR));
+    std::memcpy(static_cast<void*>(info->name), full.c_str(), (full.size() + 1) * sizeof(WCHAR));
+    const BOOL renamed =
+        SetFileInformationByHandle(file, file_rename_info_ex, info, static_cast<DWORD>(size));
+    const DWORD error = renamed != 0 ? ERROR_SUCCESS : GetLastError();
+    CloseHandle(file);
+    if (renamed != 0) {
+        return 0;
+    }
+
+    // A Windows or a disk without them says it doesn't know the class or its flags.
+    if (error == ERROR_INVALID_PARAMETER || error == ERROR_NOT_SUPPORTED ||
+        error == ERROR_INVALID_FUNCTION) {
+        return rename();
+    }
+
+    return uv_translate_sys_error(static_cast<int>(error));
+}
+#endif
+
 /// Whether a link's target `target` is from a root, not from the link's folder.
 bool is_rooted(const std::string_view target) {
 #ifdef _WIN32
@@ -1335,8 +1408,12 @@ std::int64_t atomic_file_t::commit() {
 
     close_file(std::exchange(m_file, -1));
     if (result == 0) {
+#ifdef _WIN32
+        result = replace_file(m_temporary, m_path);
+#else
         fs_t call;
         result = uv_fs_rename(nullptr, call.get(), m_temporary.c_str(), m_path.c_str(), nullptr);
+#endif
     }
 
     if (result == 0) {
