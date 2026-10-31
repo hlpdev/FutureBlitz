@@ -18,6 +18,19 @@ listed, walked, copied, moved, written atomically twice, its metadata, read-only
 opened as a stream, mapped, locked, watched, reached from the current folder by a relative path,
 and removed, which master's fb fails at CreateAll with "name too long".
 
+From 1.2's review of it: `os_path()` keeps a path the program writes after `\\?\` or `//?/`, which
+GetFullPathNameW had made `\\?\UNC\?\...`, a share on a server named "?", with `\`s for a drive's or
+a share's, since Windows reads a `/` after the prefix as part of a name; passes an NT path's
+`\??\` through, which became `C:\??\...`; makes a long `\\.\X:\` path a drive's `\\?\X:\`, keeping
+`\\?\UNC\` for `\\server\share` alone; and gives the full path for one long as it's written but short
+once its `..`s go, which Windows refuses as written. files.cpp's `std::max<int>()` keeps
+windows.h's max macro, which uv.h brings in before NOMINMAX, from it, so clang-tidy reads the file
+again, and verify.py's tidy step fails on clang-tidy's errors wherever they are, which it didn't
+see before. Dir.SetCurrent's doc says 258 characters, MAX_PATH less 2, and stdlib.md and
+decisions.md say "at or past". Tests: tests/runtime/files_tests.cpp's spellings of `os_path()` on
+Windows, and tests/programs/io_long_path_spellings, each spelling written and read, the dots, and
+a short `\\?\` folder walked and removed.
+
 A recursive FileWatcher (2026-10-31): `FileWatcher(path, recursive: True)` and its `Recursive`
 Field; `fb_io_watcher_new` takes `recursive`. watcher.cpp's `known` holds keys, a name or a path
 from the folder with '/'s ("art/hero.png"), which `listing_of()` lists through the tree, not
