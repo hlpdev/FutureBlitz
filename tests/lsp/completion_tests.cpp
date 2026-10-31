@@ -35,6 +35,15 @@ Function Main(): Int
     Local ok = True
 )";
 
+/// textDocument/completion's params at a position in `uri`.
+json_t completion_at(const std::string& uri, const std::uint32_t line,
+                     const std::uint32_t character) {
+    return {
+        { "textDocument", { { "uri", uri } } },
+        { "position", client_t::position(line, character) },
+    };
+}
+
 /// The completion items at the end of `typed`, written at the end of `painting`'s Main, with the
 /// rest of Main after it, in the order the editor shows them: by their sortText.
 std::vector<json_t> completed(client_t& client, const std::string& uri, const std::string& typed) {
@@ -45,9 +54,8 @@ std::vector<json_t> completed(client_t& client, const std::string& uri, const st
         std::string_view(text).substr(0, painting.size() + typed.size());
     const auto line = static_cast<std::uint32_t>(std::ranges::count(written, '\n'));
     const auto character = static_cast<std::uint32_t>(written.size() - written.rfind('\n') - 1);
-    const json_t found = client.request("textDocument/completion",
-                                        { { "textDocument", { { "uri", uri } } },
-                                          { "position", client_t::position(line, character) } });
+    const json_t found =
+        client.request("textDocument/completion", completion_at(uri, line, character));
     std::vector<json_t> items(found["items"].begin(), found["items"].end());
     std::ranges::stable_sort(items, {}, [](const json_t& item) {
         return item.value("sortText", item["label"].get<std::string>());
@@ -87,7 +95,7 @@ std::set<std::string> labels_of(const std::vector<json_t>& items) {
 json_t item_of(const std::vector<json_t>& items, const std::string& label) {
     const std::optional<std::size_t> at = place_of(items, label);
     REQUIRE(at);
-    return items[*at];
+    return at ? items[*at] : json_t();
 }
 
 } // namespace
@@ -96,12 +104,12 @@ TEST_CASE("completion ranks first what the code wants where the word is", "[lsp]
     const folder_t folder({});
     const std::string uri = folder.uri("paint.fb");
     client_t client({});
-    client.open(uri, std::string(painting));
+    client.open(uri, painting);
 
     // A parameter's type: an Int for Paint's times.
     std::vector<json_t> items = completed(client, uri, "    Local n = Paint(shade, ");
     CHECK(before(items, "count", "name"));
-    CHECK(item_of(items, "count")["sortText"].get<std::string>().starts_with("0"));
+    CHECK(item_of(items, "count")["sortText"].get<std::string>().starts_with('0'));
 
     // An Enum's members where it wants one, and its Locals.
     items = completed(client, uri, "    Local other: Color = ");
@@ -132,7 +140,7 @@ TEST_CASE("completion offers the names of the parameters a call doesn't give yet
     const folder_t folder({});
     const std::string uri = folder.uri("paint.fb");
     client_t client({});
-    client.open(uri, std::string(painting));
+    client.open(uri, painting);
 
     std::vector<json_t> items = completed(client, uri, "    Local n = Paint(");
     CHECK(labels_of(items).contains("c:"));
@@ -171,9 +179,7 @@ TEST_CASE("completion offers the keywords that go where the word is", "[lsp]") {
     const auto keywords_at = [&](const std::uint32_t line, const std::uint32_t character) {
         std::set<std::string> found;
         const json_t items =
-            client.request("textDocument/completion",
-                           { { "textDocument", { { "uri", uri } } },
-                             { "position", client_t::position(line, character) } })["items"];
+            client.request("textDocument/completion", completion_at(uri, line, character))["items"];
         for (const json_t& item : items) {
             if (item["kind"] == 14) {
                 found.insert(item["label"].get<std::string>());
@@ -217,7 +223,7 @@ TEST_CASE("postfix completions write the value before the '.' into what they say
     const folder_t folder({});
     const std::string uri = folder.uri("paint.fb");
     client_t client({});
-    client.open(uri, std::string(painting));
+    client.open(uri, painting);
 
     // A Bool: an If on it, and its opposite.
     std::vector<json_t> items = completed(client, uri, "    ok.");
@@ -274,9 +280,7 @@ TEST_CASE("a Class's body offers the Methods it can override and implement", "[l
         client.change(uri, text);
         const std::uint32_t line = 18 + static_cast<std::uint32_t>(std::ranges::count(body, '\n'));
         std::vector<json_t> items;
-        const json_t found = client.request("textDocument/completion",
-                                            { { "textDocument", { { "uri", uri } } },
-                                              { "position", client_t::position(line, 4) } });
+        const json_t found = client.request("textDocument/completion", completion_at(uri, line, 4));
         for (const json_t& item : found["items"]) {
             items.push_back(item);
         }
@@ -307,8 +311,11 @@ TEST_CASE("completion offers the names of modules the file doesn't import, with 
           "[lsp]") {
     const folder_t folder({
         { "project.toml", "[project]\nname = \"geo\"\nversion = \"0.1.0\"\n" },
-        { "shapes.fb", "Import std.core\nPublic Struct Point\n    Public Field X: Int\nEnd Struct\n"
-                       "Public Function Length(p: Point): Int => p.X\n" },
+        {
+            "shapes.fb",
+            "Import std.core\nPublic Struct Point\n    Public Field X: Int\nEnd Struct\n"
+            "Public Function Length(p: Point): Int => p.X\n",
+        },
         { "report.fb", "Import std.core\n\nPublic Function Report(): Int => 1\n" },
     });
     client_t client({ .folders = { folder.root() } });
@@ -331,7 +338,7 @@ TEST_CASE("completion offers the names of modules the file doesn't import, with 
     std::vector<json_t> items(found["items"].begin(), found["items"].end());
     const json_t point = item_of(items, "Point");
     CHECK(point["detail"] == "Struct from geo.shapes");
-    CHECK(point["sortText"].get<std::string>().starts_with("5"));
+    CHECK(point["sortText"].get<std::string>().starts_with('5'));
     REQUIRE(point["additionalTextEdits"].size() == 1);
     CHECK(point["additionalTextEdits"][0]["newText"] == "Import geo.shapes\n");
     CHECK(point["additionalTextEdits"][0]["range"]["start"] == client_t::position(1, 0));

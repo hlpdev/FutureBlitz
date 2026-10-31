@@ -63,6 +63,7 @@ disk_cache_t::key_t pair_key(const std::filesystem::path& first,
 
 void disk_cache_t::keep_only_under(const std::vector<std::filesystem::path>& folders) {
     std::vector<std::string> compared;
+    compared.reserve(folders.size());
     for (const std::filesystem::path& folder : folders) {
         compared.push_back(comparable(folder));
     }

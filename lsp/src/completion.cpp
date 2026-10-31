@@ -612,8 +612,9 @@ private:
                     continue;
                 }
 
+                const std::string_view named = argument.name->text;
                 for (const symbol_id_t each : function.parameters) {
-                    if (m_analysis.symbol(each).name == argument.name->text) {
+                    if (m_analysis.symbol(each).name == named) {
                         parameter = each;
                     }
                 }
@@ -650,10 +651,11 @@ private:
         for (std::size_t i = 0; i < m_ast.stmt_count(); ++i) {
             const auto id = static_cast<stmt_id_t>(i);
             const stmt_node_t& node = m_ast.get(id).node;
+            const std::optional<symbol_id_t>& declares = m_analysis.stmt(id).symbol;
             if (const auto* variable = std::get_if<variable_stmt_t>(&node);
                 variable != nullptr && variable->type && variable->value &&
-                at_value(*variable->value) && m_analysis.stmt(id).symbol) {
-                return known(m_analysis.symbol(*m_analysis.stmt(id).symbol).type);
+                at_value(*variable->value) && declares) {
+                return known(m_analysis.symbol(*declares).type);
             }
 
             if (const auto* assign = std::get_if<assign_stmt_t>(&node);
@@ -829,9 +831,14 @@ private:
             }
         }
 
+        if (!declared) {
+            return;
+        }
+
         // A type's symbol is the one it declares.
+        const stmt_id_t around_type = *declared;
         const auto symbol = std::ranges::find_if(m_analysis.symbols, [&](const symbol_t& each) {
-            return declared && each.kind == symbol_kind_t::TYPE && each.declaration == *declared;
+            return each.kind == symbol_kind_t::TYPE && each.declaration == around_type;
         });
         if (symbol == m_analysis.symbols.end()) {
             return;
@@ -872,14 +879,15 @@ private:
             }
 
             const std::string head = (overriding ? "Override " : "") + signature;
+            const std::string written =
+                std::format("{}\n{}    $0\n{}End Method", head, indent, indent);
             m_items.add_raw(
                 {
                     { "label", head },
                     { "kind", static_cast<int>(item_kind_t::METHOD) },
                     { "filterText", std::string(method.name) },
                     { "insertTextFormat", 2 },
-                    { "insertText",
-                      std::format("{}\n{}    $0\n{}End Method", head, indent, indent) },
+                    { "insertText", written },
                 },
                 rank_t::WANTED);
         };
@@ -888,7 +896,7 @@ private:
         // those the Classes it extends implement already.
         std::vector<type_id_t> interfaces;
         for (const type_expr_id_t written :
-             std::get<type_stmt_t>(m_ast.get(*declared).node).interfaces) {
+             std::get<type_stmt_t>(m_ast.get(around_type).node).interfaces) {
             std::string_view name = m_query.source().slice(m_ast.get(written).span);
             name = name.substr(0, name.find('<'));
             name = name.substr(name.rfind('.') == std::string_view::npos ? 0 : name.rfind('.') + 1);
@@ -1002,17 +1010,16 @@ private:
                 continue;
             }
 
+            const json_t import_edit{
+                { "range", range },
+                { "newText", std::format("Import {}\n", name.module) },
+            };
             m_items.add_raw(
                 {
                     { "label", name.name },
                     { "kind", static_cast<int>(item_kind_of(name.kind)) },
                     { "detail", std::format("{} from {}", name.kind, name.module) },
-                    {
-                        "additionalTextEdits",
-                        json_t::array(
-                            { { { "range", range },
-                                { "newText", std::format("Import {}\n", name.module) } } }),
-                    },
+                    { "additionalTextEdits", json_t::array({ import_edit }) },
                 },
                 rank_t::UNIMPORTED);
         }

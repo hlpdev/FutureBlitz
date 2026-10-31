@@ -1008,7 +1008,7 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
     std::map<std::string, file_id_t> files;
     if (compilation) {
         const auto where = [&](const file_id_t file) {
-            std::filesystem::path path = compilation->disk_path(file);
+            const std::filesystem::path path = compilation->disk_path(file);
             return path.empty() ? compilation->made_from_path(file) : path;
         };
         const module_table_t& modules = compilation->ast.modules();

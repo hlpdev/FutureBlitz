@@ -774,8 +774,11 @@ TEST_CASE("a package's library or fb.lock changed on disk reads its package agai
     const std::string text = read_file(folder.path("app/main.fb"));
     client.open(main, text);
     client.settle();
-    const std::vector<std::string> uris{ main, folder.uri("calc/project.toml"),
-                                         folder.uri("app/project.toml") };
+    const std::vector<std::string> uris{
+        main,
+        folder.uri("calc/project.toml"),
+        folder.uri("app/project.toml"),
+    };
     const std::vector<std::string> before = last_messages(client, uris[1]);
 
     // A build of the C library writes it.
