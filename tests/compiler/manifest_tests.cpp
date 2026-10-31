@@ -234,6 +234,19 @@ TEST_CASE("a published package's project.toml has its dependencies' versions, no
     CHECK(published(project + "[dependencies]\nengine = {version=\"0.1\" ,path=\"../engine\"}\n") ==
           project + "[dependencies]\nengine = {version=\"0.1\"}\n");
 
+    // A dotted key in an inline table goes with its dotted names, bare or quoted.
+    CHECK(published("dependencies = { engine.path = \"../engine\", engine.version = \"0.1\" }\n" +
+                    project) == "dependencies = { engine.version = \"0.1\" }\n" + project);
+    CHECK(
+        published("dependencies = { engine.version = \"0.1\", \"engine\" . 'path' = \"../e\" }\n" +
+                  project) == "dependencies = { engine.version = \"0.1\" }\n" + project);
+    CHECK(published("dependencies.engine.path = \"../engine\"\ndependencies.engine.version = "
+                    "\"0.1\"\n" +
+                    project) == "dependencies.engine.version = \"0.1\"\n" + project);
+    CHECK(published(project + "[dependencies]\nengine . path = \"../engine\"\nengine . version = "
+                              "\"0.1\"\n") ==
+          project + "[dependencies]\nengine . version = \"0.1\"\n");
+
     // A table's line goes, with its comment, and so does a dotted key's, in CRLF's lines too.
     CHECK(published(project + "[dependencies.engine]\nversion = \"0.1\"\n  path = \"../engine\" "
                               "# beside this one\nlink = \"beside\"\n") ==

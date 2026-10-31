@@ -2224,7 +2224,10 @@ private:
                   : std::unexpected(missing);
         if (!file) {
             if (named != nullptr) {
-                fail(named->path_span, "{}, which {} names", file.error(), named->name);
+                // A registry's package, or one only a range names, is where its range says.
+                fail(named->path.empty() || locked != nullptr ? named->range_span
+                                                              : named->path_span,
+                     "{}, which {} names", file.error(), named->name);
             } else {
                 m_unreadable = file.error();
             }

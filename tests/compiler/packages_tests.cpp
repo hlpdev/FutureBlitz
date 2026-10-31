@@ -316,6 +316,24 @@ TEST_CASE("a build step's program can be a registry package's, which builds from
     CHECK(world.run() == "made with shapes 0.3.4\n");
 }
 
+TEST_CASE("a registry package without its project.toml is an error at its range", "[packages]") {
+    const world_t world;
+    said_t said;
+    REQUIRE(world.sync(said));
+    std::filesystem::remove(fb::package_cache_folder(world.index, "physics", "1.2.0") /
+                            "project.toml");
+    const std::expected<fb::compilation_t, std::string> game =
+        fb::compile_file(world.sandbox / "game");
+    REQUIRE(game);
+    const auto missing = std::ranges::find_if(
+        game->diagnostics.diagnostics(), [](const fb::diagnostic_t& diagnostic) {
+            return diagnostic.message.contains("there's no project.toml");
+        });
+    REQUIRE(missing != game->diagnostics.diagnostics().end());
+    CHECK(game->sources.get(missing->span.file).slice(missing->span) == "\"1\"");
+    CHECK(missing->message.ends_with(", which physics names"));
+}
+
 TEST_CASE("an unresolvable range says why, before anything's written", "[packages]") {
     const world_t world;
     world.game("physics = { version = \"7\", registry = \"local\" }\n");

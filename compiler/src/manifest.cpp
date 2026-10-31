@@ -4,6 +4,7 @@
 #include "fb/utf8.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -177,6 +178,54 @@ private:
         };
         const std::uint32_t begin = offset(region.begin);
         return { .file = m_file.id(), .begin = begin, .end = std::max(begin, offset(region.end)) };
+    }
+
+    /// Where the key at `begin` starts with the dotted keys before it, as `engine.` in
+    /// `engine.path`, quoted or not, with spaces around the dots, which toml++ leaves out of the
+    /// last key's place.
+    [[nodiscard]] std::uint32_t dotted_start(const std::uint32_t begin) const {
+        const std::string_view text = m_file.text();
+        const auto blank = [&](const std::size_t at) {
+            return text[at] == ' ' || text[at] == '\t';
+        };
+        std::size_t start = begin;
+        while (true) {
+            std::size_t at = start;
+            while (at > 0 && blank(at - 1)) {
+                --at;
+            }
+
+            if (at == 0 || text[at - 1] != '.') {
+                return static_cast<std::uint32_t>(start);
+            }
+
+            --at;
+            while (at > 0 && blank(at - 1)) {
+                --at;
+            }
+
+            // The key before the dot: quoted, as "engine" or 'engine', or bare.
+            if (at > 0 && (text[at - 1] == '"' || text[at - 1] == '\'')) {
+                const std::size_t open = text.rfind(text[at - 1], at - 2);
+                if (at < 2 || open == std::string_view::npos) {
+                    return static_cast<std::uint32_t>(start);
+                }
+
+                at = open;
+            } else {
+                const std::size_t end = at;
+                while (at > 0 && (std::isalnum(static_cast<unsigned char>(text[at - 1])) != 0 ||
+                                  text[at - 1] == '_' || text[at - 1] == '-')) {
+                    --at;
+                }
+
+                if (at == end) {
+                    return static_cast<std::uint32_t>(start);
+                }
+            }
+
+            start = at;
+        }
     }
 
     /// A key's string value, or nullopt after reporting that it isn't one.
@@ -516,7 +565,7 @@ private:
                     dependency.path_span = span_of(setting->source());
                     dependency.path_entry_span = {
                         .file = m_file.id(),
-                        .begin = span_of(detail->source()).begin,
+                        .begin = dotted_start(span_of(detail->source()).begin),
                         .end = dependency.path_span.end,
                     };
                     failed = failed || !path;
