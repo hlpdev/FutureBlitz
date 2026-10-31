@@ -268,11 +268,12 @@ TEST_CASE("a dependency with a path and a version builds from its folder", "[pac
                          "build from the registry would be");
 
     // As the registry's own physics has no path, a package from the registry uses its version.
+    const std::string lib =
+        "Import physics\nPublic Function Lib(): String\n    Return Describe()\nEnd Function\n";
     world.sandbox.library("game_lib", "game_lib", "1.0.0",
                           "physics = { path = \"../physics_local\", version = \"1\", registry = "
                           "\"local\" }\n",
-                          { { "lib.fb", "Import physics\nPublic Function Lib(): String\n    "
-                                        "Return Describe()\nEnd Function\n" } });
+                          { { "lib.fb", lib } });
     world.sandbox.publish("game_lib", world.index);
     world.game("game_lib = { version = \"1\", registry = \"local\" }\n");
     world.sandbox.write("game/main.fb", "Import std.core\nImport game_lib\nPrint(Lib())\n");
