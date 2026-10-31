@@ -582,7 +582,7 @@ void workspace_t::show_syntax(const std::string& key, const std::filesystem::pat
 
             diagnostic_t carried = *other;
             carried.span = { .file = parsed->file, .begin = span->begin, .end = span->end };
-            carried.fixes.clear();
+            carried.suggestions.clear();
             std::erase_if(carried.labels, [&](label_t& label) {
                 const std::optional<span_t> at =
                     label.span.file == other->span.file ? moved(label.span) : std::nullopt;

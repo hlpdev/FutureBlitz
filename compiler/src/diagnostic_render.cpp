@@ -224,6 +224,13 @@ std::string render_pretty(const diagnostic_t& diagnostic, const source_manager_t
         out += std::format(" {}: {}\n", style.paint("note", tone_t::BOLD), escape_controls(note));
     }
 
+    // What an editor's quick fixes would do.
+    for (const suggestion_t& suggestion : diagnostic.suggestions) {
+        out += style.paint(std::format("{:>{}} =", "", width), tone_t::GUTTER);
+        out += std::format(" {}: {}\n", style.paint("help", tone_t::BOLD),
+                           escape_controls(suggestion.title));
+    }
+
     return out;
 }
 

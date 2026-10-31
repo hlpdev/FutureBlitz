@@ -666,7 +666,7 @@ a half times it:
 | 2 | **Errors as typed** (done 2026-10-31). Each change parses the file alone at once and publishes its syntax errors with no wait, with its last check's other errors where the edit moved them; the full check follows at its pause, and its errors replace them. The parser recovers at each statement and block, and a declaration that only goes at the top level, starting its line, ends the blocks a missing `End` left open, so one missing `End` or `)` doesn't hide the rest of the file's errors; tests of recovery for each block and each kind of broken line | a syntax error shows within 50 ms, and a file with three unrelated syntax errors shows all three |
 | 3 | **Completion that knows** (done 2026-10-31). Names from every module the file can import (its package's, std's, its dependencies'), not only those it imports, with the Import added when one is chosen; ranked by the type expected where the cursor is, then by scope and use; an Enum's members where an Enum is expected; named arguments; the members a Class can override and an Interface's to implement, written out with their signatures; keywords only where they can go; postfix completions (`.if`, `.ifnull`, `.for`, `.not`, `.try`, `.local`); completion on a word as it's typed, not only after `.` | each kind has a test of what's offered and in what order, and choosing an unimported name adds its Import |
 | 4 | **The editor's basics** (done 2026-10-31). Inlay hints (a Local's inferred type, parameter names at calls, each a setting); highlighting a symbol's other uses; folding by blocks, comments, and Import groups; expanding a selection by syntax; go to type definition and to implementations; call and type hierarchies; code lenses for references; run and debug for each `@Test` and main file in VS Code's Testing panel and the gutter | each request has tests, and the extension's Testing panel runs and debugs a package's tests |
-| 5 | **Quick fixes.** Every error that has a likely fix offers it, from the compiler: import the module that declares an unknown name (and `fb add` the registry package that has it, when one does); "did you mean" for a misspelled name; add `Try`, `Try?`, or a Throws; create the Function, Method, Field, Property, Local, or Enum member a use names, with its types from the use; implement an Interface's members or an Abstract Class's; add a missing `End`; a conversion with `As`; a Null check or `?` for nullability; make a declaration Public or Package for a use that can't see it; add `@MainThread`; wrap in `Unsafe`; add a missing Return; fix a keyword's case | each fix has a test that applies it and checks the file compiles |
+| 5 | **Quick fixes** (done 2026-10-31, but for `fb add`'s, in Deferred work). Every error that has a likely fix offers it, from the compiler: import the module that declares an unknown name (and `fb add` the registry package that has it, when one does); "did you mean" for a misspelled name; add `Try`, `Try?`, or a Throws; create the Function, Method, Field, Property, Local, or Enum member a use names, with its types from the use; implement an Interface's members or an Abstract Class's; add a missing `End`; a conversion with `As`; a Null check or `?` for nullability; make a declaration Public or Package for a use that can't see it; add `@MainThread`; wrap in `Unsafe`; add a missing Return; fix a keyword's case | each fix has a test that applies it and checks the file compiles |
 | 6 | **Inspections.** Warnings, with fixes, from the compiler: unused Locals, parameters, Imports, and Private members; unreachable code; a name that shadows another; a redundant `As` or `?`; a condition that's always True or False. `fb check` and `fb build` show them; project.toml's `[lints]` turns each off or makes it an error | each inspection has tests of when it warns and when it doesn't, and std builds with none |
 | 7 | **Refactorings.** Extract a Local, a Function, or a Method from a selection (with its parameters and its result worked out); inline a Local or a Function; change a signature (add, remove, rename, and reorder parameters, updating every call); organize Imports (sorted, unused ones removed), on save if asked | each refactoring has tests over std-sized code that check the result compiles and behaves the same |
 | 8 | **project.toml.** fb-lsp serves project.toml too: completion and hover for its keys and values from what fb reads, the errors fb gives for it as you type, package names completed from the registry's search, versions from its index, hover with a package's description and newest version, quick fixes to update a dependency or add what `fb publish` needs; offline, from the cache | completing a dependency's name and version against a test registry works, and every project.toml error fb has shows in the editor |
@@ -896,6 +896,55 @@ outline in features.cpp:
 
 Each request has tests (tests/lsp/navigate_tests.cpp); fb test -o has its CLI test, the output's
 parsing its unit tests, and the Testing panel its extension test, which CI runs.
+
+**Step 5, quick fixes** (2026-10-31): a diagnostic has `suggestions` now, each a `suggestion_t`
+with its title and the edits that make it, the likeliest first, which replace step 0's one fix and
+its title. fb-lsp offers each as a code action, the first preferred, and `fb check` shows each as an
+`= help:` line under the error, as its notes are. What the compiler suggests, by what's wrong:
+
+- **A name another module declares**: the Import that brings it in, after the Imports at the
+  file's top, by its dotted name or for a program's own file and a .proto by its path in quotes
+  (`import_target`, `import_suggestion`), for a name, a built-in type's member, an Operator, or
+  std.test's built-ins; the qualifier an Import As gives it; or the name added to the From line
+  that leaves it out.
+- **A misspelled name**: up to three names the code sees there, Locals, Self's members, the
+  module's and its Imports' names, and the built-ins, a letter or two apart, as many as a third
+  of its letters (`similar_names`, `edit_distance`), and for a member, the type's members, and for
+  an Enum's value, its values.
+- **A call that throws**: Try, with the Throws its Function then needs, written again without
+  what the new one covers; and Try? where the call is a statement of its own. An error a Try lets
+  out of a Function that doesn't say it throws it adds it to the Throws.
+- **What nothing declares**: a Function for a call of a name, at the end of the file, a Method of
+  the type for a call of a member, a Field or a Property of the type for an assignment to a member,
+  a Local for an assignment to a name, and an Enum's member, after its last, on its line or a line
+  of its own as they're written; each with the use's types, the parameters named as the
+  arguments are, and what a call gives from what its place wants, or nothing for a statement of
+  its own (`suggest_creation`, `suggest_assigned`, `suggest_enum_member`).
+- **What a type has to implement or override**: the Method or Property an Interface, a generic
+  one with the type's type arguments, needs, or the base Class's Abstract one, written out at the
+  end of the type's body with a body that panics until it's written (`member_stub`); and the
+  Class made Abstract.
+- **A missing End**: added after the block's last line with code, as indented as the line that
+  opened it; and a wrong End that closes nothing else, written as the block's.
+- **A conversion with As**, where 'As' converts the value to the type wanted (`as_converts`, which
+  the cast's own check uses too), in parentheses for an operation of its own.
+- **A T? where a T is wanted**: `?? ` with the type's zero; and `?.` for a member of a T?.
+- **A declaration the use can't see**: made Package, when they're in one package, or Public,
+  changing the visibility it has written, but for std's.
+- **Code that needs Unsafe**: the statement wrapped in an Unsafe block, but for a Local's, which the
+  block would hide, and the function made Unsafe.
+- **A missing Return**: its type's zero at the end of the function, for the types that have one a
+  program can write (`zero_text`).
+- **A miscased keyword**, as before.
+
+`@MainThread` isn't among them: what can only run on the main thread is worked out from what its
+code uses, so no error goes away when a Function says it, and the one where work on another
+thread calls such code is fixed by not running it there. The `fb add` of a registry package that
+declares a name is in Deferred work, as the registry has no index of the names its packages
+declare.
+
+Each fix has a test that makes it and checks the program then compiles (tests/compiler/
+fixes_tests.cpp), and fb-lsp's code actions their own.
 
 ## Not in M8
 

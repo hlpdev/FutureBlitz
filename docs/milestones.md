@@ -303,6 +303,7 @@ adds what it leaves out. Checked against all of docs/spec/ on 2026-10-17.
 | A Callback that takes or gives a Struct by value, whose thunk would need the C ABI's lowering in reverse | M5 step 9 | open question |
 | A Float range, like `0.0 To 1.0 Step 0.1`, which a For loop counts but a range doesn't | M6 step 2 | open question |
 | Plugins and loading libraries at run time, `Plugin.Load` and `DynamicLibrary`, which game mods would use (the user's call, 2026-10-28) | M7 | open question |
+| The quick fix that `fb add`s the registry package declaring a name nothing in the program does, which needs the registry to keep an index of each published version's Public names, and an API to ask it which packages have a name (the coordinator's call, 2026-11-01) | M11 step 5 | open question |
 
 ## Process
 

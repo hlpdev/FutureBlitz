@@ -799,6 +799,34 @@ TEST_CASE("code actions make the fix-its fb has", "[lsp]") {
               .empty());
 }
 
+TEST_CASE("each of a diagnostic's suggestions is a code action, the likeliest preferred", "[lsp]") {
+    const folder_t folder({});
+    const std::string uri = folder.uri("risky.fb");
+    const std::string text = "Import std.core\n"
+                             "Function Risky(): Int Throws Error\n"
+                             "    Throw Error(\"no\")\n"
+                             "End Function\n"
+                             "Risky()\n";
+    client_t client({});
+    client.open(uri, text);
+    client.settle();
+    const json_t diagnostics = client.diagnostics(uri);
+    REQUIRE(diagnostics.size() == 1);
+    const json_t actions = client.request("textDocument/codeAction",
+                                          {
+                                              { "textDocument", { { "uri", uri } } },
+                                              { "range", diagnostics[0]["range"] },
+                                              { "context", { { "diagnostics", diagnostics } } },
+                                          });
+    REQUIRE(actions.size() == 2);
+    CHECK(actions[0]["title"] == "Add Try");
+    CHECK(actions[0]["isPreferred"] == true);
+    CHECK(actions[1]["title"] == "Add Try?");
+    CHECK(actions[1]["isPreferred"] == false);
+    CHECK(actions[1]["edit"]["changes"][uri][0]["newText"] == "Try? ");
+    CHECK(actions[1]["edit"]["changes"][uri][0]["range"]["start"] == client_t::position(4, 0));
+}
+
 TEST_CASE("a miscased keyword's code action says what it writes", "[lsp]") {
     const folder_t folder({});
     const auto actions_for = [&](const std::string& name, const std::string& text) {

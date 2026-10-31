@@ -1846,11 +1846,11 @@ TEST_CASE("a syntax error after a miscased keyword names the keyword, with a fix
         (void)fb::parse(file, fb::lex(file, bag), bag);
         REQUIRE_FALSE(bag.diagnostics().empty());
         const fb::diagnostic_t& error = bag.diagnostics().front();
-        if (error.fixes.empty()) {
+        if (error.suggestions.empty() || error.suggestions.front().fixes.empty()) {
             return std::string("no fix");
         }
 
-        const fb::fix_t& fix = error.fixes.front();
+        const fb::fix_t& fix = error.suggestions.front().fixes.front();
         std::string out(text);
         out.replace(fix.span.begin, fix.span.end - fix.span.begin, fix.replacement);
         return std::format("{} | {}", out, error.notes.empty() ? "" : error.notes.front());
@@ -1880,5 +1880,6 @@ TEST_CASE("a miscased keyword's fix-it says what it writes", "[parser]") {
     fb::diagnostic_bag_t bag;
     (void)fb::parse(file, fb::lex(file, bag), bag);
     REQUIRE_FALSE(bag.diagnostics().empty());
-    CHECK(bag.diagnostics().front().fix_title == "Write 'if' as 'If'");
+    REQUIRE(bag.diagnostics().front().suggestions.size() == 1);
+    CHECK(bag.diagnostics().front().suggestions.front().title == "Write 'if' as 'If'");
 }

@@ -955,52 +955,59 @@ json_t signature_help(const query_t& query, const std::uint32_t offset,
     };
 }
 
+namespace {
+
+/// A CodeAction that makes `suggestion`, a fix of `diagnostic`, or nullopt when one of its files
+/// isn't on disk.
+std::optional<json_t> code_action(const compilation_t& compilation, const diagnostic_t& diagnostic,
+                                  const suggestion_t& suggestion, const bool preferred,
+                                  const positions_t& positions) {
+    json_t changes = json_t::object();
+    for (const fix_t& fix : suggestion.fixes) {
+        const std::filesystem::path path = compilation.disk_path(fix.span.file);
+        if (path.empty()) {
+            return std::nullopt;
+        }
+
+        const std::string uri = uri_of(path);
+        if (!changes.contains(uri)) {
+            changes[uri] = json_t::array();
+        }
+
+        changes[uri].push_back({
+            { "range", positions.range(compilation.sources.get(fix.span.file), fix.span) },
+            { "newText", fix.replacement },
+        });
+    }
+
+    return json_t{
+        { "title", suggestion.title },
+        { "kind", "quickfix" },
+        { "diagnostics", json_t::array({ diagnostic_json(compilation, diagnostic, positions) }) },
+        { "isPreferred", preferred },
+        { "edit", { { "changes", std::move(changes) } } },
+    };
+}
+
+} // namespace
+
 json_t code_actions(const query_t& query, const span_t range, const positions_t& positions) {
     json_t out = json_t::array();
     const compilation_t& compilation = query.compilation();
     for (const diagnostic_t& diagnostic : compilation.diagnostics.diagnostics()) {
-        if (diagnostic.span.file != query.file() || diagnostic.fixes.empty() ||
-            diagnostic.span.begin > range.end || range.begin > diagnostic.span.end) {
+        if (diagnostic.span.file != query.file() || diagnostic.span.begin > range.end ||
+            range.begin > diagnostic.span.end) {
             continue;
         }
 
-        json_t changes = json_t::object();
-        bool whole = true;
-        for (const fix_t& fix : diagnostic.fixes) {
-            const std::filesystem::path path = compilation.disk_path(fix.span.file);
-            if (path.empty()) {
-                whole = false;
-                break;
+        // Each suggestion, the likeliest preferred.
+        for (std::size_t i = 0; i < diagnostic.suggestions.size(); ++i) {
+            const suggestion_t& suggestion = diagnostic.suggestions[i];
+            if (std::optional<json_t> action =
+                    code_action(compilation, diagnostic, suggestion, i == 0, positions)) {
+                out.push_back(std::move(*action));
             }
-
-            const std::string uri = uri_of(path);
-            if (!changes.contains(uri)) {
-                changes[uri] = json_t::array();
-            }
-
-            changes[uri].push_back({
-                { "range", positions.range(compilation.sources.get(fix.span.file), fix.span) },
-                { "newText", fix.replacement },
-            });
         }
-
-        if (!whole) {
-            continue;
-        }
-
-        out.push_back({
-            {
-                "title",
-                diagnostic.fix_title.empty() ? "Fix: " + diagnostic.message : diagnostic.fix_title,
-            },
-            { "kind", "quickfix" },
-            {
-                "diagnostics",
-                json_t::array({ diagnostic_json(compilation, diagnostic, positions) }),
-            },
-            { "isPreferred", true },
-            { "edit", { { "changes", std::move(changes) } } },
-        });
     }
 
     return out;

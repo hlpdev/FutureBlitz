@@ -486,8 +486,9 @@ private:
                 diagnostic.with_note(
                     std::format("'{}' is a name here; keywords are written as they are, as '{}'",
                                 text(*token), *keyword));
-                diagnostic.with_fix(token->span, std::string(*keyword));
-                diagnostic.fix_title = std::format("Write '{}' as '{}'", text(*token), *keyword);
+                diagnostic.with_suggestion(
+                    std::format("Write '{}' as '{}'", text(*token), *keyword),
+                    { { .span = token->span, .replacement = std::string(*keyword) } });
                 return;
             }
         }
@@ -725,6 +726,50 @@ private:
         return std::ranges::contains(std::span(m_blocks).first(m_blocks.size() - 1), kind);
     }
 
+    /// The End a block that `opening` opened is missing, after its last line with code, as
+    /// indented as the line that opened it.
+    [[nodiscard]] suggestion_t added_end(const token_t& opening) const {
+        const std::string_view source = m_file.text();
+        const auto line_start = [&](const std::size_t offset) {
+            return offset == 0 ? 0 : source.rfind('\n', offset - 1) + 1;
+        };
+        std::size_t where =
+            at(token_kind_t::END_OF_FILE) ? source.size() : line_start(peek().span.begin);
+        while (where > 0 && source.substr(line_start(where - 1), where - 1 - line_start(where - 1))
+                                    .find_first_not_of(" \t\r") == std::string_view::npos) {
+            where = line_start(where - 1);
+        }
+
+        const std::size_t opened = line_start(opening.span.begin);
+        const std::string_view indent =
+            source.substr(opened, source.find_first_not_of(" \t", opened) - opened);
+        const std::string lead = where > 0 && source[where - 1] != '\n' ? "\n" : "";
+        const span_t place{
+            .file = m_file.id(),
+            .begin = static_cast<std::uint32_t>(where),
+            .end = static_cast<std::uint32_t>(where),
+        };
+        return {
+            .title = std::format("Add 'End {}'", text(opening)),
+            .fixes = { { .span = place,
+                         .replacement =
+                             std::format("{}{}End {}\n", lead, indent, text(opening)), }, },
+        };
+    }
+
+    /// The wrong End at the current token, written as the one the block `opening` opened needs.
+    [[nodiscard]] suggestion_t changed_end(const token_t& opening) const {
+        const span_t written{
+            .file = m_file.id(),
+            .begin = peek().span.begin,
+            .end = peek(1).span.end,
+        };
+        return {
+            .title = std::format("Change to 'End {}'", text(opening)),
+            .fixes = { { .span = written, .replacement = std::format("End {}", text(opening)) } },
+        };
+    }
+
     /// A missing End is left for whichever block it belongs to. A wrong End that closes nothing
     /// else is taken as this block's.
     void expect_end(const token_t& opening) {
@@ -742,6 +787,8 @@ private:
         if (diagnostic_t* diagnostic = error(peek().span, "expected 'End {}', found {}",
                                              text(opening), describe_current())) {
             diagnostic->with_label(opening.span, "opened here");
+            diagnostic->suggestions.push_back(stray_end ? changed_end(opening)
+                                                        : added_end(opening));
         }
 
         if (stray_end) {

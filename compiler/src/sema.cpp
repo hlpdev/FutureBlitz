@@ -344,6 +344,57 @@ bool is_later_name(const std::string_view name) {
     return std::ranges::contains(names, name);
 }
 
+/// How many letters, put in, taken out, changed, or two neighbors swapped, make `a` into `b`,
+/// ignoring letter case, as a misspelling is apart from what was meant.
+std::size_t edit_distance(const std::string_view a, const std::string_view b) {
+    const auto lower = [](const char c) {
+        return static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    };
+    std::vector<std::vector<std::size_t>> d(a.size() + 1, std::vector<std::size_t>(b.size() + 1));
+    for (std::size_t i = 0; i <= a.size(); ++i) {
+        d[i][0] = i;
+    }
+
+    for (std::size_t j = 0; j <= b.size(); ++j) {
+        d[0][j] = j;
+    }
+
+    for (std::size_t i = 1; i <= a.size(); ++i) {
+        for (std::size_t j = 1; j <= b.size(); ++j) {
+            const std::size_t changed = lower(a[i - 1]) == lower(b[j - 1]) ? 0 : 1;
+            d[i][j] = std::min({ d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + changed });
+            if (i > 1 && j > 1 && lower(a[i - 1]) == lower(b[j - 2]) &&
+                lower(a[i - 2]) == lower(b[j - 1])) {
+                d[i][j] = std::min(d[i][j], d[i - 2][j - 2] + 1);
+            }
+        }
+    }
+
+    return d[a.size()][b.size()];
+}
+
+/// Of `candidates`, the names spelled nearly as `name` is, the nearest first, at most three: a
+/// letter or two apart, as many as a third of its letters.
+std::vector<std::string> similar_names(const std::string_view name,
+                                       const std::set<std::string>& candidates) {
+    std::vector<std::pair<std::size_t, std::string>> near;
+    const std::size_t most = std::max<std::size_t>(1, name.size() / 3);
+    for (const std::string& candidate : candidates) {
+        const std::size_t distance = edit_distance(name, candidate);
+        if (candidate != name && distance <= most && distance < candidate.size()) {
+            near.emplace_back(distance, candidate);
+        }
+    }
+
+    std::ranges::sort(near);
+    std::vector<std::string> found;
+    for (std::size_t i = 0; i < near.size() && i < 3; ++i) {
+        found.push_back(near[i].second);
+    }
+
+    return found;
+}
+
 /// Checks a program: resolves names, gives every expression a type, and tracks which Locals are
 /// assigned. Expressions whose value is known are folded as they're checked, so Consts, Case
 /// values, and default values can use them. Results go in an analysis_t for lowering.
@@ -512,6 +563,8 @@ private:
         std::vector<std::string_view> names;
         /// Its As name, for an error to say how to name what it brings in.
         std::optional<std::string_view> alias;
+        /// For a From line, where its last name ends, which a name it needs goes after.
+        std::uint32_t last_name_end = 0;
     };
 
     /// One module's own top-level names, and what it imports, whose names it sees after them.
@@ -1284,6 +1337,7 @@ private:
                 if (node.from) {
                     for (const name_t& name : node.names) {
                         scope.names.push_back(name.text);
+                        scope.last_name_end = name.span.end;
                     }
                 } else {
                     scope.unqualified = !node.alias;
@@ -2164,10 +2218,16 @@ private:
             warning(constraint.parameter.span,
                     "a declaration's one constraint goes inline, as <{}: {}>, not on a Where line",
                     name.text, interface)
-                .with_fix({ .file = file.id(), .begin = name.span.end, .end = name.span.end },
-                          std::format(": {}", interface))
-                .with_fix(where, "")
-                .fix_title = "Move the constraint inline";
+                .with_suggestion("Move the constraint inline",
+                                 {
+                                     {
+                                         .span = { .file = file.id(),
+                                                   .begin = name.span.end,
+                                                   .end = name.span.end, },
+                                         .replacement = std::format(": {}", interface),
+                                     },
+                                     { .span = where, .replacement = "" },
+                                 });
             return;
         }
 
@@ -2200,20 +2260,27 @@ private:
                       "a Where line";
         }
 
-        diagnostic_t& reported = warning(inline_ones.front()->parameter.span, "{}", message);
+        std::vector<fix_t> fixes;
+        fixes.reserve(inline_ones.size());
         for (const constraint_t* constraint : inline_ones) {
-            reported.with_fix(
-                {
+            fixes.push_back({
+                .span = {
                     .file = file.id(),
                     .begin = constraint->parameter.span.end,
                     .end = written(*constraint).end,
                 },
-                "");
+                .replacement = "",
+            });
         }
 
-        reported.with_fix({ .file = file.id(), .begin = header.end, .end = header.end }, lines);
-        reported.fix_title = inline_ones.size() > 1 ? "Move the constraints to Where lines"
-                                                    : "Move the constraint to a Where line";
+        fixes.push_back({
+            .span = { .file = file.id(), .begin = header.end, .end = header.end },
+            .replacement = lines,
+        });
+        warning(inline_ones.front()->parameter.span, "{}", message)
+            .with_suggestion(inline_ones.size() > 1 ? "Move the constraints to Where lines"
+                                                    : "Move the constraint to a Where line",
+                             std::move(fixes));
     }
 
     /// Whether a name is a Struct's, Class's, Interface's, or Enum's that the code there sees,
@@ -5626,10 +5693,14 @@ private:
 
         if (methods.empty()) {
             const hint_t hint = unseen_hint(type, required.name, span, type);
-            label_hint(error(span, "{} implements {}, so it needs {} '{}'{}",
-                             name_of(type, interface), name_of(interface, type), kind,
-                             required.name, hint.text),
-                       hint);
+            diagnostic_t& reported =
+                error(span, "{} implements {}, so it needs {} '{}'{}", name_of(type, interface),
+                      name_of(interface, type), kind, required.name, hint.text);
+            if (!wants_operator) {
+                suggest_implementation(reported, type, required, interface);
+            }
+
+            label_hint(reported, hint);
         } else {
             error(span, "{}'s '{}' doesn't match {}'s, which {}", name_of(type, interface),
                   required.name, name_of(interface, type),
@@ -5800,6 +5871,17 @@ private:
         }
 
         return throws;
+    }
+
+    /// The fix of `self`, which implements `interface` without `required`: it written out.
+    void suggest_implementation(diagnostic_t& diagnostic, const type_id_t self,
+                                const symbol_t& required, const type_id_t interface) {
+        const auto shown = [&](const type_id_t type) {
+            return shown_name(as_implemented(type, interface, self));
+        };
+        if (std::optional<suggestion_t> stub = member_stub(self, required, false, shown)) {
+            diagnostic.suggestions.push_back(std::move(*stub));
+        }
     }
 
     type_id_t as_implemented(const type_id_t type, const type_id_t interface,
@@ -6110,10 +6192,11 @@ private:
         if (found == named.end()) {
             if (named.empty()) {
                 const hint_t hint = unseen_hint(type, required.name, span, type);
-                label_hint(error(span, "{} implements {}, so it needs a Property '{}'{}",
-                                 name_of(type, interface), name_of(interface, type), required.name,
-                                 hint.text),
-                           hint);
+                diagnostic_t& reported = error(
+                    span, "{} implements {}, so it needs a Property '{}'{}",
+                    name_of(type, interface), name_of(interface, type), required.name, hint.text);
+                suggest_implementation(reported, type, required, interface);
+                label_hint(reported, hint);
             } else {
                 error(span, "'{}' must be a Property to implement {}'s", required.name,
                       shown_name(interface));
@@ -6905,6 +6988,102 @@ private:
         }
     }
 
+    /// The member written out at the end of `type`'s body that implements or overrides
+    /// `required`, with its types as `shown` writes them, and a body that panics until it's
+    /// written: a Method's or a Property's. nullopt for a type no declaration writes.
+    [[nodiscard]] std::optional<suggestion_t>
+    member_stub(const type_id_t type, const symbol_t& required, const bool overriding,
+                const std::function<std::string(type_id_t)>& shown) const {
+        const std::optional<std::tuple<span_t, std::string, bool>> place = body_end(type);
+        if (!place) {
+            return std::nullopt;
+        }
+
+        const auto& [at, inner, members] = *place;
+        const std::string panic = std::format("Panic(\"'{}' isn't written yet\")", required.name);
+        std::string head = overriding ? "Override " : "";
+        std::string written;
+        if (required.kind == symbol_kind_t::PROPERTY) {
+            head += std::format("Property {}: {}", required.name, shown(required.type));
+            written = std::format("{0}{1}\n{0}    Get\n{0}        {2}\n{0}    End Get\n", inner,
+                                  head, panic);
+            if (required.setter && !required.modifiers.is_read_only) {
+                written += std::format("{0}    Set(value)\n{0}    End Set\n", inner);
+            }
+
+            written += inner + "End Property\n";
+        } else {
+            std::string parameters;
+            for (const symbol_id_t id : required.parameters) {
+                const symbol_t& parameter = m_analysis.symbols[index(id)];
+                const type_id_t each = parameter.variadic
+                                           ? m_analysis.types.get(parameter.type).inner
+                                           : parameter.type;
+                parameters += std::format("{}{}{}: {}{}", parameters.empty() ? "" : ", ",
+                                          parameter.by_ref ? "ByRef " : "", parameter.name,
+                                          shown(each), parameter.variadic ? "..." : "");
+            }
+
+            head +=
+                std::format("{}{}{}Method {}({})", required.modifiers.is_static ? "Static " : "",
+                            required.modifiers.is_async ? "Async " : "",
+                            required.by_ref ? "ByRef " : "", required.name, parameters);
+            if (required.type != type_id_t::NONE && required.type != type_id_t::INVALID) {
+                head += ": " + shown(required.type);
+            }
+
+            for (std::size_t i = 0; i < required.throws.size(); ++i) {
+                head += (i == 0 ? " Throws " : ", ") + shown(required.throws[i]);
+            }
+
+            written = std::format("{0}{1}\n{0}    {2}\n{0}End Method\n", inner, head, panic);
+        }
+
+        return suggestion_t{
+            .title = std::format("{} '{}'", overriding ? "Override" : "Implement", required.name),
+            .fixes = { { .span = at, .replacement = (members ? "\n" : "") + written } },
+        };
+    }
+
+    /// The suggestion that makes the Class `declared` declares Abstract.
+    [[nodiscard]] std::optional<suggestion_t> abstract_suggestion(const symbol_t& declared) const {
+        if (!declared.declaration) {
+            return std::nullopt;
+        }
+
+        const stmt_t& statement = m_ast.get(*declared.declaration);
+        const std::string_view text = m_sources.get(statement.span.file).text();
+        const std::size_t keyword = text.find("Class", statement.span.begin);
+        if (keyword == std::string_view::npos || keyword > declared.span.begin) {
+            return std::nullopt;
+        }
+
+        const span_t at{
+            .file = statement.span.file,
+            .begin = static_cast<std::uint32_t>(keyword),
+            .end = static_cast<std::uint32_t>(keyword),
+        };
+        return suggestion_t{
+            .title = std::format("Make '{}' Abstract", declared.name),
+            .fixes = { { .span = at, .replacement = "Abstract " } },
+        };
+    }
+
+    /// A member of the Class `owner` as the Class `type` that extends it has it: with the type
+    /// arguments the instance of it among `type`'s bases has.
+    [[nodiscard]] std::string as_inherited(const type_id_t member, const type_id_t owner,
+                                           const type_id_t type) const {
+        for (type_id_t base = base_of(type); base != type_id_t::INVALID; base = base_of(base)) {
+            const type_t& info = m_analysis.types.get(base);
+            if (definition_of(base) == definition_of(owner) && info.generic != type_id_t::INVALID) {
+                return shown_name(substitute(member, m_analysis.types.get(info.generic).parameters,
+                                             info.arguments));
+            }
+        }
+
+        return shown_name(member);
+    }
+
     /// A Class that isn't Abstract overrides every Abstract Method it inherits.
     void check_abstract(const type_id_t type) {
         const symbol_t& declared = symbol(m_declared_types.at(type));
@@ -6920,8 +7099,11 @@ private:
             if (!can_use(symbol(method), declared.span, type)) {
                 report_unusable_abstract(declared, method, "Method");
             } else {
-                error(declared.span, "{} must override {}'s Abstract Method '{}', or be Abstract",
-                      declared.name, shown_name(symbol(method).owner), symbol(method).name);
+                suggest_override(error(declared.span,
+                                       "{} must override {}'s Abstract Method '{}', or be Abstract",
+                                       declared.name, shown_name(symbol(method).owner),
+                                       symbol(method).name),
+                                 declared, type, method);
             }
         }
 
@@ -6935,9 +7117,29 @@ private:
             if (!can_use(symbol(property), declared.span, type)) {
                 report_unusable_abstract(declared, property, "Property");
             } else {
-                error(declared.span, "{} must override {}'s Abstract Property '{}', or be Abstract",
-                      declared.name, shown_name(symbol(property).owner), symbol(property).name);
+                suggest_override(
+                    error(declared.span,
+                          "{} must override {}'s Abstract Property '{}', or be Abstract",
+                          declared.name, shown_name(symbol(property).owner), symbol(property).name),
+                    declared, type, property);
             }
+        }
+    }
+
+    /// The fixes of a Class, `declared`, that doesn't override its base's Abstract `member`: the
+    /// override written out, or the Class made Abstract.
+    void suggest_override(diagnostic_t& diagnostic, const symbol_t& declared, const type_id_t type,
+                          const symbol_id_t member) const {
+        const symbol_t& abstract = m_analysis.symbols[index(member)];
+        const auto shown = [&](const type_id_t each) {
+            return as_inherited(each, abstract.owner, type);
+        };
+        if (std::optional<suggestion_t> stub = member_stub(type, abstract, true, shown)) {
+            diagnostic.suggestions.push_back(std::move(*stub));
+        }
+
+        if (std::optional<suggestion_t> made = abstract_suggestion(declared)) {
+            diagnostic.suggestions.push_back(std::move(*made));
         }
     }
 
@@ -9036,7 +9238,70 @@ private:
     void report_unusable(const symbol_id_t declared, const span_t span, const type_id_t through) {
         diagnostic_t& diagnostic =
             error(span, "{}", unusable_text(symbol(declared), span, through));
+        diagnostic.suggestions = visibility_suggestions(symbol(declared), span);
         label_declaration(diagnostic, declared);
+    }
+
+    /// What a declaration's modifiers are, for one that has them.
+    [[nodiscard]] static const modifiers_t* modifiers_of(const stmt_node_t& node) {
+        return std::visit(
+            [](const auto& declared) -> const modifiers_t* {
+                if constexpr (requires { declared.modifiers; }) {
+                    return &declared.modifiers;
+                } else {
+                    return nullptr;
+                }
+            },
+            node);
+    }
+
+    /// The fixes that let code at `span` use `declared`, which it can't: the declaration made
+    /// Package, when they're in one package, or Public; for a Struct's constructor, its Field
+    /// that's least visible. None for std's, which the program can't change.
+    [[nodiscard]] std::vector<suggestion_t> visibility_suggestions(const symbol_t& declared,
+                                                                   const span_t span) const {
+        if (const std::optional<symbol_id_t> field = least_visible_field(declared)) {
+            return visibility_suggestions(m_analysis.symbols[index(*field)], span);
+        }
+
+        std::vector<suggestion_t> found;
+        const module_table_t& table = m_ast.modules();
+        const std::size_t module = module_of(declared.span.file);
+        if (!declared.declaration || module >= table.size() ||
+            table.is_standard(table.get(static_cast<module_id_t>(module)).package)) {
+            return found;
+        }
+
+        const stmt_t& statement = m_ast.get(*declared.declaration);
+        const modifiers_t* modifiers = modifiers_of(statement.node);
+        if (modifiers == nullptr) {
+            return found;
+        }
+
+        // The visibility written, or one before the declaration's keyword.
+        const auto made = [&](const std::string_view visibility) {
+            const fix_t fix = modifiers->visibility_span
+                                  ? fix_t{ .span = *modifiers->visibility_span,
+                                           .replacement = std::string(visibility), }
+                                  : fix_t{ .span = { .file = statement.span.file,
+                                                     .begin = statement.span.begin,
+                                                     .end = statement.span.begin, },
+                                           .replacement = std::format("{} ", visibility), };
+            return suggestion_t{
+                .title = std::format("Make '{}' {}", declared.name, visibility),
+                .fixes = { fix },
+            };
+        };
+        const std::size_t here = module_of(span.file);
+        if (here < table.size() &&
+            table.get(static_cast<module_id_t>(here)).package ==
+                table.get(static_cast<module_id_t>(module)).package &&
+            declared.modifiers.visibility != visibility_t::PACKAGE) {
+            found.push_back(made("Package"));
+        }
+
+        found.push_back(made("Public"));
+        return found;
     }
 
     /// The module that MIR and LLVM name a declaration at `span` after: its own, or none in the
@@ -9424,6 +9689,161 @@ private:
     /// with the line that imports a program's own file by its path from here,
     /// "std.collections, which this file doesn't import", or "c.core, of the package c, which
     /// this one doesn't depend on".
+    /// What an Import names to bring in `module` for code in module `here`: its dotted name,
+    /// or for a program's own file without a project.toml and a .proto, its path in quotes, from
+    /// here. nullopt for a package `here`'s doesn't depend on, which no Import can bring in.
+    [[nodiscard]] std::optional<std::string> import_target(const std::size_t module,
+                                                           const std::size_t here) const {
+        const module_table_t& table = m_ast.modules();
+        if (module >= table.size() || here >= table.size()) {
+            return import_name(module);
+        }
+
+        const module_t& target = table.get(static_cast<module_id_t>(module));
+        const module_t& from = table.get(static_cast<module_id_t>(here));
+        if (table.is_standard(target.package) || table.has_manifest(target.package)) {
+            if (!table.is_standard(target.package) && target.package != from.package &&
+                !table.depends_on(from.package, target.package)) {
+                return std::nullopt;
+            }
+
+            return import_name(module);
+        }
+
+        std::filesystem::path relative =
+            path_from_utf8(target.path).lexically_relative(path_from_utf8(from.path).parent_path());
+        const bool proto = target.path.ends_with(".proto");
+        if (!proto) {
+            relative.replace_extension();
+        }
+
+        std::string written = to_utf8(relative);
+        if (!proto && !written.starts_with("../")) {
+            written = "./" + written;
+        }
+
+        return std::format("\"{}\"", written);
+    }
+
+    /// Where an Import goes in `file`: after the Imports at its top, or at its start.
+    [[nodiscard]] span_t import_place(const file_id_t file) const {
+        const std::string_view text = m_sources.get(file).text();
+        std::uint32_t at = 0;
+        for (const stmt_id_t item : m_ast.items()) {
+            const stmt_t& statement = m_ast.get(item);
+            if (statement.span.file != file) {
+                continue;
+            }
+
+            if (!std::holds_alternative<import_stmt_t>(statement.node)) {
+                break;
+            }
+
+            const std::size_t line_end = text.find('\n', statement.span.end);
+            at = line_end == std::string_view::npos ? static_cast<std::uint32_t>(text.size())
+                                                    : static_cast<std::uint32_t>(line_end + 1);
+        }
+
+        return { .file = file, .begin = at, .end = at };
+    }
+
+    /// The suggestion that imports `target`, an import_target(), into `file`.
+    [[nodiscard]] suggestion_t import_suggestion(const std::string& target,
+                                                 const file_id_t file) const {
+        const span_t at = import_place(file);
+        const std::string_view text = m_sources.get(file).text();
+        // At the end of a file whose last line has no line break, on a line of its own.
+        const std::string lead =
+            at.begin == text.size() && !text.empty() && text.back() != '\n' ? "\n" : "";
+        return {
+            .title = std::format("Import {}", target),
+            .fixes = { { .span = at, .replacement = std::format("{}Import {}\n", lead, target) } },
+        };
+    }
+
+    /// The names code at `span` sees as values or types: its Locals, Self's members, and the
+    /// top-level names of its module, what it imports, and the built-ins.
+    [[nodiscard]] std::set<std::string> visible_names(const span_t span) const {
+        std::set<std::string> names;
+        for (const std::vector<symbol_id_t>& scope : m_scopes) {
+            for (const symbol_id_t id : scope) {
+                names.emplace(m_analysis.symbols[index(id)].name);
+            }
+        }
+
+        if (m_function && m_analysis.symbols[index(*m_function)].owner != type_id_t::INVALID) {
+            names.merge(member_names(m_analysis.symbols[index(*m_function)].owner));
+        }
+
+        const std::size_t here = module_of(span.file);
+        const auto add = [&](const names_t& table, const std::size_t module) {
+            for (const auto& [name, ids] : table) {
+                if (!ids.empty() && (module == here || !seen_names(module, here, name).empty())) {
+                    names.emplace(name);
+                }
+            }
+        };
+        add(m_modules[here].names, here);
+        for (const import_scope_t& imported : m_modules[here].imports) {
+            for (const std::size_t module : imported.modules) {
+                if (imported.unqualified) {
+                    add(m_modules[module].names, module);
+                }
+            }
+        }
+
+        for (const auto& [name, ids] : m_builtins) {
+            names.emplace(name);
+        }
+
+        return names;
+    }
+
+    /// The names of the members of `type`, and of the Classes it extends.
+    [[nodiscard]] std::set<std::string> member_names(const type_id_t type) const {
+        std::set<type_id_t> owners;
+        for (type_id_t current = definition_of(type); current != type_id_t::INVALID;
+             current = definition_of(base_of(current))) {
+            if (!owners.insert(current).second) {
+                break;
+            }
+        }
+
+        std::set<std::string> names;
+        for (const symbol_t& member : m_analysis.symbols) {
+            if (member.owner != type_id_t::INVALID &&
+                owners.contains(definition_of(member.owner)) &&
+                member.kind != symbol_kind_t::CONSTRUCTOR && !member.name.empty() &&
+                member.name.front() != '_') {
+                names.emplace(member.name);
+            }
+        }
+
+        return names;
+    }
+
+    /// Where `name` is in `span`, which may go on with its type arguments, as "Stack<Int>" does.
+    [[nodiscard]] span_t name_in(const span_t span, const std::string_view name) const {
+        if (!text(span).starts_with(name)) {
+            return span;
+        }
+
+        return {
+            .file = span.file,
+            .begin = span.begin,
+            .end = span.begin + static_cast<std::uint32_t>(name.size()),
+        };
+    }
+
+    /// Says how to write `name` as one of `candidates` that's spelled nearly so.
+    void suggest_spelled(diagnostic_t& diagnostic, const std::string_view name, const span_t span,
+                         const std::set<std::string>& candidates) const {
+        for (const std::string& near : similar_names(name, candidates)) {
+            diagnostic.with_suggestion(std::format("Change to '{}'", near),
+                                       { { .span = name_in(span, name), .replacement = near } });
+        }
+    }
+
     [[nodiscard]] std::string import_advice(const std::size_t module,
                                             const std::size_t here) const {
         const module_table_t& table = m_ast.modules();
@@ -9449,19 +9869,8 @@ private:
 
         // A program without a project.toml imports its own files by their paths, and a .proto
         // file's module by the .proto's path, as it's written.
-        std::filesystem::path relative =
-            path_from_utf8(target.path).lexically_relative(path_from_utf8(from.path).parent_path());
-        const bool proto = target.path.ends_with(".proto");
-        if (!proto) {
-            relative.replace_extension();
-        }
-
-        std::string written = to_utf8(relative);
-        if (!proto && !written.starts_with("../")) {
-            written = "./" + written;
-        }
-
-        return std::format("{}, which this file doesn't import: Import \"{}\"", name, written);
+        return std::format("{}, which this file doesn't import: Import {}", name,
+                           import_target(module, here).value_or(name));
     }
 
     /// Where a name that code doesn't see is declared: the module an Import names to get it,
@@ -9494,6 +9903,8 @@ private:
     struct hint_t {
         std::string text;
         std::optional<symbol_id_t> declared;
+        /// How to fix it: the Import, the qualifier, or the From line's name it needs.
+        std::vector<suggestion_t> suggestions;
     };
 
     /// Reports `hint` at `span`, labeling the declaration it's about.
@@ -9502,6 +9913,8 @@ private:
         if (hint.declared) {
             label_declaration(diagnostic, *hint.declared);
         }
+
+        std::ranges::copy(hint.suggestions, std::back_inserter(diagnostic.suggestions));
     }
 
     /// Why code at `span` doesn't see `name`, when another module declares it: that a module it
@@ -9516,10 +9929,11 @@ private:
             for (const std::size_t module : imported.modules) {
                 const std::vector<symbol_id_t> declared = names_in(m_modules[module].names, name);
                 if (module != here && !declared.empty() && seen_names(module, here, name).empty()) {
+                    const symbol_t& unusable = m_analysis.symbols[index(declared.front())];
                     return hint_t{
-                        .text = unusable_text(m_analysis.symbols[index(declared.front())], span,
-                                              type_id_t::INVALID),
+                        .text = unusable_text(unusable, span, type_id_t::INVALID),
                         .declared = declared.front(),
+                        .suggestions = visibility_suggestions(unusable, span),
                     };
                 }
             }
@@ -9536,27 +9950,48 @@ private:
             }
 
             if (imported.alias) {
+                const std::string qualified = std::format("{}.{}", *imported.alias, name);
                 return hint_t{
-                    .text =
-                        std::format("'{}' is in {}, which this file imports as {}, so it's {}.{}",
-                                    name, home->module, *imported.alias, *imported.alias, name),
+                    .text = std::format("'{}' is in {}, which this file imports as {}, so it's {}",
+                                        name, home->module, *imported.alias, qualified),
+                    .suggestions = { {
+                        .title = std::format("Change to '{}'", qualified),
+                        .fixes = { { .span = name_in(span, name), .replacement = qualified } },
+                    }, },
                 };
             }
 
             if (!imported.names.empty()) {
+                // After the From line's last name.
+                const span_t last{
+                    .file = span.file,
+                    .begin = imported.last_name_end,
+                    .end = imported.last_name_end,
+                };
                 return hint_t{
                     .text = std::format("'{}' is in {}, but this file's From line doesn't name it",
                                         name, home->module),
+                    .suggestions = { {
+                        .title = std::format("Add '{}' to the From line", name),
+                        .fixes = { { .span = last, .replacement = std::format(", {}", name) } },
+                    }, },
                 };
             }
         }
 
-        return hint_t{
+        hint_t hint{
             .text = home->loaded
                         ? std::format("'{}' is in {}", name, import_advice(*home->loaded, here))
                         : std::format("'{}' is in {}, which this file doesn't import", name,
                                       home->module),
         };
+        const std::optional<std::string> target =
+            home->loaded ? import_target(*home->loaded, here) : std::optional(home->module);
+        if (target) {
+            hint.suggestions.push_back(import_suggestion(*target, span.file));
+        }
+
+        return hint;
     }
 
     /// The modules' names, as "a and b", or "a, b, and c".
@@ -12216,8 +12651,69 @@ private:
             return true;
         }
 
-        error(span, "{} needs Unsafe code: an Unsafe block, Function, or Method", what);
+        suggest_unsafe(
+            error(span, "{} needs Unsafe code: an Unsafe block, Function, or Method", what), span);
         return false;
+    }
+
+    /// For code at `span` that needs Unsafe code: the statement it's in wrapped in an Unsafe
+    /// block, but for a Local's, which the block would hide, and the function it's in made
+    /// Unsafe.
+    void suggest_unsafe(diagnostic_t& diagnostic, const span_t span) {
+        // The innermost statement around it that does something, not a declaration.
+        std::optional<stmt_id_t> innermost;
+        for (std::size_t i = 0; i < m_ast.stmt_count(); ++i) {
+            const auto id = static_cast<stmt_id_t>(i);
+            const stmt_t& statement = m_ast.get(id);
+            const bool acts = std::holds_alternative<expression_stmt_t>(statement.node) ||
+                              std::holds_alternative<assign_stmt_t>(statement.node) ||
+                              std::holds_alternative<increment_stmt_t>(statement.node) ||
+                              std::holds_alternative<return_stmt_t>(statement.node);
+            if (acts && statement.span.file == span.file && statement.span.begin <= span.begin &&
+                span.end <= statement.span.end &&
+                (!innermost || statement.span.length() < m_ast.get(*innermost).span.length())) {
+                innermost = id;
+            }
+        }
+
+        const std::string_view text = m_sources.get(span.file).text();
+        if (innermost) {
+            const span_t statement = m_ast.get(*innermost).span;
+            const std::size_t first =
+                statement.begin == 0 ? 0 : text.rfind('\n', statement.begin - 1) + 1;
+            const std::size_t last = std::min(text.find('\n', statement.end), text.size());
+            const std::string_view indent =
+                text.substr(first, text.find_first_not_of(" \t", first) - first);
+            // Its lines a step deeper, between the block's.
+            std::string wrapped = std::format("{}Unsafe\n", indent);
+            for (std::size_t at = first; at < last;) {
+                const std::size_t end = std::min(text.find('\n', at), last);
+                wrapped += std::format("    {}\n", text.substr(at, end - at));
+                at = end + 1;
+            }
+
+            wrapped += std::format("{}End Unsafe", indent);
+            diagnostic.with_suggestion("Wrap in an Unsafe block",
+                                       { { .span = { .file = span.file,
+                                                     .begin = static_cast<std::uint32_t>(first),
+                                                     .end = static_cast<std::uint32_t>(last), },
+                                           .replacement = wrapped, }, });
+        }
+
+        const std::optional<symbol_id_t> function = m_function;
+        const std::optional<stmt_id_t> declaration =
+            function ? symbol(*function).declaration : std::nullopt;
+        if (function && declaration) {
+            const stmt_t& declared = m_ast.get(*declaration);
+            if (std::holds_alternative<function_stmt_t>(declared.node)) {
+                diagnostic.with_suggestion(
+                    std::format("Make '{}' Unsafe", symbol(*function).name),
+                    { { .span = { .file = declared.span.file,
+                                  .begin = declared.span.begin,
+                                  .end = declared.span.begin, },
+                        .replacement = "Unsafe ", }, });
+            }
+        }
     }
 
     /// Why a Ptr can't point at a `type`, which is a type C code has, holding no references: a
@@ -15343,7 +15839,9 @@ private:
                                    function.type != type_id_t::INVALID;
         // An Abstract Method has no body to return from.
         if (returns_value && m_flow.reachable && !function.modifiers.is_abstract) {
-            error(function.span, "'{}' doesn't return a value on every path", function.name);
+            suggest_return(
+                error(function.span, "'{}' doesn't return a value on every path", function.name),
+                function);
         }
 
         check_required(function.span, "on every path");
@@ -15455,6 +15953,10 @@ private:
             const std::optional<expr_id_t> outer = std::exchange(m_place_use, node.value);
             check_any(node.value, type_id_t::NONE);
             m_place_use = outer;
+            if (!node.op) {
+                suggest_assigned(node.target, info(node.value).type);
+            }
+
             return;
         }
 
@@ -16135,8 +16637,10 @@ private:
                 return;
             }
 
-            error(span_of(id), "'{}' can throw {}, so calling it needs Try, Try?, or a Try block",
-                  name, names_of(throws));
+            suggest_try(error(span_of(id),
+                              "'{}' can throw {}, so calling it needs Try, Try?, or a Try block",
+                              name, names_of(throws)),
+                        id, throws);
             return;
         }
 
@@ -16179,6 +16683,433 @@ private:
         }
     }
 
+    /// The diagnostic reported last at `span` whose message has `about` in it, to add to, or
+    /// null for none.
+    [[nodiscard]] diagnostic_t* reported_at(const span_t span, const std::string_view about) {
+        const std::vector<diagnostic_t>& reported = m_diagnostics->diagnostics();
+        for (std::size_t i = reported.size(); i-- > 0;) {
+            if (reported[i].span.file == span.file && reported[i].span.begin == span.begin &&
+                reported[i].message.contains(about)) {
+                return &m_diagnostics->at(i);
+            }
+        }
+
+        return nullptr;
+    }
+
+    /// Where a member goes at the end of the body of `type`, a Struct or Class the program
+    /// declares, as indented as its members, and whether it has any. nullopt for one that no file
+    /// of the program's own declares.
+    [[nodiscard]] std::optional<std::tuple<span_t, std::string, bool>>
+    body_end(const type_id_t type) const {
+        const auto declared = m_declared_types.find(definition_of(type));
+        if (declared == m_declared_types.end()) {
+            return std::nullopt;
+        }
+
+        const std::optional<stmt_id_t> declaration =
+            m_analysis.symbols[index(declared->second)].declaration;
+        if (!declaration) {
+            return std::nullopt;
+        }
+
+        const stmt_t& statement = m_ast.get(*declaration);
+        const auto* node = std::get_if<type_stmt_t>(&statement.node);
+        const std::size_t module = module_of(statement.span.file);
+        const std::string_view text = m_sources.get(statement.span.file).text();
+        const std::size_t end_line = statement.span.end == 0
+                                         ? std::string_view::npos
+                                         : text.rfind('\n', statement.span.end - 1);
+        if (node == nullptr || end_line == std::string_view::npos ||
+            end_line < statement.span.begin || module >= m_ast.modules().size() ||
+            m_ast.modules().is_standard(
+                m_ast.modules().get(static_cast<module_id_t>(module)).package)) {
+            return std::nullopt;
+        }
+
+        const std::size_t first =
+            statement.span.begin == 0 ? 0 : text.rfind('\n', statement.span.begin - 1) + 1;
+        const std::string indent(text.substr(first, text.find_first_not_of(" \t", first) - first));
+        const span_t at{
+            .file = statement.span.file,
+            .begin = static_cast<std::uint32_t>(end_line + 1),
+            .end = static_cast<std::uint32_t>(end_line + 1),
+        };
+        return std::tuple(at, indent + "    ", !node->members.empty());
+    }
+
+    /// A parameter list for a call's arguments, `arguments`: each named as its argument is, a
+    /// named one's or a name's, or else a, b, and on, with its type. nullopt when one's type
+    /// isn't known.
+    [[nodiscard]] std::optional<std::string>
+    parameters_for(const std::vector<argument_t>& arguments) {
+        std::string list;
+        std::set<std::string> taken;
+        char next = 'a';
+        for (const argument_t& argument : arguments) {
+            const type_id_t type = info(argument.value).type;
+            if (type == type_id_t::INVALID || type == type_id_t::NONE) {
+                return std::nullopt;
+            }
+
+            std::string name;
+            if (argument.name) {
+                name = argument.name->text;
+            } else if (const auto* written =
+                           std::get_if<name_expr_t>(&m_ast.get(argument.value).node)) {
+                name = written->name;
+            }
+
+            while (name.empty() || !taken.insert(name).second) {
+                name = std::string(1, next++);
+            }
+
+            list += std::format("{}{}{}: {}", list.empty() ? "" : ", ",
+                                argument.by_ref ? "ByRef " : "", name, shown_name(type));
+        }
+
+        return list;
+    }
+
+    /// For a call of what nothing declares: a Function of its name, at the end of its file, or
+    /// a Method of its object's type, with its arguments' types, and `hint` for what it gives,
+    /// or nothing for a call that's a statement of its own.
+    void suggest_creation(const expr_id_t id, const call_expr_t& node, const type_id_t hint) {
+        const bool alone = is_statement(id);
+        const bool gives = hint != type_id_t::INVALID && hint != type_id_t::NONE;
+        if (!alone && !gives) {
+            return;
+        }
+
+        const std::optional<std::string> parameters = parameters_for(node.arguments);
+        if (!parameters) {
+            return;
+        }
+
+        const std::string result = alone ? "" : ": " + shown_name(hint);
+        const auto body = [](const std::string_view name, const std::string& inner) {
+            return std::format("{}    Panic(\"'{}' isn't written yet\")\n", inner, name);
+        };
+        if (const auto* name = std::get_if<name_expr_t>(&m_ast.get(node.callee).node)) {
+            diagnostic_t* reported = reported_at(span_of(node.callee), "isn't declared");
+            if (reported == nullptr || !name->type_arguments.empty()) {
+                return;
+            }
+
+            const span_t call = span_of(id);
+            const std::string_view text = m_sources.get(call.file).text();
+            const span_t end{
+                .file = call.file,
+                .begin = static_cast<std::uint32_t>(text.size()),
+                .end = static_cast<std::uint32_t>(text.size()),
+            };
+            const std::string lead = text.empty() || text.ends_with('\n') ? "\n" : "\n\n";
+            reported->with_suggestion(
+                std::format("Create Function '{}'", name->name),
+                {
+                    {
+                        .span = end,
+                        .replacement =
+                            std::format("{}Function {}({}){}\n{}End Function\n", lead, name->name,
+                                        *parameters, result, body(name->name, "")),
+                    },
+                });
+            return;
+        }
+
+        const auto* member = std::get_if<member_expr_t>(&m_ast.get(node.callee).node);
+        if (member == nullptr) {
+            return;
+        }
+
+        const type_id_t owner = info(member->object).type;
+        diagnostic_t* reported = reported_at(member->member.span, "has no member named");
+        const std::optional<std::tuple<span_t, std::string, bool>> place =
+            owner == type_id_t::INVALID ? std::nullopt : body_end(owner);
+        if (reported == nullptr || !place) {
+            return;
+        }
+
+        const auto& [at, inner, members] = *place;
+        reported->with_suggestion(
+            std::format("Create Method '{}' in {}", member->member.text, shown_name(owner)),
+            {
+                {
+                    .span = at,
+                    .replacement =
+                        std::format("{}{}Method {}({}){}\n{}{}End Method\n", members ? "\n" : "",
+                                    inner, member->member.text, *parameters, result,
+                                    body(member->member.text, inner), inner),
+                },
+            });
+    }
+
+    /// For an Enum's member that it doesn't have, `name`, it added after the Enum's last one, on
+    /// its line or a line of its own, as they're written.
+    void suggest_enum_member(diagnostic_t& diagnostic, const type_id_t type,
+                             const std::string_view name) const {
+        const auto declared = m_declared_types.find(type);
+        if (declared == m_declared_types.end()) {
+            return;
+        }
+
+        const std::optional<stmt_id_t> declaration =
+            m_analysis.symbols[index(declared->second)].declaration;
+        if (!declaration) {
+            return;
+        }
+
+        const stmt_t& statement = m_ast.get(*declaration);
+        const auto* node = std::get_if<enum_stmt_t>(&statement.node);
+        const std::size_t module = module_of(statement.span.file);
+        if (node == nullptr || node->members.empty() || module >= m_ast.modules().size() ||
+            m_ast.modules().is_standard(
+                m_ast.modules().get(static_cast<module_id_t>(module)).package)) {
+            return;
+        }
+
+        const source_file_t& file = m_sources.get(statement.span.file);
+        const enum_member_t& last = node->members.back();
+        const std::uint32_t end = last.value ? m_ast.get(*last.value).span.end : last.name.span.end;
+        // On one line with the one before it, after a comma; or else a line of its own.
+        std::string written = std::format(", {}", name);
+        if (node->members.size() == 1 ||
+            file.line_of(node->members[node->members.size() - 2].name.span.begin) !=
+                file.line_of(last.name.span.begin)) {
+            const std::string_view text = file.text();
+            const std::size_t line =
+                last.name.span.begin == 0 ? 0 : text.rfind('\n', last.name.span.begin - 1) + 1;
+            written = std::format("\n{}{}", text.substr(line, last.name.span.begin - line), name);
+        }
+
+        diagnostic.with_suggestion(
+            std::format("Add '{}' to {}", name, shown_name(type)),
+            {
+                {
+                    .span = { .file = statement.span.file, .begin = end, .end = end },
+                    .replacement = written,
+                },
+            });
+    }
+
+    /// For an assignment to what nothing declares, of a value of `type`: a Local of its name,
+    /// or a Field or a Property of its object's type.
+    void suggest_assigned(const expr_id_t target, const type_id_t type) {
+        if (type == type_id_t::INVALID || type == type_id_t::NONE) {
+            return;
+        }
+
+        if (std::holds_alternative<name_expr_t>(m_ast.get(target).node)) {
+            if (diagnostic_t* reported = reported_at(span_of(target), "isn't declared")) {
+                const span_t before{
+                    .file = span_of(target).file,
+                    .begin = span_of(target).begin,
+                    .end = span_of(target).begin,
+                };
+                reported->with_suggestion(std::format("Declare '{}' as a Local", text(target)),
+                                          { { .span = before, .replacement = "Local " } });
+            }
+
+            return;
+        }
+
+        const auto* member = std::get_if<member_expr_t>(&m_ast.get(target).node);
+        const type_id_t owner = member != nullptr ? info(member->object).type : type_id_t::INVALID;
+        diagnostic_t* reported =
+            member != nullptr ? reported_at(member->member.span, "has no member named") : nullptr;
+        const std::optional<std::tuple<span_t, std::string, bool>> place =
+            owner == type_id_t::INVALID ? std::nullopt : body_end(owner);
+        if (reported == nullptr || !place) {
+            return;
+        }
+
+        const auto& [at, inner, members] = *place;
+        const std::string_view name = member->member.text;
+        const std::string lead = members ? "\n" : "";
+        reported->with_suggestion(std::format("Create Field '{}' in {}", name, shown_name(owner)),
+                                  {
+                                      {
+                                          .span = at,
+                                          .replacement = std::format("{}{}Field {}: {}\n", lead,
+                                                                     inner, name, shown_name(type)),
+                                      },
+                                  });
+        reported->with_suggestion(
+            std::format("Create Property '{}' in {}", name, shown_name(owner)),
+            {
+                {
+                    .span = at,
+                    .replacement = std::format("{0}{1}Property {2}: {3}\n{1}    Get\n{1}        "
+                                               "Panic(\"'{2}' isn't written "
+                                               "yet\")\n{1}    End Get\n{1}    Set(value)\n{1}    "
+                                               "End Set\n{1}End Property\n",
+                                               lead, inner, name, shown_name(type)),
+                },
+            });
+    }
+
+    /// The change that adds those of `types` the Throws of the Function or Method being checked
+    /// doesn't have, and their names: the Throws written again, without those they cover, as
+    /// that's an error. nullopt when it has them, or isn't one a declaration writes.
+    [[nodiscard]] std::optional<std::pair<fix_t, std::string>>
+    throws_fix(const std::vector<type_id_t>& types) {
+        const std::optional<symbol_id_t> current = m_function;
+        if (!current) {
+            return std::nullopt;
+        }
+
+        const symbol_t& function = symbol(*current);
+        const std::optional<stmt_id_t> declaration = function.declaration;
+        if (!declaration) {
+            return std::nullopt;
+        }
+
+        const stmt_t& statement = m_ast.get(*declaration);
+        const auto* node = std::get_if<function_stmt_t>(&statement.node);
+        if (node == nullptr) {
+            return std::nullopt;
+        }
+
+        std::vector<type_id_t> added;
+        std::string missing;
+        for (const type_id_t type : types) {
+            if (!covers(function.throws, type) && !std::ranges::contains(added, type)) {
+                added.push_back(type);
+                missing += (missing.empty() ? "" : ", ") + shown_name(type);
+            }
+        }
+
+        if (added.empty()) {
+            return std::nullopt;
+        }
+
+        if (node->throws.empty() || node->throws.size() != function.throws.size()) {
+            const span_t end{
+                .file = statement.span.file,
+                .begin = node->header_end,
+                .end = node->header_end,
+            };
+            return std::pair(fix_t{ .span = end, .replacement = " Throws " + missing }, missing);
+        }
+
+        std::string list;
+        for (std::size_t i = 0; i < node->throws.size(); ++i) {
+            if (!covers(added, function.throws[i])) {
+                list += std::string(text(m_ast.get(node->throws[i]).span)) + ", ";
+            }
+        }
+
+        const span_t written =
+            merge(m_ast.get(node->throws.front()).span, m_ast.get(node->throws.back()).span);
+        return std::pair(fix_t{ .span = written, .replacement = list + missing }, missing);
+    }
+
+    /// A value of `type` code can write without knowing more: a number's zero, False, "", Null,
+    /// [], or an Enum's first member. nullopt for one that has none, as most Classes don't.
+    [[nodiscard]] std::optional<std::string> zero_text(const type_id_t type) const {
+        if (is_integer(type)) {
+            return "0";
+        }
+
+        if (is_float(type)) {
+            return "0.0";
+        }
+
+        if (type == type_id_t::BOOL) {
+            return "False";
+        }
+
+        if (type == type_id_t::STRING) {
+            return "\"\"";
+        }
+
+        if (is_nullable(type)) {
+            return "Null";
+        }
+
+        if (is_array(type)) {
+            return "[]";
+        }
+
+        if (const auto members = m_enum_members.find(type);
+            members != m_enum_members.end() && !members->second.empty()) {
+            return std::format("{}.{}", shown_name(type),
+                               m_analysis.symbols[index(members->second.front())].name);
+        }
+
+        return std::nullopt;
+    }
+
+    /// The Return a function without one on every path can end with: its type's zero, before
+    /// its End.
+    void suggest_return(diagnostic_t& diagnostic, const symbol_t& function) const {
+        const std::optional<std::string> zero = zero_text(function.type);
+        if (!zero || !function.declaration) {
+            return;
+        }
+
+        const stmt_t& statement = m_ast.get(*function.declaration);
+        const std::string_view text = m_sources.get(statement.span.file).text();
+        const std::size_t end_line = statement.span.end == 0
+                                         ? std::string_view::npos
+                                         : text.rfind('\n', statement.span.end - 1);
+        if (end_line == std::string_view::npos || end_line < statement.span.begin) {
+            return;
+        }
+
+        const std::size_t first =
+            statement.span.begin == 0 ? 0 : text.rfind('\n', statement.span.begin - 1) + 1;
+        const std::string_view indent =
+            text.substr(first, text.find_first_not_of(" \t", first) - first);
+        const span_t at{
+            .file = statement.span.file,
+            .begin = static_cast<std::uint32_t>(end_line + 1),
+            .end = static_cast<std::uint32_t>(end_line + 1),
+        };
+        diagnostic.with_suggestion(
+            std::format("Add 'Return {}'", *zero),
+            { { .span = at, .replacement = std::format("{}    Return {}\n", indent, *zero) } });
+    }
+
+    /// Whether `id` is the whole of an expression statement, whose value isn't used.
+    [[nodiscard]] bool is_statement(const expr_id_t id) const {
+        for (std::size_t i = 0; i < m_ast.stmt_count(); ++i) {
+            const auto* node =
+                std::get_if<expression_stmt_t>(&m_ast.get(static_cast<stmt_id_t>(i)).node);
+            if (node != nullptr && node->expression == id) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// How the call `id`, which can throw `throws`, can: with Try, and the Throws the function
+    /// around it needs then, or with Try? where its value isn't used.
+    void suggest_try(diagnostic_t& diagnostic, const expr_id_t id,
+                     const std::vector<type_id_t>& throws) {
+        const span_t call = span_of(id);
+        const span_t before{ .file = call.file, .begin = call.begin, .end = call.begin };
+        std::vector<fix_t> fixes{ { .span = before, .replacement = "Try " } };
+        std::string title = "Add Try";
+        const std::optional<symbol_id_t> current = m_function;
+        std::optional<std::pair<fix_t, std::string>> fix =
+            current ? throws_fix(throws) : std::nullopt;
+        if (current && fix) {
+            const symbol_t& function = symbol(*current);
+            title = function.throws.empty()
+                        ? std::format("Add Try, and Throws {} to '{}'", fix->second, function.name)
+                        : std::format("Add Try, and {} to the Throws of '{}'", fix->second,
+                                      function.name);
+            fixes.push_back(std::move(fix->first));
+        }
+
+        diagnostic.with_suggestion(std::move(title), std::move(fixes));
+        if (is_statement(id)) {
+            diagnostic.with_suggestion("Add Try?", { { .span = before, .replacement = "Try? " } });
+        }
+    }
+
     /// Follows an error out from where it's thrown, through each handler around it, to the one
     /// that takes it. Each one it gets to records its Class.
     void propagate(const type_id_t type, const span_t span) {
@@ -16196,11 +17127,19 @@ private:
             }
 
             if (handler.kind == handler_kind_t::FUNCTION) {
-                if (!covers(handler.types, type) && m_function) {
-                    error(span,
-                          "{} isn't caught; catch it in a Try block, or add it to the Throws of "
-                          "'{}'",
-                          shown_name(type), symbol(*m_function).name);
+                const std::optional<symbol_id_t> function = m_function;
+                if (!covers(handler.types, type) && function) {
+                    const std::string name = symbol(*function).name;
+                    diagnostic_t& reported =
+                        error(span,
+                              "{} isn't caught; catch it in a Try block, or add it to the Throws "
+                              "of '{}'",
+                              shown_name(type), name);
+                    if (std::optional<std::pair<fix_t, std::string>> fix = throws_fix({ type })) {
+                        reported.with_suggestion(
+                            std::format("Add {} to the Throws of '{}'", fix->second, name),
+                            { std::move(fix->first) });
+                    }
                 }
 
                 return;
@@ -18617,11 +19556,22 @@ private:
             error(span_of(id), "{} doesn't fit in {}{}", text(id), shown_name(expected),
                   on_windows(non_null(expected)));
         } else if (is_nullable(found.type) && converts(non_null(found.type), expected)) {
-            error(span_of(id),
-                  "expected {}, found {}, which may be Null; check it first, or give a value for "
-                  "Null with '{}'",
-                  name_of(expected, found.type), name_of(found.type, expected),
-                  spelling(binary_op_t::COALESCE));
+            diagnostic_t& reported =
+                error(span_of(id),
+                      "expected {}, found {}, which may be Null; check it first, or give a value "
+                      "for Null with '{}'",
+                      name_of(expected, found.type), name_of(found.type, expected),
+                      spelling(binary_op_t::COALESCE));
+            if (const std::optional<std::string> zero = zero_text(expected)) {
+                reported.with_suggestion(
+                    std::format("Give a value for Null with '?? {}'", *zero),
+                    {
+                        {
+                            .span = span_of(id),
+                            .replacement = std::format("{} ?? {}", operand_text(id), *zero),
+                        },
+                    });
+            }
         } else if (const type_id_t wanted = non_null(expected);
                    is_interface(wanted) && (is_struct(found.type) || is_parameter(found.type)) &&
                    implements(found.type, wanted)) {
@@ -18657,8 +19607,21 @@ private:
                   "Function's name or a lambda that captures nothing, written where it's expected",
                   name_of(expected, found.type), name_of(found.type, expected));
         } else {
-            error(span_of(id), "expected {}, found {}", name_of(expected, found.type),
-                  name_of(found.type, expected));
+            diagnostic_t& reported =
+                error(span_of(id), "expected {}, found {}", name_of(expected, found.type),
+                      name_of(found.type, expected));
+            if (found.type != type_id_t::INVALID && expected != type_id_t::INVALID &&
+                as_converts(found.type, expected)) {
+                const std::string target = shown_name(expected);
+                reported.with_suggestion(
+                    std::format("Convert with 'As {}'", target),
+                    {
+                        {
+                            .span = span_of(id),
+                            .replacement = std::format("{} As {}", operand_text(id), target),
+                        },
+                    });
+            }
         }
     }
 
@@ -19496,7 +20459,8 @@ private:
             report_unusable(*member, span,
                             m_function ? symbol(*m_function).owner : type_id_t::INVALID);
         } else if (is_test_builtin(name) && !sees_test_builtins(module_of(span.file))) {
-            error(span, "'{}' is in std.test, which this file doesn't import", name);
+            error(span, "'{}' is in std.test, which this file doesn't import", name)
+                .suggestions.push_back(import_suggestion("std.test", span.file));
         } else if (name == "ExpectThrows") {
             // Found by its name only where it's called, as the other built-ins are values of none.
             error(span, "'ExpectThrows' is built in, so it can't be a value; use a lambda that "
@@ -19528,7 +20492,9 @@ private:
 
             error(span, "'{}' is called, as in {}", name, example);
         } else if (!from_failed_import(name, span) && !m_misplaced_externs.contains(name)) {
-            error(span, "'{}' isn't declared{}", name, prebuilt_tests_hint(name, span));
+            suggest_spelled(
+                error(span, "'{}' isn't declared{}", name, prebuilt_tests_hint(name, span)), name,
+                span, visible_names(span));
         }
     }
 
@@ -20358,11 +21324,17 @@ private:
         for (const symbol_id_t id : members_of(type, name)) {
             if (!visible_from(symbol(id), span) && can_use(symbol(id), span, through) &&
                 (!serves || serves(symbol(id)))) {
-                return {
+                hint_t hint{
                     .text = std::format(
                         "; '{}' is in {}", name,
                         import_advice(module_of(symbol(id).span.file), module_of(span.file))),
                 };
+                if (const std::optional<std::string> target =
+                        import_target(module_of(symbol(id).span.file), module_of(span.file))) {
+                    hint.suggestions.push_back(import_suggestion(*target, span.file));
+                }
+
+                return hint;
             }
         }
 
@@ -20371,6 +21343,7 @@ private:
 
     /// Labels the declaration a hint is about, if it's about one.
     void label_hint(diagnostic_t& diagnostic, const hint_t& hint) {
+        std::ranges::copy(hint.suggestions, std::back_inserter(diagnostic.suggestions));
         if (hint.declared) {
             label_declaration(diagnostic, *hint.declared);
         }
@@ -20393,9 +21366,14 @@ private:
             return !can_use(symbol(id), member.span, through);
         });
         if (!hidden.empty()) {
-            error(member.span, "'{}' is in {}", member.text,
-                  import_advice(module_of(m_analysis.symbols[index(hidden.front())].span.file),
-                                module_of(member.span.file)));
+            const std::size_t home = module_of(m_analysis.symbols[index(hidden.front())].span.file);
+            diagnostic_t& reported = error(member.span, "'{}' is in {}", member.text,
+                                           import_advice(home, module_of(member.span.file)));
+            if (const std::optional<std::string> target =
+                    import_target(home, module_of(member.span.file))) {
+                reported.suggestions.push_back(import_suggestion(*target, member.span.file));
+            }
+
             return true;
         }
 
@@ -20407,7 +21385,8 @@ private:
         }
 
         if (home) {
-            error(member.span, "'{}' is in {}, which this file doesn't import", member.text, *home);
+            error(member.span, "'{}' is in {}, which this file doesn't import", member.text, *home)
+                .suggestions.push_back(import_suggestion(std::string(*home), member.span.file));
             return true;
         }
 
@@ -20447,9 +21426,30 @@ private:
                   "check that, or use '?.'",
                   text(id));
         } else if (narrowable_variable(id)) {
-            error(span_of(id), "'{}' may be Null; check that it isn't, or use '?.'", text(id));
+            suggest_null_safe(
+                error(span_of(id), "'{}' may be Null; check that it isn't, or use '?.'", text(id)),
+                id);
         } else {
-            error(span_of(id), "'{}' may be Null; check a Local copy of it, or use '?.'", text(id));
+            suggest_null_safe(error(span_of(id),
+                                    "'{}' may be Null; check a Local copy of it, or use '?.'",
+                                    text(id)),
+                              id);
+        }
+    }
+
+    /// The '.' after `id`, a T?, written '?.', which gives Null when it's Null.
+    void suggest_null_safe(diagnostic_t& diagnostic, const expr_id_t id) const {
+        const span_t span = span_of(id);
+        const std::string_view after = m_sources.get(span.file).text().substr(span.end);
+        if (after.starts_with('.')) {
+            diagnostic.with_suggestion(
+                "Use '?.'",
+                {
+                    {
+                        .span = { .file = span.file, .begin = span.end, .end = span.end + 1 },
+                        .replacement = "?.",
+                    },
+                });
         }
     }
 
@@ -20776,8 +21776,16 @@ private:
             error(member.span, "{} has no element '{}'; its elements are .0 to .{}",
                   shown_name(type), member.text, m_analysis.types.get(type).fields.size() - 1);
         } else if (members.empty() && !report_hidden(type, member, through)) {
-            error(member.span, "{} has no member named '{}'{}{}", shown_name(type), member.text,
-                  hides_qualifier(object), missing_default_hint(type, member.text));
+            diagnostic_t& reported =
+                error(member.span, "{} has no member named '{}'{}{}", shown_name(type), member.text,
+                      hides_qualifier(object), missing_default_hint(type, member.text));
+            // A T?'s member is its T's, through '?.'.
+            if (is_nullable(type) &&
+                member_names(non_null(type)).contains(std::string(member.text))) {
+                suggest_null_safe(reported, object);
+            } else {
+                suggest_spelled(reported, member.text, member.span, member_names(type));
+            }
         }
 
         return members;
@@ -21219,8 +22227,15 @@ private:
         }
 
         if (candidates.empty() && hidden) {
-            error(span, "Operator {} for {} is in {}", lookup, shown_name(symbol(*hidden).owner),
-                  import_advice(module_of(symbol(*hidden).span.file), module_of(span.file)));
+            const std::size_t home = module_of(symbol(*hidden).span.file);
+            diagnostic_t& reported =
+                error(span, "Operator {} for {} is in {}", lookup,
+                      shown_name(symbol(*hidden).owner), import_advice(home, module_of(span.file)));
+            if (const std::optional<std::string> target =
+                    import_target(home, module_of(span.file))) {
+                reported.suggestions.push_back(import_suggestion(*target, span.file));
+            }
+
             return type_id_t::INVALID;
         }
 
@@ -22047,6 +23062,7 @@ private:
         if (!function) {
             if (candidates.empty()) {
                 check_alone(node.arguments);
+                suggest_creation(id, node, hint);
             }
 
             return type_id_t::INVALID;
@@ -24435,7 +25451,8 @@ private:
         if (is_test_builtin(name->name) && symbol(found.front()).kind == symbol_kind_t::TYPE &&
             in_std(symbol(found.front()).span.file) && !in_std(span.file)) {
             if (!sees_test_builtins(module_of(span.file))) {
-                error(span, "'{}' is in std.test, which this file doesn't import", name->name);
+                error(span, "'{}' is in std.test, which this file doesn't import", name->name)
+                    .suggestions.push_back(import_suggestion("std.test", span.file));
                 return {};
             }
 
@@ -25510,8 +26527,15 @@ private:
         const std::vector<enum_value_t>& values = m_analysis.types.get(type).values;
         const auto found = std::ranges::find(values, node.member.text, &enum_value_t::name);
         if (found == values.end()) {
-            error(node.member.span, "{} has no member named '{}'", shown_name(type),
-                  node.member.text);
+            diagnostic_t& reported = error(node.member.span, "{} has no member named '{}'",
+                                           shown_name(type), node.member.text);
+            std::set<std::string> names;
+            for (const enum_value_t& value : values) {
+                names.emplace(value.name);
+            }
+
+            suggest_spelled(reported, node.member.text, node.member.span, names);
+            suggest_enum_member(reported, type, node.member.text);
             return type_id_t::INVALID;
         }
 
@@ -26849,6 +27873,37 @@ private:
     }
 
     /// A cast gives a literal its type directly: `5_000_000_000 As Long`.
+    /// Whether an object converts to a related Class with 'As', which is checked at run time,
+    /// or to or from a type parameter that's a Class's, whose instances may be related or not.
+    [[nodiscard]] bool objects_cast(const type_id_t source, const type_id_t target) {
+        return is_any_object(non_null(source)) && is_any_object(non_null(target)) &&
+               (is_parameter(non_null(source)) || is_parameter(non_null(target)) ||
+                related(non_null(source), non_null(target)));
+    }
+
+    /// Whether 'As' converts `source` to `target`, but for a Ptr's, which only Unsafe code
+    /// makes: numbers to each other, a Bool to an integer as 0 or 1, a Char to and from an
+    /// integer, its code, an Enum to and from integers, an object to a related Class, and
+    /// anything to what it converts to without 'As', like a T to a T?.
+    [[nodiscard]] bool as_converts(const type_id_t source, const type_id_t target) {
+        const bool enums =
+            (is_enum(source) && is_integer(target)) || (is_integer(source) && is_enum(target));
+        return converts(source, target) || objects_cast(source, target) || enums ||
+               (is_numeric(source) && is_numeric(target)) ||
+               (source == type_id_t::BOOL && is_integer(target)) || char_cast(source, target);
+    }
+
+    /// The text of `id` to write an operator after: in parentheses when it's an operation of
+    /// its own, whose parts the operator would take apart.
+    [[nodiscard]] std::string operand_text(const expr_id_t id) const {
+        const expr_node_t& node = m_ast.get(id).node;
+        const bool alone = !std::holds_alternative<binary_expr_t>(node) &&
+                           !std::holds_alternative<ternary_expr_t>(node) &&
+                           !std::holds_alternative<cast_expr_t>(node) &&
+                           !std::holds_alternative<lambda_expr_t>(node);
+        return alone ? std::string(text(id)) : std::format("({})", text(id));
+    }
+
     type_id_t check_expr(const expr_id_t id, const cast_expr_t& node, type_id_t /*hint*/) {
         const type_id_t target = resolve_type(node.type);
         const type_id_t source = check(node.value, node.checked ? type_id_t::NONE : target);
@@ -26868,23 +27923,11 @@ private:
             return check_checked_cast(id, node, source, target);
         }
 
-        // Numbers convert to each other, a Bool to an integer as 0 or 1, a Char to and from an
-        // integer, its code, and anything to what it converts to without 'As', like a T to a T?. An
-        // object converts to a related Class, which is checked at run time, and to and from a type
-        // parameter that's a Class's, whose instances may be related or not.
-        const bool classes = is_any_object(non_null(source)) && is_any_object(non_null(target)) &&
-                             (is_parameter(non_null(source)) || is_parameter(non_null(target)) ||
-                              related(non_null(source), non_null(target)));
-        // An Enum converts to and from integers.
-        const bool enums =
-            (is_enum(source) && is_integer(target)) || (is_integer(source) && is_enum(target));
         // In Unsafe code, Ptrs convert to each other and to and from Int64 and UInt64, and a
         // CString to and from a Ptr at its bytes.
+        const bool classes = objects_cast(source, target);
         const bool pointers = pointer_cast(source, target);
-        const bool allowed = converts(source, target) || classes || enums || pointers ||
-                             (is_numeric(source) && is_numeric(target)) ||
-                             (source == type_id_t::BOOL && is_integer(target)) ||
-                             char_cast(source, target);
+        const bool allowed = as_converts(source, target) || pointers;
         if (!allowed) {
             error(span_of(id), "'As' can't convert {} to {}", name_of(source, target),
                   name_of(target, source));

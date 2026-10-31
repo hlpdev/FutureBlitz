@@ -144,6 +144,24 @@ builds the tests' executable without running it. The extension adds the Testing 
 `parameterNames` settings. Tests: tests/lsp/navigate_tests.cpp, 12 cases; cli_tests.cpp's fb test
 -o; the extension's unit tests of the output's parsing, and its suite's Testing panel test.
 
+Step 5, quick fixes (2026-10-31, on dev/m11): `diagnostic_t::suggestions` (`suggestion_t`: a title
+and its fixes) replaces `fixes` and `fix_title`; fb-lsp's `code_action` makes each a CodeAction,
+the first preferred, and `render_pretty` shows each as `= help:`. Sema suggests the Import, the
+qualifier, or the From line's name a name needs (`import_target`, `import_place`,
+`import_suggestion`, `hint_t::suggestions`, also for members, Operators, and std.test); names
+spelled nearly so (`similar_names`, `edit_distance`, `visible_names`, `member_names`,
+`suggest_spelled`, `name_in`); Try, Try?, and Throws (`suggest_try`, `throws_fix`, `is_statement`);
+a Function, Method, Field, Property, Local, or Enum member for what nothing declares
+(`suggest_creation`, `parameters_for`, `suggest_assigned`, `suggest_enum_member`, `body_end`,
+`reported_at`, with `diagnostic_bag_t::at`); an Interface's members to implement and an Abstract
+Method to override, or the Class made Abstract (`member_stub`, `suggest_implementation`,
+`suggest_override`, `abstract_suggestion`, `as_inherited`); As (`as_converts`, `objects_cast`,
+`operand_text`); `??` and `?.` (`suggest_null_safe`); Package or Public (`visibility_suggestions`,
+`modifiers_of`); an Unsafe block or Function (`suggest_unsafe`); and a Return of the type's zero
+(`suggest_return`, `zero_text`). The parser adds a missing End or changes a wrong one
+(`added_end`, `changed_end`). `@MainThread` has no error it fixes, and `fb add`'s fix is in Deferred
+work. Tests: tests/compiler/fixes_tests.cpp, each fix made and its program compiled.
+
 A string's escapes in their own color (2026-10-31, the user): fb-lsp's semantic tokens gave each
 string literal one `string` token, which VS Code colors over the grammar's
 `constant.character.escape`, so `\n` looked like the rest of the string. `string_pieces()` in

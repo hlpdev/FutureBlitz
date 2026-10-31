@@ -30,6 +30,14 @@ struct fix_t {
     std::string replacement;
 };
 
+/// One way to fix what a diagnostic says: the changes that together make it, which don't
+/// overlap, and what they do, as the LSP's code action and fb check's help name it, like "Import
+/// std.collections".
+struct suggestion_t {
+    std::string title;
+    std::vector<fix_t> fixes;
+};
+
 /// One error, warning, or note for the user.
 struct diagnostic_t {
     severity_t severity = severity_t::ERROR;
@@ -41,11 +49,9 @@ struct diagnostic_t {
     std::vector<label_t> labels;
     /// Extra lines shown after the snippets, as "= note: ...".
     std::vector<std::string> notes;
-    /// Changes that together fix it, which the LSP offers as a code action. They don't overlap.
-    std::vector<fix_t> fixes;
-    /// What the fixes do, as the LSP's code action names it, like "Write 'if' as 'If'". Empty
-    /// for "Fix: " and the message.
-    std::string fix_title;
+    /// The ways to fix it, the likeliest first, which the LSP offers as code actions and fb
+    /// check shows as help.
+    std::vector<suggestion_t> suggestions;
 
     diagnostic_t& with_label(const span_t at, std::string text) {
         labels.push_back({ .span = at, .message = std::move(text) });
@@ -57,8 +63,8 @@ struct diagnostic_t {
         return *this;
     }
 
-    diagnostic_t& with_fix(const span_t at, std::string replacement) {
-        fixes.push_back({ .span = at, .replacement = std::move(replacement) });
+    diagnostic_t& with_suggestion(std::string title, std::vector<fix_t> fixes) {
+        suggestions.push_back({ .title = std::move(title), .fixes = std::move(fixes) });
         return *this;
     }
 };
@@ -88,6 +94,11 @@ public:
             .message = std::format(fmt, std::forward<Args>(args)...),
             .span = span,
         });
+    }
+
+    /// The diagnostic at `index` among diagnostics(), to add to.
+    [[nodiscard]] diagnostic_t& at(const std::size_t index) {
+        return m_diagnostics[index];
     }
 
     [[nodiscard]] const std::vector<diagnostic_t>& diagnostics() const {
