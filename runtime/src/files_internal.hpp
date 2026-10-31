@@ -6,8 +6,17 @@
 #include <uv.h>
 
 // What std.io's files share with the runtime's other parts: a file written atomically, which
-// std.net.http's downloads to a file write as their bodies come.
+// std.net.http's downloads to a file write as their bodies come, and paths as the OS takes them.
 namespace fb::runtime {
+
+/// `path` as the OS's calls take it. On Windows, one whose full path is too long for them as it
+/// is, MAX_PATH less a short name's 12, which a folder's leaves room for, is that full path after
+/// "\\?\", or a share's after "\\?\UNC\", which they take up to 32,767 characters long.
+/// Elsewhere, and a shorter one, is as it is.
+[[nodiscard]] std::string os_path(std::string_view path);
+
+/// A path the OS gave back for one os_path() made, without what that put before it.
+[[nodiscard]] std::string plain_path(std::string path);
 
 /// A file written atomically: a new temporary file beside the one a path leads to, which
 /// commit() puts onto the disk and renames over that file, so it holds either all that was

@@ -3,6 +3,7 @@
 
 #include "fb/files.hpp"
 #include "fb/runtime.hpp"
+#include "files_internal.hpp"
 
 #include <cstdint>
 #include <cstring>
@@ -125,7 +126,7 @@ std::int64_t open_map(map_t& map, const std::string& path) {
     }
 
     uv_fs_t call{};
-    const int opened = uv_fs_open(nullptr, &call, path.c_str(),
+    const int opened = uv_fs_open(nullptr, &call, fb::runtime::os_path(path).c_str(),
                                   map.writable ? UV_FS_O_RDWR : UV_FS_O_RDONLY, 0, nullptr);
     uv_fs_req_cleanup(&call);
     if (opened < 0) {

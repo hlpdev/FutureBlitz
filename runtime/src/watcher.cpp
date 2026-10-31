@@ -4,6 +4,7 @@
 
 #include "fb/files.hpp"
 #include "fb/runtime.hpp"
+#include "files_internal.hpp"
 #include "internal.hpp"
 #include "io_internal.hpp"
 
@@ -195,7 +196,7 @@ std::string real_in(const watcher_t& watcher, const std::string_view key) {
 
 bool exists(const std::string& path) {
     uv_fs_t call{};
-    const int result = uv_fs_lstat(nullptr, &call, path.c_str(), nullptr);
+    const int result = uv_fs_lstat(nullptr, &call, fb::runtime::os_path(path).c_str(), nullptr);
     uv_fs_req_cleanup(&call);
     return result == 0;
 }
@@ -203,8 +204,9 @@ bool exists(const std::string& path) {
 /// Whether what's at `path` is a folder, and not a link to one.
 bool is_folder(const std::string& path) {
     uv_fs_t call{};
-    const bool folder = uv_fs_lstat(nullptr, &call, path.c_str(), nullptr) == 0 &&
-                        (call.statbuf.st_mode & S_IFMT) == S_IFDIR;
+    const bool folder =
+        uv_fs_lstat(nullptr, &call, fb::runtime::os_path(path).c_str(), nullptr) == 0 &&
+        (call.statbuf.st_mode & S_IFMT) == S_IFDIR;
     uv_fs_req_cleanup(&call);
     return folder;
 }
@@ -215,7 +217,7 @@ std::set<std::string, std::less<>> names_in(const std::string& path,
                                             std::vector<std::string>* folders = nullptr) {
     std::set<std::string, std::less<>> names{ "" };
     uv_fs_t call{};
-    if (uv_fs_scandir(nullptr, &call, path.c_str(), 0, nullptr) >= 0) {
+    if (uv_fs_scandir(nullptr, &call, fb::runtime::os_path(path).c_str(), 0, nullptr) >= 0) {
         uv_dirent_t entry{};
         while (uv_fs_scandir_next(&call, &entry) != UV_EOF) {
             names.emplace(entry.name);
@@ -615,8 +617,8 @@ void start_watching(uv_loop_t* loop, void* context) {
         // Linux leaves the flag out, so each folder there is watched apart.
         const unsigned flags =
             watcher.recursive ? static_cast<unsigned>(UV_FS_EVENT_RECURSIVE) : 0U;
-        error =
-            uv_fs_event_start(&watcher.handle, watcher_t::on_event, watcher.path.c_str(), flags);
+        error = uv_fs_event_start(&watcher.handle, watcher_t::on_event,
+                                  fb::runtime::os_path(watcher.path).c_str(), flags);
         if (error == 0) {
             watcher.open = true;
             open_watchers().push_back(&watcher);
@@ -682,14 +684,15 @@ void* fb_io_watcher_new(const fb_string_t* path, const std::int32_t recursive) {
 
     // A folder's events name what's in it; a file's are the file's.
     uv_fs_t call{};
-    if (uv_fs_stat(nullptr, &call, watcher->path.c_str(), nullptr) == 0) {
+    const std::string at = fb::runtime::os_path(watcher->path);
+    if (uv_fs_stat(nullptr, &call, at.c_str(), nullptr) == 0) {
         watcher->folder = (call.statbuf.st_mode & S_IFMT) == S_IFDIR;
     }
 
     uv_fs_req_cleanup(&call);
     watcher->recursive = watcher->folder && recursive != 0;
     watcher->real = watcher->path;
-    if (uv_fs_realpath(nullptr, &call, watcher->path.c_str(), nullptr) == 0) {
+    if (uv_fs_realpath(nullptr, &call, at.c_str(), nullptr) == 0) {
         watcher->real = static_cast<const char*>(call.ptr);
     }
 

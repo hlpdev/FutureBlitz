@@ -216,7 +216,9 @@ Public Struct Dir
         Return Path(current)
     End Method
 
-    /// Makes the folder the program's current one, for every thread.
+    /// Makes the folder the program's current one, for every thread. On Windows, its path has to
+    /// be shorter than MAX_PATH, 260 characters, as Windows keeps the current folder, though a
+    /// path from it can be longer.
     Public Static Method SetCurrent(path: Path) Throws IOError
         Local request = Request()
         Try Checked(fb_io_dir_set_current(request.Native, path.Text), "go to", path)
