@@ -2438,7 +2438,7 @@ TEST_CASE("while code is typed, a step program that doesn't compile or link fail
         const std::filesystem::path stamp = app_step(packages) / "stamp";
         const auto written = std::filesystem::last_write_time(stamp);
         CHECK(first_error(packages) == said);
-        CHECK(std::filesystem::last_write_time(stamp) == written);
+        CHECK((std::filesystem::last_write_time(stamp) == written));
     }
 
     packages.remove();
