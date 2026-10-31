@@ -27,6 +27,30 @@ runs the installed release's fb-bindgen on tools/release/libc.h, a header of `<s
 macOS's SDK, from `xcrun`, already had every header theirs include. A cli test whose name began
 with `--`, which Catch2 took as an option, so ctest never ran it, is "a --registry folder ...".
 
+## E10, fbengine_physics
+
+Steps 1 and 2 (2026-10-31, the physics lane, landed at 8720580). Step 1 added fbengine_physics, a
+package over its own DLL, `fbengine_physics_native`, with Jolt v5.6.0 linked in (its debug symbols
+only in a debug build): worlds as handles (`fbe_physics_new`, `_free`, `_step`, `_gravity`,
+`_set_gravity`, `_steps`, `_overflowed`, `_threads`, `_version`, `_error`), stepped on one shared
+Jolt thread pool of a thread per core less one, with x86 held to SSE4.2 and no fused multiply-add.
+`PhysicsWorld` has `Gravity` and `SetGravity`, `Step` for a given time (a request of many collision
+steps split over several of Jolt's updates, so its 2048 jobs are never exhausted), `Update` at a
+fixed `StepRate` up to `MaxSteps` a frame with `Alpha` for drawing between steps, `Steps`,
+`Overflowed`, and `Free`; a world dropped without Free frees itself. Step 2 added bodies and shapes:
+`Shape` makes boxes, spheres, capsules, cylinders, convex hulls, triangle meshes, and compounds
+(`fbe_shape_*`), each a refcounted Jolt shape any bodies of any worlds share, and freed when
+dropped; `Body(world, shape, motion, position, rotation)` puts one in a world as static, dynamic,
+or kinematic (`fbe_body_*`), with its velocities, forces, torques, impulses, mass, friction,
+restitution, damping, gravity factor, and sleep. A shape that must be static (a mesh, or a compound
+with one) is refused as dynamic; the broad phase is sorted as bodies come and go; Jolt starts with
+the first shape or world. Handles carry their pool's kind (96 to 98), so one pool refuses another's.
+examples/falling_boxes drops 200 boxes that come to rest; 1000 mixed bodies on a 20000-triangle mesh
+step in 0.8 ms. Two reviews found 13 problems, all fixed with tests: a crash for a shape made
+before any world, a dynamic compound with a mesh part, Jolt's job limit at many collision steps on
+32 threads, the broad phase's nodes running out between steps, 45 MB of debug symbols, handles
+without a kind, unnormalized rotations, and leaks of dropped worlds and shapes among them.
+
 ## E0, fbengine's setup
 
 (2026-10-31, in hlpdev/fbengine.) The repository, public under Apache-2.0, with FutureBlitz's
