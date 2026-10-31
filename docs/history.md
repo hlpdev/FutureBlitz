@@ -216,6 +216,27 @@ runs the installed release's fb-bindgen on tools/release/libc.h, a header of `<s
 macOS's SDK, from `xcrun`, already had every header theirs include. A cli test whose name began
 with `--`, which Catch2 took as an option, so ctest never ran it, is "a --registry folder ...".
 
+## E8, assets
+
+Steps 0 to 3, and the parts of 4 and 5 that don't need FutureBlitz 1.1's build step (2026-10-31, the
+assets lane, landed at d4c0dbd). Step 0 added the job system: a worker per core less one, jobs with
+dependencies and ranges, and finished work handed to the main thread at Flip and at the main
+scheduler's ticks while FB waits. Step 1 added the VFS: res:// paths over folders and stored-zip
+paks mounted over each other, read lock-free through a view of the mounts as a load asked, with
+folders found as paks find names. Step 2 decodes PNG, JPEG, KTX2, and glTF to CPU data on the
+workers, everything a file says checked against its size before it's read or allocated, with
+fastgltf and stb_image patched at configure time where their parses read past their data. Step 3
+added the cache, one asset of a path by its type, held and released by count, and sidecar import
+settings read into typed Structs. Step 4's cooker (fbengine_tools) makes images into
+Zstd-supercompressed KTX2s of BC7, ASTC, UASTC, or RGBA8, with mips in linear light weighted by
+alpha, and models into one-buffer GLBs ordered by meshoptimizer, their embedded images cooked too,
+and folders into paks. Step 5 added typed references, a module of a game's res:// paths a typo of
+which is a compile error, and hot reload of watched folders at each Flip, one reload in flight per
+asset. Five reviews' findings were all fixed with tests, among them hostile glTFs, KTX2s, and data
+URIs that crashed fastgltf and libktx, decode bombs, quadratic folder reads, a cache handing out
+freed assets, and reloads racing loads and Frees. Cooking in `fb build` and step 6 wait for
+FutureBlitz 1.1.
+
 ## E4, the scene
 
 Steps 1 to 12, with E5 step 1's CPU half (2026-10-31, the scene lane, landed at a74f435). Worlds
