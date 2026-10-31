@@ -816,6 +816,13 @@ std/io/.
   too, and the folder before it, so `sub/**` gives sub and all that's in it; names match exactly,
   in the same case, on every OS. `Current`, `SetCurrent`, and `Temp`, the OS's temporary
   folder.
+- Long paths: on Windows, the runtime gives the OS a path whose full path is past MAX_PATH, less
+  a short name's 12, which a folder's leaves room for, as that full path after `\\?\`, or a
+  share's after `\\?\UNC\` (`os_path()` in files.cpp), which Windows' calls take up to 32,767
+  characters long, for each File, Dir, FileStream, FileLock, MappedFile, TempFile, and
+  FileWatcher call; a relative one goes by the current folder, as Windows would take it. What it
+  gives back has no prefix. Only `SetCurrent`'s folder has to be shorter, as Windows keeps the
+  current folder.
 - `TempFile(prefix)` and `TempDir(prefix)`: a new, empty file or folder in the OS's temporary
   folder, with a name no other has, which `Close`, or its last reference, removes with what's in
   it.

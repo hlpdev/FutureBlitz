@@ -5,6 +5,19 @@ them while each was built. Newest first.
 
 ## 1.2
 
+Long paths on Windows (2026-10-31): files_internal.hpp's `os_path()` gives the OS a path whose
+full path, from GetFullPathNameW for one that isn't from a drive's or share's root, is MAX_PATH
+less 12 or longer, as `\\?\` and that full path, or `\\?\UNC\` and a share's, and `plain_path()`
+takes that off what the OS gives back, as a temporary file's made name. files.cpp's libuv calls
+(open, stat and lstat, rename, readlink, copyfile, unlink, chmod, mkdir, scandir, rmdir, mkdtemp
+and mkstemp, realpath), its own Windows calls (`replace_file()`'s and `windows_times()`'s, now
+through `wide_of()`), mapped.cpp's open, and watcher.cpp's take it; elsewhere it's the path
+itself. Dir.SetCurrent's doc says Windows keeps the current folder shorter. Tests:
+tests/programs/io_long_paths, a folder 300 characters deep, made, written, read, appended,
+listed, walked, copied, moved, written atomically twice, its metadata, read-only and back,
+opened as a stream, mapped, locked, watched, reached from the current folder by a relative path,
+and removed, which master's fb fails at CreateAll with "name too long".
+
 A recursive FileWatcher (2026-10-31): `FileWatcher(path, recursive: True)` and its `Recursive`
 Field; `fb_io_watcher_new` takes `recursive`. watcher.cpp's `known` holds keys, a name or a path
 from the folder with '/'s ("art/hero.png"), which `listing_of()` lists through the tree, not
