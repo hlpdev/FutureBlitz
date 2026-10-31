@@ -17129,7 +17129,7 @@ private:
             if (handler.kind == handler_kind_t::FUNCTION) {
                 const std::optional<symbol_id_t> function = m_function;
                 if (!covers(handler.types, type) && function) {
-                    const std::string name = symbol(*function).name;
+                    const std::string_view name = symbol(*function).name;
                     diagnostic_t& reported =
                         error(span,
                               "{} isn't caught; catch it in a Try block, or add it to the Throws "
