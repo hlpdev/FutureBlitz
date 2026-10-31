@@ -4,6 +4,8 @@
 #include "fb/lsp/server.hpp"
 #include "fb/source.hpp"
 
+#include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <filesystem>
 #include <map>
@@ -51,6 +53,8 @@ public:
         std::vector<std::filesystem::path> folders;
         /// How long the server's checks wait after an edit.
         std::chrono::milliseconds delay{ 0 };
+        /// How long the checks of what imports an edited file wait; delay's when not given.
+        std::optional<std::chrono::milliseconds> dependents_delay;
         bool load_folders = true;
         json_t initialization_options = json_t::object();
         /// The position encodings the client offers.
@@ -97,6 +101,11 @@ public:
     /// The diagnostics published last for a file, which some must have been.
     [[nodiscard]] json_t diagnostics(const std::string& uri) const;
 
+    /// Waits for the diagnostics published for the document's text as the client has it, and
+    /// gives them.
+    json_t published(const std::string& uri,
+                     std::chrono::milliseconds timeout = std::chrono::minutes(1));
+
     /// How many times diagnostics were published for a file.
     [[nodiscard]] std::size_t publications(const std::string& uri) const;
 
@@ -116,8 +125,15 @@ public:
     }
 
 private:
+    /// Notes how many messages had come as the document changed, so published() looks only at
+    /// what came after.
+    void mark(const std::string& uri);
+
     mutable std::mutex m_mutex;
+    std::condition_variable m_arrived;
     std::vector<json_t> m_received;
+    /// How many messages had come when each document last changed.
+    std::map<std::string, std::size_t> m_changed_at;
     std::map<std::string, std::string> m_texts;
     std::map<std::string, std::int64_t> m_versions;
     std::int64_t m_next_id = 1;

@@ -8,6 +8,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -61,11 +62,14 @@ void folder_t::write(const std::string& file, const std::string& text) const {
 client_t::client_t(options_t options)
     : m_server(
           [this](const json_t& message) {
-              const std::scoped_lock lock(m_mutex);
-              m_received.push_back(message);
+              {
+                  const std::scoped_lock lock(m_mutex);
+                  m_received.push_back(message);
+              }
+              m_arrived.notify_all();
           },
           { .workspace = { .delay = options.delay,
-                           .dependents_delay = options.delay,
+                           .dependents_delay = options.dependents_delay.value_or(options.delay),
                            .load_folders = options.load_folders, }, }) {
     json_t folders = json_t::array();
     for (const std::filesystem::path& folder : options.folders) {
@@ -128,6 +132,7 @@ void client_t::notify(const std::string& method, json_t params) {
 void client_t::open(const std::string& uri, const std::string_view text) {
     m_texts[uri] = text;
     m_versions[uri] = 1;
+    mark(uri);
     const json_t document{
         { "uri", uri },
         { "languageId", "futureblitz" },
@@ -140,6 +145,7 @@ void client_t::open(const std::string& uri, const std::string_view text) {
 void client_t::change(const std::string& uri, const std::string_view text) {
     m_texts[uri] = text;
     const std::int64_t version = ++m_versions[uri];
+    mark(uri);
     notify("textDocument/didChange",
            {
                { "textDocument", { { "uri", uri }, { "version", version } } },
@@ -160,6 +166,7 @@ void client_t::edit(const std::string& uri, const json_t& changes, const column_
     }
 
     const std::int64_t version = ++m_versions[uri];
+    mark(uri);
     notify("textDocument/didChange",
            {
                { "textDocument", { { "uri", uri }, { "version", version } } },
@@ -170,6 +177,11 @@ void client_t::edit(const std::string& uri, const json_t& changes, const column_
 void client_t::close(const std::string& uri) {
     m_texts.erase(uri);
     notify("textDocument/didClose", { { "textDocument", { { "uri", uri } } } });
+}
+
+void client_t::mark(const std::string& uri) {
+    const std::scoped_lock lock(m_mutex);
+    m_changed_at[uri] = m_received.size();
 }
 
 void client_t::settle() {
@@ -189,6 +201,30 @@ json_t client_t::diagnostics(const std::string& uri) const {
     INFO("diagnostics for " << uri);
     REQUIRE(last.is_array());
     return last;
+}
+
+json_t client_t::published(const std::string& uri, const std::chrono::milliseconds timeout) {
+    const std::int64_t version = m_versions.at(uri);
+    std::unique_lock lock(m_mutex);
+    std::size_t next = m_changed_at.at(uri);
+    json_t found;
+    const bool arrived = m_arrived.wait_for(lock, timeout, [&] {
+        for (; next < m_received.size(); ++next) {
+            const json_t& message = m_received[next];
+            if (message.value("method", "") == "textDocument/publishDiagnostics" &&
+                message["params"].value("version", std::int64_t{ -1 }) == version &&
+                same_file(message["params"]["uri"].get<std::string>(), uri)) {
+                found = message["params"]["diagnostics"];
+                return true;
+            }
+        }
+
+        return false;
+    });
+
+    INFO("diagnostics for " << uri << " at version " << version);
+    REQUIRE(arrived);
+    return found;
 }
 
 std::size_t client_t::publications(const std::string& uri) const {

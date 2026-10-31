@@ -3,6 +3,27 @@
 What each milestone and step added, by name, and each review's fixes, as CLAUDE.md kept
 them while each was built. Newest first.
 
+## M11, the IDE
+
+Step 0, measuring (2026-10-31): tests/lsp/bench_tests.cpp, fb-lsp's benchmark, hidden from ctest
+(`fb_lsp_tests "[bench]"`), on a generated program of 300 modules in 10 layers and on std's own
+folder, with the editor's own delays. It times a syntax error's and a type error's diagnostics
+from the didChange to their publication, completion after `.` and on a word and signature help
+after `(` from the didChange to the response, and hover, the quick fixes at an error,
+references, and a rename with every check done, `FB_LSP_BENCH_SAMPLES` times each (10), and
+writes lsp-bench.md and lsp-bench.json to `FB_LSP_BENCH_REPORT`'s folder: each metric's 50th and
+95th percentiles against tooling.md's budgets, by nearest rank, and the edited file's own checks
+from the workspace's history. A metric's `enforced` flag makes a miss fail it; hover's and the
+quick fixes' are on, as they met their budgets. `client_t` has `published()`, which waits for the
+diagnostics of the document's current version, from the messages after its last change, and a
+`dependents_delay` of its own. ctest runs it once on a program of 2 layers of 2 modules. CI's LSP
+benchmark job builds fb_lsp_tests in release on Linux, runs it, puts the report in the run's
+summary, and keeps it as the lsp-bench artifact. tooling.md has where the time goes: each check
+checks everything its file imports again, std's too, the 150 ms wait, and the workspace's work
+around a check, which canonicalizes paths at 0.45 ms each on Windows. driver.cpp's two locals
+that shadowed others in `build_program`, which -Wshadow reported, are `beside_object` and
+`written`.
+
 ## 1.1.0
 
 (2026-10-31.) Dependencies with both a path and a version, `fbengine = { path = "../fbengine",

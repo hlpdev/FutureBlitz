@@ -4268,10 +4268,12 @@ std::expected<void, std::string> build_program(const mir_module_t& module,
             })
             .and_then([&] -> std::expected<void, std::string> {
                 for (std::size_t i = 0; i < beside.size(); ++i) {
-                    const std::filesystem::path linked = folder / std::format("beside{}.o", i);
+                    const std::filesystem::path beside_object =
+                        folder / std::format("beside{}.o", i);
                     const std::filesystem::path library = folder / std::format("beside{}.lib", i);
                     if (std::expected<void, std::string> done = link_beside(
-                            std::array{ linked }, compilation.beside[i].natives, import_libraries,
+                            std::array{ beside_object }, compilation.beside[i].natives,
+                            import_libraries,
                             output.parent_path() / path_from_utf8(options.beside[i].file), library,
                             mode == build_mode_t::DEBUG);
                         !done) {
@@ -4291,12 +4293,12 @@ std::expected<void, std::string> build_program(const mir_module_t& module,
                 return {};
             })
             .and_then([&] {
-                std::vector<std::filesystem::path> binaries{ output };
+                std::vector<std::filesystem::path> written{ output };
                 for (const beside_binary_t& library : options.beside) {
-                    binaries.push_back(output.parent_path() / path_from_utf8(library.file));
+                    written.push_back(output.parent_path() / path_from_utf8(library.file));
                 }
 
-                return write_debug_symbols(binaries);
+                return write_debug_symbols(written);
             })
             .and_then([&] { return copy_beside(natives.dynamic, output); });
     remove_temporary(folder);

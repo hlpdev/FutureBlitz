@@ -656,6 +656,50 @@ program of a few hundred files), measured at the 95th percentile:
 
 Each step lands with its docs: this file, the extension's README, and the website's tooling pages.
 
+**The benchmark** (step 0) is tests/lsp/bench_tests.cpp, which ctest leaves out: on a release
+build, `fb_lsp_tests "[bench]"` runs it on a generated program of 300 modules in 10 layers, each
+importing three of the layer below's, editing one in the middle layer, and on std's own folder,
+editing std.text.fuzzy, with the editor's own delays (150 ms, and 400 ms for what imports the
+edited file). An edit is timed from its didChange: to the publication of its diagnostics, for a
+syntax error and a type error; to the response, for completion after `.` and on a word, and
+signature help after `(`. Hover, the quick fixes at an error, references, and a rename are timed
+with every check done. Each is timed 10 times (`FB_LSP_BENCH_SAMPLES`), and the report,
+lsp-bench.md and lsp-bench.json in the folder `FB_LSP_BENCH_REPORT` names, has each one's 50th
+and 95th percentiles against its budget, and how long the edited file's own checks took, with how
+many modules they had. Each metric has an `enforced` flag, which the step that meets its budget
+turns on; then a miss fails the benchmark. CI's LSP benchmark job runs it on Linux, puts the
+report in the run's summary, and keeps it as the lsp-bench artifact. ctest runs a small one, of 2
+layers of 2 modules, which checks that each measurement works.
+
+**Where the time goes** (2026-10-31: the first reports, from a release build on the user's PC,
+with other builds running, so the 95th percentiles are noisy; the 50th held across three runs):
+
+| At the 50th percentile | The 300-module program | std |
+|---|---|---|
+| A check of the edited file alone, with what it imports | 1,067 ms, of 108 modules | 150 ms, of 17 modules |
+| A syntax error, and a type error, shown | 2,139 ms, 2,020 ms | 338 ms, 345 ms |
+| Completion after `.`, and signature help | 1,830 ms, 1,751 ms | 185 ms, 162 ms |
+| Hover, and the quick fixes at an error | 2.7 ms, 1.1 ms | 0.7 ms, 0.2 ms |
+| References, and a rename | 8.0 s, 8.5 s | 1.4 s, 1.5 s |
+
+- **Every check starts over.** It checks each module the file imports, std's among them, about
+  8 ms a module, and keeps nothing from the check before, so an edit costs as much as everything
+  its file imports. Step 1's parse meets the syntax error's budget; the type error's and
+  completion's need checks that keep the modules an edit didn't change and check only what it
+  touches, which no step has yet.
+- **An edit waits 150 ms** for the next keystroke before its check, half the type error's
+  budget.
+- **The workspace's own work around a check** grows with the check's modules: the rest of an
+  edit's time, 600 to 800 ms on the program and about 30 ms on std. Among it, after each check,
+  `file_key` canonicalizes each module's path and each of its imports', at about 0.45 ms a path
+  on Windows (`std::filesystem::weakly_canonical`).
+- **Completion and signature help** wait for the check of the text with the keystroke, so each
+  costs a check.
+- **References and renames** check the declaring file with every file that imports it, and their
+  doc comments' examples, from nothing each time.
+- **Hover and the quick fixes** answer from the last check in a few milliseconds; their budgets
+  are enforced from the start.
+
 ## Not in M8
 
 The package manager and the registry (M10); the website (M9); the IDE (the engine phase).
