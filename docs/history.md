@@ -69,6 +69,11 @@ height so small that its reciprocal is Inf, a near and far whose `near * depth` 
 whose sum is (fbengine's review found it). Their panics' messages say the matrix is finite;
 five more panic_math_ programs.
 
+std.io's `Vfs` agrees with itself where a later mount sits at or under a place an earlier mount
+has a file, or a later mount has a folder there: its reads, Async too, throw IS_A_DIRECTORY, as
+`KindOf` and `Entries` say it's a folder, where they read the earlier file before (`Holds()` and
+`FolderError()`; fbengine's review found it). tests/programs/io_vfs_shadowed.fb.
+
 ## 1.0.1
 
 (2026-10-30.) Linux's fb-bindgen read no header that includes `<stdint.h>`: release.yml gathered

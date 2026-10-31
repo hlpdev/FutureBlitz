@@ -827,7 +827,10 @@ std/io/.
   root. A later mount over a place comes first, so a mod's folder can stand in for some of a
   game's embedded files: a file is the last mount's that has it, and a folder lists what every
   mount has in it, and the mounts under it, by their names' bytes; what two mounts have is the
-  last one's, and a mount is a folder, though its folder isn't there yet. Glob's patterns take `/`
+  last one's, and a mount is a folder, though its folder isn't there yet. So a place that a later
+  mount is at or under, or where a later mount has a folder, is a folder for every call, though an
+  earlier mount has a file there: `KindOf` and `Entries` say so, and `ReadBytes`, `ReadText`, and
+  `ReadLines`, Async or not, throw an IOError of `IS_A_DIRECTORY`, as for any folder. Glob's patterns take `/`
   or `\` between names, as its paths do. A `VfsSource` gives a file's bytes, what's at a path, and
   a folder's names: `FolderSource` reads a folder on the disk as it's asked, with nothing outside
   it (by Windows' rules a name with a `:` isn't there), and is Final, so its Async reads are its
