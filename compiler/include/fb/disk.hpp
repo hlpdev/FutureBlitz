@@ -47,8 +47,11 @@ struct disk_cache_t {
     std::unordered_map<key_t, std::shared_ptr<const std::optional<std::string>>> texts;
     /// How many times it was emptied, so an answer asked for before it last was isn't kept.
     std::uint64_t clears = 0;
-    /// The folders it keeps answers about, as keeps() compares them, when it keeps only some.
+    /// The folders it keeps answers about, as keeps() compares them, as they're named and where
+    /// they really are, when it keeps only some.
     std::optional<std::vector<std::string>> watched;
+    /// What keeps() decided of each path, which takes asking the disk where it really leads.
+    std::unordered_map<key_t, bool> kept;
 
     /// Forgets everything, as the disk may have changed.
     void clear();
@@ -57,7 +60,8 @@ struct disk_cache_t {
     /// folders whose changes the client says, and forgets the rest.
     void keep_only_under(const std::vector<std::filesystem::path>& folders);
 
-    /// Whether it keeps answers about `path`: one in a folder it was told of, or any without.
+    /// Whether it keeps answers about `path`: one in a folder it was told of, as it's named and
+    /// where it really leads, as a link in the folder can lead out of it, or any without.
     [[nodiscard]] bool keeps(const std::filesystem::path& path);
 
     /// What `ask` gives for `key` among `answers`: the answer kept, or `ask`'s, which is kept

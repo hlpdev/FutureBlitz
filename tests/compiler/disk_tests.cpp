@@ -1,9 +1,12 @@
 #include "fb/disk.hpp"
 #include "fb/driver.hpp"
 #include "fb/process.hpp"
+#include "fb/utf8.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <cstdlib>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <memory>
 #include <optional>
@@ -136,6 +139,37 @@ TEST_CASE("a disk cache told which folders it watches keeps answers only about t
               [&](const auto&) { return cache.keeps(outside); }) == "elsewhere");
     CHECK(!cache.texts.contains(key));
     CHECK(*cache.texts.at(inside.native()) == "one");
+    fb::remove_temporary(folder);
+}
+
+TEST_CASE("a disk cache keeps no answer about a path a link leads out of its folders", "[disk]") {
+    const std::filesystem::path folder = fb::temporary_path("disk", "");
+    std::filesystem::create_directories(folder / "watched");
+    std::filesystem::create_directories(folder / "outside");
+    write(folder / "outside" / "a.fb", "one");
+    // A link in the watched folder to the other: a junction on Windows, which needs no privilege.
+    const std::filesystem::path link = folder / "watched" / "link";
+#ifdef _WIN32
+    const std::string command = std::format(R"(cmd /c mklink /J "{}" "{}" >nul)", fb::to_utf8(link),
+                                            fb::to_utf8(folder / "outside"));
+    // NOLINTNEXTLINE(concurrency-mt-unsafe,bugprone-command-processor)
+    REQUIRE(std::system(command.c_str()) == 0);
+#else
+    std::filesystem::create_directory_symlink(folder / "outside", link);
+#endif
+    fb::disk_cache_t cache;
+    cache.keep_only_under({ folder / "watched" });
+    CHECK(cache.keeps(folder / "watched" / "b.fb"));
+    CHECK(!cache.keeps(link / "a.fb"));
+    CHECK(!cache.keeps(link / "missing" / "b.fb"));
+    {
+        const fb::disk_scope_t scope(&cache);
+        CHECK(fb::disk::read(link / "a.fb") == "one");
+        write(folder / "outside" / "a.fb", "two");
+        CHECK(fb::disk::read(link / "a.fb") == "two");
+    }
+
+    std::filesystem::remove(link);
     fb::remove_temporary(folder);
 }
 

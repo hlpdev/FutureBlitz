@@ -67,7 +67,7 @@ Step 3, completion that knows (2026-10-31, on dev/m11): lsp/src/completion.cpp r
 (`rank_t`, a `sortText` of its rank and label), with what the code wants first (`expected()`: a
 call's argument's parameter, through features.cpp's new `call_at()`, which `signature_help` uses
 too, by name for a named argument; a typed initializer's or an assignment's variable; a Return's
-function; an `==`'s or `<>`'s other side; `at_value()` takes a value the parser left missing at
+function; an `==`'s or `!=`'s other side; `at_value()` takes a value the parser left missing at
 the next line as the word's), an Enum's members where one is wanted, True, False, and Null where
 they fit, the names of the parameters a call doesn't give yet, the keywords of where the word is
 (`place_t`: the top level, a type's members, a function's statements, an expression), postfix
@@ -99,6 +99,26 @@ answers, the registration and its answer, an Embed's file made, a Const Function
 an EmbedFolder's file added, each without an edit, a folder of modules moved in, a path dependency
 outside the client's folders with and without its own watcher, a .proto changed directly and through
 another, a package's library and fb.lock, each against a check from nothing, and the budgets' rule.
+
+Steps 1 to 3's review fixes (2026-10-31, on dev/m11): a folder that's changed or deleted with an
+embed's target in it checks again what embeds it (`dependents()`); `disk_cache_t::keeps` decides
+each path once by where it really leads, through `fb::real_path` from the nearest folder that's
+there (`leads_to`, kept in `kept` until the cache is emptied), and the watched folders count as
+named and as they really are, so a junction in them that leads out isn't kept; completion offers
+names to import only from the file's own package (its tests/ folder's to its tests), its
+project.toml's dependencies (`unit_t::dependencies`), and std (`export_t::package`), a Package
+name too within its own package (`export_t::package_only`), a .proto's
+module's and a program's without a project.toml by its quoted path (`export_t::quoted`), and a
+name two modules declare once each (`add_raw`'s key), the Import going after the Imports at the
+file's top; an override or implementation of a generic Class's or Interface's Method is written
+with the instance's type arguments (`substituted`), and an Interface's Methods without Override;
+`.try` only on a call that throws, and `.if`, `.ifnull`, `.for`, and `.local` only where the value
+starts a statement; after `@`, only the attributes (`completer_t::attributes`); a named argument
+whose value isn't typed yet, before the call's `)`, wants its parameter's type (`at_value()`);
+and the docs write not-equal as `!=`. The benchmark times completion on a word's first letter
+and on `S`, which has names to import too. Tests: completion_tests.cpp's names to import, generic
+overrides, `@`, Try, and postfixes inside an expression, the `!=` and named argument rankings;
+workspace_tests.cpp's deleted folder of an embed's target; disk_tests.cpp's link that leads out.
 
 Step 4, the editor's basics (2026-10-31, on dev/m11): lsp/src/navigate.cpp answers
 textDocument/foldingRange (`folding_ranges`: blocks, each If branch, Select Case, and Catch, multi-line

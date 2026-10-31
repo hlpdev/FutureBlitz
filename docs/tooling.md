@@ -672,8 +672,8 @@ build, `fb_lsp_tests "[bench]"` runs it on a generated program of 300 modules in
 importing three of the layer below's, editing one in the middle layer, and on std's own folder,
 editing std.text.fuzzy, with the editor's own delays (150 ms, and 400 ms for what imports the
 edited file). An edit is timed from its didChange: to the publication of its diagnostics, for a
-syntax error and a type error; to the response, for completion after `.` and on a word, and
-signature help after `(`. Hover, the quick fixes at an error, references, and a rename are timed
+syntax error and a type error; to the response, for completion after `.`, on a word, on a
+word's first letter, and on `S`, which has names to import too, and signature help after `(`. Hover, the quick fixes at an error, references, and a rename are timed
 with every check done. Each is timed 20 times (`FB_LSP_BENCH_SAMPLES`), and the report,
 lsp-bench.md and lsp-bench.json in the folder `FB_LSP_BENCH_REPORT` names, has each one's 50th
 and 95th percentiles against its budget, and how long the edited file's own checks took, with how
@@ -805,7 +805,7 @@ A syntax error shows in under a millisecond on both workloads, and its budget is
   names of modules it doesn't import, and the keywords. What the code wants is the type of the
   parameter of the call's argument the word is in (`call_at()`, which signature help shares, by
   name for a named argument), of the variable a typed initializer or a plain assignment gives a
-  value, of what the function returns after Return, or of the other side of an `==` or `<>`;
+  value, of what the function returns after Return, or of the other side of an `==` or `!=`;
   a value of it, or what calling a function of it returns, ranks first, an Enum's members, as
   `Color.RED`, are offered where it's an Enum, and True and False rank first where it's Bool and
   Null where it's nullable. A value the parser found missing at the next line counts as where
@@ -814,21 +814,29 @@ A syntax error shows in under a millisecond on both workloads, and its budget is
   give yet, by position or by name, as `times:`, which write `times: `.
 - **Keywords where they go.** At the start of a line: a top-level declaration's and a main
   file's statements' outside every declaration, a member's in a Struct's, Class's, Interface's,
-  or Extend's body, and a statement's in a function's; after it, an expression's.
+  or Extend's body, and a statement's in a function's; after it, an expression's. After `@`, only
+  the attributes: the language's and the Attributes code declares.
 - **Postfix completions.** After a value's `.`, on one line: `if` and `not` for a Bool, `ifnull`
-  for a nullable, `for` for an array or an Iterable, `try` for a call, and `local` for any, each
-  a snippet that replaces the value and the `.`, indented as its line.
+  for a nullable, `for` for an array or an Iterable, `try` for a call that throws, and `local` for
+  any, each a snippet that replaces the value and the `.`, indented as its line; `if`, `ifnull`,
+  `for`, and `local` are statements, so only where the value starts one.
 - **Overriding and implementing.** At the start of a line in a Struct's or Class's body, the
   Methods of the Classes it extends that it can override, and those of the Interfaces its
   declaration lists, and theirs, that it doesn't have, but for Static, Final, and Destroy ones,
-  each written out from its signature with `End Method`; one an Interface gives a default for
-  is an Override.
+  each written out from its signature with `End Method`, a generic one's with the type arguments
+  its declaration gives; only a Class's Method is written with Override, and an Interface's
+  default without it.
 - **Names to import.** The names of the modules the file could import but doesn't: the Public
   top-level names each check's modules declare (`exports_of`, kept by unit,
   `workspace_t::importable`) and std's (`std_name_t::kind` now says what each is), as the
   word typed starts, ignoring case, so the list says it's incomplete and the editor asks again;
-  each adds `Import <module>` after the file's last Import, or at its start. A Package name of
-  its own package isn't offered yet.
+  each adds `Import <module>` after the Imports at the file's top, or at its start. Only the
+  file's own package's are offered, but its tests/ folder's to the tests, those of the packages
+  its project.toml depends on, and std's (`export_t::package`); a .proto's module, and one of a
+  program without a project.toml, by its path from the file, as `Import "./login.proto"`
+  (`export_t::quoted`); a Package name only to its own package's files and tests
+  (`export_t::package_only`); and a name two modules declare once for each, which its detail
+  names.
 - **The editor.** The extension turns VS Code's word-based suggestions off for .fb files, so the
   language server's are what's shown, and VS Code asks for completion as a word is typed.
 

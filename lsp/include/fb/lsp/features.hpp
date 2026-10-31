@@ -91,6 +91,14 @@ struct export_t {
     std::string module;
     /// The keyword it's declared with, as std_name_t's.
     std::string kind;
+    /// The package it's in, by its name: "std" for std's, and empty for a program's without a
+    /// project.toml.
+    std::string package;
+    /// For a module an Import names by its path, a .proto's or one of a program without a
+    /// project.toml: its file, which the Import's path goes to from the importing file's folder.
+    std::filesystem::path quoted;
+    /// Declared Package, so only its own package's files and its tests can import it.
+    bool package_only = false;
 };
 
 /// The innermost call whose parentheses a position is in: the call, which of its arguments the

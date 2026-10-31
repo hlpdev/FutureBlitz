@@ -82,6 +82,18 @@ std::vector<metric_t> metrics() {
             .enforced = true,
         },
         {
+            .name = "completion_letter",
+            .what = "completion on a word's first letter, from the keystroke",
+            .budget = milliseconds(100),
+            .enforced = true,
+        },
+        {
+            .name = "completion_unimported",
+            .what = "completion on 'S', with names to import, from the keystroke",
+            .budget = milliseconds(100),
+            .enforced = true,
+        },
+        {
             .name = "signature_help",
             .what = "signature help after `(`, from the keystroke",
             .budget = milliseconds(100),
@@ -461,6 +473,11 @@ void measure(workload_t& workload, const std::size_t samples, const std::chrono:
         metric("completion_word")
             .samples.push_back(
                 typed_request(workload.local.substr(0, 2), "textDocument/completion"));
+        metric("completion_letter")
+            .samples.push_back(
+                typed_request(workload.local.substr(0, 1), "textDocument/completion"));
+        metric("completion_unimported")
+            .samples.push_back(typed_request("S", "textDocument/completion"));
         metric("signature_help")
             .samples.push_back(
                 typed_request(workload.function + "(", "textDocument/signatureHelp"));

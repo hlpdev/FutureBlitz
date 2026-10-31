@@ -797,3 +797,27 @@ TEST_CASE("a package's library or fb.lock changed on disk reads its package agai
     CHECK(checks(client) > checked);
     CHECK(as_fresh(client, { folder.root() }, main, text, uris));
 }
+
+TEST_CASE("a folder deleted with an embed's target in it checks again what embeds it", "[lsp]") {
+    const folder_t folder({
+        { "project.toml", "[project]\nname = \"embeds\"\nversion = \"0.1.0\"\n" },
+        { "assets/hello.txt", "hi" },
+        {
+            "main.fb",
+            "Import std.core\nConst Greeting = EmbedText(\"assets/hello.txt\")\nPrint(Greeting)\n",
+        },
+    });
+    client_t client({ .folders = { folder.root() }, .watches = true });
+    const std::string main = folder.uri("main.fb");
+    const std::string text = read_file(folder.path("main.fb"));
+    client.open(main, text);
+    client.settle();
+    REQUIRE(client.diagnostics(main).empty());
+
+    // The client says only that the folder went, as it does for a move too.
+    std::filesystem::remove_all(folder.path("assets"));
+    saw(client, folder.uri("assets"), 3);
+    client.settle();
+    CHECK(client.diagnostics(main).size() == 1);
+    CHECK(as_fresh(client, { folder.root() }, main, text, { main }));
+}

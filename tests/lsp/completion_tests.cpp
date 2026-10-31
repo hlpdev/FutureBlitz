@@ -125,6 +125,13 @@ TEST_CASE("completion ranks first what the code wants where the word is", "[lsp]
     // The other side of a comparison.
     items = completed(client, uri, "    If shade == ");
     CHECK(before(items, "Color.GREEN", "count"));
+    items = completed(client, uri, "    If shade != ");
+    CHECK(before(items, "Color.GREEN", "count"));
+
+    // A named argument's value, before the call's ')' is typed.
+    items = completed(client, uri, "    Local n = Paint(times: ");
+    CHECK(item_of(items, "count")["sortText"].get<std::string>().starts_with('0'));
+    CHECK(!labels_of(items).contains("Color.RED"));
 
     // An assignment's target.
     items = completed(client, uri, "    count = ");
@@ -248,9 +255,38 @@ TEST_CASE("postfix completions write the value before the '.' into what they say
     CHECK(item_of(items, "ifnull")["textEdit"]["newText"] ==
           "If maybe == Null\n        $0\n    End If");
 
-    // A call: Try before it.
+    // Try only before a call that throws, which Paint doesn't.
     items = completed(client, uri, "    Paint(shade, 1).");
-    CHECK(item_of(items, "try")["textEdit"]["newText"] == "Try Paint(shade, 1)");
+    CHECK(!labels_of(items).contains("try"));
+    CHECK(labels_of(items).contains("local"));
+
+    // If, For, and Local only where the value starts a statement, and Not anywhere.
+    items = completed(client, uri, "    Local all = [count]\n    Local y = ok.");
+    CHECK(!labels_of(items).contains("if"));
+    CHECK(!labels_of(items).contains("local"));
+    CHECK(labels_of(items).contains("not"));
+    items = completed(client, uri, "    Local all = [count]\n    Print(all.");
+    CHECK(!labels_of(items).contains("for"));
+}
+
+TEST_CASE("Try is offered before a call that throws", "[lsp]") {
+    const folder_t folder({});
+    const std::string uri = folder.uri("risky.fb");
+    const std::string text = "Import std.core\n"
+                             "\n"
+                             "Function Risky(): Int Throws Error\n"
+                             "    Throw Error(\"no\")\n"
+                             "End Function\n"
+                             "\n"
+                             "Function Main(): Int Throws Error\n"
+                             "    Risky().\n"
+                             "    Return 0\n"
+                             "End Function\n";
+    client_t client({});
+    client.open(uri, text);
+    const json_t found = client.request("textDocument/completion", completion_at(uri, 7, 12));
+    const std::vector<json_t> items(found["items"].begin(), found["items"].end());
+    CHECK(item_of(items, "try")["textEdit"]["newText"] == "Try Risky()");
 }
 
 TEST_CASE("a Class's body offers the Methods it can override and implement", "[lsp]") {
@@ -293,8 +329,10 @@ TEST_CASE("a Class's body offers the Methods it can override and implement", "[l
     const std::set<std::string> labels = labels_of(items);
     CHECK(labels.contains("Override Method Describe(): String"));
     CHECK(labels.contains("Method Area(): Int32"));
-    // A default is overridden, and a Final Method isn't offered.
-    CHECK(labels.contains("Override Method Name(): String"));
+    // A default is written again without Override, which only a Class's take, and a Final
+    // Method isn't offered.
+    CHECK(labels.contains("Method Name(): String"));
+    CHECK(!labels.contains("Override Method Name(): String"));
     CHECK(!labels.contains("Override Method Kept(): Int32"));
     const json_t area = item_of(items, "Method Area(): Int32");
     CHECK(area["insertText"] == "Method Area(): Int32\n        $0\n    End Method");
@@ -305,6 +343,65 @@ TEST_CASE("a Class's body offers the Methods it can override and implement", "[l
     items = offered("    Method Area(): Int\n        Return 4\n    End Method\n\n");
     CHECK(!labels_of(items).contains("Method Area(): Int32"));
     CHECK(labels_of(items).contains("Override Method Describe(): String"));
+}
+
+TEST_CASE("a generic Class's and Interface's Methods are written with the type arguments given",
+          "[lsp]") {
+    const folder_t folder({});
+    const std::string uri = folder.uri("boxes.fb");
+    const std::string head = "Import std.core\n"
+                             "\n"
+                             "Class Base<T>\n"
+                             "    Method Get(x: T): T\n"
+                             "        Return x\n"
+                             "    End Method\n"
+                             "End Class\n"
+                             "\n"
+                             "Interface Sink<T>\n"
+                             "    Method Put(x: T)\n"
+                             "End Interface\n"
+                             "\n"
+                             "Class Kid Extends Base<Int> Implements Sink<String>\n";
+    client_t client({});
+    client.open(uri, head + "    \nEnd Class\n");
+    const json_t found = client.request("textDocument/completion", completion_at(uri, 13, 4));
+    const std::vector<json_t> items(found["items"].begin(), found["items"].end());
+    const json_t get = item_of(items, "Override Method Get(x: Int32): Int32");
+    CHECK(labels_of(items).contains("Method Put(x: String)"));
+
+    // Which, given a body, compiles.
+    std::string written = get["insertText"].get<std::string>();
+    written.replace(written.find("$0"), 2, "Return x");
+    client_t fresh({});
+    fresh.open(uri, head + "    " + written +
+                        "\n\n    Method Put(x: String)\n    End Method\n"
+                        "End Class\n");
+    fresh.settle();
+    CHECK(fresh.diagnostics(uri).empty());
+}
+
+TEST_CASE("after '@', completion offers only attributes", "[lsp]") {
+    const folder_t folder({});
+    const std::string uri = folder.uri("tagged.fb");
+    const std::string text = "Import std.core\n"
+                             "\n"
+                             "Attribute Tag(Name: String)\n"
+                             "\n"
+                             "@\n"
+                             "Function Show()\n"
+                             "End Function\n";
+    client_t client({});
+    client.open(uri, text);
+    const json_t found = client.request("textDocument/completion", completion_at(uri, 4, 1));
+    const std::vector<json_t> items(found["items"].begin(), found["items"].end());
+    const std::set<std::string> labels = labels_of(items);
+    CHECK(labels.contains("MainThread"));
+    CHECK(labels.contains("Test"));
+    CHECK(labels.contains("Deprecated"));
+    CHECK(labels.contains("Tag"));
+    CHECK(!labels.contains("Print"));
+    CHECK(!labels.contains("Function"));
+    CHECK(!labels.contains("Show"));
 }
 
 TEST_CASE("completion offers the names of modules the file doesn't import, with the Import",
@@ -353,4 +450,93 @@ TEST_CASE("completion offers the names of modules the file doesn't import, with 
     found = offered("Pri");
     items.assign(found["items"].begin(), found["items"].end());
     CHECK(!item_of(items, "Print").contains("additionalTextEdits"));
+}
+
+TEST_CASE("the names to import are those the file can import, each module's its own", "[lsp]") {
+    const folder_t folder({
+        { "lib2/project.toml", "[project]\nname = \"lib2\"\nversion = \"0.1.0\"\n" },
+        { "lib2/deep.fb", "Import std.core\nPublic Function Deepest(): Int => 4\n" },
+        {
+            "lib1/project.toml",
+            "[project]\nname = \"lib1\"\nversion = \"0.1.0\"\n\n"
+            "[dependencies]\nlib2 = { path = \"../lib2\" }\n",
+        },
+        {
+            "lib1/mid.fb",
+            "Import std.core\nImport lib2.deep\nPublic Function Middle(): Int => Deepest()\n"
+            "Package Function Concealed(): Int => 1\n",
+        },
+        {
+            "app/project.toml",
+            "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n"
+            "[dependencies]\nlib1 = { path = \"../lib1\" }\n",
+        },
+        {
+            "app/main.fb",
+            "Import std.core\nImport lib1.mid\nImport \"./login.proto\"\nPrint(Middle())\n",
+        },
+        { "app/login.proto", "syntax = \"proto3\";\n\nmessage Login {\n  string user = 1;\n}\n" },
+        {
+            "app/shapes.fb",
+            "Import std.core\nPublic Struct Point\n    Public Field X: Int\nEnd Struct\n",
+        },
+        {
+            "app/grid.fb",
+            "Import std.core\nPublic Struct Point\n    Public Field Row: Int\nEnd Struct\n",
+        },
+        { "app/tests/helpers.fb", "Import std.core\nPublic Function Helping(): Int => 1\n" },
+        { "app/parts.fb", "Import std.core\nPackage Function Inside(): Int => 1\n" },
+        { "app/report.fb", "Import std.core\n" },
+    });
+    client_t client({ .folders = { folder.path("app") } });
+    client.settle();
+    const std::string report = folder.uri("app/report.fb");
+    client.open(report, "Import std.core\n");
+    // What's offered for `typed` as a Local's value, after an Import that's an error, after code.
+    const auto offered = [&](const std::string& typed) {
+        const std::string text =
+            "Import std.core\n\nPublic Function Report(): Int\n    Local n = " + typed +
+            "\n    Return 1\nEnd Function\nImport std.math\n";
+        client.change(report, text);
+        const json_t found =
+            client.request("textDocument/completion",
+                           client.at(report, typed, static_cast<std::uint32_t>(typed.size())));
+        std::vector<json_t> items;
+        for (const json_t& item : found["items"]) {
+            if (item.contains("additionalTextEdits")) {
+                items.push_back(item);
+            }
+        }
+
+        return items;
+    };
+    const auto imports = [](const std::vector<json_t>& items) {
+        std::set<std::string> found;
+        for (const json_t& item : items) {
+            found.insert(item["additionalTextEdits"][0]["newText"].get<std::string>());
+        }
+
+        return found;
+    };
+
+    // A direct dependency's, and not one only it depends on.
+    CHECK(imports(offered("Midd")) == std::set<std::string>{ "Import lib1.mid\n" });
+    CHECK(offered("Deep").empty());
+    // Not its tests/ folder's, which only the tests import.
+    CHECK(offered("Helpi").empty());
+    // A Package name of its own package, and not another package's.
+    CHECK(imports(offered("Insi")) == std::set<std::string>{ "Import app.parts\n" });
+    CHECK(offered("Conce").empty());
+    // A .proto's, by its path, and one for each module that has a name.
+    CHECK(imports(offered("Logi")) == std::set<std::string>{ "Import \"./login.proto\"\n" });
+    const std::vector<json_t> points = offered("Poi");
+    CHECK(imports(points) == std::set<std::string>{ "Import app.grid\n", "Import app.shapes\n" });
+    std::set<std::string> details;
+    for (const json_t& point : points) {
+        details.insert(point["detail"].get<std::string>());
+        // After the Imports at the top, not the one after the code.
+        CHECK(point["additionalTextEdits"][0]["range"]["start"] == client_t::position(1, 0));
+    }
+
+    CHECK(details == std::set<std::string>{ "Struct from app.grid", "Struct from app.shapes" });
 }

@@ -116,7 +116,8 @@ exports_of(const compilation_t& compilation) {
     for (const symbol_t& symbol : analysis.symbols) {
         if (symbol.span.empty() || symbol.owner != type_id_t::INVALID || !symbol.declaration ||
             !top_level.contains(*symbol.declaration) ||
-            symbol.modifiers.visibility != visibility_t::PUBLIC) {
+            (symbol.modifiers.visibility != visibility_t::PUBLIC &&
+             symbol.modifiers.visibility != visibility_t::PACKAGE)) {
             continue;
         }
 
@@ -158,7 +159,11 @@ exports_of(const compilation_t& compilation) {
         std::vector<export_t>& names = by_file[symbol.span.file];
         if (std::ranges::none_of(names,
                                  [&](const export_t& name) { return name.name == symbol.name; })) {
-            names.push_back({ .name = std::string(symbol.name), .kind = std::string(kind) });
+            names.push_back({
+                .name = std::string(symbol.name),
+                .kind = std::string(kind),
+                .package_only = symbol.modifiers.visibility == visibility_t::PACKAGE,
+            });
         }
     }
 
@@ -174,9 +179,25 @@ exports_of(const compilation_t& compilation) {
             imported = imported.substr(0, imported.rfind('.'));
         }
 
+        // A .proto's module, and a program's without a project.toml, are imported by their paths.
+        const package_id_t package = module.package;
+        const bool loose =
+            !ast.modules().has_manifest(package) && !ast.modules().is_standard(package);
+        std::filesystem::path quoted = compilation.made_from_path(module.file);
+        if (quoted.empty() && loose) {
+            quoted = compilation.disk_path(module.file);
+        }
+
         std::vector<export_t> names = by_file[module.file];
         for (export_t& name : names) {
             name.module = imported;
+            if (ast.modules().is_standard(package)) {
+                name.package = "std";
+            } else if (!loose) {
+                name.package = ast.modules().package_name(package);
+            }
+
+            name.quoted = quoted;
         }
 
         found.emplace_back(module.path, std::move(names));
@@ -269,6 +290,10 @@ unit_t make_unit(const unit_t::kind_t kind, const std::filesystem::path& root) {
         if (const std::optional<manifest_t> read = read_manifest(sources.get(*manifest), ignored)) {
             unit.name = read->name;
             unit.width = read->format_width.value_or(default_format_width);
+            for (const dependency_t& dependency : read->dependencies) {
+                unit.dependencies.push_back(dependency.name);
+            }
+
             const std::filesystem::path main = root / path_from_utf8(read->main);
             std::error_code error;
             if (std::filesystem::is_regular_file(main, error)) {
@@ -861,8 +886,26 @@ std::vector<export_t> workspace_t::importable(const std::filesystem::path& path)
     std::vector<export_t> found;
     {
         const std::scoped_lock lock(m_mutex);
-        for (const auto& [module, names] : m_exports[unit_index(path)]) {
-            std::ranges::copy(names, std::back_inserter(found));
+        const std::size_t index = unit_index(path);
+        const unit_t& unit = m_units[index];
+        // Its own package's, its tests' only from its tests/ folder, and its dependencies'.
+        std::set<std::string> packages{ "std" };
+        if (unit.kind == unit_t::kind_t::PACKAGE) {
+            packages.insert(unit.name);
+            packages.insert(unit.dependencies.begin(), unit.dependencies.end());
+            if (inside(file_key(path), file_key(unit.root / "tests"))) {
+                packages.insert(unit.name + ".tests");
+            }
+        } else if (unit.kind == unit_t::kind_t::LOOSE) {
+            packages.insert("");
+        }
+
+        for (const auto& [module, names] : m_exports[index]) {
+            std::ranges::copy_if(names, std::back_inserter(found), [&](const export_t& name) {
+                // A Package name only to its own package's files and tests.
+                return packages.contains(name.package) &&
+                       (!name.package_only || name.package == unit.name);
+            });
         }
     }
 
@@ -871,7 +914,12 @@ std::vector<export_t> workspace_t::importable(const std::filesystem::path& path)
     for (const auto& [file, names] : m_std_names.files) {
         for (const std_name_t& name : names.names) {
             if (name.extended.empty() && !name.array_method) {
-                found.push_back({ .name = name.name, .module = name.module, .kind = name.kind });
+                found.push_back({
+                    .name = name.name,
+                    .module = name.module,
+                    .kind = name.kind,
+                    .package = "std",
+                });
             }
         }
     }
@@ -1277,10 +1325,12 @@ std::set<std::string> workspace_t::dependents(const std::string& key) const {
     std::set<std::string> found;
     std::set<std::string> walked{ key };
     std::vector<std::string> work{ key };
-    // The files whose embeds named it, or a folder it's in, and what imports them.
+    // The files whose embeds named it, a folder it's in, or, for a folder, a file in it, and what
+    // imports them.
     for (const auto& [file, named] : m_embeds) {
-        const bool embeds = std::ranges::any_of(
-            named, [&](const std::string& each) { return each == key || inside(key, each); });
+        const bool embeds = std::ranges::any_of(named, [&](const std::string& each) {
+            return each == key || inside(key, each) || inside(each, key);
+        });
         if (embeds && walked.insert(file).second) {
             work.push_back(file);
             if (candidates.contains(file)) {

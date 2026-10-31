@@ -60,6 +60,8 @@ struct unit_t { // NOLINT(bugprone-exception-escape)
     std::set<std::string> keys;
     /// The package's main file, which its project.toml names, when it's there.
     std::optional<std::filesystem::path> main;
+    /// The names of the packages its project.toml depends on.
+    std::vector<std::string> dependencies;
     /// The line width its code is formatted to, from its project.toml's `[format] width`.
     std::uint32_t width = default_format_width;
 };
@@ -169,7 +171,8 @@ public:
     [[nodiscard]] unit_t unit_of(const std::filesystem::path& path);
 
     /// The Public names of the modules the file at `path` can import, as the checks of its unit
-    /// found them, and std's.
+    /// found them, and std's: its own package's, but for its tests/ folder's unless it's in it,
+    /// those of the packages its project.toml depends on, and std's.
     [[nodiscard]] std::vector<export_t> importable(const std::filesystem::path& path);
 
     /// Every unit the workspace has: its folders' and those of the documents opened.

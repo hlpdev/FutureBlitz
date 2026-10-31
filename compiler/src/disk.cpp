@@ -50,6 +50,24 @@ std::string comparable(const std::filesystem::path& path) {
     return text;
 }
 
+/// Where a path really leads, through the links and junctions on its way, as fb::real_path() has
+/// it, from the nearest folder above it that's there when it isn't.
+std::optional<std::filesystem::path> leads_to(const std::filesystem::path& path) {
+    std::filesystem::path rest;
+    for (std::filesystem::path at = path.lexically_normal(); !at.empty(); at = at.parent_path()) {
+        if (std::optional<std::filesystem::path> real = fb::real_path(at)) {
+            return rest.empty() ? *real : *real / rest;
+        }
+
+        rest = rest.empty() ? at.filename() : at.filename() / rest;
+        if (at == at.parent_path()) {
+            break;
+        }
+    }
+
+    return std::nullopt;
+}
+
 /// Two paths as one key, apart by a character no path has.
 disk_cache_t::key_t pair_key(const std::filesystem::path& first,
                              const std::filesystem::path& second) {
@@ -62,10 +80,14 @@ disk_cache_t::key_t pair_key(const std::filesystem::path& first,
 } // namespace
 
 void disk_cache_t::keep_only_under(const std::vector<std::filesystem::path>& folders) {
+    // Each as it's named, and where it really is, which what's in it leads to too.
     std::vector<std::string> compared;
-    compared.reserve(folders.size());
+    compared.reserve(2 * folders.size());
     for (const std::filesystem::path& folder : folders) {
         compared.push_back(comparable(folder));
+        if (const std::optional<std::filesystem::path> really = leads_to(folder)) {
+            compared.push_back(comparable(*really));
+        }
     }
 
     clear();
@@ -74,25 +96,51 @@ void disk_cache_t::keep_only_under(const std::vector<std::filesystem::path>& fol
 }
 
 bool disk_cache_t::keeps(const std::filesystem::path& path) {
-    if (!path.is_absolute()) {
-        return !watched;
+    std::vector<std::string> folders;
+    std::uint64_t asked_at = 0;
+    {
+        const std::scoped_lock lock(mutex);
+        if (!watched) {
+            return true;
+        }
+
+        if (!path.is_absolute()) {
+            return false;
+        }
+
+        if (const auto found = kept.find(path.native()); found != kept.end()) {
+            return found->second;
+        }
+
+        folders = *watched;
+        asked_at = clears;
     }
 
-    const std::string compared = comparable(path);
+    const auto under = [&](const std::string& compared) {
+        return std::ranges::any_of(folders, [&](const std::string& folder) {
+            return compared == folder ||
+                   (compared.starts_with(folder) && compared[folder.size()] == '/');
+        });
+    };
+    // Where it leads, asked without the lock, as the disk is slow.
+    bool inside = under(comparable(path));
+    if (inside) {
+        const std::optional<std::filesystem::path> really = leads_to(path);
+        inside = really && under(comparable(*really));
+    }
+
     const std::scoped_lock lock(mutex);
-    if (!watched) {
-        return true;
+    if (clears == asked_at) {
+        kept.try_emplace(path.native(), inside);
     }
 
-    return std::ranges::any_of(*watched, [&](const std::string& folder) {
-        return compared == folder ||
-               (compared.starts_with(folder) && compared[folder.size()] == '/');
-    });
+    return inside;
 }
 
 void disk_cache_t::clear() {
     const std::scoped_lock lock(mutex);
     ++clears;
+    kept.clear();
     canonical.clear();
     real.clear();
     statuses.clear();

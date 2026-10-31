@@ -9,16 +9,19 @@
 #include "fb/source.hpp"
 #include "fb/token.hpp"
 #include "fb/types.hpp"
+#include "fb/utf8.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <format>
 #include <functional>
 #include <iterator>
 #include <limits>
+#include <map>
 #include <optional>
 #include <ranges>
 #include <set>
@@ -113,6 +116,31 @@ constexpr std::string_view built_in_types =
 bool is_name_char(const char c) {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' ||
            static_cast<unsigned char>(c) >= 0x80;
+}
+
+/// `text` with each whole word that's one of `names` as its value, as a generic type's type
+/// parameters become an instance's type arguments.
+std::string substituted(const std::string_view text,
+                        const std::map<std::string, std::string>& names) {
+    std::string out;
+    for (std::size_t i = 0; i < text.size();) {
+        if (!is_name_char(text[i])) {
+            out += text[i++];
+            continue;
+        }
+
+        std::size_t end = i;
+        while (end < text.size() && is_name_char(text[end])) {
+            ++end;
+        }
+
+        const std::string word(text.substr(i, end - i));
+        const auto found = names.find(word);
+        out += found == names.end() ? word : found->second;
+        i = end;
+    }
+
+    return out;
 }
 
 /// `text` without the spaces and tabs at its start.
@@ -250,10 +278,11 @@ public:
             wanted(symbol) ? rank_t::WANTED : rank);
     }
 
-    /// An item made whole by the caller, which ranks it `rank`.
-    void add_raw(json_t item, const rank_t rank = rank_t::NEAR) {
+    /// An item made whole by the caller, which ranks it `rank`, unless one with its label, or
+    /// `key` when it's given, is there already.
+    void add_raw(json_t item, const rank_t rank = rank_t::NEAR, const std::string& key = {}) {
         const std::string label = item["label"].get<std::string>();
-        if (m_labels.insert(label).second) {
+        if (m_labels.insert(key.empty() ? label : key).second) {
             item["sortText"] = sort_text(rank, label);
             m_items.push_back(std::move(item));
         }
@@ -436,6 +465,32 @@ public:
         return m_items.take();
     }
 
+    /// After '@': the attributes the language has, and the Attributes code declares, which go
+    /// before a declaration.
+    json_t attributes() {
+        constexpr std::array<std::string_view, 8> built_in{
+            "CLayout",    "Deprecated", "Flags",          "Inline",
+            "MainThread", "Open",       "PanicsAtCaller", "Test",
+        };
+        for (const std::string_view name : built_in) {
+            m_items.add(std::string(name), item_kind_t::KEYWORD, "attribute", rank_t::BUILT_IN);
+        }
+
+        for (const symbol_t& symbol : m_analysis.symbols) {
+            if (symbol.kind != symbol_kind_t::TYPE || !symbol.declaration) {
+                continue;
+            }
+
+            if (const auto* type = std::get_if<type_stmt_t>(&m_ast.get(*symbol.declaration).node);
+                type != nullptr && type->is_attribute) {
+                m_items.add(std::string(symbol.name), item_kind_t::STRUCT, "Attribute",
+                            rank_t::NEAR);
+            }
+        }
+
+        return m_items.take();
+    }
+
     /// The names a From line can bring in from the module `name`.
     json_t from_names(const std::string_view name) {
         const module_table_t& table = m_ast.modules();
@@ -572,7 +627,7 @@ private:
         return between.find_first_not_of(" \t\r\n") == std::string_view::npos;
     }
 
-    /// The type the code wants where the offset is, when it says: the other side of an == or <>
+    /// The type the code wants where the offset is, when it says: the other side of an == or !=
     /// it's on the right of, the parameter of the call's argument it's in, the variable whose
     /// written type an initializer or an assignment gives a value, or what the function a
     /// Return is in returns. `before` is the line's text before the word.
@@ -608,7 +663,7 @@ private:
             const auto& node = std::get<call_expr_t>(m_ast.get(call->call).node);
             std::optional<symbol_id_t> parameter;
             for (const argument_t& argument : node.arguments) {
-                if (!argument.name || !around(m_ast.get(argument.value).span)) {
+                if (!argument.name || !at_value(argument.value)) {
                     continue;
                 }
 
@@ -791,12 +846,17 @@ private:
         };
         const std::string body = std::format("\n{}    $0\n{}", indent, indent);
         const type_t& info = m_analysis.types.get(type);
+        // If, For, and Local are statements, which the value has to start.
+        const bool starts = span.begin - line_start == indent.size();
         if (type == type_id_t::BOOL) {
-            add("if", "If ... End If", std::format("If {}{}End If", escaped, body));
+            if (starts) {
+                add("if", "If ... End If", std::format("If {}{}End If", escaped, body));
+            }
+
             add("not", "!value", std::format("!{}", escaped));
         }
 
-        if (info.kind == type_kind_t::NULLABLE) {
+        if (info.kind == type_kind_t::NULLABLE && starts) {
             add("ifnull", "If ... == Null", std::format("If {} == Null{}End If", escaped, body));
         }
 
@@ -804,15 +864,33 @@ private:
                               info.kind == type_kind_t::FIXED_ARRAY ||
                               (m_analysis.interfaces.iterable != type_id_t::INVALID &&
                                owners_of(type).contains(m_analysis.interfaces.iterable));
-        if (iterable) {
+        if (iterable && starts) {
             add("for", "For ... In", std::format("For ${{1:each}} In {}{}End For", escaped, body));
         }
 
-        if (std::holds_alternative<call_expr_t>(m_ast.get(object).node)) {
+        // Try only for a call that throws.
+        if (const auto* call = std::get_if<call_expr_t>(&m_ast.get(object).node);
+            call != nullptr && throws(object, call->callee)) {
             add("try", "Try value", std::format("Try {}", escaped));
         }
 
-        add("local", "Local name = value", std::format("Local ${{1:name}} = {}", escaped));
+        if (starts) {
+            add("local", "Local name = value", std::format("Local ${{1:name}} = {}", escaped));
+        }
+    }
+
+    /// Whether the call `call`, of `callee`, can throw: its function has a Throws, or the Func
+    /// value it calls does.
+    [[nodiscard]] bool throws(const expr_id_t call, const expr_id_t callee) const {
+        if (const std::optional<symbol_id_t> function = m_analysis.expr(call).symbol;
+            function && !m_analysis.symbol(*function).throws.empty()) {
+            return true;
+        }
+
+        const type_id_t type = m_analysis.expr(callee).type;
+        return type != type_id_t::INVALID &&
+               m_analysis.types.get(type).kind == type_kind_t::FUNCTION &&
+               !m_analysis.types.get(type).throws.empty();
     }
 
     /// In the body of the Struct or Class around the offset, the Methods it can write: those of
@@ -863,20 +941,39 @@ private:
         const std::size_t begin = line_start == std::string_view::npos ? 0 : line_start + 1;
         const std::string_view indent =
             text.substr(begin, text.find_first_not_of(" \t", begin) - begin);
-        const auto add = [&](const symbol_id_t id, const bool overriding) {
+        // An instance's type arguments, by the names of its generic type's type parameters.
+        const auto arguments_of = [&](const type_id_t instance) {
+            std::map<std::string, std::string> names;
+            const type_t& info = types.get(instance);
+            if (info.generic == type_id_t::INVALID) {
+                return names;
+            }
+
+            const std::vector<type_id_t>& parameters = types.get(info.generic).parameters;
+            for (std::size_t i = 0; i < parameters.size() && i < info.arguments.size(); ++i) {
+                names.emplace(types.name(parameters[i]), types.name(info.arguments[i]));
+            }
+
+            return names;
+        };
+        const auto add = [&](const symbol_id_t id, const bool overriding,
+                             const std::map<std::string, std::string>& arguments) {
             const symbol_t& method = m_analysis.symbol(id);
             if (method.kind != symbol_kind_t::METHOD || method.modifiers.is_static ||
                 method.modifiers.is_final || method.name == "Destroy" || has(method)) {
                 return;
             }
 
-            // As a declaration writes it, without the type it's a member of before its name.
+            // As a declaration writes it, without the type it's a member of before its name, and
+            // with the instance's type arguments for its type's parameters.
             std::string signature = m_query.signature(id);
-            if (const std::size_t name = signature.find(std::string(method.name) + "(");
-                name != std::string::npos) {
-                const std::size_t start = signature.rfind(' ', name) + 1;
-                signature.erase(start, name - start);
+            const std::string owner = m_query.type_name(method.owner) + ".";
+            if (const std::size_t at = signature.find(owner + std::string(method.name) + "(");
+                at != std::string::npos) {
+                signature.erase(at, owner.size());
             }
+
+            signature = substituted(signature, arguments);
 
             const std::string head = (overriding ? "Override " : "") + signature;
             const std::string written =
@@ -916,16 +1013,18 @@ private:
                 break;
             }
 
+            const std::map<std::string, std::string> arguments = arguments_of(base);
             for (std::size_t i = 0; i < m_analysis.symbols.size(); ++i) {
                 if (m_analysis.symbols[i].owner == base ||
                     m_analysis.symbols[i].owner == types.get(base).generic) {
-                    add(static_cast<symbol_id_t>(i), true);
+                    add(static_cast<symbol_id_t>(i), true, arguments);
                 }
             }
         }
 
         // An Interface's Methods, and those of the Interfaces it extends: one without a default
-        // is implemented, and one with one overridden.
+        // is implemented, and one with one written again, neither with Override, which is only
+        // for a Class's.
         while (!interfaces.empty()) {
             const type_id_t interface = interfaces.back();
             interfaces.pop_back();
@@ -935,11 +1034,12 @@ private:
 
             std::ranges::copy(types.get(interface).interfaces, std::back_inserter(interfaces));
             const type_id_t generic = types.get(interface).generic;
+            const std::map<std::string, std::string> arguments = arguments_of(interface);
             for (std::size_t i = 0; i < m_analysis.symbols.size(); ++i) {
                 const symbol_t& member = m_analysis.symbols[i];
                 if (member.owner == interface ||
                     (generic != type_id_t::INVALID && member.owner == generic)) {
-                    add(static_cast<symbol_id_t>(i), !member.modifiers.is_abstract);
+                    add(static_cast<symbol_id_t>(i), false, arguments);
                 }
             }
         }
@@ -966,17 +1066,22 @@ private:
             }
         }
 
-        // After its last Import, or at its start.
+        // After the Imports at its top, as one after its code is an error, or at its start.
         std::uint32_t at = 0;
         const std::string_view text = m_query.source().text();
         for (const stmt_id_t item : m_ast.items()) {
             const stmt_t& statement = m_ast.get(item);
-            if (statement.span.file == m_query.file() &&
-                std::holds_alternative<import_stmt_t>(statement.node) && statement.span.end >= at) {
-                const std::size_t line_end = text.find('\n', statement.span.end);
-                at = line_end == std::string_view::npos ? static_cast<std::uint32_t>(text.size())
-                                                        : static_cast<std::uint32_t>(line_end + 1);
+            if (statement.span.file != m_query.file()) {
+                continue;
             }
+
+            if (!std::holds_alternative<import_stmt_t>(statement.node)) {
+                break;
+            }
+
+            const std::size_t line_end = text.find('\n', statement.span.end);
+            at = line_end == std::string_view::npos ? static_cast<std::uint32_t>(text.size())
+                                                    : static_cast<std::uint32_t>(line_end + 1);
         }
 
         // Only those that start as the word being typed does, as there are many, and the editor
@@ -994,6 +1099,7 @@ private:
         m_items.incomplete();
         const json_t range =
             positions.range(m_query.source(), { .file = m_query.file(), .begin = at, .end = at });
+        const std::filesystem::path here = m_query.compilation().disk_path(m_query.file());
         for (const export_t& name : importable) {
             if (name.name.size() < typed.size() ||
                 !std::ranges::equal(std::string_view(name.name).substr(0, typed.size()), typed,
@@ -1010,18 +1116,36 @@ private:
                 continue;
             }
 
+            // A .proto's module, and a program's without a project.toml, by its path from here.
+            std::string target = name.module;
+            if (!name.quoted.empty() && !here.empty()) {
+                std::filesystem::path relative = name.quoted.lexically_relative(here.parent_path());
+                if (relative.extension() == ".fb") {
+                    relative.replace_extension();
+                }
+
+                std::string path = to_utf8(relative);
+                std::ranges::replace(path, '\\', '/');
+                const std::string written = (path.starts_with("../") ? "" : "./") + path;
+                if (relative.empty() || imported.contains(written)) {
+                    continue;
+                }
+
+                target = std::format("\"{}\"", written);
+            }
+
             const json_t import_edit{
                 { "range", range },
-                { "newText", std::format("Import {}\n", name.module) },
+                { "newText", std::format("Import {}\n", target) },
             };
             m_items.add_raw(
                 {
                     { "label", name.name },
                     { "kind", static_cast<int>(item_kind_of(name.kind)) },
-                    { "detail", std::format("{} from {}", name.kind, name.module) },
+                    { "detail", std::format("{} from {}", name.kind, target) },
                     { "additionalTextEdits", json_t::array({ import_edit }) },
                 },
-                rank_t::UNIMPORTED);
+                rank_t::UNIMPORTED, std::format("{} from {}", name.name, target));
         }
     }
 
@@ -1578,6 +1702,11 @@ json_t completion(const query_t& query, const std::uint32_t offset,
         if (end != std::string_view::npos && left_trimmed(rest.substr(end)).starts_with("Import")) {
             return completer.from_names(rest.substr(0, end));
         }
+    }
+
+    // "@Ma", an attribute.
+    if (word > 0 && text[word - 1] == '@') {
+        return completer.attributes();
     }
 
     // "x." and "x?.".
