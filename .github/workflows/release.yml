@@ -932,4 +932,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "FutureBlitz $VERSION" \
-            --notes "FutureBlitz $VERSION. See the README's Installing." dist/*
+            --notes "FutureBlitz $VERSION. To install or update, see [Installing](https://github.com/hlpdev/FutureBlitz#installing) in the README." dist/*
