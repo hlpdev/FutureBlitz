@@ -1189,33 +1189,37 @@ json_t toml_features_t::code_actions(const document_t& document, const json_t& p
         const std::string wanted = file_key(document.path);
         for (const diagnostic_t& diagnostic : checked->diagnostics.diagnostics()) {
             const std::filesystem::path in = checked->disk_path(diagnostic.span.file);
-            if (diagnostic.fixes.empty() || in.empty() || file_key(in) != wanted ||
+            if (diagnostic.suggestions.empty() || in.empty() || file_key(in) != wanted ||
                 diagnostic.span.begin > end || begin > diagnostic.span.end) {
                 continue;
             }
 
-            json_t edits = json_t::array();
-            for (const fix_t& fix : diagnostic.fixes) {
-                edits.push_back({
-                    { "range", m_positions.range(checked->sources.get(fix.span.file), fix.span) },
-                    { "newText", fix.replacement },
+            // Each suggestion is an action, the likeliest first and preferred.
+            for (std::size_t i = 0; i < diagnostic.suggestions.size(); ++i) {
+                const suggestion_t& suggestion = diagnostic.suggestions[i];
+                json_t edits = json_t::array();
+                for (const fix_t& fix : suggestion.fixes) {
+                    const source_file_t& in_file = checked->sources.get(fix.span.file);
+                    edits.push_back({
+                        { "range", m_positions.range(in_file, fix.span) },
+                        { "newText", fix.replacement },
+                    });
+                }
+
+                out.push_back({
+                    {
+                        "title",
+                        suggestion.title.empty() ? "Fix: " + diagnostic.message : suggestion.title,
+                    },
+                    { "kind", "quickfix" },
+                    {
+                        "diagnostics",
+                        json_t::array({ diagnostic_json(*checked, diagnostic, m_positions) }),
+                    },
+                    { "isPreferred", i == 0 },
+                    { "edit", { { "changes", { { uri, std::move(edits) } } } } },
                 });
             }
-
-            out.push_back({
-                {
-                    "title",
-                    diagnostic.fix_title.empty() ? "Fix: " + diagnostic.message
-                                                 : diagnostic.fix_title,
-                },
-                { "kind", "quickfix" },
-                {
-                    "diagnostics",
-                    json_t::array({ diagnostic_json(*checked, diagnostic, m_positions) }),
-                },
-                { "isPreferred", true },
-                { "edit", { { "changes", { { uri, std::move(edits) } } } } },
-            });
         }
     }
 
