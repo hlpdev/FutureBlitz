@@ -1398,7 +1398,12 @@ std::vector<refactoring_t> inline_function(const query_t& query, const named_t& 
 }
 
 /// The name a parameter's text starts with.
-[[nodiscard]] std::string leading_name(const std::string_view text) {
+[[nodiscard]] std::string leading_name(std::string_view text) {
+    // After ByRef, for a parameter written "ByRef a: Int".
+    if (text.starts_with("ByRef ")) {
+        text.remove_prefix(text.find_first_not_of(' ', std::string_view("ByRef").size()));
+    }
+
     std::size_t end = 0;
     while (end < text.size() && identifier_char(text[end])) {
         ++end;

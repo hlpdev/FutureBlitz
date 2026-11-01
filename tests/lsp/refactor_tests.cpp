@@ -486,6 +486,34 @@ TEST_CASE("a signature's change doesn't take out a parameter its code uses, nor 
     CHECK(changed_signature(compilation, "Grow", "size: Int <- n"));
 }
 
+TEST_CASE("a signature's change keeps, moves, and renames a ByRef parameter", "[lsp][refactor]") {
+    const program_t program = own_program("Import std.core\n"
+                                          "Function P(ByRef a: Int, b: Int)\n"
+                                          "    a += b\n"
+                                          "End Function\n"
+                                          "Local x = 1\n"
+                                          "P(ByRef x, 2)\n"
+                                          "Print(x)\n");
+    const std::string before = printed(program, "by_ref");
+    const fb::compilation_t compilation = compiled(program);
+    const fb::lsp::query_t query(compilation, compilation.file);
+    const std::optional<fb::lsp::named_t> named =
+        query.name_at(selected(compilation, compilation.file, "Function P(", "P").begin);
+    REQUIRE(named);
+    const fb::symbol_id_t function = named.value_or(fb::lsp::named_t{}).symbol;
+    REQUIRE(fb::lsp::signature_parameters(query, function) == "ByRef a: Int, b: Int");
+    // The list as it was changes nothing.
+    CHECK(changed_signature(compilation, "P", "ByRef a: Int, b: Int"));
+
+    const std::expected<std::vector<fb::fix_t>, std::string> changed =
+        changed_signature(compilation, "P", "b: Int, ByRef total: Int <- a");
+    REQUIRE(changed);
+    const program_t after = applied(compilation, program, *changed);
+    CHECK(after.main.contains("Function P(b: Int, ByRef total: Int)\n    total += b\n"));
+    CHECK(after.main.contains("P(2, ByRef x)\n"));
+    CHECK(printed(after, "by_ref") == before);
+}
+
 TEST_CASE("a signature's change finds the parentheses by the code, not by their characters",
           "[lsp][refactor]") {
     const program_t program = own_program(
