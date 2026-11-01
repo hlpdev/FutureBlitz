@@ -458,6 +458,114 @@
           }
         ]
       }
+    ],
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "futureblitz.mcp",
+        "label": "FutureBlitz"
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "futureblitz_searchDocs",
+        "toolReferenceName": "fbDocs",
+        "displayName": "Search FutureBlitz's Docs",
+        "modelDescription": "Searches FutureBlitz's language spec and its standard library's reference for the words given, like 'For loop', 'string split', or 'Map', and gives the sections and declarations that have them, best first. FutureBlitz isn't Visual Basic or any other BASIC: look a feature up before using it.",
+        "userDescription": "Search the FutureBlitz spec and std's reference",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(search)",
+        "when": "futureblitz.languageModelTools",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Words to search for"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "How many results, 6 unless it says"
+            }
+          },
+          "required": [
+            "query"
+          ]
+        }
+      },
+      {
+        "name": "futureblitz_lookup",
+        "toolReferenceName": "fbLookup",
+        "displayName": "Look Up a FutureBlitz Name",
+        "modelDescription": "Looks up a name in the package and the standard library, like 'Split', 'String.Split', or one of the package's own Functions, and gives each declaration of it: its first line, where it is, and its doc. It runs none of the package's build steps: their files are what fb build last made.",
+        "userDescription": "Find a name's declarations in the package and std",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-method)",
+        "when": "futureblitz.languageModelTools",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "The name, or a dotted path"
+            }
+          },
+          "required": [
+            "name"
+          ]
+        }
+      },
+      {
+        "name": "futureblitz_check",
+        "toolReferenceName": "fbCheck",
+        "displayName": "Check FutureBlitz Code",
+        "modelDescription": "Checks FutureBlitz code for errors without building or running it, and gives each error and warning with its line, its fix when it has one, and its notes. With 'code' alone, it checks that as a program of its own; with 'file', a .fb file in the package's folder, with 'code' as its text if it's given, though it isn't saved; with neither, the whole package. It runs none of the package's build steps: their files are what fb build last made, and one that hasn't run is an error that says so. Check code before saying it works.",
+        "userDescription": "Check FutureBlitz code or a file for errors",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(check)",
+        "when": "futureblitz.languageModelTools",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string",
+              "description": "FutureBlitz code"
+            },
+            "file": {
+              "type": "string",
+              "description": "A .fb file in the package's folder, from it"
+            }
+          },
+          "required": []
+        }
+      },
+      {
+        "name": "futureblitz_format",
+        "toolReferenceName": "fbFormat",
+        "displayName": "Format FutureBlitz Code",
+        "modelDescription": "Formats FutureBlitz code as fb fmt does, and gives it back, or the errors that keep it from being formatted. It writes nothing.",
+        "userDescription": "Format FutureBlitz code as fb fmt does",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(list-flat)",
+        "when": "futureblitz.languageModelTools",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string",
+              "description": "FutureBlitz code"
+            },
+            "file": {
+              "type": "string",
+              "description": "A .fb file in the package's folder, from it"
+            },
+            "width": {
+              "type": "integer",
+              "description": "The line width, 100 unless it says"
+            }
+          },
+          "required": []
+        }
+      }
     ]
   },
   "scripts": {

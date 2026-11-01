@@ -197,6 +197,10 @@ enum class build_steps_t : std::uint8_t {
     /// while code is typed. A registry's package's step never runs, and its files are the ones a
     /// build of the workspace made, as nothing writes in the cache.
     MISSING,
+    /// None: each one's files are its last run's, and a failed run's error is given again, as
+    /// MISSING has them, and one that has never run is an error that says fb build runs it, as
+    /// `fb mcp`'s tools have them, which never run a program of the package's.
+    KEPT,
     /// None, and none's files are in the build, as for a build step's own program.
     SKIP,
 };
@@ -287,10 +291,10 @@ compile_standard_tests(build_mode_t mode = build_mode_t::DEBUG);
 /// For fb doc: the package that `path` is the folder of, or that a .fb file at `path` is in, with
 /// each of its .fb files a module, as compile_tests() has them, without its tests or examples.
 /// Fails as compile_file() does, and for a path in no package, and its build steps run as
-/// compile_file()'s do.
+/// `steps` says, as compile_file()'s do.
 [[nodiscard]] std::expected<compilation_t, std::string>
 compile_docs(const std::filesystem::path& path, build_mode_t mode = build_mode_t::DEBUG,
-             const status_t& status = {});
+             const status_t& status = {}, build_steps_t steps = build_steps_t::RUN);
 
 /// For `fb doc std`: every module of the standard library, with an empty main file. Fails when
 /// the standard library can't be read.

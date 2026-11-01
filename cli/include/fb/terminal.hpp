@@ -22,6 +22,11 @@ enum class stream_t : std::uint8_t {
 /// page and modes back as the process exits. Does nothing on other platforms.
 void prepare_terminal();
 
+/// Ends the process with `code` at once, as std::_Exit does, without waiting for its threads or
+/// running its destructors, after flushing stdout and stderr and giving the console back what
+/// prepare_terminal() changed.
+[[noreturn]] void end_process(int code);
+
 /// False when the stream goes to a pipe or a file.
 [[nodiscard]] bool is_terminal(stream_t stream);
 

@@ -3,6 +3,17 @@
 What each milestone and step added, by name, and each review's fixes, as CLAUDE.md kept
 them while each was built. Newest first.
 
+## 1.2.0
+
+(2026-11-01.) The release of 1.2's work and M11's, which the two sections after this say how
+each was built: reflection that sets (a For Property's `p.Set`, a For Static Field's `s.Set`,
+and `Where ... Has Set`); the recursive FileWatcher, on Windows, Linux, and macOS; long paths on
+Windows; and the IDE: checks that keep what didn't change, errors as typed, completion that
+knows and imports, the editor's basics, quick fixes, inspections and project.toml's `[lints]`,
+refactorings, project.toml in the editor, `fb test --exact`, and `fb mcp` with `fb new`'s
+AGENTS.md; and the VS Code extension's icon for .fb files. Its notes are the GitHub release's
+and the site's changelog/1-2-0.md.
+
 ## 1.2
 
 Long paths on Windows (2026-10-31): files_internal.hpp's `os_path()` gives the OS a path whose
@@ -162,6 +173,45 @@ made LLVM IR that doesn't check, with the pick or without it, as in 1.0.0. Tests
 the pick, a Get loop without it, and through a generic Bump<T>, each refused for the String.
 
 ## M11, the IDE
+
+Step 9, AI that knows FutureBlitz (2026-10-31): `fb mcp [folder]`, an MCP server over stdio
+(compiler/src/mcp.cpp's `mcp_server_t`, whose `handle()` answers a line of JSON-RPC, and
+cli/src/mcp_command.cpp's loop), with `search_docs`, `lookup`, `check`, and `format`, and
+`agents_primer()`, its instructions and the AGENTS.md `fb new` writes. compiler/CMakeLists.txt
+embeds docs/spec's chapters as generated/fb/spec_pages.hpp, in raw strings of at most 16,000
+bytes cut at lines, written only when one changes. A search scores a title's whole word over
+part of one and a declaration named the word, merges overloads, and cuts a long result at a line,
+never inside a character; `load_docs()` reads std's reference on a thread an initialize starts.
+Answers replace bytes that aren't UTF-8. The VS Code extension's src/mcp.ts has `McpClient`, a
+client of one fb mcp started at its first call and again after it stops, and src/assistant.ts
+offers fb mcp as an MCP server definition provider, `futureblitz.mcp`, or else as four
+language-model tools shown by the `futureblitz.languageModelTools` context key, each API found
+at run time. Tests: mcp_tests.cpp's lifecycle and errors, the primer's program, each tool, and
+the done-when's scripted assistant, which writes QBasic's loop, reads the errors, and fixes it
+from what search_docs and lookup give; cli_tests' fb mcp over stdio with a line ending in
+"\r\n", a blank line, and a notification, whose formatted program fb runs, its usage errors,
+and AGENTS.md; the extension's mcp.test.ts, its manifest's tools against fb mcp's, and
+`McpClient` over test/fixtures/fake-mcp.js and the real fb.
+
+From step 9's review: the extension didn't start on VS Code 1.100, whose MCP provider is a
+proposed API that throws; `registerAssistant()` tries the provider, then the tools, each in a try,
+after the language server starts. lookup and check built and ran a package's build steps, with no
+bound: they check with the new `build_steps_t::KEPT`, which runs none, takes each step's last
+run's files, and says fb build runs one that never ran (`compile_docs()` takes the steps now
+too). A tool's `file` has to be a .fb file in the package's folder (`core_t::resolved()`), as
+format and check read and showed any file. A message nested 100,000 deep overflowed the stack as
+nlohmann/json copied it: one deeper than 64 is refused before it's parsed, and params and
+arguments are bound, and have to be objects. One call held the server: `mcp_server_t` now takes
+lines with `receive()` and sends answers through a callback, each tool call on a thread of its
+own, with a deadline, 30 s, that the deadlines' thread answers with isError, and
+`notifications/cancelled`; fb mcp's loop reads on, and stdin's end ends it mid-call. A batch is
+answered as one under 2025-03-26, a client's response gets no answer, and an id that isn't a
+string or a whole number, or a message without `"jsonrpc": "2.0"`, is -32600. The done-when's
+assistant makes only the edits check's errors say. check of a folder of loose files checks each.
+Tests: mcp_tests.cpp's build steps, paths, nesting, the JSON-RPC edges, batches, a call answered
+past its deadline, a cancelled one, ping while one runs, and loose files; cli_tests' fb mcp in a
+process whose stdin the test holds, ending at stdin's end mid-call; the extension's
+assistant.test.ts over a stand-in vscode module, one that takes MCP servers, 1.100's, and none.
 
 Step 0, measuring (2026-10-31): tests/lsp/bench_tests.cpp, fb-lsp's benchmark, hidden from ctest
 (`fb_lsp_tests "[bench]"`), on a generated program of 300 modules in 10 layers and on std's own

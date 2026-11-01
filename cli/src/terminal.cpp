@@ -150,6 +150,17 @@ void prepare_terminal() {
     }
 }
 
+void end_process(const int code) {
+    std::fflush(stdout);
+    std::fflush(stderr);
+    {
+        const std::scoped_lock held(console_mutex());
+        restore_console();
+    }
+
+    std::_Exit(code);
+}
+
 bool is_terminal(const stream_t stream) {
     // Only a console has a mode, so this fails for pipes and files.
     DWORD mode = 0;
@@ -164,6 +175,12 @@ std::vector<std::string> command_line(const int argc, char** argv) {
 }
 
 void prepare_terminal() {}
+
+void end_process(const int code) {
+    std::fflush(stdout);
+    std::fflush(stderr);
+    std::_Exit(code);
+}
 
 bool is_terminal(const stream_t stream) {
     return isatty(stream == stream_t::STANDARD_OUTPUT ? STDOUT_FILENO : STDERR_FILENO) != 0;

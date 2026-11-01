@@ -11,6 +11,7 @@
 #include "fb/interface.hpp"
 #include "fb/lexer.hpp"
 #include "fb/lower.hpp"
+#include "fb/mcp_command.hpp"
 #include "fb/new.hpp"
 #include "fb/package_commands.hpp"
 #include "fb/process.hpp"
@@ -87,6 +88,8 @@ std::string_view summary(const command_t command) {
         return "Format .fb files in place";
     case command_t::DOC:
         return "Write a package's public API as JSON, docs and all";
+    case command_t::MCP:
+        return "Give an assistant tools that know FutureBlitz, over MCP";
     case command_t::ADD:
         return "Add dependencies from a registry to project.toml";
     case command_t::UPDATE:
@@ -249,10 +252,22 @@ std::string help_text(const std::optional<command_t> command, const style_t& sty
         std::string out = std::format("{}\n\n{} fb new [options] <folder>\n",
                                       summary(command_t::NEW), heading("Usage:"));
         out += "\nThe package is named by the folder's name, which is an identifier. It has a\n"
-               "project.toml, a main.fb, and a .gitignore. The folder mustn't be there yet, or\n"
-               "must be empty.\n";
+               "project.toml, a main.fb, a .gitignore, and an AGENTS.md, a primer on FutureBlitz\n"
+               "and fb mcp for assistants. The folder mustn't be there yet, or must be empty.\n";
         out += std::format("\n{}\n", heading("Options:"));
         out += entry("    --color <when>", "Color the output: auto, always, or never");
+        out += entry("-h, --help", "Show this help");
+        return out;
+    }
+
+    if (command == command_t::MCP) {
+        std::string out =
+            std::format("{}\n\n{} fb mcp [folder]\n", summary(command_t::MCP), heading("Usage:"));
+        out +=
+            "\nIt's a Model Context Protocol server over stdio, which an assistant runs, for the\n"
+            "package the folder is in, or the current folder's. Its tools search the spec and\n"
+            "std's reference, look up a name, check code and give its errors, and format code.\n";
+        out += std::format("\n{}\n", heading("Options:"));
         out += entry("-h, --help", "Show this help");
         return out;
     }
@@ -304,6 +319,7 @@ std::string help_text(const std::optional<command_t> command, const style_t& sty
                  command_t::BINDGEN,
                  command_t::FMT,
                  command_t::DOC,
+                 command_t::MCP,
                  command_t::ADD,
                  command_t::UPDATE,
                  command_t::SEARCH,
@@ -1379,6 +1395,8 @@ int run_command(const options_t& options) {
         return format_command(options);
     case command_t::DOC:
         return doc_command(options);
+    case command_t::MCP:
+        return mcp_command(options);
     case command_t::ADD:
     case command_t::UPDATE:
     case command_t::SEARCH:

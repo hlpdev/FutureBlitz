@@ -1,11 +1,12 @@
 // FutureBlitz for VS Code: the grammar, language configuration, and snippets come from
 // package.json; this starts the language server's client and adds the tasks, the debugger's
-// configurations, and the commands.
+// configurations, the commands, and fb mcp for assistants.
 
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 
+import { registerAssistant } from "./assistant";
 import { ServerClient } from "./client";
 import { DEBUG_TYPE, FbDebugConfigurationProvider, defaultProgram } from "./debug";
 import { FbCommand, relativeTarget } from "./fb";
@@ -91,6 +92,13 @@ export function activate(context: vscode.ExtensionContext): Api {
     );
 
     void server.start();
+    // After the language server, which nothing an assistant's offer does can stop.
+    try {
+        context.subscriptions.push(...registerAssistant(locateFb, String(context.extension.packageJSON.version), output));
+    } catch (error) {
+        output.warn(`fb mcp isn't offered to VS Code's assistants: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
     return { server, tasks, debug, locateFb, lldbScript };
 }
 

@@ -3606,7 +3606,8 @@ bool run_build_step(compilation_t& compilation, package_t& package, const build_
     const std::filesystem::path program =
         std::filesystem::absolute(from.root / path_from_utf8(step.program), error);
     const std::filesystem::path package_root = std::filesystem::absolute(package.root, error);
-    const bool typing = build.steps == build_steps_t::MISSING;
+    const bool kept = build.steps == build_steps_t::KEPT;
+    const bool typing = build.steps == build_steps_t::MISSING || kept;
     const auto report = [&](const std::string& message, const std::vector<std::string>& notes) {
         diagnostic_t& reported = compilation.diagnostics.error(step.program_span, "{}", message);
         for (const std::string& note : notes) {
@@ -3617,7 +3618,8 @@ bool run_build_step(compilation_t& compilation, package_t& package, const build_
     const auto checked_apart = [&] { return apart(compilation, package, step, out) || typing; };
 
     // A check while code is typed takes what a step's last run made, whatever's changed since,
-    // and a failed run's error, until what it read or its program changes.
+    // and a failed run's error, until what it read or its program changes; one that runs none
+    // takes them whatever's changed, and says fb build runs one that never has.
     if (typing) {
         if (const std::optional<step_stamp_t> stamp = read_stamp(stamp_path)) {
             if (!stamp->failure) {
@@ -3625,12 +3627,21 @@ bool run_build_step(compilation_t& compilation, package_t& package, const build_
                 return checked_apart();
             }
 
-            if (program_fresh(*stamp, program, build.root) &&
-                input_lines(package_root, inputs_of(*stamp)) == stamp->inputs) {
+            if (kept || (program_fresh(*stamp, program, build.root) &&
+                         input_lines(package_root, inputs_of(*stamp)) == stamp->inputs)) {
                 report(*stamp->failure, stamp->notes);
                 package.generated = out;
                 return true;
             }
+        }
+
+        if (kept) {
+            report(std::format("{}'s build step hasn't run, and this check runs none; fb build "
+                               "runs it",
+                               package.name),
+                   {});
+            package.generated = out;
+            return true;
         }
     }
 
@@ -3821,7 +3832,7 @@ bool run_build_steps(compilation_t& compilation, std::vector<package_t>& package
             continue;
         }
 
-        if (build.steps == build_steps_t::MISSING &&
+        if ((build.steps == build_steps_t::MISSING || build.steps == build_steps_t::KEPT) &&
             (in_cache(packages[index].root) || in_cache(build.root))) {
             take_built(compilation, packages[index], *step, build);
             continue;
@@ -4442,8 +4453,10 @@ std::expected<compilation_t, std::string> compile_standard_tests(const build_mod
     return compile_standard(std::move(compilation), std::move(files), mode);
 }
 
-std::expected<compilation_t, std::string>
-compile_docs(const std::filesystem::path& path, const build_mode_t mode, const status_t& status) {
+std::expected<compilation_t, std::string> compile_docs(const std::filesystem::path& path,
+                                                       const build_mode_t mode,
+                                                       const status_t& status,
+                                                       const build_steps_t steps) {
     if (const std::optional<std::string> unreadable = unreadable_std()) {
         return std::unexpected(*unreadable);
     }
@@ -4484,8 +4497,8 @@ compile_docs(const std::filesystem::path& path, const build_mode_t mode, const s
             to_utf8(path)));
     }
 
-    return compile_package(*root, std::nullopt, mode, purpose_t::DOC, nullptr, build_steps_t::RUN,
-                           std::nullopt, status);
+    return compile_package(*root, std::nullopt, mode, purpose_t::DOC, nullptr, steps, std::nullopt,
+                           status);
 }
 
 std::expected<compilation_t, std::string> compile_standard_docs(const build_mode_t mode) {
