@@ -315,6 +315,15 @@ struct check_request_t {
 /// package. Fails as compile_file() does.
 [[nodiscard]] std::expected<compilation_t, std::string> check_files(const check_request_t& request);
 
+/// For the LSP, as a project.toml is typed: the package in `folder` and what it depends on, read
+/// as a build reads them, with `read`'s texts of project.toml files that aren't saved, and its
+/// build steps run as a check while code is typed runs them, but none of its code. The
+/// compilation's diagnostics are the mistakes fb build would give in its project.toml files, and
+/// its main file is the package's project.toml. Fails when that can't be read.
+[[nodiscard]] std::expected<compilation_t, std::string>
+check_manifest(const std::filesystem::path& folder, const source_reader_t& read,
+               std::span<const std::filesystem::path> workspace = {});
+
 /// For `fb test std`: the examples in the standard library's doc comments, each a module of a
 /// program that uses std, with what they import. Fails when the standard library can't be read.
 [[nodiscard]] std::expected<compilation_t, std::string>

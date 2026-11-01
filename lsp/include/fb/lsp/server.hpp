@@ -4,6 +4,7 @@
 #include "fb/lsp/inbox.hpp"
 #include "fb/lsp/protocol.hpp"
 #include "fb/lsp/query.hpp"
+#include "fb/lsp/toml_features.hpp"
 #include "fb/lsp/workspace.hpp"
 
 #include <condition_variable>
@@ -33,6 +34,7 @@ public:
 
     struct options_t {
         workspace_t::options_t workspace;
+        toml_features_t::options_t toml;
     };
 
     explicit server_t(send_t send, options_t options = {});
@@ -56,6 +58,10 @@ public:
 
     [[nodiscard]] workspace_t& workspace() {
         return *m_workspace;
+    }
+
+    [[nodiscard]] toml_features_t& toml() {
+        return *m_toml;
     }
 
 private:
@@ -111,6 +117,8 @@ private:
     std::deque<lens_job_t> m_lens_jobs;
     std::mutex m_lens_mutex;
     std::condition_variable_any m_lens_ready;
+    /// project.toml's documents and requests, whose thread stops before what it sends through.
+    std::unique_ptr<toml_features_t> m_toml;
     /// After what its threads send through, so it's destroyed, and they stop, before that.
     std::unique_ptr<workspace_t> m_workspace;
     /// After the workspace, so it stops first, as it reads the workspace's checks: the thread

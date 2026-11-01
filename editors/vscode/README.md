@@ -89,6 +89,10 @@ server's errors as you type and formatting on save, tasks for `fb build`, `fb ru
   servers, it's the FutureBlitz server in MCP: List Servers; elsewhere, they're the tools
   `#fbDocs`, `#fbLookup`, `#fbCheck`, and `#fbFormat`. Other assistants run `fb mcp` in the
   package's folder themselves, and read the AGENTS.md `fb new` writes.
+- **project.toml**: fb's errors as you type, completion of its tables and keys, and of a
+  dependency's name and version from its registry, hover with what each key is and a
+  dependency's description and newest version, and quick fixes to update a dependency or add
+  what `fb publish` needs. Offline, the registries' answers are the cache's.
 
 ## Settings
 

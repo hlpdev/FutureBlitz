@@ -70,7 +70,11 @@ client_t::client_t(options_t options)
           },
           { .workspace = { .delay = options.delay,
                            .dependents_delay = options.dependents_delay.value_or(options.delay),
-                           .load_folders = options.load_folders, }, }) {
+                           .load_folders = options.load_folders, },
+            .toml = { .delay = options.delay,
+                      .offline = options.offline,
+                      .http = options.http,
+                      .registry_life = options.registry_life, }, }) {
     m_server.set_inbox(&m_inbox);
     json_t folders = json_t::array();
     for (const std::filesystem::path& folder : options.folders) {
@@ -82,16 +86,20 @@ client_t::client_t(options_t options)
         capabilities["general"] = { { "positionEncodings", options.encodings } };
     }
 
+    json_t workspace = json_t::object();
     if (options.watches) {
-        capabilities["workspace"] = {
-            {
-                "didChangeWatchedFiles",
-                {
-                    { "dynamicRegistration", true },
-                    { "relativePatternSupport", options.relative_patterns },
-                },
-            },
+        workspace["didChangeWatchedFiles"] = {
+            { "dynamicRegistration", true },
+            { "relativePatternSupport", options.relative_patterns },
         };
+    }
+
+    if (options.snippet_edits) {
+        workspace["workspaceEdit"] = { { "snippetEditSupport", true } };
+    }
+
+    if (!workspace.empty()) {
+        capabilities["workspace"] = workspace;
     }
 
     m_answers = options.answers;
@@ -283,6 +291,7 @@ void client_t::mark(const std::string& uri) {
 void client_t::settle() {
     m_server.workspace().settle();
     answer_requests();
+    m_server.toml().settle();
 }
 
 json_t client_t::errors(const std::string& uri) const {

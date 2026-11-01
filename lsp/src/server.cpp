@@ -6,6 +6,7 @@
 #include "fb/lsp/protocol.hpp"
 #include "fb/lsp/query.hpp"
 #include "fb/lsp/refactor.hpp"
+#include "fb/lsp/toml_features.hpp"
 #include "fb/lsp/workspace.hpp"
 #include "fb/module.hpp"
 #include "fb/source.hpp"
@@ -135,6 +136,8 @@ void apply_change(std::string& text, const json_t& change, const positions_t& po
 } // namespace
 
 server_t::server_t(send_t send, const options_t options) : m_send(std::move(send)) {
+    m_toml = std::make_unique<toml_features_t>(
+        [this](const json_t& message) { this->send(message); }, m_positions, options.toml);
     m_workspace = std::make_unique<workspace_t>(
         [this](const published_t& published) { publish(published); }, options.workspace);
     // The folders of packages the checks found outside the client's, which only a watcher of
@@ -242,6 +245,11 @@ void server_t::fail(const json_t& id, const error_code_t code, const std::string
 }
 
 void server_t::publish(const published_t& published) {
+    // An open project.toml's are its text's as it's typed, not those of the file on disk.
+    if (m_toml->owns(published.path)) {
+        return;
+    }
+
     json_t diagnostics = json_t::array();
     for (const diagnostic_t* diagnostic : published.diagnostics) {
         diagnostics.push_back(diagnostic_json(*published.compilation, *diagnostic, m_positions));
@@ -348,6 +356,11 @@ void server_t::answer_request(const json_t& id, const std::string& method, const
 }
 
 std::optional<json_t> server_t::answer(const std::string& method, const json_t& params) {
+    if (std::optional<json_t> manifest =
+            m_initialized ? m_toml->answer(method, params) : std::nullopt) {
+        return manifest;
+    }
+
     if (method == "initialize") {
         return initialize(params);
     }
@@ -598,17 +611,22 @@ void server_t::notified(const std::string& method, const json_t& params) {
         }
 
         m_workspace->add_folders(m_folders);
+        m_toml->add_folders(m_folders);
         return;
     }
 
     if (method == "textDocument/didOpen") {
-        // Only FutureBlitz code is checked as it's typed; a project.toml, say, is read from disk.
+        // FutureBlitz code and project.toml are checked as they're typed; another file, a .md,
+        // say, is read from disk.
         const json_t& document = params.at("textDocument");
         const std::optional<std::filesystem::path> path =
             path_of(document.at("uri").get<std::string>());
         if (path && is_fb_file(*path)) {
             m_workspace->open(*path, document.value("version", std::int64_t{ 0 }),
                               document.at("text").get<std::string>());
+        } else if (path && is_manifest(*path)) {
+            m_toml->open(*path, document.value("version", std::int64_t{ 0 }),
+                         document.at("text").get<std::string>());
         }
 
         return;
@@ -621,6 +639,11 @@ void server_t::notified(const std::string& method, const json_t& params) {
         }
 
         std::optional<std::pair<std::string, std::int64_t>> document = m_workspace->document(*path);
+        const bool manifest = !document && is_manifest(*path);
+        if (manifest) {
+            document = m_toml->document(*path);
+        }
+
         if (!document) {
             return;
         }
@@ -629,14 +652,24 @@ void server_t::notified(const std::string& method, const json_t& params) {
             apply_change(document->first, change, m_positions);
         }
 
-        m_workspace->change(*path, params.at("textDocument").value("version", document->second + 1),
-                            std::move(document->first));
+        const std::int64_t version =
+            params.at("textDocument").value("version", document->second + 1);
+        if (manifest) {
+            m_toml->change(*path, version, std::move(document->first));
+        } else {
+            m_workspace->change(*path, version, std::move(document->first));
+        }
+
         return;
     }
 
     if (method == "textDocument/didClose") {
-        if (const std::optional<std::filesystem::path> path = document_path(params)) {
+        // As didOpen has them: a closed file of another kind isn't checked as FutureBlitz code.
+        if (const std::optional<std::filesystem::path> path = document_path(params);
+            path && is_fb_file(*path)) {
             m_workspace->close(*path);
+        } else if (path && is_manifest(*path)) {
+            m_toml->close(*path);
         }
 
         return;
@@ -690,6 +723,8 @@ void server_t::notified(const std::string& method, const json_t& params) {
         };
         m_workspace->remove_folders(folders("removed"));
         m_workspace->add_folders(folders("added"));
+        m_toml->remove_folders(folders("removed"));
+        m_toml->add_folders(folders("added"));
     }
 }
 
@@ -737,6 +772,9 @@ json_t server_t::initialize(const json_t& params) {
     m_watches = watches;
     m_relative = relative;
     m_format_on_save = format_on_save;
+    // A project.toml's quick fix has placeholders where the client takes snippet edits.
+    m_toml->set_snippet_edits(object_at(object_at(capabilities, "workspace"), "workspaceEdit")
+                                  .value("snippetEditSupport", false));
     m_folders = std::move(folders);
     m_initialized = true;
     return {

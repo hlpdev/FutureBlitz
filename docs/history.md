@@ -458,6 +458,40 @@ next line at the bracket's own indentation, before one it doesn't, the outermost
 formats as before. Tests check the user's line, the outermost of two that fit, and the innermost
 when only it does.
 
+Step 8, project.toml in the editor (2026-10-31): lsp/src/toml_features.cpp's `toml_features_t`
+keeps the open project.toml documents and checks each on a thread of its own, 150 ms after an
+edit, with the driver's new `check_manifest()`, which runs `package_loader_t`, now with a
+`source_reader_t` for project.toml's unsaved texts that compile_package() passes a check's on
+to, and the build steps as `MISSING` has them, but no code. It completes tables, keys, values, a
+dependency's name from its registry's search and its range from the package's index, hovers a
+table, a key, or a dependency, and offers its errors' fixes, "Update <name> to <version>", and
+"Add what fb publish needs". manifest.hpp's `manifest_tables()` and `manifest_keys()` are what
+it completes and explains. server.cpp gives it project.toml's didOpen, didChange, didClose, and
+requests, and doesn't publish a package check's diagnostics for an open project.toml. From its
+tests: the server sent didClose of any file to the workspace, which checked a closed file in its
+folders that isn't a .fb file as FutureBlitz code; didClose goes where didOpen does. The VS Code
+extension's client sends `**/project.toml`, and the extension starts in a folder with one.
+Tests: toml_tests.cpp's checks as typed, an open file's diagnostics over its package's, 25 kinds
+of error against fb check's, completion of each kind, a dependency's name, versions, hover, and
+update against registry_server.hpp's registry, now with `add()`, and offline from the cache, the
+publish fix, hover, and the other requests; manifest_tests.cpp's keys read back; driver_tests'
+check_manifest() with unsaved texts.
+
+From step 8's review: completion, hover, and code actions called the registries on fb-lsp's
+message loop, so a registry that didn't answer held up every request; they answer from what a
+registry last said, or the cache on disk, and `toml_features_t::fetch()`, a thread of its own,
+asks the registries ask() queues, one `registry_t` an index, so one out of reach is remembered,
+and completion is `isIncomplete` while it asks. "Add what fb publish needs" wrote `license = ""`
+and `description = ""`, which fb check and fb publish refuse: it's a snippet with placeholders
+where the client takes snippet edits (`set_snippet_edits()`, from initialize), and else "MIT" and
+"The <name> package". `lines_of()` made a multi-line string's lines one, to the line that closes
+it, so the fix no longer lands inside one, and `line_at()` ends a line before its `\r`, with what's
+put in a document in its own line breaks (`line_break()`). Hover in a comment or a string is
+nothing. Tests: toml_tests' registry that never answers, a completion of the registry's answered
+once it's complete, the fix applied and checked by compile_file, its snippet, after a multi-line
+value, and in CRLF, and hover in comments and strings; the site's project-toml.md has [build] and
+`file://`.
+
 ## 1.1.0
 
 (2026-10-31.) Dependencies with both a path and a version, `fbengine = { path = "../fbengine",

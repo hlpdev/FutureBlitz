@@ -2265,9 +2265,11 @@ std::vector<std::string> library_files(const package_t& package);
 class package_loader_t {
 public:
     /// `program` says the main package is built as a program from a main file it was given,
-    /// though it may have none of its own.
-    package_loader_t(compilation_t& compilation, const build_mode_t mode, const bool program)
-        : m_compilation(compilation), m_mode(mode), m_program(program) {}
+    /// though it may have none of its own. `read` has the texts of project.toml files that aren't
+    /// saved, as an editor has them.
+    package_loader_t(compilation_t& compilation, const build_mode_t mode, const bool program,
+                     source_reader_t read = {})
+        : m_compilation(compilation), m_mode(mode), m_program(program), m_read(std::move(read)) {}
 
     /// The packages, the main one, in `folder`, first. nullopt after an error. Their registry
     /// packages are where the fb.lock in `locked`, `folder` without it, says.
@@ -2325,6 +2327,7 @@ private:
     compilation_t& m_compilation;
     build_mode_t m_mode;
     bool m_program = false;
+    source_reader_t m_read;
     std::vector<package_t> m_packages;
     std::vector<manifest_t> m_manifests;
     /// Each package's folder, as weakly_canonical() has it.
@@ -2462,15 +2465,21 @@ private:
         }
 
         const std::filesystem::path manifest_path = root / "project.toml";
-        const bool there = disk::is_regular_file(manifest_path, ignored);
+        const std::optional<std::string> unsaved =
+            m_read ? m_read(manifest_path) : std::optional<std::string>();
+        const bool there = unsaved || disk::is_regular_file(manifest_path, ignored);
         std::string missing = std::format("there's no project.toml in '{}'", to_utf8(root));
         if (disk::is_regular_file(root, ignored)) {
             missing = std::format("'{}' is a file, not a package's folder", to_utf8(root));
         }
 
-        const std::expected<file_id_t, std::string> file =
-            there ? m_compilation.sources.load(shown_disk_path(manifest_path))
-                  : std::unexpected(missing);
+        std::expected<file_id_t, std::string> file = std::unexpected(missing);
+        if (unsaved) {
+            file = m_compilation.sources.add(to_utf8(shown_disk_path(manifest_path)), *unsaved);
+        } else if (there) {
+            file = m_compilation.sources.load(shown_disk_path(manifest_path));
+        }
+
         if (!file) {
             if (named != nullptr) {
                 // A registry's package, or one only a range names, is where its range says.
@@ -4069,7 +4078,8 @@ std::expected<compilation_t, std::string> compile_package(
     const bool testing = purpose != purpose_t::BUILD;
     const disk_scope_t disk_scope;
     compilation_t compilation;
-    package_loader_t reader(compilation, mode, main.has_value());
+    package_loader_t reader(compilation, mode, main.has_value(),
+                            request != nullptr ? request->read : source_reader_t{});
     std::optional<std::vector<package_t>> packages = reader.run(folder, locked);
     if (const std::optional<std::string>& unreadable = reader.unreadable()) {
         return std::unexpected(*unreadable);
@@ -4674,6 +4684,34 @@ std::expected<compilation_t, std::string> compile_standard_tests(const build_mod
     add_examples(compilation, files, std_files(files), "(doc tests)/", mode,
                  examples_of_t::STANDARD);
     return compile_standard(std::move(compilation), std::move(files), mode);
+}
+
+std::expected<compilation_t, std::string>
+check_manifest(const std::filesystem::path& folder, const source_reader_t& read,
+               const std::span<const std::filesystem::path> workspace) {
+    compilation_t compilation;
+    package_loader_t reader(compilation, build_mode_t::DEBUG, false, read);
+    std::optional<std::vector<package_t>> packages = reader.run(folder);
+    if (const std::optional<std::string>& unreadable = reader.unreadable()) {
+        return std::unexpected(*unreadable);
+    }
+
+    // Its build steps' mistakes are at [build]'s program, as a check while code is typed has
+    // them: one runs only when it never has, or what its last failed run read has changed.
+    const status_t status;
+    if (packages) {
+        (void)run_build_steps(compilation, *packages, reader.manifests(),
+                              {
+                                  .root = packages->front().root,
+                                  .steps = build_steps_t::MISSING,
+                                  .workspace = workspace,
+                                  .status = &status,
+                              });
+    }
+
+    compilation.file = reader.main_file().value_or(file_id_t{});
+    compilation.diagnostics.sort();
+    return compilation;
 }
 
 std::expected<compilation_t, std::string> compile_docs(const std::filesystem::path& path,

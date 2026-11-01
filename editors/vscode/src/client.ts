@@ -116,6 +116,8 @@ export class ServerClient implements vscode.Disposable {
             documentSelector: [
                 { scheme: "file", language: "futureblitz" },
                 { scheme: "untitled", language: "futureblitz" },
+                // A package's project.toml, in whatever language an extension gives TOML.
+                { scheme: "file", pattern: "**/project.toml" },
             ],
             // Saving formats through the editor's own editor.formatOnSave, which [futureblitz]
             // turns on and which asks textDocument/formatting; fb-lsp's willSaveWaitUntil, which

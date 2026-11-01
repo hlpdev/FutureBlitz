@@ -272,6 +272,13 @@ public:
         return m_server.url() + "index/";
     }
 
+    /// Adds a version to its index, as a publish does, without its archives, for a test that only
+    /// reads its index and searches it. A package's versions are added oldest first.
+    void add(const index_entry_t& entry) {
+        const std::scoped_lock lock(m_mutex);
+        m_index[entry.name] += index_line(entry) + "\n";
+    }
+
     /// The requests it was sent, as "METHOD /path", in order.
     [[nodiscard]] std::vector<std::string> requests() const {
         const std::scoped_lock lock(m_mutex);

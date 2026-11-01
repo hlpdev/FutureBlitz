@@ -678,6 +678,48 @@ a half times it:
 
 Each step lands with its docs: this file, the extension's README, and the website's tooling pages.
 
+**project.toml in the editor** (step 8) is lsp/src/toml_features.cpp's `toml_features_t`, which
+the server gives an open project.toml's notifications and requests, and whose own thread checks
+each as it's typed:
+
+- **Errors as typed.** 150 ms after an edit, the driver's `check_manifest()` reads the package
+  and what it depends on as a build does, with every open project.toml's text in place of the
+  disk's, and runs its build steps as a check while code is typed runs them, but compiles none of
+  its code: its diagnostics are the errors and warnings fb build gives for the file, which a test
+  checks against fb check's, case by case. While the file's open, the package's checks, which
+  read it from disk, don't publish for it; once it's closed, its text on disk is checked again.
+- **Completion** of tables after `[`; of each table's keys it hasn't got yet, and of a
+  dependency's, a native library's, and a registry's own table's, `{ ... }` or
+  `[dependencies.physics]`, each with what it is, from manifest.hpp's `manifest_keys()`, the keys
+  read_manifest() reads, whose examples a test reads back; of the values of those with few,
+  `type`'s and `link`'s; of a dependency's `registry`, from [registries]; and of [build]'s
+  `package`, from [dependencies]. In [dependencies], a name completes from the registry's search
+  as `physics = "1.3.0"`, its newest version that isn't yanked, and a range, in its string, from
+  the package's index, newest first.
+- **Hover** shows a table's or a key's description, and a dependency's description and newest
+  version, from its registry.
+- **Quick fixes**: the fixes fb's errors have; "Update physics to 2.0.0", for a dependency whose
+  range doesn't take its registry's newest version; and in [project], "Add what fb publish needs",
+  `type = "library"` for a package that would be an executable, and a `description` and a
+  `license` where they aren't written, after the table's last line, a multi-line value's closing
+  one, in the document's line breaks: placeholders to type over, `${1:What the package does}` and
+  `${2:MIT}`, where the client takes snippet edits (LSP 3.18's
+  `workspace.workspaceEdit.snippetEditSupport`), and else values fb check and fb publish take,
+  "The <name> package" and "MIT".
+- **Registries** are each dependency's, as `registry_index()` finds them from [registries], and
+  never waited for: completion, hover, and quick fixes answer from what a registry last said, or
+  until it has, from the cache on disk, and a thread of their own asks it, through one
+  `registry_t` an index, which remembers one it can't reach, and `search_packages()`. A completion
+  that's waiting is `isIncomplete`, so the client asks again, and what a registry says is kept for
+  a minute. Offline, or with a registry out of reach, names come from the cache's index files,
+  versions from its index of the package, and a description from its newest version's
+  project.toml in the cache, if it's there.
+- Hover in a comment or a string is nothing.
+- The server's other requests for a project.toml, semantic tokens and formatting among them, get
+  nothing, and a closed file that isn't a .fb file isn't checked as FutureBlitz code, which the
+  workspace did with any file in its folders before. The VS Code extension sends project.toml to
+  fb-lsp by its name, whatever language another extension gives TOML.
+
 **The benchmark** (step 0) is tests/lsp/bench_tests.cpp, which ctest leaves out: on a release
 build, `fb_lsp_tests "[bench]"` runs it on a generated program of 300 modules in 10 layers, each
 importing three of the layer below's, editing one in the middle layer, and on std's own folder,

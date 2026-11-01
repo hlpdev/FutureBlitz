@@ -68,6 +68,13 @@ public:
         /// Whether it answers the server's requests, as a client does: a registration of
         /// watchers, which it takes.
         bool answers = true;
+        /// Whether project.toml's registries are read only from the cache.
+        bool offline = false;
+        /// Whether the client says it takes snippet edits in a workspace edit.
+        bool snippet_edits = false;
+        /// What project.toml's registries are asked through, and how long what they say is kept.
+        fb::http_client_t http = fb::send_http;
+        std::chrono::seconds registry_life{ 60 };
     };
 
     explicit client_t(options_t options);
@@ -122,7 +129,7 @@ public:
         return m_texts.at(uri);
     }
 
-    /// Waits until the server's checks are done, and answers its requests.
+    /// Waits until the server's checks are done, project.toml's too, and answers its requests.
     void settle();
 
     /// Answers the server's requests it hasn't yet.

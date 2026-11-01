@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <expected>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -141,6 +142,34 @@ struct manifest_t {
     /// [registries], in the order the file has them.
     std::vector<registry_entry_t> registries;
 };
+
+/// A table project.toml has, which the LSP completes and explains.
+struct manifest_table_t {
+    std::string_view name;
+    /// What it's for, a sentence in Markdown.
+    std::string_view description;
+};
+
+/// A key of one of project.toml's tables, which the LSP completes and explains: [project]'s,
+/// [format]'s, and [build]'s, and the keys of a dependency's own table, `{ path = "../x" }`, a
+/// native library's, and a registry's, whose `table` is "dependencies", "native", or
+/// "registries".
+struct manifest_key_t {
+    std::string_view table;
+    std::string_view key;
+    /// What it is, a sentence in Markdown.
+    std::string_view description;
+    /// A value it can have, as TOML writes it, like `"0.1.0"`.
+    std::string_view example;
+    /// The strings it can be, when they're few, like "executable" and "library".
+    std::span<const std::string_view> values;
+};
+
+/// project.toml's tables, in the order the spec has them.
+[[nodiscard]] std::span<const manifest_table_t> manifest_tables();
+
+/// The keys read_manifest() reads, in each table in the order the spec has them.
+[[nodiscard]] std::span<const manifest_key_t> manifest_keys();
 
 /// The project.toml `file`, which `manifest` is read from, as a published package has it: without
 /// the path of each dependency with a range too, as its builds are from the registry. nullopt when

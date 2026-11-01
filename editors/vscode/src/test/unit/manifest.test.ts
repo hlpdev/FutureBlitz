@@ -52,3 +52,10 @@ test("it doesn't run in a workspace that isn't trusted", () => {
     assert.equal(manifest.capabilities.untrustedWorkspaces.supported, false);
     assert.ok(manifest.capabilities.untrustedWorkspaces.description.includes("build step"));
 });
+
+// fb-lsp serves project.toml too, so a folder with one starts the extension, as one with .fb
+// files does.
+test("it starts in a folder with a project.toml", () => {
+    assert.ok(manifest.activationEvents.includes("workspaceContains:**/project.toml"));
+    assert.ok(manifest.activationEvents.includes("workspaceContains:**/*.fb"));
+});

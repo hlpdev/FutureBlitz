@@ -5045,3 +5045,60 @@ TEST_CASE("check_files checks the standard library's files, and a file outside a
     CHECK(cache.files.size() > 100);
     packages.remove();
 }
+
+TEST_CASE("check_manifest reads a project.toml as an editor has it, without the package's code",
+          "[driver][packages]") {
+    const packages_t packages;
+    packages.write("game/project.toml", "[project]\nname = \"game\"\nversion = \"0.1.0\"\n");
+    packages.write("game/main.fb", "Local n: Int = \"not an Int\"\n");
+    packages.write("shapes/project.toml", "[project]\nname = \"shapes\"\nversion = \"1.0.0\"\n");
+    const std::filesystem::path manifest = packages / "game/project.toml";
+    std::optional<std::string> unsaved =
+        "[project]\nname = \"game\"\nversion = \"0.1.0\"\n\n[dependencies]\nshapes = { path = "
+        "\"../shapes\", version = \"2.0\" }\n";
+    const fb::source_reader_t read =
+        [&](const std::filesystem::path& file) -> std::optional<std::string> {
+        std::error_code ignored;
+        return std::filesystem::equivalent(file, manifest, ignored) ? unsaved : std::nullopt;
+    };
+
+    // The unsaved text's mistakes, in it, and none of main.fb's.
+    const std::expected<fb::compilation_t, std::string> checked =
+        fb::check_manifest(packages / "game", read);
+    REQUIRE(checked);
+    CHECK(packages.messages(*checked) ==
+          std::vector<std::string>{
+              "game/project.toml: \"2.0\": '../shapes' is shapes v1.0.0, "
+              "which isn't in \"2.0\", as a build from the registry would be" });
+    CHECK(checked->disk_path(checked->file).filename() == "project.toml");
+
+    // Without the editor's text, the file's.
+    unsaved.reset();
+    const std::expected<fb::compilation_t, std::string> saved =
+        fb::check_manifest(packages / "game", read);
+    REQUIRE(saved);
+    CHECK(errors_of(*saved).empty());
+
+    // A dependency's project.toml that isn't saved is read as the editor has it too.
+    const std::filesystem::path shapes = packages / "shapes/project.toml";
+    const fb::source_reader_t both =
+        [&](const std::filesystem::path& file) -> std::optional<std::string> {
+        std::error_code ignored;
+        if (std::filesystem::equivalent(file, manifest, ignored)) {
+            return "[project]\nname = \"game\"\nversion = \"0.1.0\"\n\n[dependencies]\nshapes = { "
+                   "path = \"../shapes\" }\n";
+        }
+
+        if (std::filesystem::equivalent(file, shapes, ignored)) {
+            return "[project]\nname = \"geometry\"\nversion = \"1.0.0\"\n";
+        }
+
+        return std::nullopt;
+    };
+    const std::expected<fb::compilation_t, std::string> renamed =
+        fb::check_manifest(packages / "game", both);
+    REQUIRE(renamed);
+    CHECK(packages.messages(*renamed).size() == 1);
+    CHECK(packages.messages(*renamed).at(0).contains("which its project.toml names geometry"));
+    packages.remove();
+}
