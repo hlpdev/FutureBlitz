@@ -3,7 +3,11 @@
 What each milestone and step added, by name, and each review's fixes, as CLAUDE.md kept
 them while each was built. Newest first.
 
-## 1.2.0
+## 1.2.1
+
+(2026-11-01.) 1.2.0 was tagged but never released: its macOS build failed, as fb-lsp's code lens
+thread was a std::jthread, which Apple's libc++ doesn't have; it's a std::thread with a stop flag
+now. 1.2.1 is that release with the fix, and everything below.
 
 (2026-11-01.) The release of 1.2's work and M11's, which the two sections after this say how
 each was built: reflection that sets (a For Property's `p.Set`, a For Static Field's `s.Set`,
