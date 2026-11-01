@@ -169,8 +169,7 @@ layout = { path = "../layout", version = "0.4" }    # its folder here, 0.4 once 
   never read an error. Each is a warning without it. A name that isn't a lint is a warning, and
   another level an error. The standard library's code, a registry's packages', in the cache or
   through fb.lock, a prebuilt library's, and the files a build step or a .proto makes get none
-  of these warnings, as they aren't the program's to fix, nor, in the editor, does a package
-  outside its folders. The lints, by their names:
+  of these warnings, as they aren't the program's to fix. The lints, by their names:
 
   | Lint | Warns about |
   |---|---|
@@ -195,27 +194,30 @@ layout = { path = "../layout", version = "0.4" }    # its folder here, 0.4 once 
   a warning that's missing. A name that starts with `_` is one that's meant to go unused, so a
   Local's or a parameter's, or a Private declaration's, isn't reported, nor is a variable a For
   loop or a Catch declares, which its line has to name. A Local is left out by its fix only when
-  its value is literals, variables, and Fields, as a call or a Property's Get may do what the
-  program needs. A parameter isn't reported when something else sets the function's
-  parameters: a Public function's, which callers outside the package see, a Protected Method's
-  of a Public Class that isn't Final, which a Class outside the package may override and call,
-  an Interface's or a base Class's Method's that it implements or overrides, what overrides it,
-  an Operator's, a Property's Set's, one used as a value or called by a loop over its type's
-  Methods, an Extern's, and one whose body is only a Todo, Panic, or Unreachable. A Private
-  Field isn't reported, as equality, a debug form, Save, and a C layout read Fields without
-  naming them, nor what runs without its name being written: a New, a Destroy, OnLoaded,
-  ToString, or Hash, an Operator, a `@Test`, what has attributes, the members of a type a For
-  Method or For Property loop goes over, itself or through a type parameter, and a Global whose
-  initializer does more than read, or whose value has a Destroy. An attribute is a use of its
-  Attribute. An Import isn't reported when its module is loaded for what it does without being
-  named: an Extend that gives an Interface to another module's type, or a Global whose
-  initializer does more than read, in the module or in one only it loads. Code an `#If`'s branch
-  that's off may leave out, which no check sees, can use what looks unused, or not leave where
-  the other branch does, so a function with an `#If` in it isn't looked at for its Locals,
-  parameters, and code nothing reaches, nor a file with one for its Imports and Private
-  declarations; and neither is code in a file with errors. An Alias under an `#If` may be
-  another type in another build, so neither `redundant_as` nor `constant_condition` reports on
-  a type one names, nor in a file with an `#If`.
+  its value holds no object: literals, and variables and Fields whose type has no Class,
+  Interface, or function value in it, as an object it holds until its function returns may
+  matter then, and a call, a Property's Get, or a ThreadLocal Global's read, which runs its
+  initializer on a thread that hasn't, may do what the program needs. A parameter isn't
+  reported when something else sets the function's parameters: a Public function's, which
+  callers outside the package see, a Protected Method's of a Public Class that isn't Final,
+  which a Class outside the package may override and call, an Interface's or a base Class's
+  Method's that it implements or overrides, what overrides it, an Operator's, a Property's Set's,
+  one used as a value or called by a loop over its type's Methods, an Extern's, and one whose
+  body is only a Todo, Panic, or Unreachable. A Private Field isn't reported, as equality, a
+  debug form, Save, and a C layout read Fields without naming them, nor what runs without its
+  name being written: a New, a Destroy, OnLoaded, ToString, or Hash, an Operator, a `@Test`,
+  what has attributes, the members of a type a For Method or For Property loop goes over, itself
+  or through a type parameter, a Global or Const whose initializer does more than read, and a
+  Global whose value has a Destroy. An attribute is a use of its Attribute. An Import isn't
+  reported when its module is loaded for what it does without being named: an Extend that gives
+  an Interface to another module's type, or a Global's or Const's initializer that does more
+  than read, in the module or in one only it loads. Code an `#If`'s branch that's off may leave
+  out, which no check sees, can use what looks unused, or not leave where the other branch does,
+  so a function with an `#If` in it isn't looked at for its Locals, parameters, and code nothing
+  reaches, nor a file with one for its Imports and Private declarations; and neither is code in
+  a file with errors. A type may be another in another build, so neither `redundant_as` nor
+  `constant_condition` reports in a file with an `#If`, on C's long or wchar_t, on a type an
+  Alias in a file with an `#If` names, or on what names a Function or Field declared in one.
 - A dependency's own project.toml names it as `[dependencies]` does, and so do the packages it
   depends on, each read once, by whatever path reaches its folder, however many packages depend
   on it. Two packages of one name, and packages that depend on each other in a cycle, are

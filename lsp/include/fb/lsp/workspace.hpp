@@ -184,6 +184,8 @@ public:
     /// Whether a file is in one of the client's folders, so it's the workspace's own, which a
     /// rename can change.
     [[nodiscard]] bool owns(const std::filesystem::path& path) const;
+    /// owns(), for a caller that doesn't hold the workspace's lock, on any thread.
+    [[nodiscard]] bool owned(const std::filesystem::path& path) const;
 
     /// Waits until no check waits or runs, as the tests do before they look.
     void settle();

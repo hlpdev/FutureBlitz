@@ -557,6 +557,37 @@ TEST_CASE("a file's code lenses count their references in one check of it and wh
         client.request("textDocument/codeLens", { { "textDocument", { { "uri", zoo_uri } } } });
     CHECK(fresh[2]["data"]["version"] == 2);
     CHECK(client.request("codeLens/resolve", fresh[2])["command"]["title"] == "3 references");
+
+    // A save changes no document's text, nor does the save's change on disk, so the lenses keep
+    // their check, and a references request shares it.
+    client.settle();
+    const std::size_t saved = client.server().workspace().history().size();
+    client.notify("textDocument/didSave", { { "textDocument", { { "uri", zoo_uri } } } });
+    client.notify("workspace/didChangeWatchedFiles",
+                  { { "changes", json_t::array({ { { "uri", zoo_uri }, { "type", 2 } } }) } });
+    CHECK(client.request("codeLens/resolve", fresh[9])["command"]["title"] == "1 reference");
+    CHECK(!client
+               .request("textDocument/references",
+                        {
+                            { "textDocument", { { "uri", zoo_uri } } },
+                            { "position", fresh[2]["data"]["position"] },
+                            { "context", { { "includeDeclaration", false } } },
+                        })
+               .empty());
+    CHECK(client.server().workspace().history().size() == saved);
+
+    // Other folders can import it, so a change of the folders checks again.
+    client.notify("workspace/didChangeWorkspaceFolders", {
+                                                             {
+                                                                 "event",
+                                                                 {
+                                                                     { "added", json_t::array() },
+                                                                     { "removed", json_t::array() },
+                                                                 },
+                                                             },
+                                                         });
+    CHECK(client.request("codeLens/resolve", fresh[9])["command"]["title"] == "1 reference");
+    CHECK(client.server().workspace().history().size() > saved);
 }
 
 TEST_CASE("lens resolves behind a change are stale, and a cancelled request isn't answered",
@@ -589,6 +620,23 @@ TEST_CASE("lens resolves behind a change are stale, and a cancelled request isn'
     }
 
     CHECK(client.response(hover)["error"]["code"] == -32800);
+
+    // A message waiting whose method isn't a string is the client's mistake, which no other
+    // message's handling trips on.
+    client.queue_message({ { "jsonrpc", "2.0" }, { "id", 900 }, { "method", 5 } });
+    client.queue_message({ { "jsonrpc", "2.0" }, { "method", json_t::array() } });
+    CHECK(client
+              .request("textDocument/hover",
+                       {
+                           { "textDocument", { { "uri", zoo_uri } } },
+                           { "position", client_t::position(3, 17) },
+                       })
+              .is_object());
+    const json_t current =
+        client.request("textDocument/codeLens", { { "textDocument", { { "uri", zoo_uri } } } });
+    CHECK(client.request("codeLens/resolve", current[2]).contains("command"));
+    client.drain();
+    CHECK(client.response(900)["error"]["code"] == -32601);
 }
 
 TEST_CASE("each file's @Test Functions are sent as the checks find them, with fb test's names",

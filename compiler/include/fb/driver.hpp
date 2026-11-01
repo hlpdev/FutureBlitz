@@ -304,9 +304,6 @@ struct check_request_t {
     /// Whether the inspections look: for the checks whose diagnostics are published, but not
     /// for references' and renames', which only need what's declared and used.
     bool inspect = true;
-    /// The editor's folders, outside which a package isn't the workspace's to change, so its
-    /// code has no lints; none for a check without any.
-    std::vector<std::filesystem::path> folders;
 };
 
 /// For the LSP, which checks only the files an edit touches: `request`'s files, each a module of

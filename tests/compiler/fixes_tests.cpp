@@ -633,6 +633,14 @@ TEST_CASE("an Import goes after an #If among the Imports, and after a module's d
     CHECK(fb::import_offset("Import std.core\nFrom std.math Import Clamp,\n    Lerp\nPrint(1)\n") ==
           std::string_view("Import std.core\nFrom std.math Import Clamp,\n    Lerp\n").size());
     CHECK(fb::import_offset("\xEF\xBB\xBFPrint(1)\n") == 3);
+    // A From line goes on after a comma with spaces or a comment after it.
+    for (const std::string_view from : {
+             "From std.math Import Clamp,  \n    Lerp\n",
+             "From std.math Import Clamp, // and\n    Lerp\n",
+         }) {
+        const std::string text = std::string(from) + "Print(1)\n";
+        CHECK(fb::import_offset(text) == from.size());
+    }
 }
 
 TEST_CASE("a missing End goes before a doc comment and an #If, not into them", "[fixes]") {

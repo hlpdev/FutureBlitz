@@ -302,12 +302,30 @@ void server_t::handle(const json_t& message) {
         return;
     }
 
-    if (m_inbox != nullptr && m_inbox->take_cancel(id)) {
-        fail(id, error_code_t::REQUEST_CANCELLED, "the client cancelled it");
+    if (method == "codeLens/resolve") {
+        {
+            const std::scoped_lock lock(m_lens_mutex);
+            m_lens_jobs.push_back({ .id = id, .lens = params });
+            if (!m_lens_thread.joinable()) {
+                m_lens_thread =
+                    std::jthread([this](const std::stop_token& stop) { answer_lenses(stop); });
+            }
+        }
+
+        m_lens_ready.notify_one();
         return;
     }
 
+    answer_request(id, method, params);
+}
+
+void server_t::answer_request(const json_t& id, const std::string& method, const json_t& params) {
     try {
+        if (m_inbox != nullptr && m_inbox->take_cancel(id)) {
+            fail(id, error_code_t::REQUEST_CANCELLED, "the client cancelled it");
+            return;
+        }
+
         if (std::optional<json_t> result = answer(method, params)) {
             respond(id, std::move(*result));
         } else {
@@ -437,10 +455,83 @@ std::optional<json_t> server_t::answer(const std::string& method, const json_t& 
     return std::nullopt;
 }
 
+void server_t::answer_lenses(const std::stop_token& stop) {
+    while (true) {
+        lens_job_t job;
+        {
+            std::unique_lock lock(m_lens_mutex);
+            if (!m_lens_ready.wait(lock, stop, [this] { return !m_lens_jobs.empty(); })) {
+                return;
+            }
+
+            job = std::move(m_lens_jobs.front());
+            m_lens_jobs.pop_front();
+        }
+
+        answer_request(job.id, "codeLens/resolve", job.lens);
+    }
+}
+
+std::vector<std::shared_ptr<const compilation_t>>
+server_t::dependents(const std::filesystem::path& file) {
+    const std::optional<std::pair<std::string, std::int64_t>> document =
+        m_workspace->document(file);
+    if (!document) {
+        return m_workspace->with_dependents(file);
+    }
+
+    // The first to ask for a version makes its checks, which the rest wait for.
+    std::promise<std::vector<std::shared_ptr<const compilation_t>>> made;
+    std::shared_future<std::vector<std::shared_ptr<const compilation_t>>> known;
+    {
+        const std::scoped_lock lock(m_dependents_mutex);
+        dependents_t& found = m_dependents[file_key(file)];
+        if (found.compilations.valid() && found.version == document->second) {
+            known = found.compilations;
+        } else {
+            found = { .version = document->second, .compilations = made.get_future().share() };
+        }
+    }
+
+    if (known.valid()) {
+        return known.get();
+    }
+
+    try {
+        std::vector<std::shared_ptr<const compilation_t>> compilations =
+            m_workspace->with_dependents(file);
+        made.set_value(compilations);
+        return compilations;
+    } catch (...) {
+        made.set_exception(std::current_exception());
+        throw;
+    }
+}
+
+void server_t::forget_dependents() {
+    const std::scoped_lock lock(m_dependents_mutex);
+    m_dependents.clear();
+}
+
 void server_t::notified(const std::string& method, const json_t& params) {
-    // What a change of any file can change the references of.
-    if (method.starts_with("textDocument/did") || method == "workspace/didChangeWatchedFiles") {
-        m_lens_checks.clear();
+    // What a change of any file can change the references of. A save changes no document's text,
+    // nor does a change on disk of an open document's file, which the checks read from the
+    // editor.
+    if (method == "textDocument/didOpen" || method == "textDocument/didChange" ||
+        method == "textDocument/didClose" || method == "workspace/didChangeWorkspaceFolders") {
+        forget_dependents();
+    } else if (method == "workspace/didChangeWatchedFiles") {
+        const json_t changes = params.value("changes", json_t::array());
+        const bool documents =
+            changes.is_array() && std::ranges::all_of(changes, [&](const json_t& change) {
+                const json_t uri = change.is_object() ? change.value("uri", json_t()) : json_t();
+                const std::optional<std::filesystem::path> path =
+                    uri.is_string() ? path_of(uri.get<std::string>()) : std::nullopt;
+                return path && m_workspace->document(*path).has_value();
+            });
+        if (!documents) {
+            forget_dependents();
+        }
     }
 
     if (method == "exit") {
@@ -701,7 +792,7 @@ std::optional<server_t::target_t> server_t::target(const json_t& params) {
     std::vector<std::shared_ptr<const compilation_t>> compilations{ checked->compilation };
     const std::optional<std::filesystem::path> declared = query.declared_in(named->symbol);
     if (declared) {
-        compilations = m_workspace->with_dependents(*declared);
+        compilations = dependents(*declared);
     }
 
     return target_t{
@@ -797,8 +888,7 @@ json_t server_t::rename(const json_t& params) {
         more = false;
         for (const std::filesystem::path& file : set.files) {
             if (checked_files.insert(file_key(file)).second) {
-                std::ranges::move(m_workspace->with_dependents(file),
-                                  std::back_inserter(compilations));
+                std::ranges::move(dependents(file), std::back_inserter(compilations));
                 more = true;
             }
         }
@@ -1050,7 +1140,7 @@ json_t server_t::call_hierarchy(const std::string& method, const json_t& params)
     // Who calls it is in the checks of its file and what imports it, and what it calls in its
     // file's.
     if (method == "callHierarchy/incomingCalls") {
-        return incoming_calls(m_workspace->with_dependents(item->second), item->first, m_positions);
+        return incoming_calls(dependents(item->second), item->first, m_positions);
     }
 
     if (method != "callHierarchy/outgoingCalls") {
@@ -1086,7 +1176,7 @@ json_t server_t::type_hierarchy(const std::string& method, const json_t& params)
     }
 
     if (method == "typeHierarchy/subtypes") {
-        return subtypes(m_workspace->with_dependents(item->second), item->first, m_positions);
+        return subtypes(dependents(item->second), item->first, m_positions);
     }
 
     if (method != "typeHierarchy/supertypes") {
@@ -1146,20 +1236,23 @@ json_t server_t::resolve_code_lens(json_t lens) {
     }
 
     // A lens of a version the document has moved on from, or will once a change waiting behind
-    // it is read, is the client's to ask for again.
+    // it is read, is the client's to ask for again, before its check and after.
     const std::string uri = data.at("uri").get<std::string>();
     const json_t params{
         { "textDocument", { { "uri", uri } } },
         { "position", data.at("position") },
     };
     const std::optional<std::filesystem::path> path = document_path(params);
-    const std::optional<std::pair<std::string, std::int64_t>> document =
-        path ? m_workspace->document(*path) : std::nullopt;
-    if ((data.contains("version") &&
-         (!document || document->second != data.at("version").get<std::int64_t>())) ||
-        (m_inbox != nullptr && m_inbox->changes(uri))) {
-        throw content_modified_t("the document changed since its code lenses were given");
-    }
+    const auto stale = [&] {
+        const std::optional<std::pair<std::string, std::int64_t>> document =
+            path ? m_workspace->document(*path) : std::nullopt;
+        if ((data.contains("version") &&
+             (!document || document->second != data.at("version").get<std::int64_t>())) ||
+            (m_inbox != nullptr && m_inbox->changes(uri))) {
+            throw content_modified_t("the document changed since its code lenses were given");
+        }
+    };
+    stale();
 
     const std::optional<checked_t> checked = path ? m_workspace->checked(*path) : std::nullopt;
     if (!checked) {
@@ -1177,24 +1270,13 @@ json_t server_t::resolve_code_lens(json_t lens) {
     // until it changes.
     std::vector<std::shared_ptr<const compilation_t>> compilations{ checked->compilation };
     if (const std::optional<std::filesystem::path> declared = query.declared_in(named->symbol)) {
-        if (document && file_key(*declared) == file_key(*path)) {
-            lens_check_t& check = m_lens_checks[file_key(*path)];
-            if (check.compilations.empty() || check.version != document->second) {
-                check = {
-                    .version = document->second,
-                    .compilations = m_workspace->with_dependents(*declared),
-                };
-            }
-
-            compilations = check.compilations;
-        } else {
-            compilations = m_workspace->with_dependents(*declared);
-        }
+        compilations = dependents(*declared);
     }
 
+    stale();
     const symbol_key_t key = query.key(named->symbol);
     const auto kept = [this](const std::filesystem::path& file) {
-        return m_workspace->owns(file) || m_workspace->document(file).has_value();
+        return m_workspace->owned(file) || m_workspace->document(file).has_value();
     };
     const json_t found =
         lsp::references(compilations, std::span(&key, 1), false, kept, m_positions);

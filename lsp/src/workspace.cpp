@@ -948,6 +948,11 @@ bool workspace_t::owns(const std::filesystem::path& path) const {
     });
 }
 
+bool workspace_t::owned(const std::filesystem::path& path) const {
+    const std::scoped_lock lock(m_mutex);
+    return owns(path);
+}
+
 void workspace_t::settle() {
     std::unique_lock lock(m_mutex);
     m_done.wait(lock, [this] {
@@ -1058,8 +1063,6 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
         }
     }
 
-    std::vector<std::filesystem::path> folders = m_folders;
-
     const std::uint64_t generation = m_generation;
     disk_cache_t* disk = m_watched ? &m_disk : nullptr;
     ++m_running;
@@ -1078,7 +1081,6 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
         .workspace = std::move(workspace),
         // References' and renames' checks aren't published.
         .inspect = !job.examples,
-        .folders = std::move(folders),
     });
     std::shared_ptr<const compilation_t> compilation =
         result ? std::make_shared<const compilation_t>(std::move(*result)) : nullptr;

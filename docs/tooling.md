@@ -653,7 +653,7 @@ a half times it:
 
 | What | Budget |
 |---|---|
-| A syntax error shown, from the keystroke | 50 ms |
+| A syntax error shown, from the keystroke, with a file's lens resolves waiting or being checked | 50 ms |
 | A type error shown, from the last keystroke | 300 ms |
 | Completion, hover, signature help, highlights | 100 ms |
 | Every code lens of a file resolved, as the editor asks once it's shown | 1,000 ms |
@@ -1043,8 +1043,27 @@ those of the Methods a loop over its type's Methods calls, aren't unused. Code n
 isn't reported in a function with an `#If`, nor are redundant As's and constant conditions in
 a file with one or on a type an Alias under one names. `shadowed` is for Locals, parameters,
 loop variables, and Consts in functions, not an Enum's values, and a base Class's Field that
-code can't use isn't hidden. A package in the cache, or, in the editor, outside its folders
-(`check_request_t::folders`), has no lints.
+code can't use isn't hidden. A package opened from the cache, as a registry's packages are
+there, has no lints (`in_cache`).
+
+**The lens fixes' recheck** (2026-11-01): a file's check with what imports it is made once a
+version of the document, whatever asks for it, references, a rename, a hierarchy, or a lens
+(`server_t::dependents`, which the first to ask makes and the rest wait for), and a save, or
+a change on disk of an open document's file, keeps it, as the checks read the editor's text; a
+change of a document, of another file on disk, or of the folders empties it. Code lens
+resolves are answered on a thread of their own, so an edit never waits on their check, and a
+resolve whose document moved on, before its check or after, is ContentModified. The benchmark
+times a syntax error typed while the lens thread checks (`change_during_lenses`). An Import goes
+after a From line that goes on past a comma with spaces or a comment after it; and a waiting
+message whose method isn't a string doesn't stop fb-lsp.
+
+**The inspections' recheck** (2026-11-01): a Const whose initializer isn't known at compile
+time runs it as a Global does, so neither it nor an Import of its module is unused; a Local's
+Remove is offered only when its value holds no object (`holds_object`) and reads no
+ThreadLocal Global, which `pure` counts as a call; `redundant_as` and `constant_condition` leave
+an operand that names a Function or Field declared in a file with an `#If`, or is C's long or
+wchar_t (`varies` of an expression). The editor's folders no longer turn lints off: a path
+dependency's show as fb build applies them, and only a package opened from the cache has none.
 
 ## Not in M8
 

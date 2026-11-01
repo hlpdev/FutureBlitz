@@ -6,15 +6,20 @@
 #include "fb/lsp/query.hpp"
 #include "fb/lsp/workspace.hpp"
 
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <filesystem>
 #include <functional>
+#include <future>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <stop_token>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace fb::lsp {
@@ -37,7 +42,8 @@ public:
 
     /// The messages waiting behind the one being handled, which it looks at: a request whose
     /// $/cancelRequest waits is cancelled, and a code lens of a document whose change waits is
-    /// stale. Without one, each message is handled as it comes.
+    /// stale. Without one, each message is handled as it comes. A code lens's resolve is answered
+    /// on a thread of its own, after handle() returns, so no edit waits on its check.
     void set_inbox(inbox_t* inbox) {
         m_inbox = inbox;
     }
@@ -84,16 +90,29 @@ private:
     /// The standard library's modules, as an Import names them.
     std::vector<std::string> m_std_modules;
     inbox_t* m_inbox = nullptr;
-    /// For each open document whose code lenses are resolved, by its key: the check of it and
-    /// what imports it, which every one of its lenses counts its references in, and the version
-    /// it was for. Any document's change empties it.
-    struct lens_check_t {
+    /// For each open document, by its key: the check of it and what imports it, made once for a
+    /// version of it, which references, renames, the hierarchies, and every one of its code
+    /// lenses share, and the version. A change of a document's text, a file's on disk, or the
+    /// folders empties it, but a save doesn't, as the checks read the editor's text.
+    struct dependents_t {
         std::int64_t version = 0;
-        std::vector<std::shared_ptr<const compilation_t>> compilations;
+        std::shared_future<std::vector<std::shared_ptr<const compilation_t>>> compilations;
     };
-    std::map<std::string, lens_check_t> m_lens_checks;
-    /// Last, so it's destroyed first, and its threads stop before what they send through.
+    std::map<std::string, dependents_t> m_dependents;
+    std::mutex m_dependents_mutex;
+    /// The code lens resolves waiting for the lens thread, each with its request's id.
+    struct lens_job_t {
+        json_t id;
+        json_t lens;
+    };
+    std::deque<lens_job_t> m_lens_jobs;
+    std::mutex m_lens_mutex;
+    std::condition_variable_any m_lens_ready;
+    /// After what its threads send through, so it's destroyed, and they stop, before that.
     std::unique_ptr<workspace_t> m_workspace;
+    /// After the workspace, so it stops first, as it reads the workspace's checks: the thread
+    /// that answers code lens resolves, started with the first.
+    std::jthread m_lens_thread;
 
     void send(const json_t& message);
     /// Asks the client to watch every file of `folders`, or of its own folders when it's empty.
@@ -102,6 +121,15 @@ private:
     void answered(const json_t& response);
     void respond(const json_t& id, json_t result);
     void fail(const json_t& id, error_code_t code, const std::string& message);
+    /// Answers a request, or says why it can't.
+    void answer_request(const json_t& id, const std::string& method, const json_t& params);
+    /// The lens thread's work: each waiting resolve answered, until it's asked to stop.
+    void answer_lenses(const std::stop_token& stop);
+    /// The checks of `file` and what imports it, which every use of what it declares is in, made
+    /// once for each version of an open document.
+    std::vector<std::shared_ptr<const compilation_t>> dependents(const std::filesystem::path& file);
+    /// m_dependents emptied.
+    void forget_dependents();
     void publish(const published_t& published);
 
     /// What a request answers, or nullopt for one the server doesn't know.

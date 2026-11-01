@@ -105,6 +105,8 @@ public:
 
     /// The response to a request queue() put in, once it's drained.
     [[nodiscard]] json_t response(std::int64_t id) const;
+    /// Adds a message as it is, which drain() handles.
+    void queue_message(json_t message);
 
     void open(const std::string& uri, std::string_view text);
     /// Replaces the document's whole text.
@@ -161,7 +163,7 @@ private:
     void mark(const std::string& uri);
 
     mutable std::mutex m_mutex;
-    std::condition_variable m_arrived;
+    mutable std::condition_variable m_arrived;
     std::vector<json_t> m_received;
     /// How many messages had come when each document last changed.
     std::map<std::string, std::size_t> m_changed_at;

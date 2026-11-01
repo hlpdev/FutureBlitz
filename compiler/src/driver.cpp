@@ -171,8 +171,6 @@ struct file_set_t {
     /// Whether the inspections look, which a check that only answers questions, as references
     /// do, doesn't need.
     bool inspect = true;
-    /// For the LSP, the editor's folders, outside which a package's code has no lints.
-    std::vector<std::filesystem::path> folders;
 };
 
 /// Notes that `id`'s file is at `path` on disk.
@@ -2029,19 +2027,6 @@ private:
         if (!package.generated.empty() && !on_disk.empty() &&
             is_under(on_disk, package.generated)) {
             return std::nullopt;
-        }
-
-        if (!m_files.folders.empty()) {
-            const std::optional<std::filesystem::path> root = disk::real_path(package.root);
-            const bool outside =
-                !root ||
-                std::ranges::none_of(m_files.folders, [&](const std::filesystem::path& folder) {
-                    const std::optional<std::filesystem::path> real = disk::real_path(folder);
-                    return real && is_under(*root, *real);
-                });
-            if (outside) {
-                return std::nullopt;
-            }
         }
 
         return package.lints;
@@ -4277,8 +4262,6 @@ std::expected<compilation_t, std::string> compile_package(
                           .generated = std::move(generated),
                           .root_bodies = request != nullptr,
                           .inspect = request == nullptr || request->inspect,
-                          .folders = request != nullptr ? request->folders
-                                                        : std::vector<std::filesystem::path>(),
                       },
                       path, mode);
         record_builds(compilation, others);
@@ -4297,21 +4280,19 @@ std::expected<compilation_t, std::string> compile_package(
         own.prefix + program_path(disk::real_path(own.root).value_or(own.root),
                                   disk::real_path(main_path).value_or(main_path));
     std::erase(extra, path);
-    run_front_end(
-        compilation,
-        {
-            .root = root,
-            .packages = std::move(*packages),
-            .extra = std::move(extra),
-            .testing = testing,
-            .read = read,
-            .cache = request != nullptr ? request->cache : nullptr,
-            .generated = std::move(generated),
-            .root_bodies = request != nullptr,
-            .inspect = request == nullptr || request->inspect,
-            .folders = request != nullptr ? request->folders : std::vector<std::filesystem::path>(),
-        },
-        path, mode);
+    run_front_end(compilation,
+                  {
+                      .root = root,
+                      .packages = std::move(*packages),
+                      .extra = std::move(extra),
+                      .testing = testing,
+                      .read = read,
+                      .cache = request != nullptr ? request->cache : nullptr,
+                      .generated = std::move(generated),
+                      .root_bodies = request != nullptr,
+                      .inspect = request == nullptr || request->inspect,
+                  },
+                  path, mode);
     record_builds(compilation, others);
     return compilation;
 }

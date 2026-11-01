@@ -16979,8 +16979,7 @@ private:
             info(right_known ? node.right : node.left).value;
         const type_id_t type = info(varying).type;
         const std::uint32_t bits = bit_width(type);
-        if (!known || !is_integer(type) || bits == 0 || bits > 64 ||
-            varies(type, span_of(id).file)) {
+        if (!known || !is_integer(type) || bits == 0 || bits > 64 || varies(varying)) {
             return;
         }
 
@@ -17075,11 +17074,30 @@ private:
         });
     }
 
+    /// Whether an expression's type may be another in another build, which code where it is
+    /// can't tell: as varies() says of its type, or it names what's declared in a file with an
+    /// #If, a Function whose result or a Field whose type an #If may change.
+    [[nodiscard]] bool varies(const expr_id_t id) const {
+        if (varies(m_analysis.exprs[index(id)].type, span_of(id).file)) {
+            return true;
+        }
+
+        std::optional<symbol_id_t> named = m_analysis.exprs[index(id)].symbol;
+        if (const auto* call = std::get_if<call_expr_t>(&m_ast.get(id).node)) {
+            named = m_analysis.exprs[index(call->callee)].symbol;
+        }
+
+        const symbol_t* declared = named ? &m_analysis.symbols[index(*named)] : nullptr;
+        return declared != nullptr && !declared->span.empty() &&
+               has_directives(whole_file(declared->span.file));
+    }
+
     /// Whether a type may be another in another build, which code in `file` can't tell: the
-    /// file has an #If, or the type is one an Alias in a file with an #If names, as a platform's
-    /// handle's is.
+    /// file has an #If, the type is C's long or wchar_t, whose sizes follow the target, or it's
+    /// one an Alias in a file with an #If names, as a platform's handle's is.
     [[nodiscard]] bool varies(const type_id_t type, const file_id_t file) const {
-        if (has_directives(whole_file(file))) {
+        if (has_directives(whole_file(file)) || type == type_id_t::CLONG ||
+            type == type_id_t::CULONG || type == type_id_t::CWCHAR) {
             return true;
         }
 
@@ -17228,8 +17246,11 @@ private:
                 continue;
             }
 
+            // A Const's initializer that isn't known at compile time runs as a Global's does.
             const auto* variable =
-                declared.kind == symbol_kind_t::GLOBAL && declared.declaration
+                (declared.kind == symbol_kind_t::GLOBAL ||
+                 declared.kind == symbol_kind_t::CONSTANT) &&
+                        declared.declaration
                     ? std::get_if<variable_stmt_t>(&m_ast.get(*declared.declaration).node)
                     : nullptr;
             if (variable != nullptr && variable->value && !pure(*variable->value)) {
@@ -17442,7 +17463,9 @@ private:
                                                      "'{}' is never used", declared.name)
                                               : lint(lint_t::UNUSED_LOCAL, declared.span,
                                                      "'{}' is set, but never read", declared.name);
-        if (uses.empty() && variable != nullptr && (!variable->value || pure(*variable->value))) {
+        // Holding an object until the function returns can matter, as its Destroy runs then.
+        if (uses.empty() && variable != nullptr &&
+            (!variable->value || (pure(*variable->value) && !holds_object(declared.type)))) {
             reported.with_suggestion(std::format("Remove '{}'", declared.name),
                                      { removal(m_ast.get(*declared.declaration).span) });
         }
@@ -17454,20 +17477,22 @@ private:
 
     /// Whether working out an expression only reads, so leaving it out changes nothing: a
     /// literal, a Local, parameter, Const, Global, or Field, or operations and collections of
-    /// those, with no call. A Property's Get is a call.
+    /// those, with no call. A Property's Get is a call, and so is a ThreadLocal Global's read,
+    /// which runs its initializer on a thread that hasn't.
     [[nodiscard]] bool pure(const expr_id_t id) const {
         const expr_node_t& node = m_ast.get(id).node;
         if (const std::optional<symbol_id_t> named = m_analysis.exprs[index(id)].symbol) {
-            switch (std::holds_alternative<name_expr_t>(node)
-                        ? m_analysis.symbols[index(*named)].kind
-                        : symbol_kind_t::FUNCTION) {
+            const symbol_t& read = m_analysis.symbols[index(*named)];
+            switch (std::holds_alternative<name_expr_t>(node) ? read.kind
+                                                              : symbol_kind_t::FUNCTION) {
             case symbol_kind_t::LOCAL:
             case symbol_kind_t::PARAMETER:
             case symbol_kind_t::LOOP_VARIABLE:
             case symbol_kind_t::CONSTANT:
-            case symbol_kind_t::GLOBAL:
             case symbol_kind_t::FIELD:
                 return true;
+            case symbol_kind_t::GLOBAL:
+                return !read.modifiers.is_thread_local;
             default:
                 return false;
             }
@@ -17650,8 +17675,8 @@ private:
             const auto* variable = std::get_if<variable_stmt_t>(&node);
             if (variable == nullptr || variable->kind == variable_kind_t::LOCAL ||
                 declared.owner != type_id_t::INVALID || !usage.globals.contains(id) ||
-                (declared.kind == symbol_kind_t::GLOBAL &&
-                 ((variable->value && !pure(*variable->value)) || has_destroy(declared.type)))) {
+                ((variable->value && !pure(*variable->value)) ||
+                 (declared.kind == symbol_kind_t::GLOBAL && has_destroy(declared.type)))) {
                 return;
             }
 
@@ -17718,6 +17743,44 @@ private:
              declared.name)
             .with_suggestion(std::format("Remove '{}'", declared.name),
                              { declaration_removal(statement, modifiers->start) });
+    }
+
+    /// Whether a value of `type` is, or holds, an object, which keeps it while it's held: a
+    /// Class's, an Interface's, a closure's, or what a type parameter, a Task, or a Channel may
+    /// be, but not a Weak's.
+    [[nodiscard]] bool holds_object(const type_id_t type) const {
+        std::vector<type_id_t> seen;
+        return holds_object(type, seen);
+    }
+
+    /// The same, each Struct and tuple once, as one's array can hold its own kind.
+    [[nodiscard]] bool holds_object(const type_id_t type, std::vector<type_id_t>& seen) const {
+        const type_t& found = m_analysis.types.get(type);
+        switch (found.kind) {
+        case type_kind_t::BUILTIN:
+        case type_kind_t::ENUM:
+        case type_kind_t::WEAK:
+        case type_kind_t::VALUE:
+        case type_kind_t::PTR:
+            return false;
+        case type_kind_t::NULLABLE:
+        case type_kind_t::ARRAY:
+        case type_kind_t::FIXED_ARRAY:
+        case type_kind_t::ATOMIC:
+        case type_kind_t::MUTEX:
+            return holds_object(found.inner, seen);
+        case type_kind_t::STRUCT:
+        case type_kind_t::TUPLE:
+            if (std::ranges::contains(seen, type)) {
+                return false;
+            }
+
+            seen.push_back(type);
+            return std::ranges::any_of(
+                found.fields, [&](const field_t& field) { return holds_object(field.type, seen); });
+        default:
+            return true;
+        }
     }
 
     /// Whether a type, or what a T? holds, has a Destroy, its own or a base Class's.
@@ -30122,8 +30185,7 @@ private:
         }
 
         if (source == target && typed_alone(node.value) &&
-            inspecting(lint_t::REDUNDANT_AS, span_of(id).file) &&
-            !varies(target, span_of(id).file)) {
+            inspecting(lint_t::REDUNDANT_AS, span_of(id).file) && !varies(node.value)) {
             lint(lint_t::REDUNDANT_AS, span_of(id),
                  "'{}' is {} already, so the As doesn't change it", text(node.value),
                  shown_name(target))

@@ -932,6 +932,26 @@ std::vector<token_t> lex_layout(const source_file_t& file, diagnostic_bag_t& dia
     return lexer_t(file, diagnostics, {}, &trivia).run();
 }
 
+namespace {
+
+/// A line's code: without a comment after it, or the spaces before that or the line's end.
+std::string_view code_of(std::string_view line) {
+    bool quoted = false;
+    for (std::size_t i = 0; i < line.size(); ++i) {
+        if (line[i] == '"') {
+            quoted = !quoted;
+        } else if (!quoted && line.substr(i).starts_with("//")) {
+            line = line.substr(0, i);
+            break;
+        }
+    }
+
+    const std::size_t last = line.find_last_not_of(" \t");
+    return last == std::string_view::npos ? std::string_view() : line.substr(0, last + 1);
+}
+
+} // namespace
+
 std::uint32_t import_offset(const std::string_view text) {
     std::size_t at = text.starts_with("\xEF\xBB\xBF") ? 3 : 0;
     std::size_t place = at;
@@ -961,7 +981,7 @@ std::uint32_t import_offset(const std::string_view text) {
         documented = false;
         // An Import's names can go on after a comma.
         if (continued) {
-            continued = trimmed.ends_with(',');
+            continued = code_of(trimmed).ends_with(',');
             if (depth == 0) {
                 place = next;
             }
@@ -984,7 +1004,7 @@ std::uint32_t import_offset(const std::string_view text) {
         } else if (trimmed.starts_with("#Else")) {
             continue;
         } else if (trimmed.starts_with("Import ") || trimmed.starts_with("From ")) {
-            continued = trimmed.ends_with(',');
+            continued = code_of(trimmed).ends_with(',');
             if (depth == 0) {
                 place = next;
             } else {

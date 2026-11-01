@@ -714,6 +714,30 @@ TEST_CASE("what leaving out would change isn't unused: what runs when a module l
     CHECK(found(loaded, fb::lint_t::UNUSED_IMPORT) ==
           found_t{ "\"./plain\": nothing in this file uses ./plain" });
 
+    // A Const whose initializer isn't known at compile time runs it as a Global does.
+    CHECK(found("Import std.core\n"
+                "Function Start(): Int\n"
+                "    Print(\"started\")\n"
+                "    Return 1\n"
+                "End Function\n"
+                "Const started = Start()\n"
+                "Print(\"main\")\n",
+                fb::lint_t::UNUSED_PRIVATE)
+              .empty());
+    const program_t constant{
+        { "test.fb", "Import std.core\nImport \"./setup\"\nPrint(\"main\")\n" },
+        {
+            "setup.fb",
+            "Import std.core\n"
+            "Function Init(): Int\n"
+            "    Print(\"init ran\")\n"
+            "    Return 1\n"
+            "End Function\n"
+            "Public Const ready = Init()\n",
+        },
+    };
+    CHECK(found(constant, fb::lint_t::UNUSED_IMPORT).empty());
+
     // Two files' Imports of a module whose Extend gives a String an Interface: both are kept, as
     // leaving out both would leave it unloaded.
     const program_t extended{
@@ -833,6 +857,50 @@ TEST_CASE("what leaving out would change isn't unused: what runs when a module l
                 fb::lint_t::UNUSED_PARAMETER)
               .empty());
 
+    // A Local set from a Property's Get, which runs code, from a ThreadLocal Global, whose read
+    // runs its initializer on a thread that hasn't, or holding an object until its function
+    // returns, is reported, but not left out.
+    const auto renamed_only = [](const std::string& program, const std::string_view name) {
+        const fb::compilation_t checked = compiled(program_t{ { "test.fb", program } });
+        bool reported = false;
+        for (const fb::diagnostic_t& diagnostic : checked.diagnostics.diagnostics()) {
+            if (diagnostic.lint == fb::lint_t::UNUSED_LOCAL) {
+                reported = true;
+                REQUIRE(diagnostic.suggestions.size() == 1);
+                CHECK(diagnostic.suggestions[0].title == std::format("Rename to '_{}'", name));
+            }
+        }
+
+        CHECK(reported);
+    };
+    renamed_only("Import std.core\n"
+                 "ThreadLocal Global counter = 0\n"
+                 "Function Peek()\n"
+                 "    Local seen = counter\n"
+                 "End Function\n"
+                 "Peek()\n",
+                 "seen");
+    renamed_only("Import std.core\n"
+                 "Class Res\n"
+                 "    Method Destroy()\n"
+                 "        Print(\"destroyed\")\n"
+                 "    End Method\n"
+                 "End Class\n"
+                 "Class Owner\n"
+                 "    Field item: Res?\n"
+                 "    New()\n"
+                 "        item = Res()\n"
+                 "    End New\n"
+                 "    Method Clear()\n"
+                 "        Local old = item\n"
+                 "        item = Null\n"
+                 "        Print(\"cleared\")\n"
+                 "    End Method\n"
+                 "End Class\n"
+                 "Owner().Clear()\n"
+                 "Print(\"end\")\n",
+                 "old");
+
     // A Local set from a Property's Get, which runs code, is reported, but not left out.
     const std::string skipped = "Import std.core\n"
                                 "Class Counter\n"
@@ -925,6 +993,37 @@ TEST_CASE("the inspections leave what another build may see otherwise, and what 
         },
     };
     CHECK(found(derived, fb::lint_t::SHADOWED).empty());
+
+    // A Function's result, or a Struct's Field's type, that an #If in another file chooses.
+    const program_t chosen{
+        {
+            "test.fb",
+            "Import std.core\n"
+            "Import \"./lib\"\n"
+            "Function Fits(s: Size): Bool => s.w <= 2147483647\n"
+            "Local big = Fd() As Int64\n"
+            "big = big * 3000000000\n"
+            "Print(big)\n"
+            "Print(Fits(Size(5)))\n",
+        },
+        {
+            "lib.fb",
+            "#If DEBUG\n"
+            "Public Function Fd(): Int64 => 5\n"
+            "#Else\n"
+            "Public Function Fd(): Int32 => 5\n"
+            "#End If\n"
+            "Public Struct Size\n"
+            "#If DEBUG\n"
+            "    Public Field w: Int32\n"
+            "#Else\n"
+            "    Public Field w: Int64\n"
+            "#End If\n"
+            "End Struct\n",
+        },
+    };
+    CHECK(found(chosen, fb::lint_t::REDUNDANT_AS).empty());
+    CHECK(found(chosen, fb::lint_t::CONSTANT_CONDITION).empty());
     CHECK(found("Import std.core\n"
                 "Function Save(): Int => 1\n"
                 "Enum Action\n"

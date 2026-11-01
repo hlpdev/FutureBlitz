@@ -144,15 +144,8 @@ json_t client_t::send(const std::string& method, json_t params) {
         { "method", method },
         { "params", std::move(params) },
     });
-    const std::scoped_lock lock(m_mutex);
-    for (const json_t& message : m_received) {
-        if (message.contains("id") && message["id"] == id && !message.contains("method")) {
-            return message;
-        }
-    }
-
-    FAIL("no response to " << method);
-    return nullptr;
+    INFO(method);
+    return response(id);
 }
 
 json_t client_t::request(const std::string& method, json_t params) {
@@ -212,6 +205,10 @@ void client_t::queue_change(const std::string& uri, const std::string_view text)
     });
 }
 
+void client_t::queue_message(json_t message) {
+    m_inbox.push(std::move(message));
+}
+
 void client_t::drain() {
     while (const std::optional<json_t> message = m_inbox.try_pop()) {
         m_server.handle(*message);
@@ -219,15 +216,26 @@ void client_t::drain() {
 }
 
 json_t client_t::response(const std::int64_t id) const {
-    const std::scoped_lock lock(m_mutex);
-    for (const json_t& message : m_received) {
-        if (message.contains("id") && message["id"] == id && !message.contains("method")) {
-            return message;
+    // A code lens's resolve is answered on the server's lens thread, once handle() has returned.
+    std::unique_lock lock(m_mutex);
+    std::size_t next = 0;
+    json_t found;
+    const bool arrived = m_arrived.wait_for(lock, std::chrono::minutes(2), [&] {
+        for (; next < m_received.size(); ++next) {
+            const json_t& message = m_received[next];
+            if (message.contains("id") && message["id"] == id && !message.contains("method")) {
+                found = message;
+                return true;
+            }
         }
+
+        return false;
+    });
+    if (!arrived) {
+        FAIL("no response to request " << id);
     }
 
-    FAIL("no response to request " << id);
-    return nullptr;
+    return found;
 }
 
 void client_t::change(const std::string& uri, const std::string_view text) {

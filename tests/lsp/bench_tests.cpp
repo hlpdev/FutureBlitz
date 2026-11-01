@@ -141,6 +141,12 @@ std::vector<metric_t> metrics() {
             .budget = milliseconds(50),
             .enforced = true,
         },
+        {
+            .name = "change_during_lenses",
+            .what = "a syntax error shown while the file's lens resolves check it",
+            .budget = milliseconds(50),
+            .enforced = true,
+        },
     };
 }
 
@@ -587,6 +593,31 @@ void measure(workload_t& workload, const std::size_t samples, const std::chrono:
         metric("syntax_error_lenses")
             .samples.push_back(milliseconds_t(steady_t::now() - edited).count());
         client.change(uri, text);
+        client.settle();
+    }
+
+    // A syntax error typed once the lens thread has started checking the lens file with what
+    // imports it, for a version no check has had: the edit's check doesn't wait for it.
+    const std::string lens_text = read(lens_file);
+    for (std::size_t sample = 0; sample < samples; ++sample) {
+        client.change(lens_uri, lens_text + std::string(sample + 1, '\n'));
+        client.settle();
+        for (const json_t& lens : client.request("textDocument/codeLens", lens_params)) {
+            (void)client.queue("codeLens/resolve", lens);
+        }
+
+        client.drain();
+        const steady_t::time_point edited = steady_t::now();
+        client.change(uri, unclosed);
+        CHECK(!client.published(uri).empty());
+        metric("change_during_lenses")
+            .samples.push_back(milliseconds_t(steady_t::now() - edited).count());
+        client.change(uri, text);
+        client.settle();
+    }
+
+    if (lens_uri != uri) {
+        client.change(lens_uri, lens_text);
         client.settle();
     }
 

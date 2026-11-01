@@ -215,6 +215,19 @@ Method to override, or the Class made Abstract (`member_stub`, `suggest_implemen
 (`added_end`, `changed_end`). `@MainThread` has no error it fixes, and `fb add`'s fix is in Deferred
 work. Tests: tests/compiler/fixes_tests.cpp, each fix made and its program compiled.
 
+The inspections' recheck (2026-11-01, on dev/m11): Consts in `m_effectful_modules` and
+`check_unused_private`'s effects; `holds_object` for unused_local's Remove, and `pure`'s
+ThreadLocal reads; `varies` of an expression, with C's long and wchar_t; `check_request_t` and
+`file_set_t` without `folders`. Tests in inspect_tests and driver_tests.
+
+The lens fixes' recheck (2026-11-01, on dev/m11): `server_t::dependents` and
+`forget_dependents`, with `dependents_t` and `m_dependents` in place of `lens_check_t`, kept
+across didSave and an open document's didChangeWatchedFiles, emptied by
+didChangeWorkspaceFolders; `answer_request`, and `answer_lenses` on `m_lens_thread`, with
+`lens_job_t` and `m_lens_jobs`; `workspace_t::owned`; `code_of` in import_offset; inbox.cpp's
+`text_at` and `object_in`; the test client's `response` waiting and `queue_message`; the
+benchmark's change_during_lenses. Tests in navigate_tests and fixes_tests.
+
 Step 6's review fixes (2026-11-01, on dev/m11): fb-lsp's checks with `examples` neither publish
 nor set `m_latest`; `m_effectful_modules` and `loads_effects`, `has_destroy`, and `pure`'s names
 by their kinds; `m_extends_interfaces` without the importers' count, for Extends of other
@@ -222,7 +235,7 @@ modules' Interfaces; `note_written` for an attribute's Attribute and qualifier;
 `m_reflected_parameters`, which `note_reflected_uses` adds to `m_reflected_types`;
 `has_directives`, `whole_file`, and `varies`, with `m_directives`; `report_shadowing` by kind and
 `self_member`'s `can_use`; `check_unused_parameters`' Protected and reflected Methods;
-`check_request_t::folders` and `file_set_t::folders`, and no lints in the cache (`in_cache`).
+and no lints in the cache (`in_cache`).
 Tests in inspect_tests, driver_tests, packages_tests, and feature_tests.
 
 Steps 4 and 5's review fixes (2026-10-31, on dev/m11): code lenses resolve from one check of their

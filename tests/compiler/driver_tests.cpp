@@ -4826,16 +4826,19 @@ TEST_CASE("check_files's inspections look unless it's asked not to, as reference
     CHECK(lints_in(true) == std::vector<std::string>{ "unused_local" });
     CHECK(lints_in(false).empty());
 
-    // A package outside the editor's folders isn't the workspace's, so its code has no lints.
-    const auto lints_with = [&](const std::filesystem::path& folder) {
-        const std::expected<fb::compilation_t, std::string> checked =
-            fb::check_files({ .files = { packages / "app/a.fb" }, .folders = { folder } });
-        REQUIRE(checked);
-        return checked->diagnostics.diagnostics().size();
-    };
-    packages.write("other/project.toml", "[project]\nname = \"other\"\nversion = \"0.1.0\"\n");
-    CHECK(lints_with(packages / "app") == 1);
-    CHECK(lints_with(packages / "other") == 0);
+    // A path dependency's own [lints] apply when it's checked, wherever the editor's folders
+    // are, as fb build applies them.
+    packages.write("lib/project.toml", "[project]\nname = \"lib\"\nversion = \"0.1.0\"\n\n[lints]\n"
+                                       "unused_local = \"error\"\n");
+    packages.write("lib/b.fb", "Public Function B(): Int\n    Local unused = 1\n    Return 2\nEnd "
+                               "Function\n");
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n"
+                                       "[dependencies]\nlib = { path = \"../lib\" }\n");
+    const std::expected<fb::compilation_t, std::string> dependency =
+        fb::check_files({ .files = { packages / "lib/b.fb" } });
+    REQUIRE(dependency);
+    REQUIRE(dependency->diagnostics.diagnostics().size() == 1);
+    CHECK(dependency->diagnostics.diagnostics().front().severity == fb::severity_t::ERROR);
     packages.remove();
 }
 
