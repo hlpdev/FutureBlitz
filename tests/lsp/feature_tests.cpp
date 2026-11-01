@@ -1014,6 +1014,30 @@ TEST_CASE("a miscased keyword's code action says what it writes", "[lsp]") {
               .empty());
 }
 
+namespace {
+
+/// `text` with formatting's edits made, last first, each by its line and column (ASCII text).
+std::string with_edits(std::string text, const json_t& edits) {
+    const auto offset = [&](const json_t& position) {
+        std::size_t at = 0;
+        for (int line = 0; line < position["line"].get<int>(); ++line) {
+            at = text.find('\n', at) + 1;
+        }
+
+        return at + position["character"].get<std::size_t>();
+    };
+    for (auto edit = edits.rbegin(); edit != edits.rend(); ++edit) {
+        const json_t& made = *edit;
+        const std::size_t begin = offset(made["range"]["start"]);
+        const std::size_t end = offset(made["range"]["end"]);
+        text.replace(begin, end - begin, made["newText"].get<std::string>());
+    }
+
+    return text;
+}
+
+} // namespace
+
 TEST_CASE("formatting gives the document in fb's style, and on save when asked", "[lsp]") {
     const folder_t folder(
         { { "project.toml", std::string(manifest) + "\n[format]\nwidth = 40\n" } });
@@ -1031,11 +1055,14 @@ TEST_CASE("formatting gives the document in fb's style, and on save when asked",
         { "textDocument", { { "uri", uri } } },
         { "options", { { "tabSize", 4 }, { "insertSpaces", true } } },
     };
+    // Only the lines that change, so what the editor keeps on the others, a warning's place among
+    // them, stays where it was.
     const json_t edits = client.request("textDocument/formatting", params);
     REQUIRE(edits.size() == 1);
-    CHECK(edits[0]["newText"] == "Import std.core\nLocal a = 1 + 2\nPrint(a)\n");
-    CHECK(edits[0]["range"]["start"] == client_t::position(0, 0));
+    CHECK(edits[0]["newText"] == "Local a = 1 + 2\nPrint(a)\n");
+    CHECK(edits[0]["range"]["start"] == client_t::position(1, 0));
     CHECK(edits[0]["range"]["end"] == client_t::position(3, 0));
+    CHECK(with_edits(text, edits) == "Import std.core\nLocal a = 1 + 2\nPrint(a)\n");
 
     const json_t saved =
         client.request("textDocument/willSaveWaitUntil",
@@ -1048,9 +1075,22 @@ TEST_CASE("formatting gives the document in fb's style, and on save when asked",
     client.change(uri, longer);
     const json_t broken = client.request("textDocument/formatting", params);
     REQUIRE(broken.size() == 1);
+    CHECK(broken[0]["range"]["start"] == client_t::position(1, 0));
     const fb::source_file_t file(fb::file_id_t{}, "main.fb", longer);
-    CHECK(broken[0]["newText"] == fb::format_source(file, 40).value_or(""));
-    CHECK(broken[0]["newText"] != longer);
+    CHECK(with_edits(longer, broken) == fb::format_source(file, 40).value_or(""));
+    CHECK(with_edits(longer, broken) != longer);
+
+    // Lines that don't change between two that do: an edit for each, and the one between kept.
+    const std::string apart = "Import std.core\nLocal   a=1\nPrint(a)\nLocal   b=2\nPrint(b)\n";
+    client.change(uri, apart);
+    const json_t two = client.request("textDocument/formatting", params);
+    REQUIRE(two.size() == 2);
+    CHECK(two[0]["range"]["start"] == client_t::position(1, 0));
+    CHECK(two[0]["range"]["end"] == client_t::position(2, 0));
+    CHECK(two[1]["range"]["start"] == client_t::position(3, 0));
+    CHECK(two[1]["range"]["end"] == client_t::position(4, 0));
+    CHECK(with_edits(apart, two) ==
+          "Import std.core\nLocal a = 1\nPrint(a)\nLocal b = 2\nPrint(b)\n");
 
     // Formatted already, or a file that doesn't parse: nothing to change.
     client.change(uri, "Import std.core\nLocal a = 1\n");
