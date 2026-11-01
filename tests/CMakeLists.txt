@@ -221,6 +221,11 @@ target_compile_definitions(fb_runtime_tests PRIVATE
   FB_TEST_TLS_KEY="${CMAKE_CURRENT_SOURCE_DIR}/native/http_server/server_key.pem"
   FB_TEST_TLS_CA="${CMAKE_CURRENT_SOURCE_DIR}/native/http_server/test_ca.pem")
 target_include_directories(fb_runtime_tests PRIVATE ${PROJECT_SOURCE_DIR}/runtime/src)
+# libuv and the bundled C libraries are built for MinGW's UCRT, as programs link it, so the tests
+# that link them link it too, with libstdc++ and libgcc linked in, as their DLLs use msvcrt.
+if(MINGW)
+  target_link_options(fb_runtime_tests PRIVATE -mcrtdll=ucrt -static-libstdc++ -static-libgcc)
+endif()
 fb_set_warnings(fb_runtime_tests)
 catch_discover_tests(fb_runtime_tests DISCOVERY_MODE PRE_TEST DL_PATHS ${FB_TEST_DLL_PATHS})
 

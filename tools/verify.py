@@ -355,14 +355,17 @@ def check_tidy(base: str, build: Path) -> None:
         return
     changed = {os.path.normcase(str(path)): changed_lines(base, path)
                for path in filter(is_cpp, changed_files(base))}
-    warning = re.compile(r"^(.*?):(\d+):\d+: warning: (.*)$", re.M)
+    finding = re.compile(r"^(.*?):(\d+):\d+: (warning|error): (.*)$", re.M)
     for path in (Path(name) for name in changed if name.endswith(".cpp")):
         output = run([clang_tidy, "-p", str(build), "--quiet", str(path)], cwd=ROOT)
-        for match in warning.finditer(output.stdout.decode(errors="replace")):
+        for match in finding.finditer(output.stdout.decode(errors="replace")):
             file = os.path.normcase(str(Path(match.group(1)).resolve()))
             line = int(match.group(2))
-            if file in changed and (changed[file] is None or line in changed[file]):
-                fail(f"{Path(match.group(1)).name}:{line}: {match.group(3)}")
+            # An error, as one that keeps clang-tidy from reading the file, means it wasn't
+            # checked, wherever the error is.
+            if match.group(3) == "error" or \
+                    (file in changed and (changed[file] is None or line in changed[file])):
+                fail(f"{Path(match.group(1)).name}:{line}: {match.group(4)}")
 
 
 def main() -> int:

@@ -43,6 +43,26 @@
 
 namespace {
 
+#ifdef _WIN32
+/// UTF-8 as Windows' UTF-16, and back.
+std::wstring wide_of(const std::string_view text) {
+    const int size =
+        MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
+    std::wstring wide(static_cast<std::size_t>(std::max<int>(size, 0)), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), wide.data(), size);
+    return wide;
+}
+
+std::string utf8_of(const std::wstring_view text) {
+    const int size = WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()),
+                                         nullptr, 0, nullptr, nullptr);
+    std::string bytes(static_cast<std::size_t>(std::max<int>(size, 0)), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), bytes.data(), size,
+                        nullptr, nullptr);
+    return bytes;
+}
+#endif
+
 /// What a folder's entry is, as std.io numbers its kinds.
 enum kind_t : std::uint8_t {
     KIND_FILE = 0,
@@ -249,8 +269,9 @@ std::int64_t known_error(const uv_fs_t* call, const std::int64_t result) {
 
 std::int64_t open_file(const std::string& path, const int flags, const int mode) {
     fs_t call;
-    return known_error(call.get(),
-                       uv_fs_open(nullptr, call.get(), path.c_str(), flags, mode, nullptr));
+    return known_error(
+        call.get(),
+        uv_fs_open(nullptr, call.get(), fb::runtime::os_path(path).c_str(), flags, mode, nullptr));
 }
 
 void close_file(const uv_file file) {
@@ -261,8 +282,9 @@ void close_file(const uv_file file) {
 /// What's at `path`, into `stat`, through a link unless `follow` is false.
 std::int64_t stat_path(const std::string& path, const bool follow, uv_stat_t& stat) {
     fs_t call;
-    const int result = follow ? uv_fs_stat(nullptr, call.get(), path.c_str(), nullptr)
-                              : uv_fs_lstat(nullptr, call.get(), path.c_str(), nullptr);
+    const std::string at = fb::runtime::os_path(path);
+    const int result = follow ? uv_fs_stat(nullptr, call.get(), at.c_str(), nullptr)
+                              : uv_fs_lstat(nullptr, call.get(), at.c_str(), nullptr);
     if (result == 0) {
         stat = call.get()->statbuf;
     }
@@ -455,18 +477,12 @@ constexpr auto file_rename_info_ex = static_cast<FILE_INFO_BY_HANDLE_CLASS>(22);
 std::int64_t replace_file(const std::string& from, const std::string& to) {
     const auto rename = [&] {
         fs_t call;
-        return uv_fs_rename(nullptr, call.get(), from.c_str(), to.c_str(), nullptr);
-    };
-    const auto wide = [](const std::string& path) {
-        const int length = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, nullptr, 0);
-        std::wstring text(static_cast<std::size_t>(std::max(length, 1)), L'\0');
-        MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, text.data(), length);
-        text.resize(text.size() - 1);
-        return text;
+        return uv_fs_rename(nullptr, call.get(), fb::runtime::os_path(from).c_str(),
+                            fb::runtime::os_path(to).c_str(), nullptr);
     };
 
     // The new name is a whole path, as the handle's rename takes it.
-    const std::wstring target = wide(to);
+    const std::wstring target = wide_of(fb::runtime::os_path(to));
     const DWORD needed = GetFullPathNameW(target.c_str(), 0, nullptr, nullptr);
     std::wstring full(needed, L'\0');
     const DWORD written = GetFullPathNameW(target.c_str(), needed, full.data(), nullptr);
@@ -475,7 +491,7 @@ std::int64_t replace_file(const std::string& from, const std::string& to) {
     }
 
     full.resize(written);
-    HANDLE file = CreateFileW(wide(from).c_str(), DELETE | SYNCHRONIZE,
+    HANDLE file = CreateFileW(wide_of(fb::runtime::os_path(from)).c_str(), DELETE | SYNCHRONIZE,
                               FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
                               OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) {
@@ -529,7 +545,7 @@ std::string linked_file(std::string path) {
         }
 
         fs_t call;
-        if (uv_fs_readlink(nullptr, call.get(), path.c_str(), nullptr) != 0) {
+        if (uv_fs_readlink(nullptr, call.get(), fb::runtime::os_path(path).c_str(), nullptr) != 0) {
             break;
         }
 
@@ -603,13 +619,11 @@ file_time_t time_of(const FILETIME& time) {
 /// keep seconds in a 32-bit long there, which runs out in 2038. Leaves them for a file Windows
 /// won't open.
 void windows_times(const std::string& path, const bool follow, std::array<file_time_t, 3>& times) {
-    const int length = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, nullptr, 0);
-    if (length <= 0) {
+    const std::wstring wide = wide_of(fb::runtime::os_path(path));
+    if (wide.empty()) {
         return;
     }
 
-    std::wstring wide(static_cast<std::size_t>(length), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, wide.data(), length);
     const DWORD flags = FILE_FLAG_BACKUP_SEMANTICS | (follow ? 0 : FILE_FLAG_OPEN_REPARSE_POINT);
     HANDLE file = CreateFileW(wide.c_str(), FILE_READ_ATTRIBUTES,
                               FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
@@ -659,7 +673,8 @@ std::int64_t stat_request(request_t& request) {
 
 std::int64_t copy_file(const std::string& from, const std::string& to) {
     fs_t call;
-    return uv_fs_copyfile(nullptr, call.get(), from.c_str(), to.c_str(), 0, nullptr);
+    return uv_fs_copyfile(nullptr, call.get(), fb::runtime::os_path(from).c_str(),
+                          fb::runtime::os_path(to).c_str(), 0, nullptr);
 }
 
 std::int64_t copy_request(const request_t& request) {
@@ -683,7 +698,7 @@ std::int64_t copy_request(const request_t& request) {
 
 std::int64_t remove_file(const std::string& path) {
     fs_t call;
-    return uv_fs_unlink(nullptr, call.get(), path.c_str(), nullptr);
+    return uv_fs_unlink(nullptr, call.get(), fb::runtime::os_path(path).c_str(), nullptr);
 }
 
 std::int64_t move_request(const request_t& request) {
@@ -711,8 +726,8 @@ std::int64_t move_request(const request_t& request) {
     std::int64_t result = 0;
     {
         fs_t call;
-        result =
-            uv_fs_rename(nullptr, call.get(), request.path.c_str(), request.other.c_str(), nullptr);
+        result = uv_fs_rename(nullptr, call.get(), fb::runtime::os_path(request.path).c_str(),
+                              fb::runtime::os_path(request.other).c_str(), nullptr);
     }
 
     // Another disk can't take a rename, so a file goes as a copy instead.
@@ -759,13 +774,13 @@ std::int64_t set_read_only(const request_t& request) {
     // owner.
     const std::uint64_t mode = request.flag != 0 ? stat.st_mode & ~0222U : stat.st_mode | 0200U;
     fs_t call;
-    return uv_fs_chmod(nullptr, call.get(), request.path.c_str(), static_cast<int>(mode & 07777U),
-                       nullptr);
+    return uv_fs_chmod(nullptr, call.get(), fb::runtime::os_path(request.path).c_str(),
+                       static_cast<int>(mode & 07777U), nullptr);
 }
 
 std::int64_t make_folder(const std::string& path) {
     fs_t call;
-    return uv_fs_mkdir(nullptr, call.get(), path.c_str(), 0777, nullptr);
+    return uv_fs_mkdir(nullptr, call.get(), fb::runtime::os_path(path).c_str(), 0777, nullptr);
 }
 
 /// `path` without the separators at its end, but for a root's.
@@ -842,7 +857,8 @@ std::int64_t create_request(const request_t& request) {
 /// bytes, from libuv's or, where it doesn't say, the OS's.
 std::int64_t list_folder(const std::string& path, std::vector<entry_t>& entries) {
     fs_t call;
-    const int count = uv_fs_scandir(nullptr, call.get(), path.c_str(), 0, nullptr);
+    const int count =
+        uv_fs_scandir(nullptr, call.get(), fb::runtime::os_path(path).c_str(), 0, nullptr);
     if (count < 0) {
         return count;
     }
@@ -940,7 +956,7 @@ std::int64_t entries_request(request_t& request) {
 
 std::int64_t remove_folder(const std::string& path) {
     fs_t call;
-    return uv_fs_rmdir(nullptr, call.get(), path.c_str(), nullptr);
+    return uv_fs_rmdir(nullptr, call.get(), fb::runtime::os_path(path).c_str(), nullptr);
 }
 
 /// Removes what's at `path`, and what's in it, without following links.
@@ -1346,6 +1362,103 @@ std::string joined(const fb_array_t* lines, const bool crlf) {
 
 namespace fb::runtime {
 
+std::string os_path(const std::string_view path) {
+#ifdef _WIN32
+    constexpr std::size_t longest = MAX_PATH - 12;
+    const auto separator = [](const char c) { return c == '/' || c == '\\'; };
+    const auto drive = [](const std::string_view text) {
+        return text.size() > 1 && text[1] == ':' &&
+               ((text[0] >= 'A' && text[0] <= 'Z') || (text[0] >= 'a' && text[0] <= 'z'));
+    };
+
+    // An NT path, "\??\C:\...", goes to the OS as it is.
+    if (path.contains('\0') || path.starts_with(R"(\??\)")) {
+        return std::string(path);
+    }
+
+    // Only "\\?\" itself skips Windows' rules, so a drive's, a share's, or a volume's path after
+    // it takes '\'s only, which Path and the runtime write as '/'s. Another spelling, as "//?/",
+    // goes by Windows' rules, as below.
+    if (path.starts_with(R"(\\?\)")) {
+        const std::string_view after = path.substr(4);
+        const auto starts = [&](const std::string_view word) {
+            const auto lower = [](const char c) {
+                return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+            };
+            return after.size() >= word.size() &&
+                   std::ranges::equal(after.substr(0, word.size()), word, {}, lower, lower);
+        };
+        std::string text(path);
+        if (drive(after) || (starts("unc") && after.size() > 3 && separator(after[3])) ||
+            starts("volume{")) {
+            std::ranges::replace(text, '/', '\\');
+        }
+
+        return text;
+    }
+
+    // A path from a drive's or a share's root, which comes no longer than its bytes, is checked
+    // as it is, and another, as from the current folder, or one with "." or "..", by its full
+    // path, as Windows makes it.
+    const bool rooted = path.size() > 2 && ((path[1] == ':' && separator(path[2])) ||
+                                            (separator(path[0]) && separator(path[1])));
+    if (rooted && path.size() < longest) {
+        return std::string(path);
+    }
+
+    const std::wstring given = wide_of(path);
+    const DWORD needed = GetFullPathNameW(given.c_str(), 0, nullptr, nullptr);
+    std::wstring full(needed, L'\0');
+    const DWORD written =
+        needed == 0 ? 0 : GetFullPathNameW(given.c_str(), needed, full.data(), nullptr);
+    if (written == 0 || written >= needed) {
+        return std::string(path);
+    }
+
+    // One long as it's written but short once its "."s and ".."s go is that, which Windows
+    // takes as it is.
+    full.resize(written);
+    if (full.size() < longest) {
+        return path.size() < longest ? std::string(path) : utf8_of(full);
+    }
+
+    // What GetFullPathNameW made of "//?/", or of a device's "\\.\" path, is its own, but a
+    // drive's through a device is the drive's, and "\\server\share" is a share.
+    if (full.starts_with(LR"(\\?\)")) {
+        return utf8_of(full);
+    }
+
+    if (full.starts_with(LR"(\\.\)")) {
+        const std::wstring_view after = std::wstring_view(full).substr(4);
+        const bool lettered =
+            after.size() > 1 && after[1] == L':' &&
+            ((after[0] >= L'A' && after[0] <= L'Z') || (after[0] >= L'a' && after[0] <= L'z'));
+        return lettered ? utf8_of(LR"(\\?\)" + full.substr(4)) : utf8_of(full);
+    }
+
+    if (full.starts_with(LR"(\\)")) {
+        return utf8_of(LR"(\\?\UNC\)" + full.substr(2));
+    }
+
+    return utf8_of(LR"(\\?\)" + full);
+#else
+    return std::string(path);
+#endif
+}
+
+std::string plain_path(std::string path) {
+#ifdef _WIN32
+    if (path.starts_with(R"(\\?\UNC\)")) {
+        return R"(\\)" + path.substr(8);
+    }
+
+    if (path.starts_with(R"(\\?\)")) {
+        return path.substr(4);
+    }
+#endif
+    return path;
+}
+
 atomic_file_t::~atomic_file_t() {
     discard();
 }
@@ -1414,7 +1527,8 @@ std::int64_t atomic_file_t::commit() {
         result = replace_file(m_temporary, m_path);
 #else
         fs_t call;
-        result = uv_fs_rename(nullptr, call.get(), m_temporary.c_str(), m_path.c_str(), nullptr);
+        result = uv_fs_rename(nullptr, call.get(), os_path(m_temporary).c_str(),
+                              os_path(m_path).c_str(), nullptr);
 #endif
     }
 
@@ -1433,7 +1547,7 @@ void atomic_file_t::discard() {
 
     if (!m_temporary.empty()) {
         fs_t call;
-        uv_fs_unlink(nullptr, call.get(), m_temporary.c_str(), nullptr);
+        uv_fs_unlink(nullptr, call.get(), os_path(m_temporary).c_str(), nullptr);
         m_temporary.clear();
     }
 }
@@ -1558,6 +1672,15 @@ std::int32_t fb_io_error_kind(const std::int64_t error) {
 fb_string_t* fb_io_error_message(const std::int64_t error) {
     if (error == too_big) {
         return string_of("it holds more bytes than the read takes");
+    }
+
+    if (error == fb::runtime::no_watches_left) {
+        return string_of("inotify watches as many as fs.inotify.max_user_watches lets it");
+    }
+
+    if (error == fb::runtime::too_many_watches) {
+        return string_of("it holds more folders than inotify watches, as "
+                         "fs.inotify.max_user_watches says");
     }
 
     return string_of(uv_strerror(static_cast<int>(error)));
@@ -1765,8 +1888,9 @@ std::int64_t fb_io_temp_new(void* request, const fb_string_t* prefix, const std:
     }
 
     fs_t call;
-    const int made = folder != 0 ? uv_fs_mkdtemp(nullptr, call.get(), pattern.c_str(), nullptr)
-                                 : uv_fs_mkstemp(nullptr, call.get(), pattern.c_str(), nullptr);
+    const std::string at = fb::runtime::os_path(pattern);
+    const int made = folder != 0 ? uv_fs_mkdtemp(nullptr, call.get(), at.c_str(), nullptr)
+                                 : uv_fs_mkstemp(nullptr, call.get(), at.c_str(), nullptr);
     if (made < 0) {
         return made;
     }
@@ -1775,7 +1899,7 @@ std::int64_t fb_io_temp_new(void* request, const fb_string_t* prefix, const std:
         close_file(made);
     }
 
-    self.path = with_slashes(call.get()->path);
+    self.path = with_slashes(fb::runtime::plain_path(call.get()->path));
     return 0;
 }
 
@@ -1799,7 +1923,7 @@ fb_string_t* fb_io_real_path(const fb_string_t* path) {
 
     uv_fs_t call{};
     std::optional<std::string> real;
-    if (uv_fs_realpath(nullptr, &call, text.c_str(), nullptr) == 0) {
+    if (uv_fs_realpath(nullptr, &call, fb::runtime::os_path(text).c_str(), nullptr) == 0) {
         real = with_slashes(static_cast<const char*>(call.ptr));
     }
 

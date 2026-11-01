@@ -1,0 +1,73 @@
+// Other spellings of a long path, which Windows' calls take: "\\?\" and "//?/" written by the
+// program, with Path's '/'s after them, an NT path's "\??\", a drive's through a device's "//./",
+// one long as it's written but short once its ".."s go, and a short "\\?\" folder walked and
+// removed. Elsewhere they aren't paths, so it prints what Windows does.
+Import std.core
+Import std.io
+Import std.text
+
+// Whether a file written at `path` reads back.
+Function Wrote(path: Path): Bool
+    Try
+        File.WriteText(path, "x")
+        Return (Try File.ReadText(path)) == "x"
+    Catch e As IOError
+        Print("  {e.Kind}: {e.Message}")
+        Return False
+    End Try
+End Function
+
+Local temp = Try TempDir("fb-long-spellings-")
+Local deep = temp.Path
+While deep.Text.Bytes.Count < 320
+    deep = deep / "a-folder-whose-name-is-forty-letters-long"
+End While
+
+Try Dir.CreateAll(deep)
+
+#If PLATFORM_WINDOWS
+Local back = deep.Text.Replace("/", "\\")
+Print("\\\\?\\ {Wrote(Path("\\\\?\\" + back + "\\p.txt"))}")
+Print("\\\\?\\ joined {Wrote(Path("\\\\?\\" + back) / "j.txt")}")
+Print("//?/ {Wrote(Path("//?/" + deep.Text + "/s.txt"))}")
+Print("//./ {Wrote(Path("//./" + deep.Text + "/t.txt"))}")
+Print("\\??\\ {Wrote(Path("\\??\\" + back + "\\q.txt"))}")
+Local dots = temp.Path.Text
+For i = 1 To 70
+    dots = dots + "/aaaa/.."
+End For
+
+Print("dots {dots.Bytes.Count > 300} {Wrote(Path(dots + "/d.txt"))} {File.Exists(temp.Path / "d.txt")}")
+Local prefixed = Path("\\\\?\\" + temp.Path.Text.Replace("/", "\\"))
+Try Dir.CreateAll(prefixed / "under" / "deeper")
+Try File.WriteText(prefixed / "under" / "deeper" / "w.txt", "w")
+Print("walked {(Try Dir.Walk(prefixed / "under")).Count}")
+Print("removed {Try Dir.RemoveAll(prefixed / "under")} {Dir.Exists(temp.Path / "under")}")
+
+// A short "//?/" one goes by Windows' rules: "..", ".", and a trailing dot, and ".." from a current
+// folder set by a "\\?\" path, which Dir.Current gives as "//?/".
+Try Dir.Create(temp.Path / "a")
+Local slashed = "//?/" + temp.Path.Text
+Print("dot-dot {Wrote(Path(slashed + "/a/../a/x.txt"))}")
+Print("dot {Wrote(Path(slashed + "/./a/y.txt"))}")
+Print("trailing dot {Wrote(Path(slashed + "/a/z.txt."))} {File.Exists(temp.Path / "a" / "z.txt")}")
+Local before = Try Dir.Current()
+Try Dir.SetCurrent(Path("\\\\?\\" + temp.Path.Text.Replace("/", "\\") + "\\a"))
+Local current = Try Dir.Current()
+Print("up from it {Wrote(current / ".." / "up.txt")} {File.Exists(temp.Path / "up.txt")}")
+Try Dir.SetCurrent(before)
+#Else
+Print("\\\\?\\ True")
+Print("\\\\?\\ joined True")
+Print("//?/ True")
+Print("//./ True")
+Print("\\??\\ True")
+Print("dots True True True")
+Print("walked 2")
+Print("removed True False")
+Print("dot-dot True")
+Print("dot True")
+Print("trailing dot True True")
+Print("up from it True True")
+#End If
+Try temp.Close()

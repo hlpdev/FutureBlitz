@@ -63,6 +63,21 @@ Function Poked(path: Path): Int
     Return 0
 End Function
 
+// Appends to the file now and then on another thread for three seconds, so a wait for its
+// CHANGED gets one, even where the OS folds the first change into the file's making.
+Function Appending(path: Path): Task<Int>
+    Return Spawn(Function() => Appended(path))
+End Function
+
+Function Appended(path: Path): Int
+    For i = 1 To 30
+        Try? File.AppendText(path, "{i}")
+        Sleep(100.Milliseconds)
+    End For
+
+    Return 0
+End Function
+
 // Takes what's come, so the next check only sees what follows.
 Function Drain(watcher: FileWatcher)
     While watcher.TryNext() != Null
@@ -137,12 +152,17 @@ Print("relative {relativeEvent != Null && relativeEvent.Kind == FileEventKind.CR
 relative.Close()
 Try Dir.SetCurrent(before)
 
-// A file's own changes.
+// A file's own changes. macOS's FSEvents folds a change that comes soon after a file's made
+// into one event, whose kind is the making's, and on a loaded machine is slow to start telling
+// of a new watch's, so the file's made a while before it's watched, and changed again and again
+// until a change is told.
 Local watched = root / "watched.dat"
 Try File.WriteText(watched, "a")
+Await RealWait(200.Milliseconds)
 Local one = Try FileWatcher(watched)
-Try File.AppendText(watched, "b")
+Local appending = Appending(watched)
 Print("file changed {Await Saw(one, [(FileEventKind.CHANGED, "watched.dat")])}")
+Await appending
 one.Close()
 
 // One that's waited for when it's closed gives Null.

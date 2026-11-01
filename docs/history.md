@@ -5,6 +5,111 @@ them while each was built. Newest first.
 
 ## 1.2
 
+Long paths on Windows (2026-10-31): files_internal.hpp's `os_path()` gives the OS a path whose
+full path, from GetFullPathNameW for one that isn't from a drive's or share's root, is MAX_PATH
+less 12 or longer, as `\\?\` and that full path, or `\\?\UNC\` and a share's, and `plain_path()`
+takes that off what the OS gives back, as a temporary file's made name. files.cpp's libuv calls
+(open, stat and lstat, rename, readlink, copyfile, unlink, chmod, mkdir, scandir, rmdir, mkdtemp
+and mkstemp, realpath), its own Windows calls (`replace_file()`'s and `windows_times()`'s, now
+through `wide_of()`), mapped.cpp's open, and watcher.cpp's take it; elsewhere it's the path
+itself. Dir.SetCurrent's doc says Windows keeps the current folder shorter. Tests:
+tests/programs/io_long_paths, a folder 300 characters deep, made, written, read, appended,
+listed, walked, copied, moved, written atomically twice, its metadata, read-only and back,
+opened as a stream, mapped, locked, watched, reached from the current folder by a relative path,
+and removed, which master's fb fails at CreateAll with "name too long".
+
+From 1.2's review of it: `os_path()` keeps a path the program writes after `\\?\` or `//?/`, which
+GetFullPathNameW had made `\\?\UNC\?\...`, a share on a server named "?", with `\`s for a drive's or
+a share's, since Windows reads a `/` after the prefix as part of a name; passes an NT path's
+`\??\` through, which became `C:\??\...`; makes a long `\\.\X:\` path a drive's `\\?\X:\`, keeping
+`\\?\UNC\` for `\\server\share` alone; and gives the full path for one long as it's written but short
+once its `..`s go, which Windows refuses as written. files.cpp's `std::max<int>()` keeps
+windows.h's max macro, which uv.h brings in before NOMINMAX, from it, so clang-tidy reads the file
+again, and verify.py's tidy step fails on clang-tidy's errors wherever they are, which it didn't
+see before. Dir.SetCurrent's doc says 258 characters, MAX_PATH less 2, and stdlib.md and
+decisions.md say "at or past". Tests: tests/runtime/files_tests.cpp's spellings of `os_path()` on
+Windows, and tests/programs/io_long_path_spellings, each spelling written and read, the dots, and
+a short `\\?\` folder walked and removed.
+
+From the check of those fixes: only `\\?\` itself is taken as written, with `/`s made `\`s after a
+drive, a share, by "UNC" in any case, or `Volume{`; `//?/` and the like go by Windows' rules
+again, through GetFullPathNameW, as before the review, since Windows applies them there, so a
+short one's `..`, `.`, and trailing dot are what they were. Tests: io_long_path_spellings' four
+short `//?/` lines, and the Catch2 test's `//?/` with `..` and a trailing dot, a mixed-case UNC,
+and a volume.
+
+A recursive FileWatcher (2026-10-31): `FileWatcher(path, recursive: True)` and its `Recursive`
+Field; `fb_io_watcher_new` takes `recursive`. watcher.cpp's `known` holds keys, a name or a path
+from the folder with '/'s ("art/hero.png"), which `listing_of()` lists through the tree, not
+through links, and `told()` takes from each handle's events, as `on_event` did: a folder that came
+is `adopt()`ed, its tree learned as CREATED events, folders before what's in them, and one that
+went is `forget()`ten, as REMOVED events, what's in a folder before it. `rescanned()` gives what
+went first, deepest first, then what came, and `listed()` lists the folder a key's in, by its key.
+Windows and macOS start the handle with `UV_FS_EVENT_RECURSIVE`, Windows' '\'s becoming '/'s; on
+Linux, where libuv leaves the flag out, each folder has a `subfolder_t` handle of its own, which
+holds the watcher, made before the folder's listed (`watch_subfolder()`) and closed with the
+folders in it (`unwatch_subfolders()`), and `close_handle()` closes them all; a folder that
+inotify refuses for its limits (ENOSPC, ENOMEM) when the watcher's made is its error
+(`watcher_t::unwatched`), while one it can't read is left out. Tests:
+tests/programs/io_watch_recursive, in folders there, folders that come one in another, a folder
+renamed, one moved in, the renamed and moved-in ones' new files, a folder removed with what's in
+it, and a watcher that isn't recursive telling of nothing deeper. Linux's handles were checked by
+hand in WSL, with libuv and watcher.cpp built by gcc under ASan and UBSan, through the same steps,
+a folder made again where one went, a folder it can't read, and inotify's limit, by
+`--wrap=inotify_add_watch`, the loop closing with none left.
+
+From 1.2's review of it: `unwatch_subfolders()` closes the folder's own handle and then those
+after `key/`, as `forget()` walks, since a sibling like "assets.bak" sorts between "assets" and
+"assets/art" and stopped the walk, leaving the moved folder's folders watched and a new one's not.
+Each `subfolder_t` keeps its folder's device and inode, and `told()` takes a known folder that's
+`replaced()`, as one removed and made again in one batch of inotify's events, as went, with what
+it had, and came, with what it has, watched anew. third_party/CMakeLists.txt patches libuv's
+unix/linux.c, each text it changes there once or configuring fails, so inotify's IN_Q_OVERFLOW,
+which libuv dropped, comes to each of the loop's file event handles as an event without a name
+(`uv__inotify_overflowed()`), and `relist()` lists the folder again once a turn of the loop. On
+Linux, a handle's event for the folder itself, named by a pointer into its path (`own_event()`),
+isn't one of a name in it. The callbacks are `subfolder_t`'s Static members, and `key_for()`
+makes a key, for clang-tidy built for Linux, which lints watcher.cpp clean with WSL's headers as
+its sysroot. A tree past inotify's watches is `too_many_watches` (files_internal.hpp), whose
+message names fs.inotify.max_user_watches. Tests: io_watch_recursive's folder moved out beside
+a sibling and made again, a runtime test of the limit's message, and in the WSL harness on the
+patched libuv, the sibling, a folder removed and made again while the loop's busy, 17,000 files
+while it's busy and a folder made then, and a folder's own change beside its same-named folder,
+each failing with the watcher before.
+
+From the check of those fixes: ext4 gives a folder removed and made again the old one's inode,
+so a `subfolder_t` whose own handle tells of its going (IN_DELETE_SELF, IN_MOVE_SELF, or
+IN_IGNORED, an `own_event()` with UV_RENAME) is `gone`, which `replaced()` is true for. A
+nameless event has `relist()` start the watcher's `relisting` uv_check, which lists the folder
+once the loop has read all it has, after its poll phase, where it listed at once and dropped a
+second overflow in the same turn. On Linux, a known name now a folder without a handle, as a file
+a folder took the place of in one batch, is adopted, and the watcher's own watch at inotify's
+limit is `too_many_watches` too. fb_runtime_tests links MinGW's UCRT, as libuv and the bundled
+C libraries are built for it, with libstdc++ and libgcc linked in, as their DLLs use msvcrt, so it
+links and runs with CLion's MinGW, which files_tests.cpp's files.cpp had broken. Tests: the WSL
+harness, now on ext4 in WSL's home, 40 rounds of a folder made again while the loop's busy, a
+file that a folder took the place of, 40,000 files as the loop reads a first overflow's events,
+and the root's watch at the limit, the first three failing with the watcher before.
+
+From the check of those: libuv made a folder's own change of attributes, as a touch or a chmod,
+a rename, since a folder's IN_ATTRIB carries IN_ISDIR, which `gone` took as its going and so
+told its tree of again; third_party's patch leaves IN_ISDIR out of that test too, each text once
+or configuring fails. On Linux, `rescanned()` unwatches every folder and watches each again
+before it's listed, as `adopt()` does, since lost events may be a folder's own, as one removed
+and made again inside an overflow, whose handle is dead. A watcher that isn't recursive at
+inotify's limit is `no_watches_left`, "inotify watches as many as fs.inotify.max_user_watches lets
+it", and `too_many_watches` is a recursive one's. Tests: the WSL harness's touch and chmod of a
+folder, failing without the patch's change, a folder removed and made again with 17,000 files
+while the loop's busy, and a flat watcher at the limit, the last two failing with the watcher
+before; files_tests.cpp's message.
+
+From the check of those: the relisting let go of every folder's watch before it watched each
+again, so a change in a folder not yet watched again went untold. `rewatch_subfolder()` watches a
+folder with a new handle before it stops the old one, which for a folder still there inotify
+gives the old one's watch, and the folders that went are let go after the walk. Test: the WSL
+harness's change as soon as the kernel's watches are fewer, after 17,000 files while the loop's
+busy, whose count never drops and whose CHANGED is told, both failing with the watcher before.
+
 Reflection that sets (2026-10-31): a For Property's `p.Set(ByRef value, x)` calls the
 Property's Set, through the Method table for a Class (`accessor_of()`), and on a Struct's
 variable, and a For Static Field's `s.Set(x)` stores the Static Field, an instance's for a

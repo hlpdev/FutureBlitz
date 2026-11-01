@@ -211,8 +211,9 @@ void fb_io_map_free(void* map);
 /// A watcher of the file or folder at `path`, which the I/O thread has started, and which
 /// fb_io_watcher_free gives back. fb_io_watcher_error gives 0, or the error it couldn't start
 /// with. An event is 0 created, 1 changed, or 2 removed, at a path: a folder's events are about
-/// what's in it, and a file's about the file.
-void* fb_io_watcher_new(const fb_string_t* path);
+/// what's in it, and in the folders in it too, and theirs, unless `recursive` is 0, and a file's
+/// about the file.
+void* fb_io_watcher_new(const fb_string_t* path, std::int32_t recursive);
 std::int64_t fb_io_watcher_error(void* watcher);
 /// Takes the next event: 1, or 0 when there's none, which, unless `wait` is 0, is once it's
 /// closed, after waiting for one until then.

@@ -4,7 +4,8 @@
 //! adding to one, writing one atomically, what's at a path, and copying, moving, and deleting.
 //! Each has an Async twin, which libuv's thread pool does while the main thread goes on, and
 //! whose Await resumes there. A file that can't be used throws an IOError whose Kind says why.
-//! Open and Create give a FileStream, for reading and writing a file a part at a time.
+//! Open and Create give a FileStream, for reading and writing a file a part at a time. On
+//! Windows, std.io's calls reach a path past MAX_PATH, 260 characters, as every other OS's do.
 
 Import std.core
 Import std.io.file_stream

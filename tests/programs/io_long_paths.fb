@@ -1,0 +1,89 @@
+// Paths past Windows' MAX_PATH, in a temporary folder: a folder 300 characters deep, made, read,
+// listed, copied, moved, written atomically, mapped, locked, watched, and removed, from its
+// whole path and from the current folder. Every OS reaches it, Windows by "\\?\" paths.
+Import std.core
+Import std.io
+Import std.time
+
+Local temp = Try TempDir("fb-long-")
+Local root = temp.Path / "a-folder-whose-name-is-forty-letters-long"
+Local deep = root
+While deep.Text.Bytes.Count - temp.Path.Text.Bytes.Count < 300
+    deep = deep / "a-folder-whose-name-is-forty-letters-long"
+End While
+
+Print("long {deep.Text.Bytes.Count > 300}")
+Try Dir.CreateAll(deep)
+Print("made {Dir.Exists(deep)}")
+Local save = deep / "save.txt"
+Try File.WriteText(save, "long")
+Print("read {(Try File.ReadText(save)) == "long"} {Try File.Size(save)}")
+Try File.AppendText(save, " way")
+Print("appended {(Try File.ReadText(save)) == "long way"} {File.Exists(save)}")
+
+// Listing, from it and from a folder above it.
+Local names: String[] = []
+For entry In Try Dir.Entries(deep)
+    names.Add(entry.Name())
+End For
+
+Print("listed {names}")
+Local walked = 0
+For entry In Try Dir.Walk(root)
+    If entry.IsFile() Then walked += 1
+End For
+
+Print("walked {walked}")
+
+// Copied, moved, written atomically over itself, and its metadata.
+Try File.Copy(save, deep / "copy.txt")
+Try File.Move(deep / "copy.txt", deep / "moved.txt")
+Print("copied {(Try File.ReadText(deep / "moved.txt")) == "long way"} {File.Exists(deep / "copy.txt")}")
+Try File.WriteTextAtomic(save, "atomic")
+Try File.WriteTextAtomic(save, "atomic again")
+Print("atomic {(Try File.ReadText(save)) == "atomic again"}")
+Print("metadata {(Try File.Metadata(save)).Size}")
+Try File.SetReadOnly(deep / "moved.txt", True)
+Try File.SetReadOnly(deep / "moved.txt", False)
+
+// Opened as a stream, mapped, and locked.
+Local stream = Try File.Open(save)
+Local size = Try stream.Size()
+stream.Close()
+Print("stream {size}")
+Local mapped = Try MappedFile(save)
+Print("mapped {mapped.Count()}")
+mapped.Close()
+Local lock = Try FileLock.Acquire(deep / "lock")
+Print("locked {lock.IsHeld()}")
+lock.Close()
+
+// Watched.
+Local watcher = Try FileWatcher(deep)
+Try File.WriteText(deep / "new.txt", "new")
+Local seen = False
+For tries = 1 To 1000
+    Local event = watcher.TryNext()
+    If event != Null && event.Path.FileName() == "new.txt"
+        seen = True
+        Break
+    End If
+
+    If event == Null Then Await RealWait(10.Milliseconds)
+End For
+
+watcher.Close()
+Print("watched {seen}")
+
+// From the current folder, which a relative path is from.
+Local before = Try Dir.Current()
+Try Dir.SetCurrent(temp.Path)
+Local relative = deep.RelativeTo(temp.Path) ?? Path(".")
+Print("relative {(Try File.ReadText(relative / "save.txt")) == "atomic again"} {Dir.Exists(relative)}")
+Try Dir.SetCurrent(before)
+
+// Removed.
+Try File.Delete(deep / "moved.txt")
+Print("deleted {File.Exists(deep / "moved.txt")}")
+Print("removed {Try Dir.RemoveAll(root)} {Dir.Exists(deep)} {Dir.Exists(root)}")
+Try temp.Close()

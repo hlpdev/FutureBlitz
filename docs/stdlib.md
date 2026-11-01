@@ -816,6 +816,16 @@ std/io/.
   too, and the folder before it, so `sub/**` gives sub and all that's in it; names match exactly,
   in the same case, on every OS. `Current`, `SetCurrent`, and `Temp`, the OS's temporary
   folder.
+- Long paths: on Windows, the runtime gives the OS a path whose full path is at or past MAX_PATH
+  less a short name's 12, which a folder's leaves room for, as that full path after `\\?\`, or a
+  share's after `\\?\UNC\` (`os_path()` in files.cpp), which Windows' calls take up to 32,767
+  characters long, for each File, Dir, FileStream, FileLock, MappedFile, TempFile, and
+  FileWatcher call; a relative one goes by the current folder, as Windows would take it. What it
+  gives back has no prefix. A path the program writes after `\\?\` itself keeps it, with `\`s
+  for a drive's, a share's, or a volume's, while `//?/` goes by Windows' rules, an NT path's `\??\` goes as it is, a drive's through a device's
+  `//./` is the drive's, and one that's long as it's written but short once its `..`s go is that.
+  Only `SetCurrent`'s folder has to be shorter, 258 characters at most, MAX_PATH less 2, as
+  Windows keeps the current folder.
 - `TempFile(prefix)` and `TempDir(prefix)`: a new, empty file or folder in the OS's temporary
   folder, with a name no other has, which `Close`, or its last reference, removes with what's in
   it.
@@ -824,7 +834,14 @@ std/io/.
   `CHANGED`, or `REMOVED`, and `Path`), Null once it's closed. It tells what came and went by the
   names it knows are there, since OSes call those differently, so a rename is the old name's
   REMOVED and the new name's CREATED, and a file renamed over another is the other's CHANGED.
-  `Close` drops what it hasn't given.
+  `Close` drops what it hasn't given. `FileWatcher(path, recursive: True)` watches the folders in
+  it too, and theirs, the ones that come later as well, not through links, and an event's `Path`
+  is the watcher's joined with where it is from there; a folder that comes brings a CREATED for
+  each thing in it, which an OS doesn't tell of for a folder moved in, and one that goes a
+  REMOVED for each it had. Windows and macOS watch the tree as one, through libuv's recursive
+  flag (ReadDirectoryChangesW's subtree, FSEvents), and on Linux, whose inotify watches a folder
+  at a time, the runtime watches each folder, adding them as they come; a tree with more folders
+  than inotify's limit is an IOError there.
 - A virtual file system: a `Vfs` mounts sources at points in a tree of its own (`Mount`,
   `MountFolder`, `MountEmbedded`, `Unmount`) and reads them as files are read (`ReadBytes`,
   `ReadText`, `ReadLines`, each with an Async twin, `KindOf`, `Exists`, `DirExists`, `Entries`,
