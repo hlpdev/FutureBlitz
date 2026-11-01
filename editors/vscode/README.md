@@ -49,6 +49,10 @@ CodeLLDB. The design is in [docs/tooling.md](https://github.com/hlpdev/FutureBli
   It builds the program in debug, then CodeLLDB runs it with fb's lldb script, which shows
   Strings, arrays, Maps, nullables, and objects as their values. CodeLLDB's own settings, like
   `env` or `preRunCommands`, go in the same configuration.
+- **project.toml**: fb's errors as you type, completion of its tables and keys, and of a
+  dependency's name and version from its registry, hover with what each key is and a
+  dependency's description and newest version, and quick fixes to update a dependency or add
+  what `fb publish` needs. Offline, the registries' answers are the cache's.
 
 ## Settings
 

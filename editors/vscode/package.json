@@ -46,6 +46,7 @@
   "main": "./out/extension.js",
   "activationEvents": [
     "workspaceContains:**/*.fb",
+    "workspaceContains:**/project.toml",
     "onDebugResolve:futureblitz",
     "onDebugInitialConfigurations",
     "onDebugDynamicConfigurations:futureblitz"

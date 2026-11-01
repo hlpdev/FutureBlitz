@@ -126,6 +126,10 @@ catch_discover_tests(fb_cli_tests DISCOVERY_MODE PRE_TEST DL_PATHS ${FB_TEST_DLL
 file(GLOB_RECURSE FB_LSP_TEST_SOURCES CONFIGURE_DEPENDS lsp/*.cpp)
 add_executable(fb_lsp_tests ${FB_LSP_TEST_SOURCES})
 target_link_libraries(fb_lsp_tests PRIVATE fb_lsp_server Catch2::Catch2WithMain)
+# project.toml's tests serve a registry on 127.0.0.1 (compiler/registry_server.hpp).
+if(WIN32)
+  target_link_libraries(fb_lsp_tests PRIVATE ws2_32)
+endif()
 target_compile_definitions(fb_lsp_tests PRIVATE FB_LSP="$<TARGET_FILE:fb_lsp>"
   FB_TEST_PACKAGES="${CMAKE_CURRENT_SOURCE_DIR}/packages")
 add_dependencies(fb_lsp_tests fb_lsp)

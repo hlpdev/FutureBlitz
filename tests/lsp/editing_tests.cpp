@@ -328,8 +328,9 @@ TEST_CASE("an open project.toml isn't checked as code, and its changes on disk a
                           }),
                       },
                   });
-    client.settle();
-    const json_t diagnostics = client.diagnostics(folder.uri("project.toml"));
+    // An editor gives an open file that changed on disk its new text, which is what's checked.
+    client.change(folder.uri("project.toml"), "[project]\nname = 5\nversion = \"0.1.0\"\n");
+    const json_t diagnostics = client.published(folder.uri("project.toml"));
     REQUIRE(diagnostics.size() == 1);
     CHECK(diagnostics[0]["message"].get<std::string>().contains("name"));
 }

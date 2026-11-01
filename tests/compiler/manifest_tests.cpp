@@ -1,5 +1,6 @@
 #include "fb/manifest.hpp"
 
+#include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <format>
 #include <optional>
@@ -571,4 +572,61 @@ TEST_CASE("text in a project.toml that isn't UTF-8 is reported at its first bad 
     CHECK(read("[project]\nname = \"ab\xff\xfe\"\n").diagnostics ==
           diagnostics_t{ "error: \xff: project.toml isn't valid TOML: Encountered invalid utf-8 "
                          "sequence" });
+}
+
+// The LSP completes and explains these, so each is one read_manifest() reads, as its example
+// shows, and so is each value of those that have few.
+TEST_CASE("project.toml's keys are those read_manifest reads", "[manifest]") {
+    const std::string project = "[project]\nname = \"game\"\nversion = \"0.1.0\"\n";
+    for (const fb::manifest_key_t& key : fb::manifest_keys()) {
+        INFO(std::format("[{}] {}", key.table, key.key));
+        CHECK_FALSE(key.description.empty());
+        CHECK_FALSE(key.description.ends_with('.'));
+        CHECK(std::ranges::contains(fb::manifest_tables(), key.table, &fb::manifest_table_t::name));
+        std::vector<std::string> examples{ std::string(key.example) };
+        for (const std::string_view value : key.values) {
+            examples.push_back(std::format("\"{}\"", value));
+        }
+
+        for (const std::string& example : examples) {
+            std::string text = project;
+            const std::string line = std::format("{} = {}", key.key, example);
+            if (key.table == "project") {
+                text =
+                    key.key == "name" || key.key == "version"
+                        ? std::format("[project]\n{}\n{}\n", line,
+                                      key.key == "name" ? "version = \"0.1.0\"" : "name = \"game\"")
+                        : project + line + "\n";
+            } else if (key.table == "build" && key.key == "package") {
+                text += "\n[dependencies]\ntools = { path = \"tools\" }\n\n[build]\nprogram = "
+                        "\"gen.fb\"\n" +
+                        line + "\n";
+            } else if (key.table == "dependencies") {
+                text += std::format(
+                    "\n[registries]\ncompany = {{ index = \"https://x.example/\" }}\n\n"
+                    "[dependencies]\nphysics = {{ {}{} }}\n",
+                    key.key == "version" || key.key == "path" ? "" : "version = \"1.2\", ", line);
+            } else if (key.table == "native") {
+                text += std::format("\n[native]\nx = {{ {} }}\n", line);
+            } else if (key.table == "registries") {
+                text += std::format("\n[registries]\ncompany = {{ {} }}\n", line);
+            } else {
+                text += std::format("\n[{}]\n{}\n", key.table, line);
+            }
+
+            INFO(text);
+            const read_t read_back = read(text);
+            CHECK(read_back.manifest);
+            CHECK(read_back.diagnostics.empty());
+        }
+    }
+
+    // Each table is one it reads, and doesn't warn of.
+    for (const fb::manifest_table_t& table : fb::manifest_tables()) {
+        INFO(table.name);
+        CHECK_FALSE(table.description.empty());
+        if (table.name != "project" && table.name != "build") {
+            CHECK(read(project + std::format("\n[{}]\n", table.name)).diagnostics.empty());
+        }
+    }
 }

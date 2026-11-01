@@ -4,6 +4,7 @@
 #include "fb/utf8.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
@@ -11,6 +12,7 @@
 #include <format>
 #include <functional>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <toml++/toml.hpp>
@@ -849,7 +851,220 @@ private:
     }
 };
 
+constexpr std::array<std::string_view, 2> package_types{ "executable", "library" };
+constexpr std::array<std::string_view, 2> link_kinds{ "embed", "beside" };
+
+constexpr std::array<manifest_table_t, 6> tables{
+    {
+        {
+            .name = "project",
+            .description = "The package: its name, its version, and what it builds",
+        },
+        {
+            .name = "dependencies",
+            .description = "The packages it uses, each by a range of a registry's versions, "
+                           "`physics = \"1.2\"`, or by its folder, `{ path = \"../physics\" }`",
+        },
+        {
+            .name = "native",
+            .description = "The C libraries its code calls, each by the name `Lib` gives it: "
+                           "`{ static = \"libs/x\" }`, `{ system = \"m\" }`, or "
+                           "`{ dynamic = \"native/{target}/x\" }`",
+        },
+        { .name = "format", .description = "How `fb fmt` formats its code" },
+        {
+            .name = "build",
+            .description = "Its build step, a program fb builds and runs before it compiles the "
+                           "package",
+        },
+        {
+            .name = "registries",
+            .description = "The registries its dependencies come from, each by its index: "
+                           "`company = { index = \"https://packages.example.com/index/\" }`",
+        },
+    },
+};
+
+constexpr std::array<manifest_key_t, 24> keys{
+    {
+        {
+            .table = "project",
+            .key = "name",
+            .description =
+                "The package's name, an identifier other than `std`, which its modules are "
+                "imported by",
+            .example = R"("game")",
+        },
+        {
+            .table = "project",
+            .key = "version",
+            .description = "Its version, semver: three numbers like `\"0.1.0\"`, and maybe a "
+                           "pre-release, like `\"1.0.0-beta.2\"`",
+            .example = R"("0.1.0")",
+        },
+        {
+            .table = "project",
+            .key = "type",
+            .description =
+                "What it builds: an `\"executable\"`, the default with a main file, or a "
+                "`\"library\"`, the default without",
+            .example = R"("library")",
+            .values = package_types,
+        },
+        {
+            .table = "project",
+            .key = "main",
+            .description = "Its main file, a `.fb` file in its folder, `main.fb` unless it says",
+            .example = R"("main.fb")",
+        },
+        {
+            .table = "project",
+            .key = "description",
+            .description = "A line about it, at most 300 characters, which `fb publish` needs",
+            .example = R"("A physics engine")",
+        },
+        {
+            .table = "project",
+            .key = "license",
+            .description = "Its license, an SPDX expression like `\"MIT OR Apache-2.0\"`, which "
+                           "`fb publish` needs",
+            .example = R"("MIT")",
+        },
+        {
+            .table = "project",
+            .key = "license_file",
+            .description = "Its license's text, a file in its folder, when it isn't LICENSE, "
+                           "LICENSE.md, LICENSE.txt, or COPYING",
+            .example = R"("LICENSE-MIT")",
+        },
+        {
+            .table = "project",
+            .key = "readme",
+            .description = "Its readme, a file in its folder, when it isn't README.md, README, or "
+                           "README.txt",
+            .example = R"("README.md")",
+        },
+        {
+            .table = "project",
+            .key = "repository",
+            .description = "Its repository's `https://` URL, which the registry links",
+            .example = R"("https://github.com/me/physics")",
+        },
+        {
+            .table = "project",
+            .key = "homepage",
+            .description = "Its home page's `https://` URL, which the registry links",
+            .example = R"("https://github.com/me/physics")",
+        },
+        {
+            .table = "project",
+            .key = "documentation",
+            .description = "Its documentation's `https://` URL, which the registry links",
+            .example = R"("https://github.com/me/physics")",
+        },
+        {
+            .table = "project",
+            .key = "keywords",
+            .description = "At most five words the registry finds it by, each lowercase letters, "
+                           "digits, and `-`",
+            .example = R"(["physics", "2d"])",
+        },
+        {
+            .table = "project",
+            .key = "fb",
+            .description = "The range of fb's versions it builds with, like `\">=1.2\"`",
+            .example = R"(">=1.0")",
+        },
+        {
+            .table = "format",
+            .key = "width",
+            .description =
+                "The line width `fb fmt` formats its code to, from 40 to 1000 columns, 100 "
+                "unless it says",
+            .example = "100",
+        },
+        {
+            .table = "build",
+            .key = "program",
+            .description = "The build step's main file, a `.fb` file in its package's folder",
+            .example = R"("tools/generate.fb")",
+        },
+        {
+            .table = "build",
+            .key = "package",
+            .description = "The dependency whose program the build step is, rather than the "
+                           "package's own",
+            .example = R"("tools")",
+        },
+        {
+            .table = "dependencies",
+            .key = "version",
+            .description = "The range of the registry's versions it takes, like `\"1.2\"`",
+            .example = R"("1.2")",
+        },
+        {
+            .table = "dependencies",
+            .key = "path",
+            .description = "Its folder, from this project.toml's, which a build uses, and whose "
+                           "version has to be in the range",
+            .example = R"("../physics")",
+        },
+        {
+            .table = "dependencies",
+            .key = "registry",
+            .description = "The registry it's from, as [registries] names it, rather than "
+                           "futureblitz.dev",
+            .example = R"("company")",
+        },
+        {
+            .table = "dependencies",
+            .key = "link",
+            .description =
+                "How a library's built into the program: `\"embed\"`, into the executable, "
+                "or `\"beside\"`, a file of its own beside it",
+            .example = R"("beside")",
+            .values = link_kinds,
+        },
+        {
+            .table = "native",
+            .key = "static",
+            .description = "A static archive, from the package's folder, with or without its `lib` "
+                           "prefix and its extension",
+            .example = R"("libs/x")",
+        },
+        {
+            .table = "native",
+            .key = "system",
+            .description = "A library the system's linker finds by its name, as `-lm`",
+            .example = R"("m")",
+        },
+        {
+            .table = "native",
+            .key = "dynamic",
+            .description =
+                "A dynamic library, beside the program, from the package's folder without "
+                "its prefix and extension; `{target}` is the build's target",
+            .example = R"("native/{target}/x")",
+        },
+        {
+            .table = "registries",
+            .key = "index",
+            .description = "The registry's index: an `https://` URL, an `http://` one on this "
+                           "machine, a `file://` one, or a folder",
+            .example = R"("https://packages.example.com/index/")",
+        },
+    },
+};
+
 } // namespace
+
+std::span<const manifest_table_t> manifest_tables() {
+    return tables;
+}
+
+std::span<const manifest_key_t> manifest_keys() {
+    return keys;
+}
 
 std::optional<manifest_t> read_manifest(const source_file_t& file, diagnostic_bag_t& diagnostics) {
     return reader_t(file, diagnostics).read();

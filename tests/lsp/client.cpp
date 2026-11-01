@@ -70,7 +70,8 @@ client_t::client_t(options_t options)
           },
           { .workspace = { .delay = options.delay,
                            .dependents_delay = options.dependents_delay.value_or(options.delay),
-                           .load_folders = options.load_folders, }, }) {
+                           .load_folders = options.load_folders, },
+            .toml = { .delay = options.delay, .offline = options.offline }, }) {
     json_t folders = json_t::array();
     for (const std::filesystem::path& folder : options.folders) {
         folders.push_back({ { "uri", uri_of(folder) }, { "name", to_utf8(folder.filename()) } });
@@ -186,6 +187,7 @@ void client_t::mark(const std::string& uri) {
 
 void client_t::settle() {
     m_server.workspace().settle();
+    m_server.toml().settle();
 }
 
 json_t client_t::diagnostics(const std::string& uri) const {

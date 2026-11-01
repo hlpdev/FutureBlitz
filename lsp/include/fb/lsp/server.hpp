@@ -2,6 +2,7 @@
 
 #include "fb/lsp/protocol.hpp"
 #include "fb/lsp/query.hpp"
+#include "fb/lsp/toml_features.hpp"
 #include "fb/lsp/workspace.hpp"
 
 #include <cstddef>
@@ -26,6 +27,7 @@ public:
 
     struct options_t {
         workspace_t::options_t workspace;
+        toml_features_t::options_t toml;
     };
 
     explicit server_t(send_t send, options_t options = {});
@@ -41,6 +43,10 @@ public:
 
     [[nodiscard]] workspace_t& workspace() {
         return *m_workspace;
+    }
+
+    [[nodiscard]] toml_features_t& toml() {
+        return *m_toml;
     }
 
 private:
@@ -61,6 +67,8 @@ private:
     std::map<std::string, std::pair<std::string, json_t>> m_symbols;
     /// The standard library's modules, as an Import names them.
     std::vector<std::string> m_std_modules;
+    /// project.toml's documents and requests, whose thread stops before what it sends through.
+    std::unique_ptr<toml_features_t> m_toml;
     /// Last, so it's destroyed first, and its threads stop before what they send through.
     std::unique_ptr<workspace_t> m_workspace;
 

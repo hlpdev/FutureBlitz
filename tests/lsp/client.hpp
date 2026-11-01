@@ -59,6 +59,8 @@ public:
         json_t initialization_options = json_t::object();
         /// The position encodings the client offers.
         std::vector<std::string> encodings;
+        /// Whether project.toml's registries are read only from the cache.
+        bool offline = false;
     };
 
     explicit client_t(options_t options);
@@ -95,7 +97,7 @@ public:
         return m_texts.at(uri);
     }
 
-    /// Waits until the server's checks are done.
+    /// Waits until the server's checks are done, project.toml's too.
     void settle();
 
     /// The diagnostics published last for a file, which some must have been.
