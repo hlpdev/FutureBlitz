@@ -9,11 +9,13 @@ import {
     Owner,
     debugExecutable,
     findPackageRoot,
+    isManifest,
     lldbImportCommand,
     missingFbMessage,
     packageName,
     projectOf,
     relativeTarget,
+    serverAtLeast,
     taskArguments,
     taskEnvironment,
     taskLabel,
@@ -235,4 +237,28 @@ test("testArguments runs exactly the tests named, or builds their executable", (
             "C:/counted",
         ],
     );
+});
+
+describe("serverAtLeast", () => {
+    test("a version at or past the one wanted, by number, not text", () => {
+        assert.equal(serverAtLeast("1.2.1", "1.2.1"), true);
+        assert.equal(serverAtLeast("1.10.0", "1.2.1"), true);
+        assert.equal(serverAtLeast("2.0.0", "1.2.1"), true);
+        assert.equal(serverAtLeast("1.2.1-dev", "1.2.1"), true);
+    });
+
+    test("an older, unknown, or unreadable one is older", () => {
+        assert.equal(serverAtLeast("1.1.0", "1.2.1"), false);
+        assert.equal(serverAtLeast("1.2.0", "1.2.1"), false);
+        assert.equal(serverAtLeast(undefined, "1.2.1"), false);
+        assert.equal(serverAtLeast("dev", "1.2.1"), false);
+    });
+});
+
+describe("isManifest", () => {
+    test("a package's project.toml, and no other file", () => {
+        assert.equal(isManifest(path.join("app", "project.toml")), true);
+        assert.equal(isManifest(path.join("app", "Cargo.toml")), false);
+        assert.equal(isManifest(path.join("app", "main.fb")), false);
+    });
 });

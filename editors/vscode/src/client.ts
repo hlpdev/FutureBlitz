@@ -13,6 +13,7 @@ import {
     TransportKind,
 } from "vscode-languageclient/node";
 
+import { MANIFEST_SERVER, isManifest, serverAtLeast } from "./fb";
 import { Found } from "./paths";
 
 export type ServerState = "disabled" | "missing" | "starting" | "running" | "failed";
@@ -130,6 +131,20 @@ export class ServerClient implements vscode.Disposable {
                 inlayHints: inlayHints(vscode.workspace.getConfiguration("futureblitz")),
             },
             synchronize: { configurationSection: "futureblitz" },
+            // project.toml goes to fb-lsp only when it serves it: an older one would check it as
+            // FutureBlitz code.
+            middleware: {
+                didOpen: (document, next) => (this.serves(document.uri) ? next(document) : Promise.resolve()),
+                didChange: (event, next) => (this.serves(event.document.uri) ? next(event) : Promise.resolve()),
+                didSave: (document, next) => (this.serves(document.uri) ? next(document) : Promise.resolve()),
+                didClose: (document, next) => (this.serves(document.uri) ? next(document) : Promise.resolve()),
+                provideCompletionItem: (document, position, context, token, next) =>
+                    this.serves(document.uri) ? next(document, position, context, token) : undefined,
+                provideHover: (document, position, token, next) =>
+                    this.serves(document.uri) ? next(document, position, token) : undefined,
+                provideCodeActions: (document, range, context, token, next) =>
+                    this.serves(document.uri) ? next(document, range, context, token) : undefined,
+            },
             outputChannel: this.m_output,
             revealOutputChannelOn: RevealOutputChannelOn.Never,
             initializationFailedHandler: (error) => {
@@ -161,6 +176,7 @@ export class ServerClient implements vscode.Disposable {
             await Promise.race([started, timeout]);
             if (generation === this.m_generation && client.state === State.Running) {
                 this.setState("running", command);
+                this.warnIfOld(client);
             }
         } catch (error) {
             if (generation === this.m_generation) {
@@ -175,6 +191,32 @@ export class ServerClient implements vscode.Disposable {
     async stop(): Promise<void> {
         ++this.m_generation;
         await this.disposeClient();
+    }
+
+    // Whether a document goes to fb-lsp: every FutureBlitz file, and project.toml once fb-lsp
+    // says it's a version that serves it.
+    private serves(uri: vscode.Uri): boolean {
+        if (!isManifest(uri.fsPath)) {
+            return true;
+        }
+
+        return serverAtLeast(this.m_client?.initializeResult?.serverInfo?.version, MANIFEST_SERVER);
+    }
+
+    // Says once, in the output and a notification, when fb-lsp is older than what project.toml
+    // and the newest editor features need, so the user updates fb.
+    private warnIfOld(client: LanguageClient): void {
+        const version = client.initializeResult?.serverInfo?.version;
+        if (serverAtLeast(version, MANIFEST_SERVER)) {
+            return;
+        }
+
+        const message =
+            `fb-lsp ${version ?? "(an unknown version)"} is older than this extension needs: ` +
+            `project.toml's support and the newest editor features need fb ${MANIFEST_SERVER} or later. ` +
+            "Update fb (see futureblitz.dev/download).";
+        this.m_output.appendLine(message);
+        void vscode.window.showWarningMessage(message);
     }
 
     // Stops the client. vscode-languageclient says a client is running before it sets up its

@@ -261,3 +261,34 @@ export function testArguments(target: string, names: readonly string[], output?:
     args.push(target);
     return args;
 }
+
+// The first fb-lsp that serves project.toml. An older one checks whatever it's sent as
+// FutureBlitz code, so the extension sends it project.toml only from this version on.
+export const MANIFEST_SERVER = "1.2.1";
+
+// Whether fb-lsp's version, from its initialize answer's serverInfo, is `wanted` or later. An
+// unknown or unreadable version is taken as older.
+export function serverAtLeast(version: string | undefined, wanted: string): boolean {
+    const parts = (text: string): number[] | undefined => {
+        const match = /^(\d+)\.(\d+)\.(\d+)/.exec(text);
+        return match === null ? undefined : [Number(match[1]), Number(match[2]), Number(match[3])];
+    };
+    const have = version === undefined ? undefined : parts(version);
+    const need = parts(wanted);
+    if (have === undefined || need === undefined) {
+        return false;
+    }
+
+    for (let i = 0; i < 3; ++i) {
+        if (have[i] !== need[i]) {
+            return have[i] > need[i];
+        }
+    }
+
+    return true;
+}
+
+// Whether a document is a package's project.toml.
+export function isManifest(fsPath: string): boolean {
+    return path.basename(fsPath) === "project.toml";
+}
