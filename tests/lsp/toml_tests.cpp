@@ -364,7 +364,7 @@ TEST_CASE("fb-lsp completes a dependency's name and version from its registry", 
         std::format("{}\n[registries]\nfutureblitz = {{ index = \"{}\" }}\ncompany = {{ index = "
                     "\"{}\" }}\n\n[dependencies.physics]\nregistry = \"company\"\nversion = \"\"\n",
                     game_manifest, registry.index(), company.index());
-    CHECK(labels(complete(two, "version = \"", 11)) == std::vector<std::string>{ "9.0.0" });
+    CHECK(labels(complete(two, "version = \"\"", 11)) == std::vector<std::string>{ "9.0.0" });
 
     // Hover has its description and newest version.
     client.change(uri, head + "physics = \"1.2\"\n");

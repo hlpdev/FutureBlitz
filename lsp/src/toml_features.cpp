@@ -772,8 +772,8 @@ json_t toml_features_t::completion(const document_t& document, const json_t& par
     };
     const auto add_versions = [&](const std::string& name) {
         const std::vector<registry_entry_t> registries = registries_in(text);
-        const std::optional<std::string> index =
-            registry_index(registry_named(text, line, own_table ? header->sub : ""), registries, root);
+        const std::optional<std::string> index = registry_index(
+            registry_named(text, line, own_table ? header->sub : ""), registries, root);
         if (!index || !place.string_begin) {
             return;
         }
