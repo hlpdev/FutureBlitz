@@ -34,8 +34,10 @@ fb::compilation_t compiled(const program_t& program) {
 
 /// The messages of a program's errors and warnings.
 std::vector<std::string> messages(const program_t& program) {
+    // Kept, as the loop's temporary lives through it only from GCC 15, C++23's rule.
+    const fb::compilation_t compilation = compiled(program);
     std::vector<std::string> found;
-    for (const fb::diagnostic_t& diagnostic : compiled(program).diagnostics.diagnostics()) {
+    for (const fb::diagnostic_t& diagnostic : compilation.diagnostics.diagnostics()) {
         found.push_back(diagnostic.message);
     }
 
@@ -44,8 +46,9 @@ std::vector<std::string> messages(const program_t& program) {
 
 /// The titles of the suggestions of the diagnostics whose messages have `about` in them.
 std::vector<std::string> suggested(const program_t& program, const std::string_view about) {
+    const fb::compilation_t compilation = compiled(program);
     std::vector<std::string> found;
-    for (const fb::diagnostic_t& diagnostic : compiled(program).diagnostics.diagnostics()) {
+    for (const fb::diagnostic_t& diagnostic : compilation.diagnostics.diagnostics()) {
         if (diagnostic.message.contains(about)) {
             for (const fb::suggestion_t& suggestion : diagnostic.suggestions) {
                 found.push_back(suggestion.title);
