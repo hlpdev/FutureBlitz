@@ -1065,6 +1065,14 @@ an operand that names a Function or Field declared in a file with an `#If`, or i
 wchar_t (`varies` of an expression). The editor's folders no longer turn lints off: a path
 dependency's show as fb build applies them, and only a package opened from the cache has none.
 
+**The second recheck** (2026-11-01): `varies` follows an operator's operands, a member's
+object, and a Local's value, each Local once, so `Local n = Fd()` then `n As Int64` isn't
+redundant when Fd's result is under an `#If`; the benchmark's references and rename each follow
+an edit, so they time the check they make; without the client watching files, a cached check of
+a file and what imports it is made again when one of its files that isn't open, but std's, was
+written since it started (`server_t::written_since`); and an Import goes after a From line that
+goes on past a `/* */` comment.
+
 **Step 7, refactorings** (2026-11-01): fb-lsp's code actions offer, for a selection, Extract to
 a Local, to a Function, and to a Method, and for the name the selection starts at, Inline a
 Local, a call of a Function, or a Private Function everywhere; `source.organizeImports` sorts a

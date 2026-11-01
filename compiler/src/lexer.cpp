@@ -934,20 +934,32 @@ std::vector<token_t> lex_layout(const source_file_t& file, diagnostic_bag_t& dia
 
 namespace {
 
-/// A line's code: without a comment after it, or the spaces before that or the line's end.
-std::string_view code_of(std::string_view line) {
+/// A line's code: without its comments, a `//` one after it or a `/* */` one in it, or the
+/// spaces before them or the line's end.
+std::string code_of(const std::string_view line) {
+    std::string code;
     bool quoted = false;
     for (std::size_t i = 0; i < line.size(); ++i) {
         if (line[i] == '"') {
             quoted = !quoted;
         } else if (!quoted && line.substr(i).starts_with("//")) {
-            line = line.substr(0, i);
             break;
+        } else if (!quoted && line.substr(i).starts_with("/*")) {
+            const std::size_t end = line.find("*/", i + 2);
+            if (end == std::string_view::npos) {
+                break;
+            }
+
+            i = end + 1;
+            continue;
         }
+
+        code += line[i];
     }
 
-    const std::size_t last = line.find_last_not_of(" \t");
-    return last == std::string_view::npos ? std::string_view() : line.substr(0, last + 1);
+    const std::size_t last = code.find_last_not_of(" \t");
+    code.resize(last == std::string::npos ? 0 : last + 1);
+    return code;
 }
 
 } // namespace

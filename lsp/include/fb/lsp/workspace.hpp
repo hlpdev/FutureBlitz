@@ -186,6 +186,8 @@ public:
     [[nodiscard]] bool owns(const std::filesystem::path& path) const;
     /// owns(), for a caller that doesn't hold the workspace's lock, on any thread.
     [[nodiscard]] bool owned(const std::filesystem::path& path) const;
+    /// Whether the client watches the files, so a change on disk is told.
+    [[nodiscard]] bool watched() const;
 
     /// Waits until no check waits or runs, as the tests do before they look.
     void settle();

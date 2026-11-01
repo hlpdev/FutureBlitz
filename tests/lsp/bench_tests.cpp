@@ -522,12 +522,18 @@ void measure(workload_t& workload, const std::size_t samples, const std::chrono:
             CHECK(!client.request("textDocument/documentHighlight", name_at).empty());
         }));
 
+        // References and a rename each after an edit, as their check is then, without one
+        // before to share.
+        client.change(uri, text);
+        client.settle();
         json_t references_params = name_at;
         references_params["context"] = { { "includeDeclaration", true } };
         metric("references").samples.push_back(timed([&] {
             CHECK(!client.request("textDocument/references", references_params).empty());
         }));
 
+        client.change(uri, text);
+        client.settle();
         json_t rename_params = name_at;
         rename_params["newName"] = workload.symbol + "Renamed";
         metric("rename").samples.push_back(timed(

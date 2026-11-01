@@ -217,7 +217,8 @@ layout = { path = "../layout", version = "0.4" }    # its folder here, 0.4 once 
   reaches, nor a file with one for its Imports and Private declarations; and neither is code in
   a file with errors. A type may be another in another build, so neither `redundant_as` nor
   `constant_condition` reports in a file with an `#If`, on C's long or wchar_t, on a type an
-  Alias in a file with an `#If` names, or on what names a Function or Field declared in one.
+  Alias in a file with an `#If` names, or on what names a Function or Field declared in one,
+  itself, through an operator's operands, or through a Local's value.
 - A dependency's own project.toml names it as `[dependencies]` does, and so do the packages it
   depends on, each read once, by whatever path reaches its folder, however many packages depend
   on it. Two packages of one name, and packages that depend on each other in a cycle, are

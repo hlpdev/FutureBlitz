@@ -490,18 +490,40 @@ server_t::dependents(const std::filesystem::path& file) {
     // The first to ask for a version makes its checks, which the rest wait for.
     std::promise<std::vector<std::shared_ptr<const compilation_t>>> made;
     std::shared_future<std::vector<std::shared_ptr<const compilation_t>>> known;
+    std::filesystem::file_time_type checked;
+    const std::filesystem::file_time_type now = std::filesystem::file_time_type::clock::now();
+    const auto make = [&] {
+        return dependents_t{
+            .version = document->second,
+            .compilations = made.get_future().share(),
+            .checked = now,
+        };
+    };
     {
         const std::scoped_lock lock(m_dependents_mutex);
         dependents_t& found = m_dependents[file_key(file)];
         if (found.compilations.valid() && found.version == document->second) {
             known = found.compilations;
+            checked = found.checked;
         } else {
-            found = { .version = document->second, .compilations = made.get_future().share() };
+            found = make();
         }
     }
 
     if (known.valid()) {
-        return known.get();
+        // Without the client watching, a file that isn't open, but std's, may have changed on
+        // disk since.
+        std::vector<std::shared_ptr<const compilation_t>> compilations = known.get();
+        const bool written = !m_workspace->watched() &&
+                             std::ranges::any_of(compilations, [&](const auto& compilation) {
+                                 return written_since(*compilation, checked);
+                             });
+        if (!written) {
+            return compilations;
+        }
+
+        const std::scoped_lock lock(m_dependents_mutex);
+        m_dependents[file_key(file)] = make();
     }
 
     try {
@@ -513,6 +535,25 @@ server_t::dependents(const std::filesystem::path& file) {
         made.set_exception(std::current_exception());
         throw;
     }
+}
+
+bool server_t::written_since(const compilation_t& compilation,
+                             const std::filesystem::file_time_type since) const {
+    for (const module_t& module : compilation.ast.modules().modules()) {
+        const std::filesystem::path path = compilation.disk_path(module.file);
+        if (path.empty() || module.path.starts_with("std/") || m_workspace->document(path)) {
+            continue;
+        }
+
+        std::error_code error;
+        const std::filesystem::file_time_type written =
+            std::filesystem::last_write_time(path, error);
+        if (error || written > since) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 void server_t::forget_dependents() {

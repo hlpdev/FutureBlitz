@@ -1004,7 +1004,11 @@ TEST_CASE("the inspections leave what another build may see otherwise, and what 
             "Local big = Fd() As Int64\n"
             "big = big * 3000000000\n"
             "Print(big)\n"
-            "Print(Fits(Size(5)))\n",
+            "Print(Fits(Size(5)))\n"
+            "Local n = Fd()\n"
+            "Local m = n As Int64\n"
+            "Local w = Size(5).w\n"
+            "Print(\"{m} {w <= 2147483647} {Gd() * 2 <= 2147483647}\")\n",
         },
         {
             "lib.fb",
@@ -1012,6 +1016,11 @@ TEST_CASE("the inspections leave what another build may see otherwise, and what 
             "Public Function Fd(): Int64 => 5\n"
             "#Else\n"
             "Public Function Fd(): Int32 => 5\n"
+            "#End If\n"
+            "#If DEBUG\n"
+            "Public Function Gd(): Int32 => 5\n"
+            "#Else\n"
+            "Public Function Gd(): Int64 => 5\n"
             "#End If\n"
             "Public Struct Size\n"
             "#If DEBUG\n"

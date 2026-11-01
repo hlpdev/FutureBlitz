@@ -17078,18 +17078,60 @@ private:
     /// can't tell: as varies() says of its type, or it names what's declared in a file with an
     /// #If, a Function whose result or a Field whose type an #If may change.
     [[nodiscard]] bool varies(const expr_id_t id) const {
+        std::set<symbol_id_t> seen;
+        return varies(id, seen);
+    }
+
+    /// The same, through an operator's operands, a member's object, and a Local's initializer,
+    /// each Local once.
+    [[nodiscard]] bool varies(const expr_id_t id, std::set<symbol_id_t>& seen) const {
         if (varies(m_analysis.exprs[index(id)].type, span_of(id).file)) {
             return true;
         }
 
+        const expr_node_t& node = m_ast.get(id).node;
         std::optional<symbol_id_t> named = m_analysis.exprs[index(id)].symbol;
-        if (const auto* call = std::get_if<call_expr_t>(&m_ast.get(id).node)) {
+        if (const auto* call = std::get_if<call_expr_t>(&node)) {
             named = m_analysis.exprs[index(call->callee)].symbol;
         }
 
-        const symbol_t* declared = named ? &m_analysis.symbols[index(*named)] : nullptr;
-        return declared != nullptr && !declared->span.empty() &&
-               has_directives(whole_file(declared->span.file));
+        if (named) {
+            const symbol_t& declared = m_analysis.symbols[index(*named)];
+            if (!declared.span.empty() && has_directives(whole_file(declared.span.file))) {
+                return true;
+            }
+
+            const auto* variable =
+                declared.kind == symbol_kind_t::LOCAL && declared.declaration
+                    ? std::get_if<variable_stmt_t>(&m_ast.get(*declared.declaration).node)
+                    : nullptr;
+            if (variable != nullptr && variable->value && seen.insert(*named).second &&
+                varies(*variable->value, seen)) {
+                return true;
+            }
+        }
+
+        if (const auto* unary = std::get_if<unary_expr_t>(&node)) {
+            return varies(unary->operand, seen);
+        }
+
+        if (const auto* binary = std::get_if<binary_expr_t>(&node)) {
+            return varies(binary->left, seen) || varies(binary->right, seen);
+        }
+
+        if (const auto* ternary = std::get_if<ternary_expr_t>(&node)) {
+            return varies(ternary->if_true, seen) || varies(ternary->if_false, seen);
+        }
+
+        if (const auto* cast = std::get_if<cast_expr_t>(&node)) {
+            return varies(cast->value, seen);
+        }
+
+        if (const auto* member = std::get_if<member_expr_t>(&node)) {
+            return varies(member->object, seen);
+        }
+
+        return false;
     }
 
     /// Whether a type may be another in another build, which code in `file` can't tell: the

@@ -948,6 +948,11 @@ bool workspace_t::owns(const std::filesystem::path& path) const {
     });
 }
 
+bool workspace_t::watched() const {
+    const std::scoped_lock lock(m_mutex);
+    return m_watched;
+}
+
 bool workspace_t::owned(const std::filesystem::path& path) const {
     const std::scoped_lock lock(m_mutex);
     return owns(path);

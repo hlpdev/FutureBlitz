@@ -637,6 +637,7 @@ TEST_CASE("an Import goes after an #If among the Imports, and after a module's d
     for (const std::string_view from : {
              "From std.math Import Clamp,  \n    Lerp\n",
              "From std.math Import Clamp, // and\n    Lerp\n",
+             "From std.math Import Clamp, /* and */\n    Lerp\n",
          }) {
         const std::string text = std::string(from) + "Print(1)\n";
         CHECK(fb::import_offset(text) == from.size());

@@ -97,6 +97,9 @@ private:
     struct dependents_t {
         std::int64_t version = 0;
         std::shared_future<std::vector<std::shared_ptr<const compilation_t>>> compilations;
+        /// When its check started: without the client watching files, one of its files written
+        /// since makes it stale.
+        std::filesystem::file_time_type checked;
     };
     std::map<std::string, dependents_t> m_dependents;
     std::mutex m_dependents_mutex;
@@ -130,6 +133,10 @@ private:
     std::vector<std::shared_ptr<const compilation_t>> dependents(const std::filesystem::path& file);
     /// m_dependents emptied.
     void forget_dependents();
+    /// Whether a file of `compilation` that isn't open, or std's, was written after `since`, or
+    /// is gone.
+    [[nodiscard]] bool written_since(const compilation_t& compilation,
+                                     std::filesystem::file_time_type since) const;
     void publish(const published_t& published);
 
     /// What a request answers, or nullopt for one the server doesn't know.

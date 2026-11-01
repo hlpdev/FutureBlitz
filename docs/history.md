@@ -215,6 +215,11 @@ Method to override, or the Class made Abstract (`member_stub`, `suggest_implemen
 (`added_end`, `changed_end`). `@MainThread` has no error it fixes, and `fb add`'s fix is in Deferred
 work. Tests: tests/compiler/fixes_tests.cpp, each fix made and its program compiled.
 
+The second recheck (2026-11-01, on dev/m11): `varies` through operators, members, and Locals'
+values; the benchmark's references and rename after an edit; `dependents_t::checked`,
+`server_t::written_since`, and `workspace_t::watched`; `code_of`'s block comments. Tests in
+inspect_tests, fixes_tests, and navigate_tests.
+
 Step 7, refactorings (2026-11-01, on dev/m11): lsp/include/fb/lsp/refactor.hpp and
 lsp/src/refactor.cpp, with `refactoring_t`, `refactorings` (`extract_local`, `extract_function`,
 `inline_local`, `inline_function`, `inlined_call`), `organized_imports`,

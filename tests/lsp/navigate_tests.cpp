@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -588,6 +589,32 @@ TEST_CASE("a file's code lenses count their references in one check of it and wh
                                                          });
     CHECK(client.request("codeLens/resolve", fresh[9])["command"]["title"] == "1 reference");
     CHECK(client.server().workspace().history().size() > saved);
+}
+
+TEST_CASE("without the client watching files, references see a file written since the last check",
+          "[lsp]") {
+    const folder_t folder({
+        { "project.toml", "[project]\nname = \"app\"\nversion = \"0.1.0\"\n" },
+        { "lib.fb", "Public Function Twice(n: Int): Int => n * 2\n" },
+        { "main.fb", "Import std.core\nImport \"./lib\"\nPrint(Twice(1))\n" },
+    });
+    client_t client({ .folders = { folder.root() } });
+    const std::string lib = folder.uri("lib.fb");
+    client.open(lib, "Public Function Twice(n: Int): Int => n * 2\n");
+    client.settle();
+    const json_t params{
+        { "textDocument", { { "uri", lib } } },
+        { "position", client_t::position(0, 17) },
+        { "context", { { "includeDeclaration", false } } },
+    };
+    CHECK(client.request("textDocument/references", params).size() == 1);
+
+    // main.fb changes on disk, which nothing tells the server.
+    folder.write("main.fb", "Import std.core\nImport \"./lib\"\nPrint(Twice(1) + Twice(2))\n");
+    std::filesystem::last_write_time(folder.path("main.fb"),
+                                     std::filesystem::file_time_type::clock::now() +
+                                         std::chrono::seconds(5));
+    CHECK(client.request("textDocument/references", params).size() == 2);
 }
 
 TEST_CASE("lens resolves behind a change are stale, and a cancelled request isn't answered",
