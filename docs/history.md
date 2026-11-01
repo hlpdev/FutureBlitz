@@ -3,6 +3,24 @@
 What each milestone and step added, by name, and each review's fixes, as CLAUDE.md kept
 them while each was built. Newest first.
 
+## 1.2.2
+
+fb-lsp answers what needs a check on a worker (`request_job_t`, `m_jobs`, `answer_jobs`,
+`waits_for_check`, in place of the lens thread's `lens_job_t`), so the message thread answers
+formatting and what else the text gives at once; `$/cancelRequest` takes a waiting job out, and
+shutdown waits for the worker's (`m_jobs_busy`, `m_jobs_idle`). Semantic tokens from
+`workspace_t::checked_now`, else `lexical_tokens` (semantic.cpp's `tokens_of` without a query),
+with `workspace/semanticTokens/refresh` once the document's check is published
+(`m_lexical_tokens`, `m_tokens_refresh`); hover from `workspace_t::checked_last` when the line
+it's over is the same; the inlay hints' settings under `m_settings_mutex`; `editable` through
+`owned`. Requests from the last check (`last_check_t`, `last_check`, `line_to_then`,
+`at_last_check`, `moved`, `moved_items`), completion's `member_completion` and
+`signature_help_before` for what's just typed, and inlay hints' and code lenses' refreshes once a
+check is published (`published_t::checked`, `m_changed`). The benchmark's burst_formatting,
+burst_hover, semantic_tokens, and hover_typed, each typed request's last keystroke on its own,
+and the budgets of 20 ms and 10 ms. Tests in feature_tests, workspace_tests, and
+responsive_tests' ten seconds of typing.
+
 ## 1.2.1
 
 (2026-11-01.) 1.2.0 was tagged but never released: its macOS build failed, as fb-lsp's code lens

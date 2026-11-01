@@ -72,6 +72,8 @@ public:
         bool offline = false;
         /// Whether the client says it takes snippet edits in a workspace edit.
         bool snippet_edits = false;
+        /// Whether it asks for semantic tokens again when the server says to.
+        bool tokens_refresh = false;
         /// What project.toml's registries are asked through, and how long what they say is kept.
         fb::http_client_t http = fb::send_http;
         std::chrono::seconds registry_life{ 60 };

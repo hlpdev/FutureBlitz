@@ -949,6 +949,42 @@ std::optional<call_at_t> call_at(const query_t& query, const std::uint32_t offse
     };
 }
 
+json_t signature_help_before(const query_t& query, const std::uint32_t callee_end,
+                             const std::uint32_t active, const positions_t& positions) {
+    // The outermost expression that ends there, and what it names.
+    std::optional<expr_id_t> callee;
+    for (std::size_t i = 0; i < query.ast().expr_count(); ++i) {
+        const auto id = static_cast<expr_id_t>(i);
+        const span_t span = query.ast().get(id).span;
+        if (span.file == query.file() && span.end == callee_end && !span.empty() &&
+            (!callee || span.begin < query.ast().get(*callee).span.begin)) {
+            callee = id;
+        }
+    }
+
+    const std::optional<symbol_id_t> named =
+        callee ? query.analysis().expr(*callee).symbol : std::nullopt;
+    if (!named) {
+        return nullptr;
+    }
+
+    const symbol_t& function = query.analysis().symbol(*named);
+    if (function.kind != symbol_kind_t::FUNCTION && function.kind != symbol_kind_t::METHOD &&
+        function.kind != symbol_kind_t::BUILTIN_FUNCTION) {
+        return nullptr;
+    }
+
+    const std::size_t count = function.parameters.size();
+    return {
+        { "signatures", json_t::array({ signature_information(query, *named, positions) }) },
+        { "activeSignature", 0 },
+        {
+            "activeParameter",
+            count == 0 ? 0 : std::min<std::uint32_t>(active, static_cast<std::uint32_t>(count - 1)),
+        },
+    };
+}
+
 json_t signature_help(const query_t& query, const std::uint32_t offset,
                       const positions_t& positions) {
     const std::optional<call_at_t> found = call_at(query, offset);

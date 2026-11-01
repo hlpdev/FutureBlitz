@@ -102,6 +102,10 @@ client_t::client_t(options_t options)
         capabilities["workspace"] = workspace;
     }
 
+    if (options.tokens_refresh) {
+        capabilities["workspace"]["semanticTokens"] = { { "refreshSupport", true } };
+    }
+
     m_answers = options.answers;
 
     m_initialized =

@@ -112,24 +112,40 @@ private:
     };
     std::map<std::string, dependents_t> m_dependents;
     std::mutex m_dependents_mutex;
-    /// The code lens resolves waiting for the lens thread, each with its request's id.
-    struct lens_job_t {
+    /// The requests waiting for the worker, which answers those that need a check, in the order
+    /// they came, so none of them keeps the message thread, and what's behind it, waiting.
+    struct request_job_t {
         json_t id;
-        json_t lens;
+        std::string method;
+        json_t params;
     };
-    std::deque<lens_job_t> m_lens_jobs;
-    std::mutex m_lens_mutex;
-    std::condition_variable m_lens_ready;
-    /// Set, under m_lens_mutex, when the server goes, which ends the lens thread.
-    bool m_lens_stop = false;
+    std::deque<request_job_t> m_jobs;
+    std::mutex m_jobs_mutex;
+    std::condition_variable m_jobs_ready;
+    /// Set, under m_jobs_mutex, when the server goes, which ends the worker.
+    bool m_jobs_stop = false;
+    /// Whether the worker is answering one, which shutdown waits for, with those waiting.
+    bool m_jobs_busy = false;
+    std::condition_variable m_jobs_idle;
+    /// The inlay hints' settings, which the worker reads as a message changes them.
+    std::mutex m_settings_mutex;
+    /// Whether the client asks for semantic tokens again when told, and the open documents whose
+    /// tokens were the lexer's alone, as their check wasn't done, which are told once it is.
+    bool m_tokens_refresh = false;
+    std::set<std::string> m_lexical_tokens;
+    /// Whether the client asks for code lenses again when told, and the open documents changed
+    /// since their last check, whose inlay hints and lenses are asked for again once it's done.
+    bool m_lenses_refresh = false;
+    std::set<std::string> m_changed;
+    std::mutex m_tokens_mutex;
     /// project.toml's documents and requests, whose thread stops before what it sends through.
     std::unique_ptr<toml_features_t> m_toml;
     /// After what its threads send through, so it's destroyed, and they stop, before that.
     std::unique_ptr<workspace_t> m_workspace;
-    /// The thread that answers code lens resolves, started with the first; the destructor stops
-    /// and joins it before the workspace goes, as it reads the workspace's checks. A std::thread,
-    /// as Apple's libc++ has no std::jthread.
-    std::thread m_lens_thread;
+    /// The worker, which answers the requests that need a check, started with the first; the
+    /// destructor stops and joins it before the workspace goes, as it reads the workspace's
+    /// checks. A std::thread, as Apple's libc++ has no std::jthread.
+    std::thread m_worker;
 
     void send(const json_t& message);
     /// Asks the client to watch every file of `folders`, or of its own folders when it's empty.
@@ -140,8 +156,11 @@ private:
     void fail(const json_t& id, error_code_t code, const std::string& message);
     /// Answers a request, or says why it can't.
     void answer_request(const json_t& id, const std::string& method, const json_t& params);
-    /// The lens thread's work: each waiting resolve answered, until it's asked to stop.
-    void answer_lenses();
+    /// The worker's work: each waiting request answered, until it's asked to stop.
+    void answer_jobs();
+    /// Whether a request needs a check of its document, which the worker waits for: one about
+    /// what code names or means, but not one about a project.toml, nor one its text answers.
+    [[nodiscard]] static bool waits_for_check(const std::string& method, const json_t& params);
     /// The checks of `file` and what imports it, which every use of what it declares is in, made
     /// once for each version of an open document.
     std::vector<std::shared_ptr<const compilation_t>> dependents(const std::filesystem::path& file);
@@ -172,6 +191,46 @@ private:
 
     /// The name at a request's position, or nullopt when there's none.
     std::optional<target_t> target(const json_t& params);
+
+    /// An open document's last check that's done, and the document's text now, which may have
+    /// moved on from the check's: between the text they start with and the text they end with is
+    /// what's changed since, where nothing in one has a place in the other.
+    struct last_check_t {
+        checked_t checked;
+        source_file_t now;
+        std::uint32_t prefix = 0;
+        std::uint32_t suffix = 0;
+
+        [[nodiscard]] const source_file_t& then() const {
+            return checked.compilation->sources.get(checked.file);
+        }
+
+        /// Where the document's `offset` is in the check's text, or nullopt in what's changed.
+        [[nodiscard]] std::optional<std::uint32_t> to_then(std::uint32_t offset) const;
+        /// The same, for an offset whose whole line is unchanged, as what's said of a name there
+        /// reads what's before and after it, or nullopt.
+        [[nodiscard]] std::optional<std::uint32_t> line_to_then(std::uint32_t offset) const;
+        /// Where the check's `offset` is in the document's text, or nullopt in what's changed.
+        [[nodiscard]] std::optional<std::uint32_t> to_now(std::uint32_t offset) const;
+    };
+
+    /// The last check of the document a request names, without waiting for its current text's,
+    /// but for a document no check has finished yet, whose first it waits for.
+    std::optional<last_check_t> last_check(const json_t& params);
+    /// An LSP range in the check's text as it is in the document's now, in place; false when it
+    /// was in what's changed.
+    [[nodiscard]] bool moved(const last_check_t& last, json_t& range) const;
+    /// What a request answers about a name at its position, from the last check: `answer` with
+    /// the check's query and the position in its text, and the ranges of `uri`'s that it gives
+    /// moved to the document's text. Null when the position is in what's changed since.
+    /// Completion's items from the last check, moved to the document's text: each edit ending at
+    /// `cursor`, one starting at `typed_at`, where a '.' was typed since, starting there too, and
+    /// one whose other edits were in what's changed left out.
+    [[nodiscard]] json_t moved_items(const last_check_t& last, json_t found,
+                                     std::optional<std::uint32_t> typed_at,
+                                     std::uint32_t cursor) const;
+    json_t at_last_check(const json_t& params,
+                         const std::function<json_t(const query_t&, std::uint32_t)>& answer);
     /// Why a name can't be renamed, or nullopt when it can.
     [[nodiscard]] std::optional<std::string> unrenamable(const target_t& found) const;
     json_t references(const json_t& params, bool declaration);
