@@ -61,6 +61,10 @@
         "extensions": [
           ".fb"
         ],
+        "icon": {
+          "light": "./images/file-light.svg",
+          "dark": "./images/file-dark.svg"
+        },
         "configuration": "./language-configuration.json"
       }
     ],
