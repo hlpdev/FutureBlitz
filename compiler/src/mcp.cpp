@@ -14,21 +14,29 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <exception>
 #include <expected>
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <functional>
 #include <future>
 #include <iterator>
+#include <map>
+#include <memory>
+#include <mutex>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <ranges>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -51,7 +59,6 @@ constexpr int parse_error = -32700;
 constexpr int invalid_request = -32600;
 constexpr int method_not_found = -32601;
 constexpr int invalid_params = -32602;
-constexpr int internal_error = -32603;
 
 /// How much of one spec section or one std declaration's doc a search gives back.
 constexpr std::size_t excerpt_length = 1800;
@@ -308,7 +315,8 @@ json_t tools() {
         tool("lookup",
              "Looks up a name in the package and the standard library, like 'Split', "
              "'std.collections.map.Map', or one of the package's own Functions, and gives each "
-             "declaration of it: its first line, where it is, and its doc.",
+             "declaration of it: its first line, where it is, and its doc. It runs none of the "
+             "package's build steps: their files are what fb build last made.",
              json_t{
                  {
                      "name",
@@ -320,18 +328,20 @@ json_t tools() {
              },
              json_t::array({ "name" })),
         tool("check",
-             "Checks FutureBlitz code for errors without building it, and gives each error and "
-             "warning with its line, its fix when it has one, and its notes. With 'code' alone, it "
-             "checks that as a program of its own; with 'file', that file of the package, with "
-             "'code' as its text if it's given, though it isn't saved; with neither, the whole "
-             "package.",
+             "Checks FutureBlitz code for errors without building or running it, and gives each "
+             "error and warning with its line, its fix when it has one, and its notes. With 'code' "
+             "alone, it checks that as a program of its own; with 'file', a .fb file in the "
+             "package's folder, with 'code' as its text if it's given, though it isn't saved; with "
+             "neither, the whole package, or each .fb file of a folder that isn't one. It runs "
+             "none of the package's build steps: their files are what fb build last made, and one "
+             "that hasn't run is an error that says so.",
              json_t{
                  { "code", json_t{ { "type", "string" }, { "description", "FutureBlitz code" } } },
                  {
                      "file",
                      json_t{
                          { "type", "string" },
-                         { "description", "A .fb file, from the package's folder" },
+                         { "description", "A .fb file in the package's folder, from it" },
                      },
                  },
              },
@@ -345,7 +355,7 @@ json_t tools() {
                      "file",
                      json_t{
                          { "type", "string" },
-                         { "description", "A .fb file, from the package's folder" },
+                         { "description", "A .fb file in the package's folder, from it" },
                      },
                  },
                  {
@@ -425,25 +435,157 @@ docs_t load_docs() {
 
 } // namespace
 
-struct mcp_server_t::state_t {
-    std::filesystem::path root;
-    /// The docs, which an initialize starts reading on a thread of their own, as reading std
-    /// takes seconds, or the first tool that needs them reads.
-    std::future<docs_t> loading;
-    std::optional<docs_t> loaded;
+namespace {
 
-    const docs_t& docs() {
-        if (!loaded) {
-            loaded = loading.valid() ? loading.get() : load_docs();
+/// How deep a message's arrays and objects nest at most, which MCP's messages never come near.
+constexpr int deepest_nesting = 64;
+
+/// Whether a line's JSON nests its arrays and objects deeper than deepest_nesting, worked out
+/// before it's parsed, as copying a value nested that deep takes as much stack.
+bool too_deep(const std::string_view line) {
+    int depth = 0;
+    bool quoted = false;
+    for (std::size_t at = 0; at < line.size(); ++at) {
+        const char c = line[at];
+        if (quoted) {
+            if (c == '\\') {
+                ++at;
+            } else if (c == '"') {
+                quoted = false;
+            }
+        } else if (c == '"') {
+            quoted = true;
+        } else if (c == '[' || c == '{') {
+            if (++depth > deepest_nesting) {
+                return true;
+            }
+        } else if (c == ']' || c == '}') {
+            --depth;
         }
-
-        return *loaded;
     }
 
-    /// A path a tool names, from the package's folder.
-    [[nodiscard]] std::filesystem::path resolved(const std::string_view given) const {
-        const std::filesystem::path path = path_from_utf8(given);
-        return path.is_absolute() ? path : root / path;
+    return false;
+}
+
+json_t failure(const json_t& id, const int code, const std::string_view message) {
+    return {
+        { "jsonrpc", "2.0" },
+        { "id", id },
+        { "error", json_t{ { "code", code }, { "message", message } } },
+    };
+}
+
+json_t success(const json_t& id, json_t result) {
+    return { { "jsonrpc", "2.0" }, { "id", id }, { "result", std::move(result) } };
+}
+
+/// What takes a message's answer: the line it's sent as, or its batch's.
+using reply_t = std::function<void(json_t answer)>;
+
+/// The tools, by name.
+constexpr std::array<std::string_view, 4> tool_names{ "search_docs", "lookup", "check", "format" };
+
+/// The errors and warnings of a compilation, as fb check shows them without color, with each
+/// fix, and how many of each there are.
+void report(const compilation_t& compiled, std::string& text, std::size_t& errors,
+            std::size_t& warnings) {
+    for (const diagnostic_t& diagnostic : compiled.diagnostics.diagnostics()) {
+        (diagnostic.severity == severity_t::ERROR ? errors : warnings) += 1;
+        text += render_pretty(diagnostic, compiled.sources);
+        for (const fix_t& fix : diagnostic.fixes) {
+            const source_file_t& in = compiled.sources.get(fix.span.file);
+            text += std::format("  fix: at line {}, put `{}` in place of `{}`\n",
+                                in.line_of(fix.span.begin) + 1, fix.replacement,
+                                in.text().substr(fix.span.begin, fix.span.length()));
+        }
+
+        text += '\n';
+    }
+}
+
+} // namespace
+
+struct mcp_server_t::core_t : std::enable_shared_from_this<core_t> {
+    /// A tool call that's running: what takes its answer, its id, and when it has to be done.
+    struct call_t {
+        reply_t reply;
+        json_t id;
+        std::chrono::steady_clock::time_point deadline;
+    };
+
+    /// A batch's answers, sent as one once the last is in.
+    struct batch_t {
+        std::mutex mutex;
+        json_t answers = json_t::array();
+        /// The answers it waits for, and one for the batch being read.
+        std::size_t waiting = 1;
+    };
+
+    std::filesystem::path root;
+    send_t send;
+    mcp_options_t options;
+    /// One answer's line at a time.
+    std::mutex sending;
+    std::mutex mutex;
+    std::condition_variable changed;
+    /// The calls running, by their ids' JSON.
+    std::map<std::string, call_t> calls;
+    /// The answers being sent from a call's thread or the deadlines' thread.
+    std::size_t replying = 0;
+    bool closed = false;
+    /// The version the initialize agreed on; only the thread that receives reads it.
+    std::string version;
+    std::once_flag docs_started;
+    std::shared_future<docs_t> loading;
+    std::thread deadlines;
+
+    void write(const json_t& message) {
+        const std::scoped_lock lock(sending);
+        send(message.dump(-1, ' ', false, json_t::error_handler_t::replace));
+    }
+
+    void start_docs() {
+        std::call_once(docs_started,
+                       [this] { loading = std::async(std::launch::async, load_docs).share(); });
+    }
+
+    /// The docs, which an initialize starts reading on a thread of their own, as reading std
+    /// takes seconds, or the first tool that needs them.
+    const docs_t& docs() {
+        start_docs();
+        return loading.get();
+    }
+
+    /// A .fb file a tool names, from the package's folder, which it has to be in.
+    [[nodiscard]] std::expected<std::filesystem::path, std::string>
+    resolved(const std::string_view given) const {
+        std::error_code error;
+        std::filesystem::path path =
+            std::filesystem::weakly_canonical(root / path_from_utf8(given), error);
+        const std::filesystem::path inside =
+            path.lexically_relative(std::filesystem::weakly_canonical(root, error));
+        if (error || inside.empty() || *inside.begin() == ".." || path.extension() != ".fb") {
+            return std::unexpected(std::format(
+                "'{}' isn't a .fb file in the package's folder, which is all a tool reads", given));
+        }
+
+        return path;
+    }
+
+    tool_result_t run(const std::string& tool, const json_t& arguments) {
+        if (tool == "search_docs") {
+            return search(arguments);
+        }
+
+        if (tool == "lookup") {
+            return lookup(arguments);
+        }
+
+        if (tool == "check") {
+            return check(arguments);
+        }
+
+        return format(arguments);
     }
 
     tool_result_t search(const json_t& arguments) {
@@ -523,9 +665,11 @@ struct mcp_server_t::state_t {
         };
         std::string text;
         std::size_t found = 0;
-        // The package's own declarations, from a check of every file of it.
+        // The package's own declarations, from a check of every file of it, which runs none of
+        // its build steps.
         if (find_package(root)) {
-            if (std::expected<compilation_t, std::string> compiled = compile_docs(root)) {
+            if (std::expected<compilation_t, std::string> compiled =
+                    compile_docs(root, build_mode_t::DEBUG, {}, build_steps_t::KEPT)) {
                 for (const symbol_t& symbol : compiled->analysis.symbols) {
                     const bool declared = symbol.kind == symbol_kind_t::FUNCTION ||
                                           symbol.kind == symbol_kind_t::GLOBAL ||
@@ -610,24 +754,30 @@ struct mcp_server_t::state_t {
         const std::optional<std::string> file =
             arguments.contains("file") ? std::optional(arguments.at("file").get<std::string>())
                                        : std::nullopt;
-        std::expected<compilation_t, std::string> compiled = std::unexpected(std::string());
+        // None of them runs a build step: each takes what the step's last run made.
+        std::deque<std::expected<compilation_t, std::string>> compiled;
         if (file) {
-            const std::filesystem::path path = resolved(*file);
-            if (!code && !std::filesystem::is_regular_file(path)) {
-                return {
-                    .text = std::format("There's no file at {}.", to_utf8(path)),
-                    .error = true,
-                };
+            const std::expected<std::filesystem::path, std::string> path = resolved(*file);
+            if (!path) {
+                return { .text = path.error(), .error = true };
             }
 
-            check_request_t request{ .files = { path }, .main = path };
+            if (!code && !std::filesystem::is_regular_file(*path)) {
+                return { .text = std::format("There's no file {}.", *file), .error = true };
+            }
+
+            check_request_t request{
+                .files = { *path },
+                .main = *path,
+                .build_steps = build_steps_t::KEPT,
+            };
             if (code) {
                 request.read =
                     [&path, &text = *code](
                         const std::filesystem::path& read) -> std::optional<std::string> {
                     std::error_code error;
-                    if (std::filesystem::equivalent(read, path, error) ||
-                        read.lexically_normal() == path.lexically_normal()) {
+                    if (std::filesystem::equivalent(read, *path, error) ||
+                        read.lexically_normal() == path->lexically_normal()) {
                         return text;
                     }
 
@@ -635,31 +785,45 @@ struct mcp_server_t::state_t {
                 };
             }
 
-            compiled = check_files(request);
+            compiled.push_back(check_files(request));
         } else if (code) {
-            compiled = compile("main.fb", *code);
+            compiled.emplace_back(compile("main.fb", *code));
+        } else if (find_package(root)) {
+            compiled.push_back(compile_file(root, build_mode_t::DEBUG, build_steps_t::KEPT));
         } else {
-            compiled = compile_file(root);
-        }
+            // A folder of loose files: each is a program of its own.
+            std::vector<std::filesystem::path> files;
+            std::error_code error;
+            for (std::filesystem::directory_iterator each(root, error), end; !error && each != end;
+                 each.increment(error)) {
+                if (each->path().extension() == ".fb" && each->is_regular_file(error)) {
+                    files.push_back(each->path());
+                }
+            }
 
-        if (!compiled) {
-            return { .text = compiled.error(), .error = true };
+            std::ranges::sort(files);
+            if (files.empty()) {
+                return {
+                    .text = "There's no package here, and no .fb file; check takes 'file' or "
+                            "'code'.",
+                    .error = true,
+                };
+            }
+
+            for (const std::filesystem::path& each : files) {
+                compiled.push_back(compile_file(each, build_mode_t::DEBUG, build_steps_t::KEPT));
+            }
         }
 
         std::string text;
         std::size_t errors = 0;
         std::size_t warnings = 0;
-        for (const diagnostic_t& diagnostic : compiled->diagnostics.diagnostics()) {
-            (diagnostic.severity == severity_t::ERROR ? errors : warnings) += 1;
-            text += render_pretty(diagnostic, compiled->sources);
-            for (const fix_t& fix : diagnostic.fixes) {
-                const source_file_t& in = compiled->sources.get(fix.span.file);
-                text += std::format("  fix: at line {}, put `{}` in place of `{}`\n",
-                                    in.line_of(fix.span.begin) + 1, fix.replacement,
-                                    in.text().substr(fix.span.begin, fix.span.length()));
+        for (const std::expected<compilation_t, std::string>& each : compiled) {
+            if (!each) {
+                return { .text = each.error(), .error = true };
             }
 
-            text += '\n';
+            report(*each, text, errors, warnings);
         }
 
         if (errors == 0 && warnings == 0) {
@@ -678,17 +842,19 @@ struct mcp_server_t::state_t {
         if (arguments.contains("code")) {
             code = arguments.at("code").get<std::string>();
         } else if (arguments.contains("file")) {
-            const std::filesystem::path file = resolved(arguments.at("file").get<std::string>());
-            std::ifstream in(file, std::ios::binary);
+            const std::string given = arguments.at("file").get<std::string>();
+            const std::expected<std::filesystem::path, std::string> file = resolved(given);
+            if (!file) {
+                return { .text = file.error(), .error = true };
+            }
+
+            std::ifstream in(*file, std::ios::binary);
             if (!in) {
-                return {
-                    .text = std::format("There's no file at {}.", to_utf8(file)),
-                    .error = true,
-                };
+                return { .text = std::format("There's no file {}.", given), .error = true };
             }
 
             code.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-            path = to_utf8(file.filename());
+            path = to_utf8(file->filename());
         } else {
             return { .text = "format takes 'code' or 'file'.", .error = true };
         }
@@ -709,101 +875,305 @@ struct mcp_server_t::state_t {
 
         return { .text = text, .error = true };
     }
+
+    /// Answers the calls whose deadlines have come, until the server closes.
+    void watch() {
+        std::unique_lock lock(mutex);
+        while (!closed) {
+            const auto now = std::chrono::steady_clock::now();
+            auto next = std::chrono::steady_clock::time_point::max();
+            std::vector<std::pair<reply_t, json_t>> late;
+            for (auto at = calls.begin(); at != calls.end();) {
+                if (at->second.deadline > now) {
+                    next = std::min(next, at->second.deadline);
+                    ++at;
+                    continue;
+                }
+
+                const tool_result_t expired{
+                    .text = std::format(
+                        "It didn't finish in {:g} s, so its answer isn't waited for; a check of a "
+                        "Const that computes a lot, or of a large package, can take that long.",
+                        static_cast<double>(options.deadline.count()) / 1000),
+                    .error = true,
+                };
+                late.emplace_back(std::move(at->second.reply),
+                                  success(at->second.id, text_result(expired)));
+                at = calls.erase(at);
+            }
+
+            if (late.empty()) {
+                if (next == std::chrono::steady_clock::time_point::max()) {
+                    changed.wait(lock);
+                } else {
+                    changed.wait_until(lock, next);
+                }
+
+                continue;
+            }
+
+            replying += late.size();
+            lock.unlock();
+            for (auto& [reply, answer] : late) {
+                reply(std::move(answer));
+            }
+
+            lock.lock();
+            replying -= late.size();
+            changed.notify_all();
+        }
+    }
+
+    /// Answers the call `key` names with `result`, unless it was answered, it was cancelled, or
+    /// the server closed.
+    void finish(const std::string& key, json_t result) {
+        std::unique_lock lock(mutex);
+        const auto found = calls.find(key);
+        if (closed || found == calls.end()) {
+            return;
+        }
+
+        const reply_t reply = std::move(found->second.reply);
+        json_t answer = success(found->second.id, std::move(result));
+        calls.erase(found);
+        ++replying;
+        lock.unlock();
+        reply(std::move(answer));
+        lock.lock();
+        --replying;
+        changed.notify_all();
+    }
+
+    /// Starts a tool call on a thread of its own.
+    void call(const json_t& id, const json_t& params, const reply_t& reply) {
+        if (!params.contains("name") || !params.at("name").is_string()) {
+            reply(failure(id, invalid_params, "tools/call needs the tool's name"));
+            return;
+        }
+
+        std::string tool = params.at("name").get<std::string>();
+        if (!std::ranges::contains(tool_names, tool)) {
+            reply(failure(id, invalid_params, std::format("there's no tool named '{}'", tool)));
+            return;
+        }
+
+        const json_t no_arguments = json_t::object();
+        const json_t& arguments =
+            params.contains("arguments") ? params.at("arguments") : no_arguments;
+        if (!arguments.is_object()) {
+            reply(failure(id, invalid_params, "a tool's arguments are an object"));
+            return;
+        }
+
+        std::string key = id.dump();
+        bool running = false;
+        {
+            const std::scoped_lock lock(mutex);
+            running = calls.contains(key);
+            if (!running) {
+                calls.emplace(key,
+                              call_t{
+                                  .reply = reply,
+                                  .id = id,
+                                  .deadline = std::chrono::steady_clock::now() + options.deadline,
+                              });
+                changed.notify_all();
+            }
+        }
+
+        if (running) {
+            reply(failure(id, invalid_request, "a call with that id is running already"));
+            return;
+        }
+
+        std::thread([core = shared_from_this(), key = std::move(key), tool = std::move(tool),
+                     arguments = arguments] {
+            json_t result;
+            try {
+                result = text_result(core->run(tool, arguments));
+            } catch (const json_t::exception& error) {
+                result = text_result({
+                    .text = std::format("Its arguments aren't what it takes: {}", error.what()),
+                    .error = true,
+                });
+            } catch (const std::exception& error) {
+                result = text_result({ .text = error.what(), .error = true });
+            }
+
+            core->finish(key, std::move(result));
+        }).detach();
+    }
+
+    /// Takes one message, and says whether it's answered, now or once a call is done.
+    bool process(const json_t& message, const reply_t& reply) {
+        if (!message.is_object()) {
+            reply(failure(nullptr, invalid_request, "a message is a JSON-RPC object"));
+            return true;
+        }
+
+        // A client's response, which a server that sends no requests has none to wait for.
+        if (!message.contains("method") &&
+            (message.contains("result") || message.contains("error"))) {
+            return false;
+        }
+
+        const bool has_id = message.contains("id");
+        const json_t no_id;
+        const json_t& id = has_id ? message.at("id") : no_id;
+        if (has_id && !id.is_string() && !id.is_number_integer()) {
+            reply(
+                failure(nullptr, invalid_request, "a request's id is a string or a whole number"));
+            return true;
+        }
+
+        if (!message.contains("jsonrpc") || message.at("jsonrpc") != "2.0" ||
+            !message.contains("method") || !message.at("method").is_string()) {
+            reply(failure(id, invalid_request,
+                          R"(a request has "jsonrpc": "2.0" and a method's name)"));
+            return true;
+        }
+
+        const std::string method = message.at("method").get<std::string>();
+        const json_t no_params = json_t::object();
+        const json_t& params = message.contains("params") ? message.at("params") : no_params;
+        if (!params.is_object()) {
+            if (has_id) {
+                reply(failure(id, invalid_params, "its params are an object"));
+            }
+
+            return has_id;
+        }
+
+        // A notification has no answer; one that cancels a call leaves its answer unsent.
+        if (!has_id) {
+            if (method == "notifications/cancelled" && params.contains("requestId")) {
+                const std::scoped_lock lock(mutex);
+                calls.erase(params.at("requestId").dump());
+                changed.notify_all();
+            }
+
+            return false;
+        }
+
+        try {
+            if (method == "initialize") {
+                start_docs();
+                const std::string asked = params.value("protocolVersion", std::string());
+                version = std::ranges::contains(protocol_versions, asked)
+                              ? asked
+                              : std::string(protocol_versions.front());
+                reply(success(
+                    id, json_t{
+                            { "protocolVersion", version },
+                            {
+                                "capabilities",
+                                json_t{ { "tools", json_t{ { "listChanged", false } } } },
+                            },
+                            {
+                                "serverInfo",
+                                json_t{ { "name", "fb" }, { "version", build_config::version } },
+                            },
+                            { "instructions", agents_primer() },
+                        }));
+            } else if (method == "ping") {
+                reply(success(id, json_t::object()));
+            } else if (method == "tools/list") {
+                reply(success(id, json_t{ { "tools", tools() } }));
+            } else if (method == "tools/call") {
+                call(id, params, reply);
+            } else {
+                reply(failure(id, method_not_found, std::format("there's no method '{}'", method)));
+            }
+        } catch (const json_t::exception& error) {
+            reply(failure(id, invalid_params,
+                          std::format("its params aren't what it takes: {}", error.what())));
+        }
+
+        return true;
+    }
 };
 
-mcp_server_t::mcp_server_t(const std::filesystem::path& root)
-    : m_state(std::make_unique<state_t>()) {
-    m_state->root = std::filesystem::absolute(root).lexically_normal();
+mcp_server_t::mcp_server_t(const std::filesystem::path& root, send_t send, mcp_options_t options)
+    : m_core(std::make_shared<core_t>()) {
+    m_core->root = std::filesystem::absolute(root).lexically_normal();
+    m_core->send = std::move(send);
+    m_core->options = options;
+    m_core->deadlines = std::thread([core = m_core.get()] { core->watch(); });
 }
 
-mcp_server_t::mcp_server_t(mcp_server_t&&) noexcept = default;
-mcp_server_t& mcp_server_t::operator=(mcp_server_t&&) noexcept = default;
-mcp_server_t::~mcp_server_t() = default;
+mcp_server_t::~mcp_server_t() {
+    {
+        std::unique_lock lock(m_core->mutex);
+        m_core->closed = true;
+        m_core->calls.clear();
+        m_core->changed.notify_all();
+        m_core->changed.wait(lock, [this] { return m_core->replying == 0; });
+    }
 
-std::optional<std::string> mcp_server_t::handle(const std::string_view line) {
-    const auto failed = [](const json_t& id, const int code, const std::string_view message) {
-        return json_t{
-            { "jsonrpc", "2.0" },
-            { "id", id },
-            { "error", json_t{ { "code", code }, { "message", message } } },
-        }
-            .dump(-1, ' ', false, json_t::error_handler_t::replace);
-    };
+    m_core->deadlines.join();
+}
+
+void mcp_server_t::receive(const std::string_view line) {
+    core_t& core = *m_core;
+    const reply_t single = [&core](const json_t& answer) { core.write(answer); };
+    if (too_deep(line)) {
+        single(failure(nullptr, invalid_request,
+                       std::format("a message nests at most {} deep", deepest_nesting)));
+        return;
+    }
+
     const json_t message = json_t::parse(line, nullptr, false);
     if (message.is_discarded()) {
-        return failed(nullptr, parse_error, "the message isn't JSON");
+        single(failure(nullptr, parse_error, "the message isn't JSON"));
+        return;
     }
 
-    if (!message.is_object() || !message.contains("method") || !message.at("method").is_string()) {
-        return failed(message.is_object() ? message.value("id", json_t()) : json_t(),
-                      invalid_request, "the message isn't a JSON-RPC request");
+    if (!message.is_array()) {
+        (void)core.process(message, single);
+        return;
     }
 
-    const std::string method = message.at("method").get<std::string>();
-    // A notification, like notifications/initialized, has no id and no answer.
-    if (!message.contains("id")) {
-        return std::nullopt;
+    // A batch, which 2025-03-26 has and the others don't, is answered as one, without the
+    // answers its notifications don't have.
+    if (core.version != "2025-03-26") {
+        single(failure(nullptr, invalid_request,
+                       "a batch is MCP 2025-03-26's, which this initialize didn't agree on"));
+        return;
     }
 
-    const json_t& id = message.at("id");
-    const json_t params = message.value("params", json_t::object());
-    const auto answered = [&](json_t result) {
-        return json_t{ { "jsonrpc", "2.0" }, { "id", id }, { "result", std::move(result) } }.dump(
-            -1, ' ', false, json_t::error_handler_t::replace);
+    if (message.empty()) {
+        single(failure(nullptr, invalid_request, "a batch has a message"));
+        return;
+    }
+
+    const auto batch = std::make_shared<core_t::batch_t>();
+    const auto counted = [batch, &core](const std::optional<json_t>& answer, const bool added) {
+        std::unique_lock lock(batch->mutex);
+        if (answer) {
+            batch->answers.push_back(*answer);
+        }
+
+        batch->waiting = added ? batch->waiting + 1 : batch->waiting - 1;
+        if (batch->waiting == 0 && !batch->answers.empty()) {
+            const json_t answers = std::move(batch->answers);
+            lock.unlock();
+            core.write(answers);
+        }
     };
-    try {
-        if (method == "initialize") {
-            if (!m_state->loaded && !m_state->loading.valid()) {
-                m_state->loading = std::async(std::launch::async, load_docs);
-            }
-
-            const std::string asked = params.value("protocolVersion", std::string());
-            const bool known = std::ranges::contains(protocol_versions, asked);
-            return answered(json_t{
-                { "protocolVersion", known ? asked : std::string(protocol_versions.front()) },
-                { "capabilities", json_t{ { "tools", json_t{ { "listChanged", false } } } } },
-                { "serverInfo", json_t{ { "name", "fb" }, { "version", build_config::version } } },
-                { "instructions", agents_primer() },
-            });
+    const reply_t into = [counted](json_t answer) { counted(std::move(answer), false); };
+    for (const json_t& each : message) {
+        counted(std::nullopt, true);
+        if (!core.process(each, into)) {
+            counted(std::nullopt, false);
         }
-
-        if (method == "ping") {
-            return answered(json_t::object());
-        }
-
-        if (method == "tools/list") {
-            return answered(json_t{ { "tools", tools() } });
-        }
-
-        if (method == "tools/call") {
-            const std::string name = params.at("name").get<std::string>();
-            const json_t arguments = params.value("arguments", json_t::object());
-            if (name == "search_docs") {
-                return answered(text_result(m_state->search(arguments)));
-            }
-
-            if (name == "lookup") {
-                return answered(text_result(m_state->lookup(arguments)));
-            }
-
-            if (name == "check") {
-                return answered(text_result(m_state->check(arguments)));
-            }
-
-            if (name == "format") {
-                return answered(text_result(m_state->format(arguments)));
-            }
-
-            return failed(id, invalid_params, std::format("there's no tool named '{}'", name));
-        }
-
-        return failed(id, method_not_found, std::format("there's no method '{}'", method));
-    } catch (const json_t::exception& error) {
-        return failed(id, invalid_params,
-                      std::format("its params aren't what it takes: {}", error.what()));
-    } catch (const std::exception& error) {
-        return failed(id, internal_error, error.what());
     }
+
+    counted(std::nullopt, false);
+}
+
+void mcp_server_t::settle() {
+    std::unique_lock lock(m_core->mutex);
+    m_core->changed.wait(lock, [this] { return m_core->calls.empty() && m_core->replying == 0; });
 }
 
 } // namespace fb

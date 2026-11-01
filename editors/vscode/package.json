@@ -492,7 +492,7 @@
         "name": "futureblitz_lookup",
         "toolReferenceName": "fbLookup",
         "displayName": "Look Up a FutureBlitz Name",
-        "modelDescription": "Looks up a name in the package and the standard library, like 'Split', 'String.Split', or one of the package's own Functions, and gives each declaration of it: its first line, where it is, and its doc.",
+        "modelDescription": "Looks up a name in the package and the standard library, like 'Split', 'String.Split', or one of the package's own Functions, and gives each declaration of it: its first line, where it is, and its doc. It runs none of the package's build steps: their files are what fb build last made.",
         "userDescription": "Find a name's declarations in the package and std",
         "canBeReferencedInPrompt": true,
         "icon": "$(symbol-method)",
@@ -514,7 +514,7 @@
         "name": "futureblitz_check",
         "toolReferenceName": "fbCheck",
         "displayName": "Check FutureBlitz Code",
-        "modelDescription": "Checks FutureBlitz code for errors without building it, and gives each error and warning with its line, its fix when it has one, and its notes. With 'code' alone, it checks that as a program of its own; with 'file', that file of the package, with 'code' as its text if it's given, though it isn't saved; with neither, the whole package. Check code before saying it works.",
+        "modelDescription": "Checks FutureBlitz code for errors without building or running it, and gives each error and warning with its line, its fix when it has one, and its notes. With 'code' alone, it checks that as a program of its own; with 'file', a .fb file in the package's folder, with 'code' as its text if it's given, though it isn't saved; with neither, the whole package. It runs none of the package's build steps: their files are what fb build last made, and one that hasn't run is an error that says so. Check code before saying it works.",
         "userDescription": "Check FutureBlitz code or a file for errors",
         "canBeReferencedInPrompt": true,
         "icon": "$(check)",
@@ -528,7 +528,7 @@
             },
             "file": {
               "type": "string",
-              "description": "A .fb file, from the package's folder"
+              "description": "A .fb file in the package's folder, from it"
             }
           },
           "required": []
@@ -552,7 +552,7 @@
             },
             "file": {
               "type": "string",
-              "description": "A .fb file, from the package's folder"
+              "description": "A .fb file in the package's folder, from it"
             },
             "width": {
               "type": "integer",

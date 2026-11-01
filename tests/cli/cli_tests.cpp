@@ -19,6 +19,7 @@
 #include <fstream>
 #include <ios>
 #include <iterator>
+#include <map>
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <optional>
@@ -144,6 +145,171 @@ void check_usage_error(const std::vector<std::string>& arguments, const std::str
     CHECK(result.exit_code == 2);
     CHECK(result.output.contains(message));
 }
+
+/// `fb mcp` in a process of its own, whose stdin and stdout the test holds, as an assistant's
+/// client does, so its lines go in while its answers come out; its stderr is the test's.
+class mcp_process_t {
+public:
+    explicit mcp_process_t(const std::filesystem::path& folder) {
+#ifdef _WIN32
+        SECURITY_ATTRIBUTES security{
+            .nLength = sizeof(SECURITY_ATTRIBUTES),
+            .lpSecurityDescriptor = nullptr,
+            .bInheritHandle = TRUE,
+        };
+        HANDLE input_read = nullptr;
+        HANDLE output_write = nullptr;
+        REQUIRE(CreatePipe(&input_read, &m_input, &security, 0) != 0);
+        REQUIRE(CreatePipe(&m_output, &output_write, &security, 0) != 0);
+        SetHandleInformation(m_input, HANDLE_FLAG_INHERIT, 0);
+        SetHandleInformation(m_output, HANDLE_FLAG_INHERIT, 0);
+        STARTUPINFOW startup{};
+        startup.cb = sizeof(startup);
+        startup.dwFlags = STARTF_USESTDHANDLES;
+        startup.hStdInput = input_read;
+        startup.hStdOutput = output_write;
+        startup.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+        std::wstring command = std::format(
+            L"\"{}\" mcp \"{}\"", std::filesystem::path(FB_CLI).wstring(), folder.wstring());
+        REQUIRE(CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE, 0, nullptr, nullptr,
+                               &startup, &m_process) != 0);
+        CloseHandle(input_read);
+        CloseHandle(output_write);
+#else
+        std::array<int, 2> input{};
+        std::array<int, 2> output{};
+        REQUIRE(pipe(input.data()) == 0);
+        REQUIRE(pipe(output.data()) == 0);
+        posix_spawn_file_actions_t actions;
+        posix_spawn_file_actions_init(&actions);
+        posix_spawn_file_actions_adddup2(&actions, input[0], STDIN_FILENO);
+        posix_spawn_file_actions_adddup2(&actions, output[1], STDOUT_FILENO);
+        for (const int end : { input[0], input[1], output[0], output[1] }) {
+            posix_spawn_file_actions_addclose(&actions, end);
+        }
+
+        std::string program = FB_CLI;
+        std::string command = "mcp";
+        std::string where = folder.string();
+        std::array<char*, 4> argv{ program.data(), command.data(), where.data(), nullptr };
+        const int spawned =
+            posix_spawn(&m_pid, program.c_str(), &actions, nullptr, argv.data(), environ);
+        posix_spawn_file_actions_destroy(&actions);
+        close(input[0]);
+        close(output[1]);
+        m_input = input[1];
+        m_output = output[0];
+        REQUIRE(spawned == 0);
+#endif
+    }
+
+    mcp_process_t(const mcp_process_t&) = delete;
+    mcp_process_t& operator=(const mcp_process_t&) = delete;
+    mcp_process_t(mcp_process_t&&) = delete;
+    mcp_process_t& operator=(mcp_process_t&&) = delete;
+
+    ~mcp_process_t() {
+        close_input();
+        static_cast<void>(wait());
+#ifdef _WIN32
+        CloseHandle(m_output);
+#else
+        close(m_output);
+#endif
+    }
+
+    void write(const std::string_view text) const {
+#ifdef _WIN32
+        DWORD written = 0;
+        REQUIRE(WriteFile(m_input, text.data(), static_cast<DWORD>(text.size()), &written,
+                          nullptr) != 0);
+#else
+        REQUIRE(::write(m_input, text.data(), text.size()) == static_cast<ssize_t>(text.size()));
+#endif
+    }
+
+    /// The next line it writes, without its line break, or nullopt once its output has ended.
+    std::optional<std::string> read_line() {
+        for (std::size_t end = m_buffer.find('\n'); end == std::string::npos;
+             end = m_buffer.find('\n')) {
+            std::array<char, 4096> chunk{};
+#ifdef _WIN32
+            DWORD count = 0;
+            if (ReadFile(m_output, chunk.data(), static_cast<DWORD>(chunk.size()), &count,
+                         nullptr) == 0 ||
+                count == 0) {
+                return std::nullopt;
+            }
+#else
+            const ssize_t count = read(m_output, chunk.data(), chunk.size());
+            if (count <= 0) {
+                return std::nullopt;
+            }
+#endif
+            m_buffer.append(chunk.data(), static_cast<std::size_t>(count));
+        }
+
+        const std::size_t end = m_buffer.find('\n');
+        std::string line = m_buffer.substr(0, end);
+        m_buffer.erase(0, end + 1);
+        return line;
+    }
+
+    /// stdin's end, which ends fb mcp.
+    void close_input() {
+#ifdef _WIN32
+        if (m_input != nullptr) {
+            CloseHandle(m_input);
+            m_input = nullptr;
+        }
+#else
+        if (m_input >= 0) {
+            close(m_input);
+            m_input = -1;
+        }
+#endif
+    }
+
+    /// Waits for it to end, and gives its exit code.
+    int wait() {
+#ifdef _WIN32
+        if (m_process.hProcess == nullptr) {
+            return m_exit;
+        }
+
+        WaitForSingleObject(m_process.hProcess, INFINITE);
+        DWORD code = 0;
+        GetExitCodeProcess(m_process.hProcess, &code);
+        CloseHandle(m_process.hProcess);
+        CloseHandle(m_process.hThread);
+        m_process = {};
+        m_exit = static_cast<int>(code);
+#else
+        if (m_pid == 0) {
+            return m_exit;
+        }
+
+        int status = 0;
+        waitpid(m_pid, &status, 0);
+        m_pid = 0;
+        m_exit = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
+#endif
+        return m_exit;
+    }
+
+private:
+#ifdef _WIN32
+    HANDLE m_input = nullptr;
+    HANDLE m_output = nullptr;
+    PROCESS_INFORMATION m_process{};
+#else
+    int m_input = -1;
+    int m_output = -1;
+    pid_t m_pid = 0;
+#endif
+    std::string m_buffer;
+    int m_exit = 0;
+};
 
 /// A little-endian number at `at` in `bytes`, or 0 past their end.
 template <typename Number>
@@ -550,67 +716,62 @@ TEST_CASE("fb mcp serves MCP over stdio, a message a line", "[cli]") {
     REQUIRE(fb_run({ "new", fb::to_utf8(folder) }).exit_code == 0);
 
     // A client's lines, one of them ending in "\r\n", one blank, and a notification, which has
-    // no answer.
+    // no answer. Tool calls run on threads of their own, so their answers come in any order.
     const std::string program = "Import std.core\n\nFor i = 1 To 4\n  Print(i*i)\nEnd For\n";
-    const auto call = [&](const int id, const std::string_view tool) {
+    const auto call = [&](const int id, const std::string_view tool, const std::string& code) {
         nlohmann::json request{ { "jsonrpc", "2.0" }, { "id", id }, { "method", "tools/call" } };
-        request["params"] = { { "name", tool }, { "arguments", { { "code", program } } } };
+        request["params"] = { { "name", tool }, { "arguments", { { "code", code } } } };
         return request.dump();
     };
-    const std::string input = std::format(
+    mcp_process_t served(folder);
+    served.write(std::format(
         "{}\n{}\n\n{}\r\n{}\n{}\n",
         R"({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}})",
         R"({"jsonrpc":"2.0","method":"notifications/initialized"})",
-        R"({"jsonrpc":"2.0","id":2,"method":"tools/list"})", call(3, "check"), call(4, "format"));
-    const std::expected<fb::process_result_t, std::string> served =
-        fb::run_process(FB_CLI, std::vector<std::string>{ "mcp", fb::to_utf8(folder) }, input);
-    REQUIRE(served);
-    INFO(served->output);
-    CHECK(served->exit_code == 0);
-    CHECK_FALSE(served->output.contains('\r'));
-
-    std::vector<nlohmann::json> answers;
-    for (const auto line : std::views::split(std::string_view(served->output), '\n')) {
-        if (!line.empty()) {
-            answers.push_back(nlohmann::json::parse(std::string_view(line.begin(), line.end())));
-        }
+        R"({"jsonrpc":"2.0","id":2,"method":"tools/list"})", call(3, "check", program),
+        call(4, "format", program)));
+    std::map<int, nlohmann::json> answers;
+    while (answers.size() < 4) {
+        const std::optional<std::string> line = served.read_line();
+        REQUIRE(line);
+        INFO(*line);
+        CHECK_FALSE(line->contains('\r'));
+        const nlohmann::json answer = nlohmann::json::parse(*line);
+        answers[answer.at("id").get<int>()] = answer;
     }
 
-    REQUIRE(answers.size() == 4);
-    for (std::size_t i = 0; i < answers.size(); ++i) {
-        CHECK(answers[i].at("id") == i + 1);
-    }
-
-    CHECK(answers[0].at("result").at("serverInfo").at("version") == fb::build_config::version);
-    CHECK(answers[0].at("result").at("instructions") == read_file(folder / "AGENTS.md"));
-    CHECK(answers[1].at("result").at("tools").size() == 4);
-    CHECK(answers[2].at("result").at("content")[0].at("text") == "No errors or warnings.");
+    CHECK(answers[1].at("result").at("serverInfo").at("version") == fb::build_config::version);
+    CHECK(answers[1].at("result").at("instructions") == read_file(folder / "AGENTS.md"));
+    CHECK(answers[2].at("result").at("tools").size() == 4);
+    CHECK(answers[3].at("result").at("content")[0].at("text") == "No errors or warnings.");
 
     // What format gives back is the program, formatted, which fb runs.
-    const std::string formatted = answers[3].at("result").at("content")[0].at("text");
+    const std::string formatted = answers[4].at("result").at("content")[0].at("text");
     CHECK(formatted == "Import std.core\n\nFor i = 1 To 4\n    Print(i * i)\nEnd For\n");
     std::ofstream(folder / "main.fb", std::ios::binary) << formatted;
     const fb::process_result_t ran = fb_run({ "run", fb::to_utf8(folder) });
     INFO(ran.output);
     CHECK(ran.output.ends_with("1\n4\n9\n16\n"));
 
-    // A client that's done doesn't wait for the server to read std's reference, which an
-    // initialize starts and a search waits for.
-    const std::string initialize =
-        std::format("{}\n", R"({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}})");
-    const auto timed = [&](const std::string& session) {
-        const auto start = std::chrono::steady_clock::now();
-        const std::expected<fb::process_result_t, std::string> done = fb::run_process(
-            FB_CLI, std::vector<std::string>{ "mcp", fb::to_utf8(folder) }, session);
-        REQUIRE(done);
-        CHECK(done->exit_code == 0);
-        return std::chrono::steady_clock::now() - start;
-    };
-    const auto searched = timed(
-        initialize +
-        R"({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"search_docs","arguments":{"query":"For"}}})" +
-        "\n");
-    CHECK(timed(initialize) < searched / 2);
+    // While a call runs, ping is answered, and stdin's end ends fb at once, as a client that's
+    // done doesn't wait for the call, or for std's reference, which initialize started reading.
+    std::string slow = "Import std.core\n\nConst Function Spin(n: Int): Int\n    Local t = 0\n"
+                       "    For i = 1 To n\n        t = t + 1\n    End For\n    Return t\n"
+                       "End Function\n\n";
+    for (int k = 0; k < 40; ++k) {
+        slow += std::format("Const C{} = Spin(3000000)\n", k);
+    }
+
+    served.write(call(5, "check", slow) + "\n" + R"({"jsonrpc":"2.0","id":6,"method":"ping"})" +
+                 "\n");
+    const std::optional<std::string> pong = served.read_line();
+    REQUIRE(pong);
+    CHECK(nlohmann::json::parse(*pong).at("id") == 6);
+    const auto closed = std::chrono::steady_clock::now();
+    served.close_input();
+    CHECK_FALSE(served.read_line());
+    CHECK(served.wait() == 0);
+    CHECK(std::chrono::steady_clock::now() - closed < std::chrono::seconds(10));
 
     check_usage_error(
         { "mcp", "--release" },

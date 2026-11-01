@@ -728,12 +728,27 @@ as its instructions, and has four tools, each answering in text:
 |---|---|---|
 | `search_docs` | `query`, and `limit` (6, at most 20) | The spec's sections (docs/spec's chapters, which the build embeds) and std's declarations, fb doc's, that have the query's words, best first: a title's whole word over part of one, a declaration whose name is the word first, each with where it is; a long one is cut at a line, and overloads are one result |
 | `lookup` | `name`, a name or a dotted path's end | Each declaration of it: the package's own, from its files as they're saved, with their first lines; std's, with their docs; and the built-in functions, like Panic |
-| `check` | `code`, `file`, both, or neither | The errors and warnings, as `fb check` shows them without color, with each fix: of `code` as a program of its own, of a package's `file` as saved or with `code` as its text unsaved, or of the whole package |
+| `check` | `code`, `file`, both, or neither | The errors and warnings, as `fb check` shows them without color, with each fix: of `code` as a program of its own, of a `file` in the package's folder as saved or with `code` as its text unsaved, of the whole package, or of each .fb file of a folder that isn't one |
 | `format` | `code` or `file`, and `width` (100) | The code as `fb fmt` formats it, writing nothing, or the errors that stop it |
 
 std's reference takes seconds to read, so initialize starts reading it on a thread of its own.
 A tool's failure, like a file that isn't there, is a result with `isError`; a message that isn't
 JSON, isn't a request, or names no method or tool is JSON-RPC's error.
+
+- **Nothing runs.** No tool runs a package's build step (`build_steps_t::KEPT`): a step's files
+  are its last run's, as fb build left them, a failed run's error is given again, and a step
+  that has never run is an error that says fb build runs it, so a tool runs no program of the
+  package's, whatever its project.toml says.
+- **Only the package's .fb files.** `file` is a .fb file in the package's folder, by its path from
+  it or a whole one, which `..` and links can't leave; any other is the tool's error.
+- **Calls run on threads of their own**, so the server goes on reading while one runs: it answers
+  ping, takes `notifications/cancelled`, which leaves the call's answer unsent, and ends at
+  stdin's end, mid-call too. A call that takes longer than 30 seconds, as a check of Consts that
+  compute a lot can, is answered with `isError`, and its work finishes on its own, unanswered.
+- **JSON-RPC.** A request has `"jsonrpc": "2.0"` and an id that's a string or a whole number; a
+  client's response gets no answer; a message nested more than 64 deep is refused before it's
+  parsed; and a batch is answered as one array when 2025-03-26, which has batches, is what the
+  initialize agreed on, and is an error otherwise.
 
 `fb new` writes the same primer as AGENTS.md, which Copilot, Claude Code, and Cursor read: what
 FutureBlitz looks like, a small program, the fb commands, and fb mcp's tools, with the advice to
@@ -744,13 +759,16 @@ The VS Code extension offers fb mcp to Copilot's agent mode without setup. Where
 Code start `fb mcp <first workspace folder>` with the fb the extension finds; where it has only
 `lm.registerTool`, the extension's four language-model tools (`#fbDocs`, `#fbLookup`, `#fbCheck`,
 `#fbFormat`) call an fb mcp of its own, and the `futureblitz.languageModelTools` context key
-shows them, so an assistant never has each tool twice. On older VS Code, it offers neither.
+shows them, so an assistant never has each tool twice. On older VS Code, it offers neither. A
+VS Code that has an API but refuses it, as 1.100 has the MCP provider as a proposed API that
+throws, gets the other way, or neither, and the extension offers them after the language server
+starts, so neither stops it.
 
 The done-when's test, in tests/compiler/mcp_tests.cpp, is an assistant scripted as one that
 knows other BASICs would be: given "Print the squares of the numbers from 1 to 10." and only the
-server, it writes QBasic's loop, checks it and reads the errors, searches for a For loop and
-takes its end from the spec's section, looks up Print for its parentheses, and checks and
-formats what it writes again, which compiles.
+server, it writes QBasic's loop, and makes only the edits check's errors and fixes say, the
+parentheses Print's call needs, the `End For` the loop needs, and `Next` gone, until check has
+none, then formats what it wrote, which compiles.
 
 ## Not in M8
 

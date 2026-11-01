@@ -10,7 +10,6 @@
 #include <filesystem>
 #include <format>
 #include <iostream>
-#include <optional>
 #include <string>
 #include <system_error>
 
@@ -36,26 +35,26 @@ int mcp_command(const options_t& options) {
     // A message is a line, which text mode would end in "\r\n".
     static_cast<void>(_setmode(_fileno(stdin), _O_BINARY));
 #endif
-    mcp_server_t server(folder);
+    // A tool call runs on a thread of its own, so the loop goes on reading: a ping, a call's
+    // cancellation, and stdin's end, which ends fb, even while a call runs.
+    mcp_server_t server(folder, [](const std::string& answer) {
+        std::fwrite(answer.data(), 1, answer.size(), stdout);
+        std::fputc('\n', stdout);
+        std::fflush(stdout);
+    });
     std::string line;
     while (std::getline(std::cin, line)) {
         if (line.ends_with('\r')) {
             line.pop_back();
         }
 
-        if (line.find_first_not_of(" \t") == std::string::npos) {
-            continue;
-        }
-
-        if (const std::optional<std::string> answer = server.handle(line)) {
-            std::fwrite(answer->data(), 1, answer->size(), stdout);
-            std::fputc('\n', stdout);
-            std::fflush(stdout);
+        if (line.find_first_not_of(" \t") != std::string::npos) {
+            server.receive(line);
         }
     }
 
-    // The server may still be reading std's reference on a thread of its own, which a client
-    // that's done shouldn't wait for.
+    // The server may still be reading std's reference, or running a call, on threads of its own,
+    // which a client that's done doesn't wait for.
     end_process(0);
 }
 

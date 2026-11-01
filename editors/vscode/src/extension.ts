@@ -91,8 +91,14 @@ export function activate(context: vscode.ExtensionContext): Api {
         }),
     );
 
-    context.subscriptions.push(...registerAssistant(locateFb, String(context.extension.packageJSON.version), output));
     void server.start();
+    // After the language server, which nothing an assistant's offer does can stop.
+    try {
+        context.subscriptions.push(...registerAssistant(locateFb, String(context.extension.packageJSON.version), output));
+    } catch (error) {
+        output.warn(`fb mcp isn't offered to VS Code's assistants: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
     return { server, tasks, debug, locateFb, lldbScript };
 }
 

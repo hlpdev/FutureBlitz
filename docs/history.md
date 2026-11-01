@@ -77,6 +77,26 @@ from what search_docs and lookup give; cli_tests' fb mcp over stdio with a line 
 and AGENTS.md; the extension's mcp.test.ts, its manifest's tools against fb mcp's, and
 `McpClient` over test/fixtures/fake-mcp.js and the real fb.
 
+From step 9's review: the extension didn't start on VS Code 1.100, whose MCP provider is a
+proposed API that throws; `registerAssistant()` tries the provider, then the tools, each in a try,
+after the language server starts. lookup and check built and ran a package's build steps, with no
+bound: they check with the new `build_steps_t::KEPT`, which runs none, takes each step's last
+run's files, and says fb build runs one that never ran (`compile_docs()` takes the steps now
+too). A tool's `file` has to be a .fb file in the package's folder (`core_t::resolved()`), as
+format and check read and showed any file. A message nested 100,000 deep overflowed the stack as
+nlohmann/json copied it: one deeper than 64 is refused before it's parsed, and params and
+arguments are bound, and have to be objects. One call held the server: `mcp_server_t` now takes
+lines with `receive()` and sends answers through a callback, each tool call on a thread of its
+own, with a deadline, 30 s, that the deadlines' thread answers with isError, and
+`notifications/cancelled`; fb mcp's loop reads on, and stdin's end ends it mid-call. A batch is
+answered as one under 2025-03-26, a client's response gets no answer, and an id that isn't a
+string or a whole number, or a message without `"jsonrpc": "2.0"`, is -32600. The done-when's
+assistant makes only the edits check's errors say. check of a folder of loose files checks each.
+Tests: mcp_tests.cpp's build steps, paths, nesting, the JSON-RPC edges, batches, a call answered
+past its deadline, a cancelled one, ping while one runs, and loose files; cli_tests' fb mcp in a
+process whose stdin the test holds, ending at stdin's end mid-call; the extension's
+assistant.test.ts over a stand-in vscode module, one that takes MCP servers, 1.100's, and none.
+
 Step 0, measuring (2026-10-31): tests/lsp/bench_tests.cpp, fb-lsp's benchmark, hidden from ctest
 (`fb_lsp_tests "[bench]"`), on a generated program of 300 modules in 10 layers and on std's own
 folder, with the editor's own delays. It times a syntax error's and a type error's diagnostics
