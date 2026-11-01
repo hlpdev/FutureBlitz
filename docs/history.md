@@ -121,7 +121,7 @@ and completion is `isIncomplete` while it asks. "Add what fb publish needs" wrot
 and `description = ""`, which fb check and fb publish refuse: it's a snippet with placeholders
 where the client takes snippet edits (`set_snippet_edits()`, from initialize), and else "MIT" and
 "The <name> package". `lines_of()` made a multi-line string's lines one, to the line that closes
-it, so the fix no longer lands inside one, and `line_at()` ends a line before its ``, with what's
+it, so the fix no longer lands inside one, and `line_at()` ends a line before its `\r`, with what's
 put in a document in its own line breaks (`line_break()`). Hover in a comment or a string is
 nothing. Tests: toml_tests' registry that never answers, a completion of the registry's answered
 once it's complete, the fix applied and checked by compile_file, its snippet, after a multi-line
