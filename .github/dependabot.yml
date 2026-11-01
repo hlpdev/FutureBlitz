@@ -9,6 +9,13 @@ updates:
     groups:
       vscode:
         patterns: ["*"]
+    # @types/vscode follows package.json's engines.vscode, by hand, as a newer one lets code use
+    # APIs the oldest VS Code the extension takes doesn't have; @types/node follows VS Code's
+    # own Node's major.
+    ignore:
+      - dependency-name: "@types/vscode"
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     labels: [dependencies, area/vscode]
     commit-message:
       prefix: editors/vscode
