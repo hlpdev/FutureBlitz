@@ -724,8 +724,10 @@ TEST_CASE("a save's formatting isn't kept waiting by requests for a check", "[ls
                      });
     const auto asked = std::chrono::steady_clock::now();
     client.drain();
-    CHECK(client.response(formatting)["result"][0]["newText"] ==
-          "Import std.core\nLocal n = 1\nPrint(n)\n");
+    const json_t edits = client.response(formatting)["result"];
+    REQUIRE(edits.size() == 1);
+    CHECK(edits[0]["range"]["start"]["line"] == 1);
+    CHECK(edits[0]["newText"] == "Local n = 1\n");
     CHECK(std::chrono::steady_clock::now() - asked < std::chrono::milliseconds(1000));
     // They come once the check's done, which they asked for.
     CHECK(client.response(hover)["result"]["contents"]["value"].get<std::string>().contains(

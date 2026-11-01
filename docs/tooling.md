@@ -1221,8 +1221,11 @@ none, then formats what it wrote, which compiles.
 **Responsiveness** (1.2.2): nothing waits for a check on fb-lsp's message thread. What needs
 one, hover, definition, references, renames, completion, signature help, code actions,
 highlights, inlay hints, the type and call hierarchies, a lens's count, and Change Signature,
-goes to a worker, which answers them in the order they came (the code lens thread was the
-first of it); a $/cancelRequest takes a waiting one out, and shutdown answers what's waiting
+goes to one of two workers, each answering its requests in the order they came (the code lens
+thread was the first of them): a quick one for hover, definition, type definition, completion,
+signature help, highlights, and inlay hints, which the last check answers as code is typed, and a
+slow one for the rest, which wait for the check of the text, so a hover never waits behind a code
+action; a $/cancelRequest takes a waiting one out, and shutdown answers what's waiting
 first. What the text answers, formatting a save, folding, selection ranges, document and
 workspace symbols, and code lenses, is answered at once. Semantic tokens are the check's when
 it's of the document's text, and else the lexer's at once, keywords, strings, numbers, and

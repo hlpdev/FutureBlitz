@@ -5,10 +5,11 @@ them while each was built. Newest first.
 
 ## 1.2.2
 
-fb-lsp answers what needs a check on a worker (`request_job_t`, `m_jobs`, `answer_jobs`,
-`waits_for_check`, in place of the lens thread's `lens_job_t`), so the message thread answers
-formatting and what else the text gives at once; `$/cancelRequest` takes a waiting job out, and
-shutdown waits for the worker's (`m_jobs_busy`, `m_jobs_idle`). Semantic tokens from
+fb-lsp answers what needs a check on two workers (`worker_t`, `worker_for`, in place of the
+lens thread's `lens_job_t`): `m_quick` for what the last check answers as code is typed, and
+`m_slow` for what waits for the check of the text, so a hover doesn't wait behind a code action;
+the message thread answers formatting and what else the text gives at once; `$/cancelRequest`
+takes a waiting job out, and shutdown waits for both workers (`worker_t::wait_idle`). Semantic tokens from
 `workspace_t::checked_now`, else `lexical_tokens` (semantic.cpp's `tokens_of` without a query),
 with `workspace/semanticTokens/refresh` once the document's check is published
 (`m_lexical_tokens`, `m_tokens_refresh`); hover from `workspace_t::checked_last` when the line

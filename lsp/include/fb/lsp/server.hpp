@@ -112,22 +112,46 @@ private:
     };
     std::map<std::string, dependents_t> m_dependents;
     std::mutex m_dependents_mutex;
-    /// The requests waiting for the worker, which answers those that need a check, in the order
-    /// they came, so none of them keeps the message thread, and what's behind it, waiting.
     struct request_job_t {
         json_t id;
         std::string method;
         json_t params;
     };
-    std::deque<request_job_t> m_jobs;
-    std::mutex m_jobs_mutex;
-    std::condition_variable m_jobs_ready;
-    /// Set, under m_jobs_mutex, when the server goes, which ends the worker.
-    bool m_jobs_stop = false;
-    /// Whether the worker is answering one, which shutdown waits for, with those waiting.
-    bool m_jobs_busy = false;
-    std::condition_variable m_jobs_idle;
-    /// The inlay hints' settings, which the worker reads as a message changes them.
+    /// A thread that answers requests that need a check, in the order they came, so none of them
+    /// keeps the message thread, and what's behind it, waiting. Its thread starts with its first
+    /// request. A std::thread, as Apple's libc++ has no std::jthread.
+    class worker_t {
+    public:
+        explicit worker_t(std::function<void(const request_job_t&)> answer)
+            : m_answer(std::move(answer)) {}
+        worker_t(const worker_t&) = delete;
+        worker_t& operator=(const worker_t&) = delete;
+        ~worker_t() {
+            stop();
+        }
+
+        void push(request_job_t job);
+        /// Takes a request it hasn't started on out of those waiting, and whether it was there.
+        bool cancel(const json_t& id);
+        /// Waits until it has answered every request it was given.
+        void wait_idle();
+        /// Ends its thread once the request it's answering is answered, leaving those waiting.
+        void stop();
+
+    private:
+        std::function<void(const request_job_t&)> m_answer;
+        std::deque<request_job_t> m_jobs;
+        std::mutex m_mutex;
+        std::condition_variable m_ready;
+        bool m_stop = false;
+        /// Whether it's answering one, which wait_idle() waits for, with those waiting.
+        bool m_busy = false;
+        std::condition_variable m_idle;
+        std::thread m_thread;
+
+        void run();
+    };
+    /// The inlay hints' settings, which the workers read as a message changes them.
     std::mutex m_settings_mutex;
     /// Whether the client asks for semantic tokens again when told, and the open documents whose
     /// tokens were the lexer's alone, as their check wasn't done, which are told once it is.
@@ -142,10 +166,16 @@ private:
     std::unique_ptr<toml_features_t> m_toml;
     /// After what its threads send through, so it's destroyed, and they stop, before that.
     std::unique_ptr<workspace_t> m_workspace;
-    /// The worker, which answers the requests that need a check, started with the first; the
-    /// destructor stops and joins it before the workspace goes, as it reads the workspace's
-    /// checks. A std::thread, as Apple's libc++ has no std::jthread.
-    std::thread m_worker;
+    /// The workers, which answer the requests that need a check: a quick one for what the last
+    /// check answers as code is typed, and a slow one for what waits for the check of the text, so
+    /// a hover never waits behind a code action. After the workspace, so they stop before it goes,
+    /// as they read its checks.
+    worker_t m_quick{ [this](const request_job_t& job) {
+        answer_request(job.id, job.method, job.params);
+    } };
+    worker_t m_slow{ [this](const request_job_t& job) {
+        answer_request(job.id, job.method, job.params);
+    } };
 
     void send(const json_t& message);
     /// Asks the client to watch every file of `folders`, or of its own folders when it's empty.
@@ -156,11 +186,10 @@ private:
     void fail(const json_t& id, error_code_t code, const std::string& message);
     /// Answers a request, or says why it can't.
     void answer_request(const json_t& id, const std::string& method, const json_t& params);
-    /// The worker's work: each waiting request answered, until it's asked to stop.
-    void answer_jobs();
-    /// Whether a request needs a check of its document, which the worker waits for: one about
-    /// what code names or means, but not one about a project.toml, nor one its text answers.
-    [[nodiscard]] static bool waits_for_check(const std::string& method, const json_t& params);
+    /// The worker that answers a request that needs a check of its document, one about what code
+    /// names or means, or nullptr for one about a project.toml, or one its text answers, which
+    /// the message thread answers at once.
+    [[nodiscard]] worker_t* worker_for(const std::string& method, const json_t& params);
     /// The checks of `file` and what imports it, which every use of what it declares is in, made
     /// once for each version of an open document.
     std::vector<std::shared_ptr<const compilation_t>> dependents(const std::filesystem::path& file);

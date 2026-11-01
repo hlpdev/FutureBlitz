@@ -161,15 +161,8 @@ server_t::server_t(send_t send, const options_t options) : m_send(std::move(send
 }
 
 server_t::~server_t() {
-    {
-        const std::scoped_lock lock(m_jobs_mutex);
-        m_jobs_stop = true;
-    }
-
-    m_jobs_ready.notify_one();
-    if (m_worker.joinable()) {
-        m_worker.join();
-    }
+    m_quick.stop();
+    m_slow.stop();
 }
 
 void server_t::register_watchers(const std::vector<std::filesystem::path>& folders) {
@@ -357,18 +350,10 @@ void server_t::handle(const json_t& message) {
         return;
     }
 
-    // What waits for a check goes to the worker, so the message thread answers what doesn't at
+    // What waits for a check goes to a worker, so the message thread answers what doesn't at
     // once, formatting a save among them, and reads on.
-    if (waits_for_check(method, params)) {
-        {
-            const std::scoped_lock lock(m_jobs_mutex);
-            m_jobs.push_back({ .id = id, .method = method, .params = params });
-            if (!m_worker.joinable()) {
-                m_worker = std::thread([this] { answer_jobs(); });
-            }
-        }
-
-        m_jobs_ready.notify_one();
+    if (worker_t* worker = worker_for(method, params)) {
+        worker->push({ .id = id, .method = method, .params = params });
         return;
     }
 
@@ -410,10 +395,10 @@ std::optional<json_t> server_t::answer(const std::string& method, const json_t& 
         return initialize(params);
     }
 
-    // The requests before it are answered first, those the worker has too.
+    // The requests before it are answered first, those the workers have too.
     if (method == "shutdown") {
-        std::unique_lock lock(m_jobs_mutex);
-        m_jobs_idle.wait(lock, [this] { return m_jobs.empty() && !m_jobs_busy; });
+        m_quick.wait_idle();
+        m_slow.wait_idle();
         m_shut_down = true;
         return nullptr;
     }
@@ -523,19 +508,18 @@ std::optional<json_t> server_t::answer(const std::string& method, const json_t& 
     return std::nullopt;
 }
 
-bool server_t::waits_for_check(const std::string& method, const json_t& params) {
-    static const std::set<std::string, std::less<>> checked{
-        "textDocument/hover",
-        "textDocument/definition",
+server_t::worker_t* server_t::worker_for(const std::string& method, const json_t& params) {
+    // What the last check answers as code is typed, and what waits for the check of the text.
+    static const std::set<std::string, std::less<>> quick{
+        "textDocument/hover",          "textDocument/definition",        "textDocument/completion",
+        "textDocument/signatureHelp",  "textDocument/documentHighlight", "textDocument/inlayHint",
+        "textDocument/typeDefinition",
+    };
+    static const std::set<std::string, std::less<>> slow{
         "textDocument/references",
         "textDocument/prepareRename",
         "textDocument/rename",
-        "textDocument/completion",
-        "textDocument/signatureHelp",
         "textDocument/codeAction",
-        "textDocument/documentHighlight",
-        "textDocument/inlayHint",
-        "textDocument/typeDefinition",
         "textDocument/implementation",
         "textDocument/prepareCallHierarchy",
         "callHierarchy/incomingCalls",
@@ -546,37 +530,75 @@ bool server_t::waits_for_check(const std::string& method, const json_t& params) 
         "codeLens/resolve",
         "fb/changeSignature",
     };
-    if (!checked.contains(method)) {
-        return false;
-    }
-
     const json_t document = params.is_object() ? params.value("textDocument", json_t()) : json_t();
     const json_t uri = document.is_object() ? document.value("uri", json_t()) : json_t();
-    return !uri.is_string() || !uri.get<std::string>().ends_with("project.toml");
+    if (uri.is_string() && uri.get<std::string>().ends_with("project.toml")) {
+        return nullptr;
+    }
+
+    if (quick.contains(method)) {
+        return &m_quick;
+    }
+
+    return slow.contains(method) ? &m_slow : nullptr;
 }
 
-void server_t::answer_jobs() {
+void server_t::worker_t::push(request_job_t job) {
+    {
+        const std::scoped_lock lock(m_mutex);
+        m_jobs.push_back(std::move(job));
+        if (!m_thread.joinable()) {
+            m_thread = std::thread([this] { run(); });
+        }
+    }
+
+    m_ready.notify_one();
+}
+
+bool server_t::worker_t::cancel(const json_t& id) {
+    const std::scoped_lock lock(m_mutex);
+    return std::erase_if(m_jobs, [&](const request_job_t& job) { return job.id == id; }) > 0;
+}
+
+void server_t::worker_t::wait_idle() {
+    std::unique_lock lock(m_mutex);
+    m_idle.wait(lock, [this] { return m_jobs.empty() && !m_busy; });
+}
+
+void server_t::worker_t::stop() {
+    {
+        const std::scoped_lock lock(m_mutex);
+        m_stop = true;
+    }
+
+    m_ready.notify_one();
+    if (m_thread.joinable()) {
+        m_thread.join();
+    }
+}
+
+void server_t::worker_t::run() {
     while (true) {
         request_job_t job;
         {
-            std::unique_lock lock(m_jobs_mutex);
-            m_jobs_ready.wait(lock, [this] { return m_jobs_stop || !m_jobs.empty(); });
-            if (m_jobs_stop) {
+            std::unique_lock lock(m_mutex);
+            m_ready.wait(lock, [this] { return m_stop || !m_jobs.empty(); });
+            if (m_stop) {
                 return;
             }
 
             job = std::move(m_jobs.front());
             m_jobs.pop_front();
-            m_jobs_busy = true;
+            m_busy = true;
         }
 
-        answer_request(job.id, job.method, job.params);
+        m_answer(job);
         {
-            const std::scoped_lock lock(m_jobs_mutex);
-            m_jobs_busy = false;
+            const std::scoped_lock lock(m_mutex);
+            m_busy = false;
         }
 
-        m_jobs_idle.notify_all();
+        m_idle.notify_all();
     }
 }
 
@@ -663,17 +685,10 @@ void server_t::forget_dependents() {
 }
 
 void server_t::notified(const std::string& method, const json_t& params) {
-    // A request the worker hasn't started on is cancelled there.
+    // A request a worker hasn't started on is cancelled there.
     if (method == "$/cancelRequest") {
         const json_t id = params.is_object() ? params.value("id", json_t()) : json_t();
-        bool cancelled = false;
-        {
-            const std::scoped_lock lock(m_jobs_mutex);
-            cancelled =
-                std::erase_if(m_jobs, [&](const request_job_t& job) { return job.id == id; }) > 0;
-        }
-
-        if (cancelled) {
+        if (m_quick.cancel(id) || m_slow.cancel(id)) {
             fail(id, error_code_t::REQUEST_CANCELLED, "the client cancelled it");
         }
 
