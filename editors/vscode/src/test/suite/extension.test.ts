@@ -3,6 +3,7 @@
 
 import * as assert from "node:assert/strict";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { State } from "vscode-languageclient/node";
@@ -237,6 +238,40 @@ suite("fb-lsp", function () {
         await editor.edit((edit) => edit.insert(new vscode.Position(4, 0), "\n"));
         await editor.document.save();
         assert.equal(editor.document.getText().replaceAll("\r\n", "\n"), 'Import std.core\n\nLocal x = 1\nPrint("{x}")\n');
+    });
+
+    test("the Testing panel lists a package's tests, runs one, and debugs it", async function () {
+        if (fb === "") {
+            this.skip();
+        }
+
+        await api.server.start({ command: server, args: [] });
+        const greet = file("app", "greet.fb");
+        const item = await waitFor("greet.fb's tests", () => api.tests.controller.items.get(greet.toString()), 60000);
+        const test = item.children.get("app.greet.GreetSaysHello");
+        assert.ok(test !== undefined);
+        assert.equal(test.label, "GreetSaysHello");
+        assert.equal(test.range?.start.line, 5);
+        const source = new vscode.CancellationTokenSource();
+        await api.tests.run(new vscode.TestRunRequest([test]), source.token, false);
+        assert.equal(api.tests.outcomes.get("app.greet.GreetSaysHello")?.state, "passed");
+
+        // A debug run builds the tests' executable with fb test -o, and CodeLLDB runs it with fb's
+        // script.
+        const lldb = vscode.extensions.getExtension<{ launches: Record<string, unknown>[] }>("vadimcn.vscode-lldb");
+        const launches = lldb?.exports?.launches ?? [];
+        const before = launches.length;
+        const scratches = (): number =>
+            fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith("fb-tests-")).length;
+        const scratched = scratches();
+        await api.tests.run(new vscode.TestRunRequest([test]), source.token, true);
+        const launch = launches[before];
+        assert.ok(launch !== undefined);
+        assert.equal(launch.type, "lldb");
+        assert.match(String(launch.program), /tests(\.exe)?$/);
+        assert.match(((launch.initCommands as string[]) ?? []).join("\n"), /^command script import "/m);
+        // The folder the executable was built in goes, however the run ends.
+        assert.equal(scratches(), scratched);
     });
 });
 

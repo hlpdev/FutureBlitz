@@ -4,6 +4,7 @@
 #include "fb/source.hpp"
 #include "fb/token.hpp"
 
+#include <cstdint>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -34,5 +35,10 @@ struct trivia_t {
 /// tokens are the same on every platform, and `trivia` gets the comments and the #If lines.
 [[nodiscard]] std::vector<token_t> lex_layout(const source_file_t& file,
                                               diagnostic_bag_t& diagnostics, trivia_t& trivia);
+
+/// Where a new Import goes in a file's text: after the Import and From lines at its top, and
+/// past the #End If of an #If among them, or with none, after its BOM and its //! module doc
+/// comment, as an Import before them would end it.
+[[nodiscard]] std::uint32_t import_offset(std::string_view text);
 
 } // namespace fb

@@ -232,6 +232,215 @@ around a check, which canonicalizes paths at 0.45 ms each on Windows. driver.cpp
 that shadowed others in `build_program`, which -Wshadow reported, are `beside_object` and
 `written`.
 
+Step 1, checks that keep what didn't change (2026-10-31, on dev/m11): a profile found a check's time
+went to the disk, so `fb/disk.hpp`'s `disk_cache_t` keeps where paths lead, what's at them, folders'
+entries, and source texts, which `disk::` functions answer through the cache a `disk_scope_t` puts
+in use (each run of the front end has one; `check_request_t::disk` is fb-lsp's, shared while the
+client watches files, emptied with what `file_key`, which asks through a cache of its own, asked,
+when files change, folders are added or removed, or a document closes). An answer asked for while
+the cache was emptied isn't kept (`disk_cache_t::remember`, by `clears`), so a check that began
+before a change can't leave what it saw. fb-lsp watches fb.lock, .proto files, and deletions too,
+and a deleted folder takes the files it held. `analyze()` takes the files whose bodies it checks;
+`run_front_end` gives a check's roots (`file_set_t::root_bodies`) and checks again with every body
+when sema sets `analysis_t::needs_every_body`, for a worker or generic code in the roots. Checks
+share files' tokens (`std_names_cache_t::lexed`), a package's files aren't listed unless lib/ has an
+interface, and completion lists Import names only at an Import. The program's check went from 1,067
+to 43 ms and a type error from 2,020 to 209; the type error, completion, signature help, references,
+and rename are enforced. Tests: the disk cache's answers and scopes, `check_files` with the roots'
+bodies and every body for a worker and for generic code, the checks sharing the disk only while the
+client watches, a deleted folder, and after a body's, a declaration's, and an Import's edit, each
+file's diagnostics against a check from nothing. The test client can say it watches files, as the
+benchmark's does. `report_no_archive` no longer reads `names.front()`, which GCC's release build
+warned about.
+
+Step 2, errors as typed (2026-10-31, on dev/m11): `workspace_t::change` parses the document alone
+(`parse_alone`) before taking its lock, and `show_syntax` publishes its syntax errors at once,
+when it has some or what's published has, with the last check's other diagnostics moved where the
+edit put them (`moved_t`, by the texts' common start and end; one the edit was in is dropped, and
+fixes and other files' labels are left out); `note_shown` keeps, for each open document, what its
+last check published but for a parse's own diagnostics (`shown_t`), and a quick publication
+counts as the newest, so an older check doesn't replace it. The parser's `parse_block` ends where
+`at_top_level_declaration()` finds a declaration that only goes at the top level starting its
+line (a Function, a type, an Enum, an Alias, an Extend, an Extern block, a Global, an Attribute,
+or a Const Function, past attributes and modifiers), outside Extern blocks, so a missing End
+doesn't take in the rest of the file. The benchmark's syntax error went from 2,139 ms to 0.3, and
+is enforced; it times each thing 20 times again. Tests: a missing End Function, an If's in a
+Function, and a Class's before each kind of declaration, with attributes and modifiers; indented
+ones and other statements at a line's start staying in their block; an Extern block's Functions;
+three unrelated syntax errors each reported; and the LSP showing a syntax error and the moved
+type error before any check, then the type error alone once fixed, an edit inside it dropping it,
+and nothing published for a change without one.
+
+Step 3, completion that knows (2026-10-31, on dev/m11): lsp/src/completion.cpp ranks each item
+(`rank_t`, a `sortText` of its rank and label), with what the code wants first (`expected()`: a
+call's argument's parameter, through features.cpp's new `call_at()`, which `signature_help` uses
+too, by name for a named argument; a typed initializer's or an assignment's variable; a Return's
+function; an `==`'s or `!=`'s other side; `at_value()` takes a value the parser left missing at
+the next line as the word's), an Enum's members where one is wanted, True, False, and Null where
+they fit, the names of the parameters a call doesn't give yet, the keywords of where the word is
+(`place_t`: the top level, a type's members, a function's statements, an expression), postfix
+completions after a value's `.` (`add_postfix`: if, not, ifnull, for, try, local), the Methods a
+Struct or Class can override or implement (`add_overrides`, without its own, Static, Final, or
+Destroy ones, and an Interface's default as an Override), and the names of modules the file doesn't
+import with the Import they add (`add_unimported`, from `workspace_t::importable`: each check's
+modules' Public names, `exports_of`, and std's, whose `std_name_t` has a `kind` now), only those
+starting as the typed word does, so the list is incomplete. The extension turns VS Code's
+word-based suggestions off for .fb files. Tests: tests/lsp/completion_tests.cpp, each kind's
+items and order, and the completion test's keywords by place.
+
+Step 1's review fixes (2026-10-31, on dev/m11): fb-lsp registers one watcher, `**/*`, for every kind
+of change (`server_t::register_watchers`), and the checks share the disk cache only once the client
+answers the registration (`server_t::answered`), not from its capability alone. The cache keeps
+answers only about the client's folders and std's (`disk_cache_t::keep_only_under` and `keeps`, and
+a `remember` whose `keep` turns down a real or canonical path that leads out of them, asked without
+the cache's lock); a package a check reads outside them gets a RelativePattern watcher of its own
+when the client has relativePatternSupport (`workspace_t::on_outside`, `watching`), and is asked
+each time without it. A changed .proto checks again what imports it, through the .proto its module
+is made from (`compilation_t::made_from`, `made_from_path`), and dependents are found through files
+no check has as a root; a file an embed named, found or not, or one in a folder EmbedFolder named,
+checks again the files whose checks named it (`compilation_t::embeds_named`,
+`workspace_t::m_embeds`); a package's fb.lock, library, or .fbi reads its package again. The
+benchmark's budgets are met with the 50th percentile in them and the 95th in one and a half times
+them, and a miss fails it only with `FB_LSP_BENCH_ENFORCE` set, which CI's lsp-bench job sets.
+decisions.md's first row for step 1 is marked superseded. Tests: the cache keeping only its folders'
+answers, the registration and its answer, an Embed's file made, a Const Function's config fixed, and
+an EmbedFolder's file added, each without an edit, a folder of modules moved in, a path dependency
+outside the client's folders with and without its own watcher, a .proto changed directly and through
+another, a package's library and fb.lock, each against a check from nothing, and the budgets' rule.
+
+Steps 1 to 3's review fixes (2026-10-31, on dev/m11): a folder that's changed or deleted with an
+embed's target in it checks again what embeds it (`dependents()`); `disk_cache_t::keeps` decides
+each path once by where it really leads, through `fb::real_path` from the nearest folder that's
+there (`leads_to`, kept in `kept` until the cache is emptied), and the watched folders count as
+named and as they really are, so a junction in them that leads out isn't kept; completion offers
+names to import only from the file's own package (its tests/ folder's to its tests), its
+project.toml's dependencies (`unit_t::dependencies`), and std (`export_t::package`), a Package
+name too within its own package (`export_t::package_only`), a .proto's
+module's and a program's without a project.toml by its quoted path (`export_t::quoted`), and a
+name two modules declare once each (`add_raw`'s key), the Import going after the Imports at the
+file's top; an override or implementation of a generic Class's or Interface's Method is written
+with the instance's type arguments (`substituted`), and an Interface's Methods without Override;
+`.try` only on a call that throws, and `.if`, `.ifnull`, `.for`, and `.local` only where the value
+starts a statement; after `@`, only the attributes (`completer_t::attributes`); a named argument
+whose value isn't typed yet, before the call's `)`, wants its parameter's type (`at_value()`);
+and the docs write not-equal as `!=`. The benchmark times completion on a word's first letter
+and on `S`, which has names to import too. Tests: completion_tests.cpp's names to import, generic
+overrides, `@`, Try, and postfixes inside an expression, the `!=` and named argument rankings;
+workspace_tests.cpp's deleted folder of an embed's target; disk_tests.cpp's link that leads out.
+
+With master's build steps merged (2026-10-31, on dev/m11): a build step's run empties the disk cache
+in use (`disk::forget()`), so a check that shares one reads what the step wrote, and the folder a
+step made of a package's path is listed through the cache too. Test: driver_tests.cpp's two builds
+sharing a cache, the second's step writing its module anew.
+
+Step 4, the editor's basics (2026-10-31, on dev/m11): lsp/src/navigate.cpp answers
+textDocument/foldingRange (`folding_ranges`: blocks, each If branch, Select Case, and Catch, multi-line
+lambdas, arrays, and Maps, runs of comments, Import runs, #If blocks), selectionRange
+(`selection_ranges`), documentHighlight (`document_highlights`, Writes and Reads), inlayHint
+(`inlay_hints`, types and parameter names, `inlay_options_t` from initializationOptions and
+didChangeConfiguration, with workspace/inlayHint/refresh), typeDefinition (`type_definition`),
+implementation (`implementations`), the call hierarchy (`prepare_call_hierarchy`, `incoming_calls`,
+`outgoing_calls`, with files' top-level code as callers) and the type hierarchy
+(`prepare_type_hierarchy`, `supertypes`, `subtypes`, by the Interfaces a declaration lists,
+`listed_interfaces`); features.cpp's `code_lenses` puts a reference count, which `codeLens/resolve`
+counts, at each declaration, and the server adds Run and Debug to a main file. `location_of` is
+features.hpp's now. The workspace keeps each file's @Test Functions (`tests_found_t`, `note_tests`)
+and the server sends them as `fb/tests`, and answers the request of that name. `fb test -o <path>`
+builds the tests' executable without running it. The extension adds the Testing panel
+(src/tests.ts's `FbTestController`, with fb.ts's `testOutcomes`, `testArguments`, and
+`moduleFilter`), `futureblitz.showReferences`, and the `futureblitz.inlayHints.types` and
+`parameterNames` settings. Tests: tests/lsp/navigate_tests.cpp, 12 cases; cli_tests.cpp's fb test
+-o; the extension's unit tests of the output's parsing, and its suite's Testing panel test.
+
+Step 5, quick fixes (2026-10-31, on dev/m11): `diagnostic_t::suggestions` (`suggestion_t`: a title
+and its fixes) replaces `fixes` and `fix_title`; fb-lsp's `code_action` makes each a CodeAction,
+the first preferred, and `render_pretty` shows each as `= help:`. Sema suggests the Import, the
+qualifier, or the From line's name a name needs (`import_target`, `import_place`,
+`import_suggestion`, `hint_t::suggestions`, also for members, Operators, and std.test); names
+spelled nearly so (`similar_names`, `edit_distance`, `visible_names`, `member_names`,
+`suggest_spelled`, `name_in`); Try, Try?, and Throws (`suggest_try`, `throws_fix`, `is_statement`);
+a Function, Method, Field, Property, Local, or Enum member for what nothing declares
+(`suggest_creation`, `parameters_for`, `suggest_assigned`, `suggest_enum_member`, `body_end`,
+`reported_at`, with `diagnostic_bag_t::at`); an Interface's members to implement and an Abstract
+Method to override, or the Class made Abstract (`member_stub`, `suggest_implementation`,
+`suggest_override`, `abstract_suggestion`, `as_inherited`); As (`as_converts`, `objects_cast`,
+`operand_text`); `??` and `?.` (`suggest_null_safe`); Package or Public (`visibility_suggestions`,
+`modifiers_of`); an Unsafe block or Function (`suggest_unsafe`); and a Return of the type's zero
+(`suggest_return`, `zero_text`). The parser adds a missing End or changes a wrong one
+(`added_end`, `changed_end`). `@MainThread` has no error it fixes, and `fb add`'s fix is in Deferred
+work. Tests: tests/compiler/fixes_tests.cpp, each fix made and its program compiled.
+
+Step 7's review fixes (2026-11-01, on dev/m11): `root_of`, `by_ref_method`, `passed_in`, and
+`changed_in` in refactor.cpp, for extract_local's ByRef places, inline_local's and inlined_call's
+changes, and extract_function's inputs; inlined_call's `(arg As T)`; change_signature's used and
+taken names, and its spans from the AST; movable()'s Throws only in a Try's body with a Catch for
+every error; and extract_function's narrowed parameter types. Tests in refactor_tests.
+
+The second recheck (2026-11-01, on dev/m11): `varies` through operators, members, and Locals'
+values; the benchmark's references and rename after an edit; `dependents_t::checked`,
+`server_t::written_since`, and `workspace_t::watched`; `code_of`'s block comments. Tests in
+inspect_tests, fixes_tests, and navigate_tests.
+
+Step 7, refactorings (2026-11-01, on dev/m11): lsp/include/fb/lsp/refactor.hpp and
+lsp/src/refactor.cpp, with `refactoring_t`, `refactorings` (`extract_local`, `extract_function`,
+`inline_local`, `inline_function`, `inlined_call`), `organized_imports`,
+`signature_parameters`, and `change_signature`, over `acts`, `acts_within`, `steady`,
+`assigned_in`, `conditional`, and `needs_as`; fb-lsp's code actions of kinds refactor.extract,
+refactor.inline, and source.organizeImports, `server_t::workspace_edit`, and the
+fb/changeSignature request (`server_t::change_signature`); the extension's
+futureblitz.changeSignature command (editors/vscode/src/refactor.ts). Tests in
+tests/lsp/refactor_tests.cpp.
+
+The inspections' recheck (2026-11-01, on dev/m11): Consts in `m_effectful_modules` and
+`check_unused_private`'s effects; `holds_object` for unused_local's Remove, and `pure`'s
+ThreadLocal reads; `varies` of an expression, with C's long and wchar_t; `check_request_t` and
+`file_set_t` without `folders`. Tests in inspect_tests and driver_tests.
+
+The lens fixes' recheck (2026-11-01, on dev/m11): `server_t::dependents` and
+`forget_dependents`, with `dependents_t` and `m_dependents` in place of `lens_check_t`, kept
+across didSave and an open document's didChangeWatchedFiles, emptied by
+didChangeWorkspaceFolders; `answer_request`, and `answer_lenses` on `m_lens_thread`, with
+`lens_job_t` and `m_lens_jobs`; `workspace_t::owned`; `code_of` in import_offset; inbox.cpp's
+`text_at` and `object_in`; the test client's `response` waiting and `queue_message`; the
+benchmark's change_during_lenses. Tests in navigate_tests and fixes_tests.
+
+Step 6's review fixes (2026-11-01, on dev/m11): fb-lsp's checks with `examples` neither publish
+nor set `m_latest`; `m_effectful_modules` and `loads_effects`, `has_destroy`, and `pure`'s names
+by their kinds; `m_extends_interfaces` without the importers' count, for Extends of other
+modules' Interfaces; `note_written` for an attribute's Attribute and qualifier;
+`m_reflected_parameters`, which `note_reflected_uses` adds to `m_reflected_types`;
+`has_directives`, `whole_file`, and `varies`, with `m_directives`; `report_shadowing` by kind and
+`self_member`'s `can_use`; `check_unused_parameters`' Protected and reflected Methods;
+and no lints in the cache (`in_cache`).
+Tests in inspect_tests, driver_tests, packages_tests, and feature_tests.
+
+Steps 4 and 5's review fixes (2026-10-31, on dev/m11): code lenses resolve from one check of their
+file and what imports it, by version (`lens_check_t`, `m_lens_checks`), with ContentModified for a
+stale lens and RequestCancelled for a cancelled request, through `inbox_t`, which fb-lsp's reader
+thread fills (`server_t::set_inbox`); `written_type`, `written_declared`, `written_suffixed`, and
+`written_listed` for fixes' types, with the Imports they need; `takes_throws`, `is_accessor`,
+`catch_suggestion`, `acting_statement`, and `wrap_fix`; `import_offset`; `line_break`,
+`indent_step`, and `in_style`; `member_use_t` and `member_names`' filtering; `exposed_types`;
+`visible_type_names`; Fields in the call hierarchy; `fb test --exact`; `unit_t::named_main` and
+`main_of`. The benchmark's lenses, syntax_error_lenses, and highlights. Tests in fixes_tests,
+navigate_tests, feature_tests, completion_tests, packages_tests, and cli_tests.
+
+Step 6, inspections (2026-10-31, on dev/m11): `lint_t`, `lint_level_t`, `lints_t`, `lints()`,
+`lint_info`, and `lint_named` (fb/lint.hpp, lint.cpp); `diagnostic_t::lint` and
+`diagnostic_bag_t::lint`, which name a warning by its lint's `code`; `[lints]` in project.toml
+(`read_lints`, `manifest_t::lints`); each module's `lints`, from its package's (`package_t::lints`,
+`file_set_t::lints` and `std_lints`, `lints_of`), and `apply_lints` after sema; `compile()`'s and
+`compile_standard_docs()`'s `lints`. Sema's warnings have their lints, the Null and Try ones
+fixes, and the inspections: `check_unused` with `usage_t`, `uses_of`, `check_unused_local`,
+`pure`, `check_unused_parameters`, `stub`, `check_unused_private`, `type_used`, and
+`check_unused_imports`, `m_reflected_types`, `m_extends_interfaces`, and `m_importers`;
+`report_unreachable`, `removal`, and `declaration_removal`; `report_shadowing` and `self_member`;
+`typed_alone`; `report_constant_condition`, `literals_only`, `check_integer_bounds`, and
+`whole_t`; `directive_lines`. fb-lsp's diagnostics have tags. fb_compiler builds with
+`-Wa,-mbig-obj` on MinGW, as sema.cpp's object passed COFF's 32767 sections. std's 77 warnings
+fixed. Tests: tests/compiler/inspect_tests.cpp, and in manifest_tests, driver_tests, and
+feature_tests.
+
 A string's escapes in their own color (2026-10-31, the user): fb-lsp's semantic tokens gave each
 string literal one `string` token, which VS Code colors over the grammar's
 `constant.character.escape`, so `\n` looked like the rest of the string. `string_pieces()` in

@@ -5,6 +5,7 @@
 #include "fb/driver.hpp"
 #include "fb/format.hpp"
 #include "fb/lexer.hpp"
+#include "fb/lint.hpp"
 #include "fb/lsp/protocol.hpp"
 #include "fb/lsp/query.hpp"
 #include "fb/parser.hpp"
@@ -227,6 +228,38 @@ json_t document_symbol(const outline_t& symbol, const source_file_t& file,
     return out;
 }
 
+/// A code lens at each of `symbols` that code names, and theirs: a type, a function, and a
+/// member but a Field or a New.
+void add_lenses(const std::vector<outline_t>& symbols, const source_file_t& file,
+                const std::string& uri, const positions_t& positions, json_t& out) {
+    for (const outline_t& symbol : symbols) {
+        switch (symbol.kind) {
+        case symbol_kind_lsp_t::CLASS:
+        case symbol_kind_lsp_t::STRUCT:
+        case symbol_kind_lsp_t::INTERFACE:
+        case symbol_kind_lsp_t::ENUM:
+        case symbol_kind_lsp_t::FUNCTION:
+        case symbol_kind_lsp_t::METHOD:
+        case symbol_kind_lsp_t::PROPERTY:
+            out.push_back({
+                { "range", positions.range(file, symbol.selection) },
+                {
+                    "data",
+                    {
+                        { "uri", uri },
+                        { "position", positions.position(file, symbol.selection.begin) },
+                    },
+                },
+            });
+            break;
+        default:
+            break;
+        }
+
+        add_lenses(symbol.children, file, uri, positions, out);
+    }
+}
+
 void collect_symbols(const std::vector<outline_t>& symbols, const std::string& container,
                      const source_file_t& file, const std::string& uri, const std::string& query,
                      const positions_t& positions, json_t& out) {
@@ -249,32 +282,6 @@ void collect_symbols(const std::vector<outline_t>& symbols, const std::string& c
 
         collect_symbols(symbol.children, symbol.name, file, uri, query, positions, out);
     }
-}
-
-/// A Location in a compilation's file, or nullopt for one that isn't on disk. A prebuilt
-/// library's module is in its interface file, at the same lines, a module as a whole at its first.
-std::optional<json_t> location_of(const compilation_t& compilation, span_t span,
-                                  const positions_t& positions) {
-    std::filesystem::path path = compilation.disk_path(span.file);
-    const source_file_t& file = compilation.sources.get(span.file);
-    if (path.empty()) {
-        path = compilation.interface_path(span.file);
-        if (path.empty()) {
-            return std::nullopt;
-        }
-
-        // The lines before the module's are empty.
-        if (span.empty() && span.begin == 0) {
-            const std::size_t first = file.text().find_first_not_of("\r\n");
-            span.begin = span.end = static_cast<std::uint32_t>(
-                first == std::string_view::npos ? file.text().size() : first);
-        }
-    }
-
-    return json_t{
-        { "uri", uri_of(path) },
-        { "range", positions.range(file, span) },
-    };
 }
 
 /// A SignatureInformation for a function: its declaration, with where each parameter is in it,
@@ -414,6 +421,30 @@ std::string code_block(const std::string& code) {
 
 } // namespace
 
+std::optional<json_t> location_of(const compilation_t& compilation, span_t span,
+                                  const positions_t& positions) {
+    std::filesystem::path path = compilation.disk_path(span.file);
+    const source_file_t& file = compilation.sources.get(span.file);
+    if (path.empty()) {
+        path = compilation.interface_path(span.file);
+        if (path.empty()) {
+            return std::nullopt;
+        }
+
+        // The lines before the module's are empty.
+        if (span.empty() && span.begin == 0) {
+            const std::size_t first = file.text().find_first_not_of("\r\n");
+            span.begin = span.end = static_cast<std::uint32_t>(
+                first == std::string_view::npos ? file.text().size() : first);
+        }
+    }
+
+    return json_t{
+        { "uri", uri_of(path) },
+        { "range", positions.range(file, span) },
+    };
+}
+
 bool fuzzy_match(const std::string_view name, const std::string_view query) {
     const auto lower = [](const char c) {
         return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
@@ -454,6 +485,25 @@ json_t diagnostic_json(const compilation_t& compilation, const diagnostic_t& dia
     };
     if (!diagnostic.code.empty()) {
         out["code"] = diagnostic.code;
+    }
+
+    // The LSP's DiagnosticTag: 1 for code nothing needs, which editors fade, and 2 for what's
+    // deprecated, which they strike through.
+    if (diagnostic.lint) {
+        switch (*diagnostic.lint) {
+        case lint_t::UNUSED_LOCAL:
+        case lint_t::UNUSED_PARAMETER:
+        case lint_t::UNUSED_IMPORT:
+        case lint_t::UNUSED_PRIVATE:
+        case lint_t::UNREACHABLE:
+            out["tags"] = json_t::array({ 1 });
+            break;
+        case lint_t::DEPRECATED:
+            out["tags"] = json_t::array({ 2 });
+            break;
+        default:
+            break;
+        }
     }
 
     json_t related = json_t::array();
@@ -791,6 +841,13 @@ json_t document_symbols(const source_file_t& file, const positions_t& positions)
     return out;
 }
 
+json_t code_lenses(const source_file_t& file, const std::string& uri,
+                   const positions_t& positions) {
+    json_t out = json_t::array();
+    add_lenses(outline(file), file, uri, positions, out);
+    return out;
+}
+
 json_t workspace_symbols(const source_file_t& file, const std::string& uri,
                          const std::string& query, const positions_t& positions) {
     json_t out = json_t::array();
@@ -798,8 +855,7 @@ json_t workspace_symbols(const source_file_t& file, const std::string& uri,
     return out;
 }
 
-json_t signature_help(const query_t& query, const std::uint32_t offset,
-                      const positions_t& positions) {
+std::optional<call_at_t> call_at(const query_t& query, const std::uint32_t offset) {
     // The innermost call whose parentheses `offset` is in.
     const ast_t& ast = query.ast();
     const source_file_t& source = query.source();
@@ -825,7 +881,7 @@ json_t signature_help(const query_t& query, const std::uint32_t offset,
     }
 
     if (!best) {
-        return nullptr;
+        return std::nullopt;
     }
 
     const auto& call = std::get<call_expr_t>(ast.get(*best).node);
@@ -866,9 +922,9 @@ json_t signature_help(const query_t& query, const std::uint32_t offset,
         }
     }
 
-    const std::vector<symbol_id_t> candidates = overloads(query, call, resolved);
+    std::vector<symbol_id_t> candidates = overloads(query, call, resolved);
     if (candidates.empty()) {
-        return nullptr;
+        return std::nullopt;
     }
 
     // The one the call resolved to, or else the first that takes as many arguments as it has.
@@ -885,68 +941,103 @@ json_t signature_help(const query_t& query, const std::uint32_t offset,
         chosen = fits != candidates.end() ? static_cast<std::size_t>(fits - candidates.begin()) : 0;
     }
 
+    return call_at_t{
+        .call = *best,
+        .active = active,
+        .candidates = std::move(candidates),
+        .chosen = chosen,
+    };
+}
+
+json_t signature_help(const query_t& query, const std::uint32_t offset,
+                      const positions_t& positions) {
+    const std::optional<call_at_t> found = call_at(query, offset);
+    if (!found) {
+        return nullptr;
+    }
+
     json_t signatures = json_t::array();
-    for (const symbol_id_t function : candidates) {
+    for (const symbol_id_t function : found->candidates) {
         signatures.push_back(signature_information(query, function, positions));
     }
 
-    const std::size_t count = analysis.symbol(candidates[chosen]).parameters.size();
+    const std::size_t count =
+        query.analysis().symbol(found->candidates[found->chosen]).parameters.size();
     return {
         { "signatures", std::move(signatures) },
-        { "activeSignature", chosen },
+        { "activeSignature", found->chosen },
         {
             "activeParameter",
-            count == 0 ? 0 : std::min<std::uint32_t>(active, static_cast<std::uint32_t>(count - 1)),
+            count == 0
+                ? 0
+                : std::min<std::uint32_t>(found->active, static_cast<std::uint32_t>(count - 1)),
         },
     };
 }
 
-json_t code_actions(const query_t& query, const span_t range, const positions_t& positions) {
+namespace {
+
+/// A CodeAction that makes `suggestion`, a fix of `diagnostic`, or nullopt when one of its files
+/// isn't on disk.
+std::optional<json_t> code_action(const compilation_t& compilation, const diagnostic_t& diagnostic,
+                                  const suggestion_t& suggestion, const bool preferred,
+                                  const positions_t& positions) {
+    json_t changes = json_t::object();
+    for (const fix_t& fix : suggestion.fixes) {
+        const std::filesystem::path path = compilation.disk_path(fix.span.file);
+        if (path.empty()) {
+            return std::nullopt;
+        }
+
+        const std::string uri = uri_of(path);
+        if (!changes.contains(uri)) {
+            changes[uri] = json_t::array();
+        }
+
+        changes[uri].push_back({
+            { "range", positions.range(compilation.sources.get(fix.span.file), fix.span) },
+            { "newText", fix.replacement },
+        });
+    }
+
+    return json_t{
+        { "title", suggestion.title },
+        { "kind", "quickfix" },
+        { "diagnostics", json_t::array({ diagnostic_json(compilation, diagnostic, positions) }) },
+        { "isPreferred", preferred },
+        { "edit", { { "changes", std::move(changes) } } },
+    };
+}
+
+} // namespace
+
+json_t code_actions(const query_t& query, const span_t range, const positions_t& positions,
+                    const std::function<bool(const std::filesystem::path&)>& editable) {
     json_t out = json_t::array();
     const compilation_t& compilation = query.compilation();
     for (const diagnostic_t& diagnostic : compilation.diagnostics.diagnostics()) {
-        if (diagnostic.span.file != query.file() || diagnostic.fixes.empty() ||
-            diagnostic.span.begin > range.end || range.begin > diagnostic.span.end) {
+        if (diagnostic.span.file != query.file() || diagnostic.span.begin > range.end ||
+            range.begin > diagnostic.span.end) {
             continue;
         }
 
-        json_t changes = json_t::object();
-        bool whole = true;
-        for (const fix_t& fix : diagnostic.fixes) {
-            const std::filesystem::path path = compilation.disk_path(fix.span.file);
-            if (path.empty()) {
-                whole = false;
-                break;
-            }
-
-            const std::string uri = uri_of(path);
-            if (!changes.contains(uri)) {
-                changes[uri] = json_t::array();
-            }
-
-            changes[uri].push_back({
-                { "range", positions.range(compilation.sources.get(fix.span.file), fix.span) },
-                { "newText", fix.replacement },
+        // Each suggestion, the likeliest preferred, of those whose edits are the workspace's.
+        bool first = true;
+        for (const suggestion_t& suggestion : diagnostic.suggestions) {
+            const bool ours = std::ranges::all_of(suggestion.fixes, [&](const fix_t& fix) {
+                const std::filesystem::path path = compilation.disk_path(fix.span.file);
+                return path.empty() || editable(path);
             });
-        }
+            if (!ours) {
+                continue;
+            }
 
-        if (!whole) {
-            continue;
+            if (std::optional<json_t> action =
+                    code_action(compilation, diagnostic, suggestion, first, positions)) {
+                out.push_back(std::move(*action));
+                first = false;
+            }
         }
-
-        out.push_back({
-            {
-                "title",
-                diagnostic.fix_title.empty() ? "Fix: " + diagnostic.message : diagnostic.fix_title,
-            },
-            { "kind", "quickfix" },
-            {
-                "diagnostics",
-                json_t::array({ diagnostic_json(compilation, diagnostic, positions) }),
-            },
-            { "isPreferred", true },
-            { "edit", { { "changes", std::move(changes) } } },
-        });
     }
 
     return out;

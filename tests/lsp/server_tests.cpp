@@ -27,7 +27,8 @@ TEST_CASE("the server says what it can do and shuts down", "[lsp]") {
         CHECK(capabilities["workspaceSymbolProvider"] == true);
         CHECK(capabilities["semanticTokensProvider"]["full"] == true);
         CHECK(capabilities["codeActionProvider"]["codeActionKinds"] ==
-              json_t::array({ "quickfix" }));
+              json_t::array(
+                  { "quickfix", "refactor.extract", "refactor.inline", "source.organizeImports" }));
         CHECK(capabilities["documentFormattingProvider"] == true);
         CHECK(capabilities["textDocumentSync"]["change"] == 2);
         CHECK(client.initialized()["serverInfo"]["name"] == "fb-lsp");

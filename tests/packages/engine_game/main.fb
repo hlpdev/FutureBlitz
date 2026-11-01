@@ -62,7 +62,7 @@ End Try
 
 // A second world, which the engine counts until its last reference goes.
 Function Visit(): Int32
-    Local other = World("other")
+    Local _other = World("other")
     Return Worlds()
 End Function
 

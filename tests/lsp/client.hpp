@@ -11,6 +11,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -59,6 +60,14 @@ public:
         json_t initialization_options = json_t::object();
         /// The position encodings the client offers.
         std::vector<std::string> encodings;
+        /// Whether it says it watches files, as VS Code does, so the server's checks share what
+        /// they know of the disk until it says files changed, and whether its watchers can have
+        /// folders of their own.
+        bool watches = false;
+        bool relative_patterns = false;
+        /// Whether it answers the server's requests, as a client does: a registration of
+        /// watchers, which it takes.
+        bool answers = true;
     };
 
     explicit client_t(options_t options);
@@ -81,6 +90,24 @@ public:
 
     void notify(const std::string& method, json_t params);
 
+    /// Puts a request in the server's inbox without handling it, as a client sends one while the
+    /// server is busy, until drain(). Gives its id.
+    std::int64_t queue(const std::string& method, json_t params);
+
+    /// Puts a notification in the inbox.
+    void queue_notification(const std::string& method, json_t params);
+
+    /// Puts a change of the document's whole text in the inbox, as change() sends one.
+    void queue_change(const std::string& uri, std::string_view text);
+
+    /// Handles what waits in the inbox, in order, as fb-lsp's loop does.
+    void drain();
+
+    /// The response to a request queue() put in, once it's drained.
+    [[nodiscard]] json_t response(std::int64_t id) const;
+    /// Adds a message as it is, which drain() handles.
+    void queue_message(json_t message);
+
     void open(const std::string& uri, std::string_view text);
     /// Replaces the document's whole text.
     void change(const std::string& uri, std::string_view text);
@@ -95,11 +122,17 @@ public:
         return m_texts.at(uri);
     }
 
-    /// Waits until the server's checks are done.
+    /// Waits until the server's checks are done, and answers its requests.
     void settle();
+
+    /// Answers the server's requests it hasn't yet.
+    void answer_requests();
 
     /// The diagnostics published last for a file, which some must have been.
     [[nodiscard]] json_t diagnostics(const std::string& uri) const;
+
+    /// The errors among them, for code that only has to compile.
+    [[nodiscard]] json_t errors(const std::string& uri) const;
 
     /// Waits for the diagnostics published for the document's text as the client has it, and
     /// gives them.
@@ -130,14 +163,18 @@ private:
     void mark(const std::string& uri);
 
     mutable std::mutex m_mutex;
-    std::condition_variable m_arrived;
+    mutable std::condition_variable m_arrived;
     std::vector<json_t> m_received;
     /// How many messages had come when each document last changed.
     std::map<std::string, std::size_t> m_changed_at;
+    /// The ids of the server's requests it answered.
+    std::set<std::string> m_answered;
+    bool m_answers = true;
     std::map<std::string, std::string> m_texts;
     std::map<std::string, std::int64_t> m_versions;
     std::int64_t m_next_id = 1;
     json_t m_initialized;
+    inbox_t m_inbox;
     server_t m_server;
 };
 

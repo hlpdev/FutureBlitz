@@ -9,8 +9,6 @@
 //! and the bytes. DISCONNECT ends the connection. Numbers are big-endian, and sequences and ids are
 //! 16 bits, which go round, so "after" is RFC 1982's.
 
-Import std.core
-
 Package Const MAGIC_F: UInt8 = 0x46
 Package Const MAGIC_G: UInt8 = 0x47
 Package Const VERSION: UInt8 = 1

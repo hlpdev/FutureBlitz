@@ -1,8 +1,10 @@
 #include "binary_images.hpp"
 #include "fb/commit.hpp"
+#include "fb/disk.hpp"
 #include "fb/doc.hpp"
 #include "fb/driver.hpp"
 #include "fb/interface.hpp"
+#include "fb/lint.hpp"
 #include "fb/lower.hpp"
 #include "fb/process.hpp"
 #include "fb/utf8.hpp"
@@ -56,9 +58,15 @@ std::string without_lines(const std::string_view text) {
 }
 
 /// "<file>: <source text>: message" for each diagnostic, in order.
+/// A compilation's diagnostics, but the inspections', which inspect_tests.cpp tests, as the
+/// driver's tests are of what it loads.
 std::vector<std::string> errors_of(const fb::compilation_t& compilation) {
     std::vector<std::string> errors;
     for (const fb::diagnostic_t& diagnostic : compilation.diagnostics.diagnostics()) {
+        if (diagnostic.lint && fb::lint_info(*diagnostic.lint).inspection) {
+            continue;
+        }
+
         const fb::source_file_t& file = compilation.sources.get(diagnostic.span.file);
         errors.push_back(std::format("{}: {}: {}", file.path(), file.slice(diagnostic.span),
                                      diagnostic.message));
@@ -1389,6 +1397,50 @@ constexpr std::string_view app_toml = "[project]\n"
 
 } // namespace
 
+TEST_CASE("each package's [lints] give its own code's warnings their levels", "[driver]") {
+    const packages_t packages;
+    packages.write("lib/project.toml",
+                   std::format("{}\n[lints]\nunused_local = \"off\"\n", lib_toml));
+    packages.write("lib/lib.fb", "Public Function Lib(): Int\n"
+                                 "    Local quiet = 1\n"
+                                 "    Local shadow = 2\n"
+                                 "    Return 3\n"
+                                 "End Function\n"
+                                 "Global shadow = 4\n"
+                                 "Public Function Shadow(): Int => shadow\n");
+    packages.write(
+        "app/project.toml",
+        std::format("{}\n[lints]\nunused_local = \"error\"\nshadowed = \"off\"\n", app_toml));
+    packages.write("app/main.fb", "Import std.core\n"
+                                  "Import lib\n"
+                                  "Global Lib = 1\n"
+                                  "Function F(): Int\n"
+                                  "    Local Lib = 2\n"
+                                  "    Return Lib\n"
+                                  "End Function\n"
+                                  "Local unused = 1\n"
+                                  "Print(F() + Shadow())\n");
+    const std::expected<fb::compilation_t, std::string> compiled =
+        fb::compile_file(packages / "app");
+    REQUIRE(compiled);
+    std::vector<std::string> found;
+    for (const fb::diagnostic_t& diagnostic : compiled->diagnostics.diagnostics()) {
+        const fb::source_file_t& file = compiled->sources.get(diagnostic.span.file);
+        found.push_back(std::format(
+            "{} {}: {}", diagnostic.severity == fb::severity_t::ERROR ? "error" : "warning",
+            file.slice(diagnostic.span), diagnostic.code));
+    }
+
+    // The app's Global that its Local hides, whose warning is off, and its unused Local, an
+    // error; and lib's shadowed Global, while its unused Locals' are off.
+    CHECK(found == std::vector<std::string>{
+                       "warning Lib: unused_private",
+                       "error unused: unused_local",
+                       "warning shadow: shadowed",
+                   });
+    packages.remove();
+}
+
 TEST_CASE("a file reached through a link in the program's folder loads once", "[driver]") {
     const packages_t files;
     files.write("ui/hud.fb", "Public Struct Box\n    Public Field v: Int32\nEnd Struct\n");
@@ -2041,6 +2093,24 @@ TEST_CASE("a package's build step makes modules and the files they embed, before
         CHECK_FALSE(each->diagnostics.has_errors());
     }
 
+    packages.remove();
+}
+
+TEST_CASE("a build step's run empties the disk cache in use, so what it wrote is read",
+          "[driver]") {
+    const packages_t packages;
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\n\n"
+                                       "[build]\nprogram = \"tools/generate.fb\"\n");
+    packages.write("app/tools/generate.fb", generate_program);
+    packages.write("app/names.txt", "ann\nbo\n");
+    packages.write("app/main.fb", "Import std.core\nImport app.made\nPrint(\"{COUNT}\")\n");
+    // One cache for both builds, as the LSP's checks share one, which nothing empties between
+    // them: the second's step runs again, and writes made.fb anew.
+    fb::disk_cache_t cache;
+    const fb::disk_scope_t scope(&cache);
+    CHECK(build_and_run(packages, "app") == "2\n");
+    packages.write("app/names.txt", "cy\n");
+    CHECK(build_and_run(packages, "app") == "1\n");
     packages.remove();
 }
 
@@ -4736,6 +4806,42 @@ std::vector<std::string> own_modules(const fb::compilation_t& compilation) {
 
 } // namespace
 
+TEST_CASE("check_files's inspections look unless it's asked not to, as references' checks are",
+          "[driver]") {
+    const packages_t packages;
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"0.1.0\"\n");
+    packages.write("app/a.fb", "Public Function A(): Int\n    Local unused = 1\n    Return 2\nEnd "
+                               "Function\n");
+    const auto lints_in = [&](const bool inspect) {
+        const std::expected<fb::compilation_t, std::string> checked =
+            fb::check_files({ .files = { packages / "app/a.fb" }, .inspect = inspect });
+        REQUIRE(checked);
+        std::vector<std::string> found;
+        for (const fb::diagnostic_t& diagnostic : checked->diagnostics.diagnostics()) {
+            found.push_back(diagnostic.code);
+        }
+
+        return found;
+    };
+    CHECK(lints_in(true) == std::vector<std::string>{ "unused_local" });
+    CHECK(lints_in(false).empty());
+
+    // A path dependency's own [lints] apply when it's checked, wherever the editor's folders
+    // are, as fb build applies them.
+    packages.write("lib/project.toml", "[project]\nname = \"lib\"\nversion = \"0.1.0\"\n\n[lints]\n"
+                                       "unused_local = \"error\"\n");
+    packages.write("lib/b.fb", "Public Function B(): Int\n    Local unused = 1\n    Return 2\nEnd "
+                               "Function\n");
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n"
+                                       "[dependencies]\nlib = { path = \"../lib\" }\n");
+    const std::expected<fb::compilation_t, std::string> dependency =
+        fb::check_files({ .files = { packages / "lib/b.fb" } });
+    REQUIRE(dependency);
+    REQUIRE(dependency->diagnostics.diagnostics().size() == 1);
+    CHECK(dependency->diagnostics.diagnostics().front().severity == fb::severity_t::ERROR);
+    packages.remove();
+}
+
 TEST_CASE("check_files checks only the files it's given, and what they import", "[driver]") {
     const packages_t packages;
     packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"0.1.0\"\n");
@@ -4835,6 +4941,65 @@ TEST_CASE("check_files checks only the files it's given, and what they import", 
     const std::vector<std::string> side = packages.messages(*checked);
     REQUIRE(side.size() == 1);
     CHECK(side.front().contains("only the main module's top-level code runs"));
+    packages.remove();
+}
+
+TEST_CASE("check_files checks its files' bodies, and every body when theirs need the others",
+          "[driver]") {
+    const packages_t packages;
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"0.1.0\"\n");
+    packages.write("app/a.fb", "Import std.core\nPublic Function A(): Int\n    Return \"a\"\n"
+                               "End Function\n");
+    packages.write("app/b.fb",
+                   "Import std.core\nImport \"./a\"\nPublic Function B(): Int => A()\n");
+    packages.write("app/score.fb", "Import std.core\nGlobal score = 3\n"
+                                   "Public Function Get(): Int => score\n");
+    // Work on another thread, which calls code that uses what only the main thread can.
+    packages.write("app/work.fb", "Import std.core\nImport \"./a\"\nImport \"./score\"\n"
+                                  "Public Function Run(): Int\n    Local t = Spawn(Get)\n"
+                                  "    Return t.Wait()\nEnd Function\n");
+    // Generic code, whose instances could lead back through another file's.
+    packages.write("app/deep.fb", "Import std.core\nImport \"./a\"\n"
+                                  "Function Deep<T>(x: T, n: Int): Int\n"
+                                  "    If n == 0 Then Return 0\n    Return Deep([x], n - 1)\n"
+                                  "End Function\n");
+
+    // b's own body, but not a's, which has a mistake that a check of a reports.
+    std::expected<fb::compilation_t, std::string> checked =
+        fb::check_files({ .files = { packages / "app/b.fb" } });
+    REQUIRE(checked);
+    CHECK(packages.messages(*checked).empty());
+    checked = fb::check_files({ .files = { packages / "app/a.fb" } });
+    REQUIRE(checked);
+    REQUIRE(packages.messages(*checked).size() == 1);
+    CHECK(packages.messages(*checked).front().starts_with("app/a.fb: "));
+
+    // A worker's work goes through score's body, so every body is checked, a's too.
+    checked = fb::check_files({ .files = { packages / "app/work.fb" } });
+    REQUIRE(checked);
+    std::vector<std::string> messages = packages.messages(*checked);
+    const auto has = [&](const std::string_view file, const std::string_view text) {
+        return std::ranges::any_of(messages, [&](const std::string& message) {
+            return message.starts_with(file) && message.contains(text);
+        });
+    };
+    std::string shown;
+    for (const std::string& message : messages) {
+        shown += message + "; ";
+    }
+
+    INFO(shown);
+    CHECK(messages.size() == 2);
+    CHECK(has("app/a.fb: ", ""));
+    CHECK(has("app/work.fb: ", "uses the Global 'score'"));
+
+    // So is generic code's, whose loop is found.
+    checked = fb::check_files({ .files = { packages / "app/deep.fb" } });
+    REQUIRE(checked);
+    messages = packages.messages(*checked);
+    CHECK(messages.size() == 2);
+    CHECK(has("app/a.fb: ", ""));
+    CHECK(has("app/deep.fb: ", "leads back to this code"));
     packages.remove();
 }
 

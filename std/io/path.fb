@@ -105,7 +105,7 @@ Public Struct Path Implements Comparable, Hashable, Printable
         Local added = other.Text.Bytes
         If added.Count == 0 Then Return Self
         If bytes.Count == 0 Then Return Path(other.Text, Style)
-        Local prefix, anchor = AnchorOf(bytes, windows)
+        Local prefix, _ = AnchorOf(bytes, windows)
         Local addedPrefix, addedAnchor = AnchorOf(added, windows)
         If addedPrefix > 0
             // A share, another drive, or this drive's root starts again; "C:saves" goes on from
@@ -116,7 +116,7 @@ Public Struct Path Implements Comparable, Hashable, Printable
             End If
 
             If addedPrefix == added.Count Then Return Self
-            Return Joined(bytes, prefix, anchor, TextOfBytes(added[addedPrefix..added.Count]))
+            Return Joined(bytes, prefix, TextOfBytes(added[addedPrefix..added.Count]))
         End If
 
         If addedAnchor > 0
@@ -124,12 +124,12 @@ Public Struct Path Implements Comparable, Hashable, Printable
             Return Path(TextOfBytes(bytes[0..prefix]) + other.Text, Style)
         End If
 
-        Return Joined(bytes, prefix, anchor, other.Text)
+        Return Joined(bytes, prefix, other.Text)
     End Method
 
     /// `added` after the path, with a '/' between unless the path ends with a separator or is a
     /// drive alone, like "C:", which the next name goes right after.
-    Method Joined(bytes: UInt8[], prefix: Int, anchor: Int, added: String): Path
+    Method Joined(bytes: UInt8[], prefix: Int, added: String): Path
         Local windows = Style == PathStyle.WINDOWS
         If IsSeparator(bytes[bytes.Count - 1], windows) ||
            (windows && prefix == 2 && bytes.Count == 2)

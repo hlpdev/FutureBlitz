@@ -12,8 +12,6 @@
 //! Expect(DisplayWidth("日本") == 4 && DisplayWidth('a') == 1)
 //! ```
 
-Import std.core
-
 Extern "runtime"
     Function fb_unicode_category(code: UInt32): Int32
     Function fb_unicode_case_fold(text: String): String?

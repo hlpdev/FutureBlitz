@@ -322,9 +322,9 @@ Public Shared Class RwLock<T: Sendable>
         End If
 
         Local written = writer(Held())
-        Local old: T? = Null
+        Local _old: T? = Null
         Lock Stored As stored
-            old = stored
+            _old = stored
             stored = written
         End Lock
 

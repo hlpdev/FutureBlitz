@@ -1,6 +1,7 @@
 // fb-lsp: FutureBlitz's language server, which an editor starts and talks to in JSON-RPC over
 // stdin and stdout.
 
+#include "fb/lsp/inbox.hpp"
 #include "fb/lsp/protocol.hpp"
 #include "fb/lsp/server.hpp"
 
@@ -11,6 +12,8 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
+#include <utility>
 
 #ifdef _WIN32
 #include <fcntl.h>
@@ -38,18 +41,30 @@ void serve() {
             std::cout, message.dump(-1, ' ', false, fb::lsp::json_t::error_handler_t::replace));
     };
     fb::lsp::server_t server(send);
-    while (const std::optional<std::string> body = fb::lsp::read_message(std::cin)) {
-        const fb::lsp::json_t message = fb::lsp::json_t::parse(*body, nullptr, false);
-        if (message.is_discarded()) {
-            const fb::lsp::json_t error{
-                { "code", static_cast<int>(fb::lsp::error_code_t::PARSE_ERROR) },
-                { "message", "the message isn't JSON" },
-            };
-            send({ { "jsonrpc", "2.0" }, { "id", nullptr }, { "error", error } });
-            continue;
+    // A thread of its own reads, so what waits behind a request is there for the server to see,
+    // as a $/cancelRequest of it is.
+    fb::lsp::inbox_t inbox;
+    server.set_inbox(&inbox);
+    std::thread reader([&] {
+        while (const std::optional<std::string> body = fb::lsp::read_message(std::cin)) {
+            fb::lsp::json_t message = fb::lsp::json_t::parse(*body, nullptr, false);
+            if (message.is_discarded()) {
+                const fb::lsp::json_t error{
+                    { "code", static_cast<int>(fb::lsp::error_code_t::PARSE_ERROR) },
+                    { "message", "the message isn't JSON" },
+                };
+                send({ { "jsonrpc", "2.0" }, { "id", nullptr }, { "error", error } });
+                continue;
+            }
+
+            inbox.push(std::move(message));
         }
 
-        server.handle(message);
+        inbox.close();
+    });
+    reader.detach();
+    while (const std::optional<fb::lsp::json_t> message = inbox.pop()) {
+        server.handle(*message);
         if (const std::optional<int> code = server.exit_code()) {
             finish(*code);
         }

@@ -83,11 +83,44 @@ rename_conflict(std::span<const std::shared_ptr<const compilation_t>> compilatio
 /// Whether `name` has `query`'s letters in order, ignoring ASCII case.
 [[nodiscard]] bool fuzzy_match(std::string_view name, std::string_view query);
 
+/// A Public name a module declares at its top level, which another file can import the module
+/// for.
+struct export_t {
+    std::string name;
+    /// What an Import names to bring it in, like "std.collections" or "geo.shapes".
+    std::string module;
+    /// The keyword it's declared with, as std_name_t's.
+    std::string kind;
+    /// The package it's in, by its name: "std" for std's, and empty for a program's without a
+    /// project.toml.
+    std::string package;
+    /// For a module an Import names by its path, a .proto's or one of a program without a
+    /// project.toml: its file, which the Import's path goes to from the importing file's folder.
+    std::filesystem::path quoted;
+    /// Declared Package, so only its own package's files and its tests can import it.
+    bool package_only = false;
+};
+
+/// The innermost call whose parentheses a position is in: the call, which of its arguments the
+/// position is in, and the functions it can be, with the one it is, or the first that takes that
+/// many arguments.
+struct call_at_t {
+    expr_id_t call{};
+    std::uint32_t active = 0;
+    std::vector<symbol_id_t> candidates;
+    std::size_t chosen = 0;
+};
+
+/// The call at `offset`, nullopt when it's in none.
+[[nodiscard]] std::optional<call_at_t> call_at(const query_t& query, std::uint32_t offset);
+
 /// textDocument/completion at `offset` of `text`, the document as it is, whose last check is
 /// `query`: a member after a '.', a module after Import, or the names in scope and keywords.
-/// `modules` are the modules an Import can name.
+/// `modules` gives the modules an Import can name, which it asks for only at an Import, and
+/// `importable` the names the file could import a module for, which an item adds the Import of.
 [[nodiscard]] json_t completion(const query_t& query, std::uint32_t offset,
-                                const std::vector<std::string>& modules,
+                                const std::function<std::vector<std::string>()>& modules,
+                                const std::function<std::vector<export_t>()>& importable,
                                 const positions_t& positions);
 
 /// textDocument/signatureHelp for the call `offset` is in.
@@ -102,12 +135,96 @@ rename_conflict(std::span<const std::shared_ptr<const compilation_t>> compilatio
 [[nodiscard]] json_t semantic_tokens(const query_t& query, const positions_t& positions);
 
 /// textDocument/codeAction: a quick fix for each diagnostic in the file that has fix-its, of
-/// those that `range`, offsets in the file, touches.
-[[nodiscard]] json_t code_actions(const query_t& query, span_t range, const positions_t& positions);
+/// those that `range`, offsets in the file, touches, but for one with an edit of a file that
+/// `editable` says isn't the workspace's to change.
+[[nodiscard]] json_t
+code_actions(const query_t& query, span_t range, const positions_t& positions,
+             const std::function<bool(const std::filesystem::path&)>& editable);
 
 /// textDocument/formatting's edits: the whole document as format_source() has it, or none when
 /// it's formatted already or doesn't parse.
 [[nodiscard]] json_t formatting(const source_file_t& file, std::uint32_t width,
                                 const positions_t& positions);
+
+/// A Location in a compilation's file, or nullopt for one that isn't on disk. A prebuilt
+/// library's module is in its interface file, at the same lines, a module as a whole at its first.
+[[nodiscard]] std::optional<json_t> location_of(const compilation_t& compilation, span_t span,
+                                                const positions_t& positions);
+
+/// textDocument/codeLens, unresolved: one at each declaration's name, whose data is `uri` and its
+/// position, which codeLens/resolve counts the references of. Only the file is parsed.
+[[nodiscard]] json_t code_lenses(const source_file_t& file, const std::string& uri,
+                                 const positions_t& positions);
+
+/// textDocument/foldingRange: a file's blocks, an If's branches, a Select's Cases, and a Try's
+/// Catches each on its own, its lambdas, arrays, and Maps over more than a line, its runs of
+/// comments and of Imports, and its #If blocks, each from its first line to the one before its
+/// End. Only the file is parsed, so it's there before a check.
+[[nodiscard]] json_t folding_ranges(const source_file_t& file);
+
+/// textDocument/selectionRange: for each of `offsets`, what a selection there grows to, from its
+/// word out to the whole file through each expression, statement, and block around it. Only the
+/// file is parsed.
+[[nodiscard]] json_t selection_ranges(const source_file_t& file,
+                                      std::span<const std::uint32_t> offsets,
+                                      const positions_t& positions);
+
+/// textDocument/documentHighlight: the file's names of what's named at `offset`, each a Write
+/// where it's declared or assigned, and a Read elsewhere.
+[[nodiscard]] json_t document_highlights(const query_t& query, std::uint32_t offset,
+                                         const positions_t& positions);
+
+/// Which inlay hints the client wants, which its settings say.
+struct inlay_options_t {
+    /// The types of Locals, a For's variables, and a lambda's parameters, where none is written.
+    bool types = true;
+    /// The parameters' names at a call's arguments, but where the argument or the function says it.
+    bool parameters = true;
+};
+
+/// textDocument/inlayHint for the code that starts in `range`.
+[[nodiscard]] json_t inlay_hints(const query_t& query, span_t range, const inlay_options_t& options,
+                                 const positions_t& positions);
+
+/// textDocument/typeDefinition: where the type of what's at `offset` is declared, the T of a T?, a
+/// T[], or a Weak<T>. Null for a built-in type, or none.
+[[nodiscard]] json_t type_definition(const query_t& query, std::uint32_t offset,
+                                     const positions_t& positions);
+
+/// textDocument/implementation: in `compilations`, what implements or extends the Interface or
+/// Class `key` names, or implements or overrides the member it names, as Locations.
+[[nodiscard]] json_t
+implementations(std::span<const std::shared_ptr<const compilation_t>> compilations,
+                const symbol_key_t& key, const positions_t& positions);
+
+/// textDocument/prepareCallHierarchy: the Function, Method, or New named at `offset`, as a
+/// CallHierarchyItem whose data is its symbol_key_t. Null for anything else.
+[[nodiscard]] json_t prepare_call_hierarchy(const query_t& query, std::uint32_t offset,
+                                            const positions_t& positions);
+
+/// callHierarchy/incomingCalls: in `compilations`, the functions, and files' top-level code, that
+/// call `key`'s, each with where.
+[[nodiscard]] json_t
+incoming_calls(std::span<const std::shared_ptr<const compilation_t>> compilations,
+               const symbol_key_t& key, const positions_t& positions);
+
+/// callHierarchy/outgoingCalls: what `key`'s function calls, or with `top`, what its file's
+/// top-level code does, each with where, in `query`, a check of its file.
+[[nodiscard]] json_t outgoing_calls(const query_t& query, const symbol_key_t& key, bool top,
+                                    const positions_t& positions);
+
+/// textDocument/prepareTypeHierarchy: the Struct, Class, Interface, or Enum named at `offset`, as
+/// a TypeHierarchyItem whose data is its symbol_key_t. Null for anything else.
+[[nodiscard]] json_t prepare_type_hierarchy(const query_t& query, std::uint32_t offset,
+                                            const positions_t& positions);
+
+/// typeHierarchy/supertypes: the Class `key`'s type extends and the Interfaces it lists, in
+/// `query`, a check of its file.
+[[nodiscard]] json_t supertypes(const query_t& query, const symbol_key_t& key,
+                                const positions_t& positions);
+
+/// typeHierarchy/subtypes: in `compilations`, the types that extend `key`'s or list it.
+[[nodiscard]] json_t subtypes(std::span<const std::shared_ptr<const compilation_t>> compilations,
+                              const symbol_key_t& key, const positions_t& positions);
 
 } // namespace fb::lsp

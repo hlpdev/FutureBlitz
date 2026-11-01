@@ -4,8 +4,6 @@
 //! salts, nonces, and tokens; and ConstantTimeEquals, which compares secrets without telling where
 //! they differ.
 
-Import std.core
-
 Extern "runtime"
     Function fb_crypto_random(count: Int64, output: UInt8[])
     Function fb_crypto_equal(a: UInt8[], b: UInt8[]): Int32

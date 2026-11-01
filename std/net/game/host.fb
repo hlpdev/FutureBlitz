@@ -29,7 +29,6 @@ Import std.time.duration
 Import std.time.clock
 Import std.net.address
 Import std.net.udp
-Import std.net.game.channel
 Import std.net.game.link
 Import std.net.game.packet
 Import std.net.game.peer

@@ -17,6 +17,39 @@ server's errors as you type and formatting on save, tasks for `fb build`, `fb ru
 
 ## Using it
 
+- **Completion** knows where it is: what the code wants there first (a call's argument's type,
+  an initializer's, a Return's, an Enum's members where one is wanted), the parameters' names a
+  call doesn't give yet, the keywords that go there, and the names of modules the file doesn't
+  import, which add the Import when chosen. After a value's `.`, `.if`, `.ifnull`, `.for`,
+  `.not`, `.try`, and `.local` write it into what they say, and in a Class's body, the Methods
+  it can override or implement are written out. VS Code's own word suggestions are off for .fb
+  files, so the language server's are what's shown.
+- **Fixes and inspections**: an error's likely fixes are quick fixes (the Import a name needs, a
+  name spelled nearly so, Try for a call that throws, what nothing declares written out, a
+  missing End or Return, and more), and the inspections' warnings come with theirs: what nothing
+  uses or reaches is faded, with a fix that removes it, and a name that hides another, an As that
+  changes nothing, and a condition that's always True or False are reported. A warning's code is
+  its lint, which project.toml's `[lints]` turns off or makes an error.
+- **Refactorings**: a selection can be extracted to a Local, a Function, or a Method, and a
+  Local or a Function's call inlined, from the light bulb or Refactor...; Source Action...
+  organizes Imports, sorted and without unused ones, and `"editor.codeActionsOnSave": {
+  "source.organizeImports": "explicit" }` does it on save. FutureBlitz: Change Signature, in the
+  editor's context menu, reorders, renames ("new: Type <- old"), takes out, and adds ("name:
+  Type = value") a Function's or Method's parameters, changing every call. Each is offered only
+  where the code does the same after it.
+- **Reading code**: inlay hints show the types of Locals, For variables, and lambda parameters
+  where none is written, and the parameters' names at a call's arguments (each a setting). A
+  name's other uses in its file are highlighted, reads and writes apart; blocks, each If branch,
+  Select Case, and Catch, runs of comments, and Import lines fold; Expand Selection grows by
+  expressions and statements. Go to Type Definition, Go to Implementations (an Interface's
+  Classes and Structs, a Class's subclasses, a Method's overrides), Show Call Hierarchy, and Show
+  Type Hierarchy work across the package, and a count of references sits above each type and
+  function.
+- **Tests**: the Testing panel lists each file's `@Test` Functions, and runs or debugs a file's or
+  one test's, with their buttons in the gutter too: a run is `fb test --exact` with each test's
+  name, and a debug run
+  builds the tests' executable with `fb test -o` and runs it under CodeLLDB. A program's main file
+  has Run and Debug above its first line.
 - **Run** and **Debug** are in the editor's title bar on a .fb file, and in the Command Palette as
   FutureBlitz: Run, FutureBlitz: Debug, and FutureBlitz: Run Tests. Each takes the open file's
   package, the folder with the project.toml above it, or the file itself without one.
@@ -64,6 +97,8 @@ server's errors as you type and formatting on save, tasks for `fb build`, `fb ru
 | `futureblitz.path` | fb; `${workspaceFolder}` and `~` are expanded |
 | `futureblitz.lspPath` | the language server |
 | `futureblitz.lsp.enabled` | start the language server; on by default |
+| `futureblitz.inlayHints.types` | show the types the code doesn't write; on by default |
+| `futureblitz.inlayHints.parameterNames` | show the parameters' names at calls; on by default |
 | `futureblitz.trace.server` | trace its messages in the FutureBlitz output |
 | `futureblitz.debug.lldbScript` | fb's `futureblitz.py`; beside fb, else the extension's copy |
 

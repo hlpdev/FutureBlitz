@@ -3,7 +3,6 @@
 //! Blake3, over BLAKE3's C code: a fast cryptographic hash of any length, 32 bytes unless asked
 //! for more or fewer, which can be keyed, as a MAC, or derive a key for a context, as a KDF.
 
-Import std.core
 Import std.crypto.hashes
 
 Extern "runtime"

@@ -319,7 +319,7 @@ Public Class Regex
 
     /// How many groups the pattern has, not counting the whole match, which is group 0.
     Public Property GroupCount: Int
-        Get => fb_regex_group_count(Code) As Int
+        Get => fb_regex_group_count(Code)
     End Property
 
     /// The names of the pattern's groups, sorted.
@@ -575,7 +575,7 @@ Function NamesOf(code: Ptr<Void>): Map<String, Int[]>
     For i = 0 Until fb_regex_name_count(code)
         Local name = fb_regex_name(code, i)
         If !names.Contains(name) Then names[name] = []
-        names[name].Add(fb_regex_name_group(code, i) As Int)
+        names[name].Add(fb_regex_name_group(code, i))
     End For
 
     Return names

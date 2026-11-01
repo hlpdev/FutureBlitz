@@ -22,7 +22,6 @@ Import std.core
 Import std.collections.map
 Import std.text.string
 Import std.text.unicode
-Import std.text.layout
 Import std.time.duration
 Import std.time.clock
 Import std.term.console

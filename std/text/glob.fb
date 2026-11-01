@@ -5,7 +5,6 @@
 //! `[abc]` and `[a-z]` are one of a set, and `[!abc]` or `[^abc]` one that isn't, never /; {a,b} is
 //! either; and \ makes the character after it itself. A [ or { without its end is itself.
 
-Import std.core
 Import std.collections.array
 Import std.text.char
 Import std.text.unicode

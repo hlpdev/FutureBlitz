@@ -32,6 +32,9 @@ void write_message(std::ostream& out, std::string_view body);
 /// there, and on Windows and macOS, whose disks ignore letter case, in lower case.
 [[nodiscard]] std::string file_key(const std::filesystem::path& path);
 
+/// Forgets the keys file_key() worked out, which it keeps, as the disk may have changed.
+void forget_file_keys();
+
 /// What the client counts a position's character in: UTF-16 code units unless it said
 /// otherwise.
 struct positions_t {
@@ -58,6 +61,10 @@ enum class error_code_t : std::int32_t {
     INVALID_PARAMS = -32602,
     INTERNAL_ERROR = -32603,
     SERVER_NOT_INITIALIZED = -32002,
+    /// The client cancelled the request before the server started on it.
+    REQUEST_CANCELLED = -32800,
+    /// What the request is about changed, so its answer would be stale.
+    CONTENT_MODIFIED = -32801,
     REQUEST_FAILED = -32803,
 };
 

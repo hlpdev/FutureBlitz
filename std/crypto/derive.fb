@@ -4,8 +4,6 @@
 //! material, and a key from a password: HMAC and PBKDF2 by SHA-1, SHA-256, or SHA-512, and HKDF by
 //! SHA-256 or SHA-512.
 
-Import std.core
-
 Extern "runtime"
     Function fb_crypto_hmac(algorithm: Int32, key: UInt8[], data: UInt8[], output: UInt8[])
     Function fb_crypto_hkdf(algorithm: Int32, material: UInt8[], salt: UInt8[], info: UInt8[],

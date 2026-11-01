@@ -106,6 +106,16 @@
           "default": true,
           "description": "Start the language server for diagnostics as you type, hovers, completion, and formatting."
         },
+        "futureblitz.inlayHints.types": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the types of Locals, For variables, and lambda parameters where none is written."
+        },
+        "futureblitz.inlayHints.parameterNames": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the parameters' names at a call's arguments, but where the argument or the function says it."
+        },
         "futureblitz.trace.server": {
           "type": "string",
           "enum": [
@@ -127,6 +137,7 @@
     "configurationDefaults": {
       "[futureblitz]": {
         "editor.formatOnSave": true,
+        "editor.wordBasedSuggestions": "off",
         "editor.tabSize": 4,
         "editor.insertSpaces": true,
         "editor.detectIndentation": false
@@ -159,9 +170,36 @@
         "command": "futureblitz.test",
         "title": "Run Tests",
         "category": "FutureBlitz"
+      },
+      {
+        "command": "futureblitz.showReferences",
+        "title": "Show References",
+        "category": "FutureBlitz"
+      },
+      {
+        "command": "futureblitz.changeSignature",
+        "title": "Change Signature",
+        "category": "FutureBlitz"
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "futureblitz.showReferences",
+          "when": "false"
+        },
+        {
+          "command": "futureblitz.changeSignature",
+          "when": "editorLangId == futureblitz"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "futureblitz.changeSignature",
+          "when": "editorLangId == futureblitz",
+          "group": "1_modification"
+        }
+      ],
       "editor/title/run": [
         {
           "command": "futureblitz.run",

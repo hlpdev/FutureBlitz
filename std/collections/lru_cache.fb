@@ -5,7 +5,6 @@
 //! entries are a Map's, in the order they were last used, so a use moves an entry to the end.
 
 Import std.core
-Import std.collections.array
 Import std.collections.map
 
 /// A Map that holds up to its Capacity, letting go of the entry used least recently to make room

@@ -20,8 +20,6 @@
 //! Expect(MinValue<Int8>() == -128 && MaxValue<Int8>() == 127)
 //! ```
 
-Import std.core
-
 // C's libm, which every program links with the C runtime.
 Extern "C"
     Function floorf(value: Float32): Float32

@@ -3,9 +3,7 @@
 //! A WebSocket's opening handshake, per RFC 6455's section 4: the client's GET with Upgrade, and
 //! the server's 101 with the key's answer, over HTTP/1.1's wire.
 
-Import std.core
 Import std.collections
-Import std.ffi
 Import std.crypto
 Import std.text.encoding
 Import std.net.http.wire

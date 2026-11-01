@@ -5,6 +5,7 @@
 #include "fb/source.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -224,7 +225,7 @@ TEST_CASE("ranged changes edit the text in UTF-16, UTF-8, across CRLF lines, and
                          }));
         CHECK(symbol_names(client, uri) == std::vector<std::string>{ "s", "b" });
         client.settle();
-        CHECK(client.diagnostics(uri).empty());
+        CHECK(client.errors(uri).empty());
         // Several changes in one, each on the text the one before left, over a line break.
         client.edit(uri, json_t::array({
                              change(2, 0, 3, 0, ""),
@@ -238,7 +239,7 @@ TEST_CASE("ranged changes edit the text in UTF-16, UTF-8, across CRLF lines, and
         client.open(uri, "Import std.core\nLocal s = \"\xF0\x9F\x98\x80\" + \"x\"\nLocal a = 1\n");
         client.edit(uri, json_t::array({ change(1, 19, 1, 22, "\"y\"") }), fb::column_unit_t::UTF8);
         client.settle();
-        CHECK(client.diagnostics(uri).empty());
+        CHECK(client.errors(uri).empty());
         const json_t hover = client.request("textDocument/hover", client.at(uri, "+ \"y\"", 3));
         CHECK(hover["range"]["start"] == client_t::position(1, 19));
         CHECK(client.text(uri).contains("+ \"y\""));
@@ -446,4 +447,49 @@ TEST_CASE("an Import added while a package is checked whole keeps its place in t
     client.change(b, "Public Function Bx(): Int => 1\n");
     client.settle();
     CHECK(client.diagnostics(a).size() == 1);
+}
+
+TEST_CASE("a syntax error shows as it's typed, with the check's other errors where they moved",
+          "[lsp]") {
+    const folder_t folder({});
+    const std::string uri = folder.uri("typed.fb");
+    // The checks wait a minute after an edit, so what's published sooner is the parse's.
+    client_t client({ .delay = std::chrono::minutes(1) });
+    const std::string text = "Import std.core\nLocal n: Int = \"text\"\nPrint(n)\n";
+    client.open(uri, text);
+    client.settle();
+    const json_t checked = client.diagnostics(uri);
+    REQUIRE(checked.size() == 1);
+    const std::string mistyped = checked[0]["message"].get<std::string>();
+    const std::size_t checks = client.server().workspace().history().size();
+
+    // A line that doesn't parse, typed above the type error, which is a line down now.
+    client.change(uri, "Import std.core\nLocal w = (1 +\nLocal n: Int = \"text\"\nPrint(n)\n");
+    json_t shown = client.published(uri, std::chrono::seconds(10));
+    REQUIRE(shown.size() == 2);
+    CHECK(shown[0]["message"].get<std::string>().starts_with("expected"));
+    CHECK(shown[1]["message"] == mistyped);
+    CHECK(shown[1]["range"]["start"]["line"] == 2);
+    CHECK(shown[1]["range"]["start"]["character"] == checked[0]["range"]["start"]["character"]);
+
+    // Fixed, which shows at once too.
+    client.change(uri, text);
+    shown = client.published(uri, std::chrono::seconds(10));
+    REQUIRE(shown.size() == 1);
+    CHECK(shown[0]["message"] == mistyped);
+    CHECK(shown[0]["range"] == checked[0]["range"]);
+
+    // An edit inside it drops it until the check, which says what it is now.
+    client.change(uri, "Import std.core\nLocal n: Int = (\nPrint(n)\n");
+    shown = client.published(uri, std::chrono::seconds(10));
+    REQUIRE(shown.size() == 1);
+    CHECK(shown[0]["message"].get<std::string>().starts_with("expected"));
+
+    // A change without a syntax error, when none is shown, waits for its check.
+    client.change(uri, text);
+    static_cast<void>(client.published(uri, std::chrono::seconds(10)));
+    const std::size_t publications = client.publications(uri);
+    client.change(uri, "Import std.core\nLocal n: Int = \"other\"\nPrint(n)\n");
+    CHECK(client.publications(uri) == publications);
+    CHECK(client.server().workspace().history().size() == checks);
 }

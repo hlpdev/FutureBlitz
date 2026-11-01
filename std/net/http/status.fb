@@ -3,8 +3,6 @@
 //! StatusCode, the HTTP statuses a response can have, by their names in RFC 9110 and the RFCs it
 //! builds on, as `response.Status == StatusCode.NOT_FOUND` reads, with each one's reason.
 
-Import std.core
-
 /// The statuses with names, and what each one is. A response's Status is an Int, since a server
 /// can send one that has no name.
 ///

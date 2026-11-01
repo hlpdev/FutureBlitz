@@ -8,7 +8,6 @@
 //! its keys' values, as Strings. INI has no standard; this is the form most programs read.
 
 Import std.core
-Import std.collections
 Import std.data.text
 
 /// What reads and writes INI files, in its Static Methods.

@@ -71,6 +71,7 @@ client_t::client_t(options_t options)
           { .workspace = { .delay = options.delay,
                            .dependents_delay = options.dependents_delay.value_or(options.delay),
                            .load_folders = options.load_folders, }, }) {
+    m_server.set_inbox(&m_inbox);
     json_t folders = json_t::array();
     for (const std::filesystem::path& folder : options.folders) {
         folders.push_back({ { "uri", uri_of(folder) }, { "name", to_utf8(folder.filename()) } });
@@ -81,6 +82,20 @@ client_t::client_t(options_t options)
         capabilities["general"] = { { "positionEncodings", options.encodings } };
     }
 
+    if (options.watches) {
+        capabilities["workspace"] = {
+            {
+                "didChangeWatchedFiles",
+                {
+                    { "dynamicRegistration", true },
+                    { "relativePatternSupport", options.relative_patterns },
+                },
+            },
+        };
+    }
+
+    m_answers = options.answers;
+
     m_initialized =
         request("initialize", {
                                   { "processId", nullptr },
@@ -89,6 +104,29 @@ client_t::client_t(options_t options)
                                   { "initializationOptions", options.initialization_options },
                               });
     notify("initialized", json_t::object());
+    answer_requests();
+}
+
+void client_t::answer_requests() {
+    if (!m_answers) {
+        return;
+    }
+
+    std::vector<json_t> asked;
+    {
+        const std::scoped_lock lock(m_mutex);
+        for (const json_t& message : m_received) {
+            if (message.contains("method") && message.contains("id") &&
+                !m_answered.contains(message["id"].dump())) {
+                m_answered.insert(message["id"].dump());
+                asked.push_back(message["id"]);
+            }
+        }
+    }
+
+    for (const json_t& id : asked) {
+        m_server.handle({ { "jsonrpc", "2.0" }, { "id", id }, { "result", nullptr } });
+    }
 }
 
 // A test fails when what its client says as it goes fails.
@@ -106,15 +144,8 @@ json_t client_t::send(const std::string& method, json_t params) {
         { "method", method },
         { "params", std::move(params) },
     });
-    const std::scoped_lock lock(m_mutex);
-    for (const json_t& message : m_received) {
-        if (message.contains("id") && message["id"] == id && !message.contains("method")) {
-            return message;
-        }
-    }
-
-    FAIL("no response to " << method);
-    return nullptr;
+    INFO(method);
+    return response(id);
 }
 
 json_t client_t::request(const std::string& method, json_t params) {
@@ -140,6 +171,71 @@ void client_t::open(const std::string& uri, const std::string_view text) {
         { "text", text },
     };
     notify("textDocument/didOpen", { { "textDocument", document } });
+}
+
+std::int64_t client_t::queue(const std::string& method, json_t params) {
+    const std::int64_t id = m_next_id++;
+    m_inbox.push({
+        { "jsonrpc", "2.0" },
+        { "id", id },
+        { "method", method },
+        { "params", std::move(params) },
+    });
+    return id;
+}
+
+void client_t::queue_notification(const std::string& method, json_t params) {
+    m_inbox.push({ { "jsonrpc", "2.0" }, { "method", method }, { "params", std::move(params) } });
+}
+
+void client_t::queue_change(const std::string& uri, const std::string_view text) {
+    m_texts[uri] = text;
+    const std::int64_t version = ++m_versions[uri];
+    mark(uri);
+    m_inbox.push({
+        { "jsonrpc", "2.0" },
+        { "method", "textDocument/didChange" },
+        {
+            "params",
+            {
+                { "textDocument", { { "uri", uri }, { "version", version } } },
+                { "contentChanges", json_t::array({ { { "text", text } } }) },
+            },
+        },
+    });
+}
+
+void client_t::queue_message(json_t message) {
+    m_inbox.push(std::move(message));
+}
+
+void client_t::drain() {
+    while (const std::optional<json_t> message = m_inbox.try_pop()) {
+        m_server.handle(*message);
+    }
+}
+
+json_t client_t::response(const std::int64_t id) const {
+    // A code lens's resolve is answered on the server's lens thread, once handle() has returned.
+    std::unique_lock lock(m_mutex);
+    std::size_t next = 0;
+    json_t found;
+    const bool arrived = m_arrived.wait_for(lock, std::chrono::minutes(2), [&] {
+        for (; next < m_received.size(); ++next) {
+            const json_t& message = m_received[next];
+            if (message.contains("id") && message["id"] == id && !message.contains("method")) {
+                found = message;
+                return true;
+            }
+        }
+
+        return false;
+    });
+    if (!arrived) {
+        FAIL("no response to request " << id);
+    }
+
+    return found;
 }
 
 void client_t::change(const std::string& uri, const std::string_view text) {
@@ -186,6 +282,18 @@ void client_t::mark(const std::string& uri) {
 
 void client_t::settle() {
     m_server.workspace().settle();
+    answer_requests();
+}
+
+json_t client_t::errors(const std::string& uri) const {
+    json_t found = json_t::array();
+    for (const json_t& diagnostic : diagnostics(uri)) {
+        if (diagnostic["severity"] == 1) {
+            found.push_back(diagnostic);
+        }
+    }
+
+    return found;
 }
 
 json_t client_t::diagnostics(const std::string& uri) const {

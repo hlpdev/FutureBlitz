@@ -4,3 +4,8 @@
 name = "documented"
 version = "0.3.0"
 type = "library"
+
+# Its Private declarations and Imports are for fb doc to leave out and its examples to use.
+[lints]
+unused_import = "off"
+unused_private = "off"

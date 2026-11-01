@@ -1,5 +1,6 @@
 #pragma once
 
+#include "fb/lint.hpp"
 #include "fb/source.hpp"
 
 #include <cstddef>
@@ -59,6 +60,10 @@ struct module_t {
     /// In fb test's build, a file of the package with top-level code, another main file, as a
     /// tool's can be, whose code the build leaves out, as it does the main file's.
     bool other_main = false;
+    /// Its package's [lints], for the program's own code. nullopt for the standard library's,
+    /// a registry's package's, a prebuilt library's, and a build step's, whose warnings aren't
+    /// the program's to fix, which a build leaves out.
+    std::optional<lints_t> lints;
 };
 
 /// A name that a standard library module the program doesn't load declares, for an error to
@@ -71,6 +76,9 @@ struct std_name_t {
     /// The built-in type an Extend adds it to, like "CString". Empty for a top-level name or a
     /// Method of T[].
     std::string extended;
+    /// The keyword it's declared with: "Function", "Class", "Struct", "Interface", "Attribute",
+    /// "Enum", "Alias", "Global", "Const", "Method", or "Property", as tools show it.
+    std::string kind;
 };
 
 /// A module's name from its path: "std/core/error.fb" is "std.core.error".

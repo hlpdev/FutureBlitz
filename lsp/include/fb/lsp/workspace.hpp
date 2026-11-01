@@ -1,8 +1,10 @@
 #pragma once
 
 #include "fb/diagnostic.hpp"
+#include "fb/disk.hpp"
 #include "fb/driver.hpp"
 #include "fb/format.hpp"
+#include "fb/lsp/features.hpp"
 #include "fb/source.hpp"
 
 #include <chrono>
@@ -28,6 +30,14 @@ struct checked_t {
     file_id_t file{};
 };
 
+/// A file's @Test Functions, as a check found them: each one's name, as fb test gives it, and its
+/// symbol in the check.
+struct tests_found_t {
+    std::filesystem::path path;
+    std::shared_ptr<const compilation_t> compilation;
+    std::vector<std::pair<std::string, symbol_id_t>> tests;
+};
+
 /// What one compilation covers: a package, with its tests/ folder, the standard library, or a
 /// .fb file outside a package, with what it imports. Making its set can allocate, which
 /// clang-tidy reports as an exception escaping.
@@ -50,6 +60,11 @@ struct unit_t { // NOLINT(bugprone-exception-escape)
     std::set<std::string> keys;
     /// The package's main file, which its project.toml names, when it's there.
     std::optional<std::filesystem::path> main;
+    /// The main file its project.toml names, there or not, which an open document can be before
+    /// it's saved.
+    std::optional<std::filesystem::path> named_main;
+    /// The names of the packages its project.toml depends on.
+    std::vector<std::string> dependencies;
     /// The line width its code is formatted to, from its project.toml's `[format] width`.
     std::uint32_t width = default_format_width;
 };
@@ -103,6 +118,26 @@ public:
     /// Stops the checks, waiting for the ones running.
     ~workspace_t();
 
+    /// Whether the client says when files change, so the checks can share what they know of
+    /// the disk, which the workspace forgets then; without it, each check asks the disk itself.
+    void watched(bool watches);
+
+    /// What asks the client to watch folders outside its own, which checks found packages in.
+    using watch_t = std::function<void(const std::vector<std::filesystem::path>&)>;
+    void on_outside(watch_t watch);
+
+    /// What's told each file of the client's folders whose @Test Functions a check found to have
+    /// changed, or that was deleted, with none.
+    using tests_t = std::function<void(const tests_found_t&)>;
+    void on_tests(tests_t tests);
+
+    /// The @Test Functions the checks found in each file of the client's folders.
+    [[nodiscard]] std::vector<tests_found_t> tests() const;
+
+    /// Folders besides the client's own whose files it says change, so what the checks know of
+    /// them can be shared too.
+    void watching(const std::vector<std::filesystem::path>& folders);
+
     /// The client's folders: each package in them, and std when it's among them.
     void add_folders(const std::vector<std::filesystem::path>& folders);
     /// Folders the client closed, whose files aren't the workspace's any more.
@@ -138,12 +173,21 @@ public:
     /// The unit a file is in, which a check of it would cover.
     [[nodiscard]] unit_t unit_of(const std::filesystem::path& path);
 
+    /// The Public names of the modules the file at `path` can import, as the checks of its unit
+    /// found them, and std's: its own package's, but for its tests/ folder's unless it's in it,
+    /// those of the packages its project.toml depends on, and std's.
+    [[nodiscard]] std::vector<export_t> importable(const std::filesystem::path& path);
+
     /// Every unit the workspace has: its folders' and those of the documents opened.
     [[nodiscard]] std::vector<unit_t> units() const;
 
     /// Whether a file is in one of the client's folders, so it's the workspace's own, which a
     /// rename can change.
     [[nodiscard]] bool owns(const std::filesystem::path& path) const;
+    /// owns(), for a caller that doesn't hold the workspace's lock, on any thread.
+    [[nodiscard]] bool owned(const std::filesystem::path& path) const;
+    /// Whether the client watches the files, so a change on disk is told.
+    [[nodiscard]] bool watched() const;
 
     /// Waits until no check waits or runs, as the tests do before they look.
     void settle();
@@ -193,6 +237,9 @@ private:
     /// What each file imports, by key, from the latest check that had it, and that check's
     /// generation.
     std::map<std::string, std::set<std::string>> m_imports;
+    /// What the embeds of each file's latest check as a root named, files and folders, by keys,
+    /// whose changes check it again.
+    std::map<std::string, std::set<std::string>> m_embeds;
     std::map<std::string, std::uint64_t> m_import_generations;
     /// Each file's paths by key, as the checks have found them.
     std::map<std::string, std::filesystem::path> m_paths;
@@ -207,11 +254,56 @@ private:
     std::vector<check_record_t> m_history;
     /// What std's modules declare, which every check needs, and only the first works out.
     std_names_cache_t m_std_names;
+    /// What a check published for an open document, with the text it read, so a parse of the
+    /// document alone, as it's typed, can show its syntax errors with the check's other
+    /// diagnostics, where the edits since have moved them.
+    struct shown_t {
+        std::shared_ptr<const compilation_t> compilation;
+        std::string text;
+        /// The check's diagnostics of the document, but for those a parse of its text gives.
+        std::vector<const diagnostic_t*> others;
+        /// Whether what's published for the document now has syntax errors.
+        bool syntax = false;
+    };
+
+    /// By the open documents' keys.
+    std::map<std::string, shown_t> m_shown;
+    /// The Public names each module declares, by its path in the program, by the unit whose
+    /// checks found them.
+    std::map<std::size_t, std::map<std::string, std::vector<export_t>>> m_exports;
+    /// What the checks know of the disk, when the client says when files change.
+    disk_cache_t m_disk;
+    bool m_watched = false;
+    watch_t m_watch;
+    tests_t m_tests_changed;
+    /// Each file's @Test Functions, by its key, as its latest check found them.
+    std::map<std::string, tests_found_t> m_tests;
+    /// The keys of the folders outside the client's whose watchers were asked for, and those it
+    /// said it watches.
+    std::set<std::string> m_outside;
+    std::vector<std::filesystem::path> m_watched_outside;
     std::thread m_foreground;
     std::thread m_background;
 
     void run_foreground();
     void run_background();
+    /// Forgets what the checks know of the disk, and the files' keys, as it may have changed.
+    void disk_changed();
+    /// Keeps the @Test Functions a check found in `module`, the file at `path` whose key is `key`,
+    /// and says so when their names or places changed.
+    void note_tests(const std::string& key, const std::filesystem::path& path,
+                    const std::shared_ptr<const compilation_t>& compilation,
+                    const module_t& module);
+    /// Tells the cache the folders it keeps answers about: those the client watches, and std's.
+    void rewatch();
+    /// Publishes the syntax errors of `parsed`, a parse of the document `key` alone at `version`,
+    /// with its last check's other diagnostics, when it has some, or what's published has.
+    void show_syntax(const std::string& key, const std::filesystem::path& path,
+                     std::int64_t version, const std::shared_ptr<compilation_t>& parsed);
+    /// Notes what a check published for the open document `key`, which read `text`.
+    void note_shown(const std::string& key, const std::string& text,
+                    const std::shared_ptr<const compilation_t>& compilation,
+                    const std::vector<const diagnostic_t*>& diagnostics);
     /// Runs `job` with the lock unlocked, and takes in what it found. `foreground` checks are of
     /// edited documents.
     std::shared_ptr<const compilation_t> run_job(std::unique_lock<std::mutex>& lock,
@@ -220,6 +312,9 @@ private:
     std::size_t unit_index(const std::filesystem::path& path);
     /// The job that checks the file at `path` on its own.
     job_t job_for(const std::filesystem::path& path);
+    /// A package's main file: the one its project.toml names, on disk, or open as a document
+    /// that isn't saved yet.
+    [[nodiscard]] std::optional<std::filesystem::path> main_of(const unit_t& unit) const;
     /// The files of the workspace's units that import the file `key`, directly or not.
     [[nodiscard]] std::set<std::string> dependents(const std::string& key) const;
     /// Jobs that check `keys`, one for each unit they're in.

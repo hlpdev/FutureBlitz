@@ -19,7 +19,6 @@
 
 Import std.core
 Import std.math.bits
-Import std.math.constants
 Import std.math.numbers
 Import std.math.scalar
 Import std.math.vector

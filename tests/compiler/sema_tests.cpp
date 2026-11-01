@@ -5127,7 +5127,8 @@ TEST_CASE("one constraint goes inline, and more on Where lines, or sema warns wi
             CHECK(diagnostic.severity == fb::severity_t::WARNING);
             messages.push_back(diagnostic.message);
             // Back to front, so each fix's span is still where it was.
-            std::vector<fb::fix_t> fixes = diagnostic.fixes;
+            REQUIRE(diagnostic.suggestions.size() == 1);
+            std::vector<fb::fix_t> fixes = diagnostic.suggestions.front().fixes;
             std::ranges::sort(fixes, std::greater{},
                               [](const fb::fix_t& fix) { return fix.span.begin; });
             for (const fb::fix_t& fix : fixes) {

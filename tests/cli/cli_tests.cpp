@@ -2253,6 +2253,27 @@ TEST_CASE("fb test runs a package's tests, filters them, and reports each", "[cl
                                    "\ntest result: ok. 2 passed; 0 failed; 0 skipped; 9 filtered "
                                    "out; finished in "));
 
+    // --exact runs the tests it names, each whole, not what has the name in it.
+    const fb::process_result_t exact = fb_run({
+        "test",
+        tested,
+        "--exact",
+        "tested.counting.Counts",
+        "--exact",
+        "tested.counting.Parses",
+        "--exact",
+        "Count",
+        "--color",
+        "never",
+    });
+    INFO(exact.output);
+    CHECK(exact.exit_code == 0);
+    CHECK(exact.output.contains("     Running 2 tests\n"
+                                "test tested.counting.Counts ... ok\n"
+                                "test tested.counting.Parses ... ok\n"
+                                "\ntest result: ok. 2 passed; 0 failed; 0 skipped; 9 filtered "
+                                "out; finished in "));
+
     // A file in the package tests the package.
     const fb::process_result_t file = fb_run({
         "test",
@@ -2312,6 +2333,7 @@ TEST_CASE("fb test runs a package's tests, filters them, and reports each", "[cl
     CHECK_FALSE(broken.output.contains("Running"));
 
     check_usage_error({ "build", tested, "--filter", "x" }, "'--filter' only works with 'fb test'");
+    check_usage_error({ "build", tested, "--exact", "x" }, "'--exact' only works with 'fb test'");
     check_usage_error({ "test", tested, "--show", "mir" },
                       "'--show' only works with 'fb check', 'fb build', and 'fb run'");
     CHECK(
@@ -2320,6 +2342,41 @@ TEST_CASE("fb test runs a package's tests, filters them, and reports each", "[cl
     CHECK(help.contains("Usage: fb test"));
     CHECK(help.contains("--filter <name>"));
     CHECK_FALSE(help.contains("--show"));
+}
+
+TEST_CASE("fb test -o builds the tests' executable without running it, which runs them alone",
+          "[cli]") {
+    const std::filesystem::path packages = std::filesystem::path(FB_TEST_OUTPUT) / "tested-built";
+    std::filesystem::remove_all(packages);
+    std::filesystem::create_directories(packages);
+    for (const std::string_view name : { "tested", "physics" }) {
+        std::filesystem::copy(std::filesystem::path(FB_TEST_PACKAGES) / name, packages / name,
+                              std::filesystem::copy_options::recursive);
+    }
+
+    std::filesystem::path executable = packages / "counts";
+    executable += fb::executable_extension;
+    const fb::process_result_t built = fb_run({
+        "test",
+        fb::to_utf8(packages / "tested"),
+        "--filter",
+        "counting.Counts",
+        "-o",
+        fb::to_utf8(executable),
+        "--color",
+        "never",
+    });
+    INFO(built.output);
+    REQUIRE(built.exit_code == 0);
+    CHECK(built.output.contains("    Finished debug build in "));
+    CHECK(!built.output.contains("Running"));
+
+    // Alone, as a debugger runs it, it runs the tests it was built with.
+    const std::expected<fb::process_result_t, std::string> ran = fb::run_process(executable, {});
+    REQUIRE(ran);
+    INFO(ran->output);
+    CHECK(ran->output.contains("test tested.counting.Counts ... ok\n"));
+    CHECK(ran->output.contains("1 passed, 0 failed, 0 skipped\n"));
 }
 
 TEST_CASE("fb test gives a test the work it starts, and fails a run that fails outside its tests",
@@ -2969,7 +3026,8 @@ TEST_CASE("fb doc writes a package's public API as JSON, and warns about its doc
                       "'--filter' only works with 'fb test'");
     check_usage_error({ "doc", "-o", "out/" },
                       "'-o' takes the JSON's file name, like 'out/game.json', or '-' for stdout");
-    check_usage_error({ "check", "-o", "x" }, "'-o' only works with 'fb build' and 'fb doc'");
+    check_usage_error({ "check", "-o", "x" },
+                      "'-o' only works with 'fb build', 'fb test', and 'fb doc'");
     CHECK(fb_run({}).output.contains(
         "doc                  Write a package's public API as JSON, docs and all"));
     const std::string help = fb_run({ "doc", "--help" }).output;

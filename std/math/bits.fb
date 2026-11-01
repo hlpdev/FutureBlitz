@@ -228,7 +228,7 @@ Extend UInt8
     /// Expect((250 As UInt8).SaturatingAdd(10) == 255)
     /// Expect((5 As UInt8).SaturatingSubtract(10) == 0)
     /// ```
-    Public Method SaturatingAdd(other: UInt8): UInt8 => Saturated(CheckedAdd(other), other < 0)
+    Public Method SaturatingAdd(other: UInt8): UInt8 => Saturated(CheckedAdd(other), False)
 
     /// The difference, or the lowest or highest UInt8 in place of an overflow.
     Public Method SaturatingSubtract(other: UInt8): UInt8
@@ -237,14 +237,14 @@ Extend UInt8
 
     /// The product, or the lowest or highest UInt8 in place of an overflow.
     Public Method SaturatingMultiply(other: UInt8): UInt8
-        Return Saturated(CheckedMultiply(other), (Self < 0) != (other < 0))
+        Return Saturated(CheckedMultiply(other), False)
     End Method
 End Extend
 
 /// Saturating arithmetic on UInt16s, which stops at the lowest and highest in place of overflowing.
 Extend UInt16
     /// The sum, or the lowest or highest UInt16 in place of an overflow.
-    Public Method SaturatingAdd(other: UInt16): UInt16 => Saturated(CheckedAdd(other), other < 0)
+    Public Method SaturatingAdd(other: UInt16): UInt16 => Saturated(CheckedAdd(other), False)
 
     /// The difference, or the lowest or highest UInt16 in place of an overflow.
     Public Method SaturatingSubtract(other: UInt16): UInt16
@@ -253,14 +253,14 @@ Extend UInt16
 
     /// The product, or the lowest or highest UInt16 in place of an overflow.
     Public Method SaturatingMultiply(other: UInt16): UInt16
-        Return Saturated(CheckedMultiply(other), (Self < 0) != (other < 0))
+        Return Saturated(CheckedMultiply(other), False)
     End Method
 End Extend
 
 /// Saturating arithmetic on UInt32s, which stops at the lowest and highest in place of overflowing.
 Extend UInt32
     /// The sum, or the lowest or highest UInt32 in place of an overflow.
-    Public Method SaturatingAdd(other: UInt32): UInt32 => Saturated(CheckedAdd(other), other < 0)
+    Public Method SaturatingAdd(other: UInt32): UInt32 => Saturated(CheckedAdd(other), False)
 
     /// The difference, or the lowest or highest UInt32 in place of an overflow.
     Public Method SaturatingSubtract(other: UInt32): UInt32
@@ -269,14 +269,14 @@ Extend UInt32
 
     /// The product, or the lowest or highest UInt32 in place of an overflow.
     Public Method SaturatingMultiply(other: UInt32): UInt32
-        Return Saturated(CheckedMultiply(other), (Self < 0) != (other < 0))
+        Return Saturated(CheckedMultiply(other), False)
     End Method
 End Extend
 
 /// Saturating arithmetic on UInt64s, which stops at the lowest and highest in place of overflowing.
 Extend UInt64
     /// The sum, or the lowest or highest UInt64 in place of an overflow.
-    Public Method SaturatingAdd(other: UInt64): UInt64 => Saturated(CheckedAdd(other), other < 0)
+    Public Method SaturatingAdd(other: UInt64): UInt64 => Saturated(CheckedAdd(other), False)
 
     /// The difference, or the lowest or highest UInt64 in place of an overflow.
     Public Method SaturatingSubtract(other: UInt64): UInt64
@@ -285,6 +285,6 @@ Extend UInt64
 
     /// The product, or the lowest or highest UInt64 in place of an overflow.
     Public Method SaturatingMultiply(other: UInt64): UInt64
-        Return Saturated(CheckedMultiply(other), (Self < 0) != (other < 0))
+        Return Saturated(CheckedMultiply(other), False)
     End Method
 End Extend

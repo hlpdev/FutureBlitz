@@ -5,8 +5,6 @@
 //! two inputs with one hash can be made, so they're only for checksums and the formats that ask for
 //! them; Sha256 and Sha512 are for the rest.
 
-Import std.core
-
 Extern "runtime"
     Function fb_crypto_hash(algorithm: Int32, data: UInt8[], output: UInt8[])
     Function fb_crypto_hash_text(algorithm: Int32, text: String, output: UInt8[])

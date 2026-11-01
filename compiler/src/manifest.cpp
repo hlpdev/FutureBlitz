@@ -90,6 +90,8 @@ public:
                 read_natives(*key, *node, manifest);
             } else if (name == "format") {
                 read_format(*key, *node, manifest);
+            } else if (name == "lints") {
+                read_lints(*key, *node, manifest);
             } else if (name == "build") {
                 read_build(*key, *node, manifest);
             } else if (name == "registries") {
@@ -393,6 +395,45 @@ private:
             }
 
             manifest.format_width = static_cast<std::uint32_t>(*width);
+        }
+    }
+
+    /// [lints]: a level for each lint it names, "off", "warning", or "error", which its code's
+    /// warnings about that have.
+    void read_lints(const toml::key& key, const toml::node& node, manifest_t& manifest) {
+        const toml::table* table = node.as_table();
+        if (table == nullptr) {
+            fail(span_of(key.source()),
+                 "'lints' is a table, [lints], with a level for each lint it names, like "
+                 "unused_local = \"off\"");
+            return;
+        }
+
+        for (const auto& [key_of_field, node_of_field] : in_order(*table)) {
+            const toml::key& field = *key_of_field;
+            const std::optional<lint_t> lint = lint_named(field.str());
+            if (!lint) {
+                std::string names;
+                for (const lint_info_t& each : lints()) {
+                    names += std::format("{}{}", names.empty() ? "" : ", ", each.name);
+                }
+
+                m_diagnostics.warning(span_of(field.source()), "there's no lint '{}'", field.str())
+                    .with_note(std::format("[lints] names {}", names));
+                continue;
+            }
+
+            const std::optional<std::string_view> level = node_of_field->value<std::string_view>();
+            if (level == "off") {
+                manifest.lints.set(*lint, lint_level_t::OFF);
+            } else if (level == "warning") {
+                manifest.lints.set(*lint, lint_level_t::WARNING);
+            } else if (level == "error") {
+                manifest.lints.set(*lint, lint_level_t::ERROR);
+            } else {
+                fail(span_of(node_of_field->source()),
+                     R"([lints]'s {} is "off", "warning", or "error")", field.str());
+            }
         }
     }
 

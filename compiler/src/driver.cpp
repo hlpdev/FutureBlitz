@@ -3,6 +3,7 @@
 #include "fb/build_config.hpp"
 #include "fb/commit.hpp"
 #include "fb/diagnostic_render.hpp"
+#include "fb/disk.hpp"
 #include "fb/doc.hpp"
 #include "fb/dynamic_library.hpp"
 #include "fb/interface.hpp"
@@ -48,6 +49,7 @@
 #include <string_view>
 #include <system_error>
 #include <thread>
+#include <tuple>
 #include <utf8proc.h>
 #include <utility>
 #include <variant>
@@ -114,6 +116,9 @@ struct package_t {
     std::filesystem::path generated;
     /// Its build step's own program, by its path in the program, which isn't one of its modules.
     std::string build_program;
+    /// Its project.toml's [lints], for its own code. nullopt for a registry's package, and for
+    /// fb test's package of its examples, whose warnings aren't the program's to fix.
+    std::optional<lints_t> lints;
 };
 
 /// A file the compiler makes, in memory: a module of a doc comment's example, which messages show
@@ -154,6 +159,18 @@ struct file_set_t {
     /// In memory, whether or not the rest is: the modules fb test makes of doc comments'
     /// examples.
     std::vector<generated_file_t> generated;
+    /// Only the main file's and the extra files' functions have their bodies checked, as the
+    /// LSP's checks want, which publish only theirs; every body is when one of them needs it.
+    bool root_bodies = false;
+    /// Without a project.toml, the lints of the program's own files: each a warning on disk,
+    /// and in memory, for compile(), without the inspections, unless it's given others.
+    std::optional<lints_t> lints;
+    /// The standard library's lints, when it's the code being checked: in fb-lsp, and for a
+    /// check of std itself. nullopt for a program's build.
+    std::optional<lints_t> std_lints;
+    /// Whether the inspections look, which a check that only answers questions, as references
+    /// do, doesn't need.
+    bool inspect = true;
 };
 
 /// Notes that `id`'s file is at `path` on disk.
@@ -189,12 +206,7 @@ std::optional<std::string> read_disk(const std::filesystem::path& where,
         }
     }
 
-    std::error_code error;
-    if (!std::filesystem::is_regular_file(where, error)) {
-        return std::nullopt;
-    }
-
-    return bytes_of(where);
+    return disk::read(where);
 }
 
 /// The generated file at `path`, a path in the program, if there's one.
@@ -254,8 +266,8 @@ std::filesystem::path disk_path(const file_set_t& files, const std::string_view 
     return files.root.value_or(std::filesystem::path()) / path_from_utf8(path);
 }
 
-/// Whether `path` is `folder` or under it, both as real_path() gives them, in the disk's letter
-/// case.
+/// Whether `path` is `folder` or under it, both as disk::real_path() gives them, in the disk's
+/// letter case.
 bool is_under(const std::filesystem::path& path, const std::filesystem::path& folder) {
     auto at = path.begin();
     for (const std::filesystem::path& part : folder) {
@@ -273,11 +285,19 @@ bool is_under(const std::filesystem::path& path, const std::filesystem::path& fo
     return true;
 }
 
+/// Whether `path` is in fb_home()'s cache, where a registry's packages are, as they were
+/// published, and nothing writes.
+bool in_cache(const std::filesystem::path& path) {
+    const std::optional<std::filesystem::path> at = real_path(path);
+    const std::optional<std::filesystem::path> cache = real_path(fb_home() / "cache");
+    return at && cache && is_under(*at, *cache);
+}
+
 /// Whether an entry of a folder is a link or a junction, which leads somewhere other than its
 /// own name in the folder.
 bool is_link(const std::filesystem::path& entry) {
-    const std::optional<std::filesystem::path> real = real_path(entry);
-    const std::optional<std::filesystem::path> folder = real_path(entry.parent_path());
+    const std::optional<std::filesystem::path> real = disk::real_path(entry);
+    const std::optional<std::filesystem::path> folder = disk::real_path(entry.parent_path());
     return !real || !folder || *real != *folder / entry.filename();
 }
 
@@ -407,11 +427,9 @@ std::vector<std::string> folder_files(const file_set_t& files, const std::string
 
     for (const std::filesystem::path& listed : folders) {
         std::error_code error;
-        for (auto entry = std::filesystem::directory_iterator(listed, error);
-             !error && entry != std::filesystem::directory_iterator(); entry.increment(error)) {
-            std::error_code ignored;
-            if (entry->is_regular_file(ignored) && entry->path().extension() == ".fb") {
-                found.push_back(prefix + to_utf8(entry->path().filename()));
+        for (const disk_entry_t& entry : *disk::entries(listed, error)) {
+            if (entry.file && entry.path.extension() == ".fb") {
+                found.push_back(prefix + to_utf8(entry.path.filename()));
             }
         }
     }
@@ -441,13 +459,9 @@ std::vector<std::string> std_files(const file_set_t& files) {
     }
 
     const std::filesystem::path& folder = toolchain().std;
-    std::error_code error;
-    for (auto entry = std::filesystem::recursive_directory_iterator(folder, error);
-         !error && entry != std::filesystem::recursive_directory_iterator();
-         entry.increment(error)) {
-        std::error_code ignored;
-        if (entry->is_regular_file(ignored) && entry->path().extension() == ".fb") {
-            found.push_back("std/" + to_utf8(entry->path().lexically_relative(folder)));
+    for (const std::filesystem::path& file : disk::files_under(folder)) {
+        if (file.extension() == ".fb") {
+            found.push_back("std/" + to_utf8(file.lexically_relative(folder)));
         }
     }
 
@@ -522,6 +536,16 @@ public:
         }
     }
 
+    /// The files of the main module and the extra ones.
+    [[nodiscard]] std::vector<file_id_t> roots() const {
+        std::vector<file_id_t> files{ m_loaded.front().file };
+        for (const std::size_t extra : m_extra) {
+            files.push_back(m_loaded[extra].file);
+        }
+
+        return files;
+    }
+
     /// The main file is in the compilation already, at `path` in the program.
     void run(const std::string& path) {
         const source_file_t& main = m_compilation.source();
@@ -563,7 +587,7 @@ public:
         }
 
         warn_respelled_embed(at, target);
-
+        note_named(*path);
         if (is_folder(*path)) {
             return std::unexpected(std::format(
                 R"("{}" is a folder; EmbedFolder puts a folder's files in the program)", target));
@@ -593,7 +617,7 @@ public:
         }
 
         warn_respelled_embed(at, target);
-
+        note_named(*path);
         if (!is_folder(*path)) {
             std::uint64_t size = 0;
             return std::unexpected(
@@ -608,14 +632,14 @@ public:
         // from the build before, each build's in the next. On disk, it's where the files really
         // are that counts, whatever letter case or link names the folder.
         const std::optional<std::filesystem::path> real_folder =
-            m_files.root ? real_path(disk_path(m_files, *path)) : std::nullopt;
+            m_files.root ? disk::real_path(disk_path(m_files, *path)) : std::nullopt;
         const auto code = std::ranges::find_if(m_loaded, [&](const loaded_t& loaded) {
             if (!m_files.root) {
                 return loaded.path.starts_with(within(*path, ""));
             }
 
             const std::optional<std::filesystem::path> real =
-                real_path(disk_path(m_files, loaded.path));
+                disk::real_path(disk_path(m_files, loaded.path));
             return real && real_folder && is_under(*real, *real_folder);
         });
         if (code != m_loaded.end()) {
@@ -650,8 +674,7 @@ public:
                     entry.disable_recursion_pending();
                     links.push_back(relative);
                 } else if (entry->is_directory(ignored) &&
-                           std::filesystem::is_regular_file(entry->path() / "project.toml",
-                                                            ignored)) {
+                           disk::is_regular_file(entry->path() / "project.toml", ignored)) {
                     entry.disable_recursion_pending();
                     packages.push_back(relative);
                 } else if (entry->is_regular_file(ignored)) {
@@ -810,7 +833,7 @@ private:
         }
 
         std::error_code error;
-        return std::filesystem::is_directory(disk_path(m_files, path), error);
+        return disk::is_directory(disk_path(m_files, path), error);
     }
 
     /// The size of the file at `path` in the program, or false when there's none.
@@ -833,12 +856,26 @@ private:
 
         std::error_code error;
         const std::filesystem::path where = disk_path(m_files, path);
-        if (!std::filesystem::is_regular_file(where, error)) {
+        if (!disk::is_regular_file(where, error)) {
             return false;
         }
 
         size = std::filesystem::file_size(where, error);
         return !error;
+    }
+
+    /// Lists what an embed names at `path` in the program, on disk, among what the compilation's
+    /// embeds named.
+    void note_named(const std::string& path) {
+        if (!m_files.root || prebuilt_package(m_files, path) != nullptr) {
+            return;
+        }
+
+        std::error_code ignored;
+        std::filesystem::path where = std::filesystem::absolute(disk_path(m_files, path), ignored);
+        if (!std::ranges::contains(m_compilation.embeds_named, where)) {
+            m_compilation.embeds_named.push_back(std::move(where));
+        }
     }
 
     /// The bytes of the file at `path` in the program, read once, which every embed of it
@@ -927,18 +964,17 @@ private:
         const package_t* package = package_named(m_files, path);
         const std::filesystem::path& root = package != nullptr ? package->root : *m_files.root;
         std::error_code ignored;
-        const std::filesystem::path folder = std::filesystem::weakly_canonical(root, ignored);
-        std::filesystem::path at =
-            std::filesystem::weakly_canonical(disk_path(m_files, path), ignored);
+        const std::filesystem::path folder = disk::weakly_canonical(root, ignored);
+        std::filesystem::path at = disk::weakly_canonical(disk_path(m_files, path), ignored);
         // A dotted name's folder of modules can be a package's folder itself.
-        if (paths.folder && !std::filesystem::is_regular_file(at, ignored)) {
-            at = std::filesystem::weakly_canonical(disk_path(m_files, *paths.folder), ignored);
+        if (paths.folder && !disk::is_regular_file(at, ignored)) {
+            at = disk::weakly_canonical(disk_path(m_files, *paths.folder), ignored);
         }
 
         // Up from what's imported to the package's folder, which the disk says when it's reached,
         // whatever the letter case of the names on the way.
         std::vector<std::filesystem::path> between;
-        for (; !std::filesystem::equivalent(at, folder, ignored); at = at.parent_path()) {
+        for (; !disk::equivalent(at, folder, ignored); at = at.parent_path()) {
             if (!at.has_relative_path()) {
                 return std::nullopt;
             }
@@ -947,7 +983,7 @@ private:
         }
 
         for (const std::filesystem::path& each : between) {
-            if (std::filesystem::is_regular_file(each / "project.toml", ignored)) {
+            if (disk::is_regular_file(each / "project.toml", ignored)) {
                 return each;
             }
         }
@@ -993,12 +1029,12 @@ private:
         }
 
         const std::filesystem::path where = disk_path(m_files, path);
-        if (const std::optional<std::filesystem::path> real = real_path(where)) {
+        if (const std::optional<std::filesystem::path> real = disk::real_path(where)) {
             return to_utf8(*real);
         }
 
         std::error_code ignored;
-        return to_utf8(std::filesystem::weakly_canonical(where, ignored));
+        return to_utf8(disk::weakly_canonical(where, ignored));
     }
 
     /// A loaded file that's the file at `path` on disk, though their keys differ: where the
@@ -1015,8 +1051,7 @@ private:
         for (const auto& [loaded_key, index] : m_keys) {
             std::error_code ignored;
             if (folded(loaded_key) == key &&
-                std::filesystem::equivalent(where, disk_path(m_files, m_loaded[index].path),
-                                            ignored)) {
+                disk::equivalent(where, disk_path(m_files, m_loaded[index].path), ignored)) {
                 return index;
             }
         }
@@ -1082,7 +1117,7 @@ private:
         }
 
         std::error_code ignored;
-        return std::filesystem::is_regular_file(disk_path(m_files, path), ignored);
+        return disk::is_regular_file(disk_path(m_files, path), ignored);
     }
 
     /// The module of the .proto file an Import names: the file from the importing file's folder,
@@ -1213,6 +1248,14 @@ private:
         std::string module =
             entry.failed ? failed_proto_module(entry.file, shown) : generate_proto(entry.file);
         const file_id_t file = m_compilation.sources.add(shown + ".fb", std::move(module));
+        if (m_files.root) {
+            std::error_code ignored;
+            const auto at = static_cast<std::size_t>(std::to_underlying(file));
+            m_compilation.made_from.resize(std::max(m_compilation.made_from.size(), at + 1));
+            m_compilation.made_from[at] =
+                std::filesystem::absolute(disk_path(m_files, path), ignored);
+        }
+
         const std::size_t index = m_loaded.size();
         m_loaded.push_back(
             { .path = path, .file = file, .imported_at = imported_at, .proto = &entry });
@@ -1229,9 +1272,10 @@ private:
                                                             const std::string_view name) {
         std::optional<std::string> found;
         std::error_code error;
-        for (auto entry = std::filesystem::directory_iterator(folder, error);
-             !error && entry != std::filesystem::directory_iterator(); entry.increment(error)) {
-            std::string entry_name = to_utf8(entry->path().filename());
+        const std::shared_ptr<const std::vector<disk_entry_t>> listed =
+            disk::entries(folder, error);
+        for (const disk_entry_t& entry : *listed) {
+            std::string entry_name = to_utf8(entry.path.filename());
             if (entry_name == name) {
                 return entry_name;
             }
@@ -1242,16 +1286,14 @@ private:
         }
 
         const std::filesystem::path written = folder / path_from_utf8(name);
-        if (found || !std::filesystem::exists(written, error)) {
+        if (found || !disk::exists(written, error)) {
             return found;
         }
 
-        for (auto entry = std::filesystem::directory_iterator(folder, error);
-             !error && entry != std::filesystem::directory_iterator(); entry.increment(error)) {
+        for (const disk_entry_t& entry : *listed) {
             std::error_code ignored;
-            if (!is_link(entry->path()) &&
-                std::filesystem::equivalent(entry->path(), written, ignored)) {
-                return to_utf8(entry->path().filename());
+            if (!is_link(entry.path) && disk::equivalent(entry.path, written, ignored)) {
+                return to_utf8(entry.path.filename());
             }
         }
 
@@ -1404,7 +1446,7 @@ private:
     void parse_file(const std::size_t index, std::vector<token_t>* tokens) {
         const source_file_t& file = m_compilation.sources.get(m_loaded[index].file);
         std::vector<span_t> docs;
-        std::vector<token_t> lexed = lex(file, m_compilation.diagnostics, m_defined, &docs);
+        std::vector<token_t> lexed = lex_file(file, docs);
         const std::size_t before = m_compilation.ast.items().size();
         parse_into(file, lexed, m_compilation.diagnostics, m_compilation.ast,
                    prebuilt_package(m_files, m_loaded[index].path) != nullptr, docs);
@@ -1416,6 +1458,65 @@ private:
             *tokens = std::move(lexed);
         }
     }
+
+    /// The file's tokens and doc comments, which another check that lexed the same text gives,
+    /// when the checks share a cache.
+    std::vector<token_t> lex_file(const source_file_t& file, std::vector<span_t>& docs) {
+        std_names_cache_t* cache = m_files.cache;
+        if (cache == nullptr) {
+            return lex(file, m_compilation.diagnostics, m_defined, &docs);
+        }
+
+        std::string key;
+        for (const std::string_view symbol : m_defined) {
+            key += symbol;
+            key += ',';
+        }
+
+        key += '\n';
+        key += file.text();
+        std::shared_ptr<const std_names_cache_t::lexed_t> known;
+        {
+            const std::scoped_lock lock(cache->mutex);
+            if (const auto found = cache->lexed.find(key); found != cache->lexed.end()) {
+                known = found->second;
+            }
+        }
+
+        if (known) {
+            std::vector<token_t> tokens = known->tokens;
+            for (token_t& token : tokens) {
+                token.span.file = file.id();
+            }
+
+            docs = known->docs;
+            for (span_t& doc : docs) {
+                doc.file = file.id();
+            }
+
+            return tokens;
+        }
+
+        // Only a lexing without errors is kept, as another check would need them reported too.
+        const std::size_t reported = m_compilation.diagnostics.diagnostics().size();
+        std::vector<token_t> tokens = lex(file, m_compilation.diagnostics, m_defined, &docs);
+        if (m_compilation.diagnostics.diagnostics().size() == reported) {
+            auto lexed = std::make_shared<std_names_cache_t::lexed_t>(
+                std_names_cache_t::lexed_t{ .tokens = tokens, .docs = docs });
+            const std::scoped_lock lock(cache->mutex);
+            // A long session's, kept to the files it has seen lately.
+            if (cache->lexed.size() >= max_lexed) {
+                cache->lexed.clear();
+            }
+
+            cache->lexed.try_emplace(std::move(key), std::move(lexed));
+        }
+
+        return tokens;
+    }
+
+    /// How many files' tokens the checks keep.
+    static constexpr std::size_t max_lexed = 4096;
 
     /// Finds the files a loaded file's Import and From lines name, loading the new ones. Each
     /// that names nothing is reported at the line.
@@ -1519,8 +1620,7 @@ private:
                 for (const std::string& path : folder_files(m_files, *paths->folder)) {
                     std::error_code ignored;
                     if (package != nullptr && !package->main.empty() &&
-                        std::filesystem::equivalent(disk_path(m_files, path), package->main,
-                                                    ignored)) {
+                        disk::equivalent(disk_path(m_files, path), package->main, ignored)) {
                         continue;
                     }
 
@@ -1563,8 +1663,8 @@ private:
         const std::optional<std::size_t> package = package_of(path);
         const std::filesystem::path& folder =
             package && !m_files.packages.empty() ? m_files.packages[*package].root : *m_files.root;
-        std::optional<std::filesystem::path> real = real_path(disk_path(m_files, path));
-        const std::optional<std::filesystem::path> real_folder = real_path(folder);
+        std::optional<std::filesystem::path> real = disk::real_path(disk_path(m_files, path));
+        const std::optional<std::filesystem::path> real_folder = disk::real_path(folder);
         if (!real || !real_folder || is_under(*real, *real_folder)) {
             return std::nullopt;
         }
@@ -1595,7 +1695,7 @@ private:
     bool report_linked(const import_stmt_t& node, const import_paths_t& paths) {
         std::error_code ignored;
         const bool file =
-            !paths.file.empty() && std::filesystem::exists(disk_path(m_files, paths.file), ignored);
+            !paths.file.empty() && disk::exists(disk_path(m_files, paths.file), ignored);
         const std::string& path = file ? paths.file : paths.folder.value_or("");
         const std::optional<std::filesystem::path> away = linked_away(path);
         if (!away) {
@@ -1616,11 +1716,11 @@ private:
                        const std::filesystem::path& folder) {
         const std::string shown = node.quoted ? std::format("\"{}\"", node.target) : node.target;
         std::error_code ignored;
-        const bool file = !paths.file.empty() &&
-                          std::filesystem::is_regular_file(disk_path(m_files, paths.file), ignored);
+        const bool file =
+            !paths.file.empty() && disk::is_regular_file(disk_path(m_files, paths.file), ignored);
         const std::string_view what = file ? "a file" : "a folder";
         const auto named = std::ranges::find_if(m_files.packages, [&](const package_t& package) {
-            return std::filesystem::equivalent(package.root, folder, ignored);
+            return disk::equivalent(package.root, folder, ignored);
         });
         if (named != m_files.packages.end()) {
             m_compilation.diagnostics.error(
@@ -1711,10 +1811,11 @@ private:
 
         std::optional<std::string> first;
         std::error_code error;
-        for (auto entry = std::filesystem::directory_iterator(disk_path(m_files, folder), error);
-             !error && entry != std::filesystem::directory_iterator(); entry.increment(error)) {
-            const std::string name = to_utf8(entry->path().filename());
-            if (folded(to_utf8(entry->path().extension())) == ".fb" && !name.ends_with(".fb") &&
+        const std::shared_ptr<const std::vector<disk_entry_t>> listed =
+            disk::entries(disk_path(m_files, folder), error);
+        for (const disk_entry_t& entry : *listed) {
+            const std::string name = to_utf8(entry.path.filename());
+            if (folded(to_utf8(entry.path.extension())) == ".fb" && !name.ends_with(".fb") &&
                 (!first || name < *first)) {
                 first = name;
             }
@@ -1873,6 +1974,10 @@ private:
                               !m_files.packages.empty() && package_of(loaded.path) == 0 &&
                               has_code(m_items[index]),
             };
+            module.lints = lints_of(loaded, module.prebuilt);
+            if (module.lints && !m_files.inspect) {
+                module.lints->inspect = false;
+            }
             if (module.prebuilt) {
                 module.package_names =
                     prebuilt_package_names(m_compilation.sources.get(loaded.file));
@@ -1899,6 +2004,32 @@ private:
         }
 
         m_compilation.ast.sort_items();
+    }
+
+    /// The lints of a loaded file's code: its package's, but for a prebuilt module's, a .proto
+    /// file's, and the files a build step made, whose code isn't written by hand.
+    [[nodiscard]] std::optional<lints_t> lints_of(const loaded_t& loaded,
+                                                  const bool prebuilt) const {
+        if (loaded.path.starts_with("std/")) {
+            return m_files.std_lints;
+        }
+
+        if (prebuilt || loaded.proto != nullptr) {
+            return std::nullopt;
+        }
+
+        if (m_files.packages.empty()) {
+            return m_files.lints;
+        }
+
+        const package_t& package = m_files.packages[package_of(loaded.path).value_or(0)];
+        const std::filesystem::path on_disk = m_compilation.disk_path(loaded.file);
+        if (!package.generated.empty() && !on_disk.empty() &&
+            is_under(on_disk, package.generated)) {
+            return std::nullopt;
+        }
+
+        return package.lints;
     }
 
     /// What the standard library's modules that aren't loaded declare Public, for the error that
@@ -1963,7 +2094,7 @@ private:
                                                   const std::string& module) {
         const stmt_node_t& node = ast.get(id).node;
         const auto named = [&](const std::string_view name, const modifiers_t& modifiers,
-                               const bool array_method = false,
+                               const std::string_view kind, const bool array_method = false,
                                const std::string_view extended = {}) {
             if (modifiers.visibility != visibility_t::PUBLIC) {
                 return std::vector<std_name_t>{};
@@ -1975,28 +2106,39 @@ private:
                     .module = module,
                     .array_method = array_method,
                     .extended = std::string(extended),
+                    .kind = std::string(kind),
                 },
             };
         };
 
         if (const auto* type = std::get_if<type_stmt_t>(&node)) {
-            return named(type->name.text, type->modifiers);
+            std::string_view kind = "Struct";
+            if (type->is_class) {
+                kind = "Class";
+            } else if (type->is_interface) {
+                kind = "Interface";
+            } else if (type->is_attribute) {
+                kind = "Attribute";
+            }
+
+            return named(type->name.text, type->modifiers, kind);
         }
 
         if (const auto* declared = std::get_if<enum_stmt_t>(&node)) {
-            return named(declared->name.text, declared->modifiers);
+            return named(declared->name.text, declared->modifiers, "Enum");
         }
 
         if (const auto* alias = std::get_if<alias_stmt_t>(&node)) {
-            return named(alias->name.text, alias->modifiers);
+            return named(alias->name.text, alias->modifiers, "Alias");
         }
 
         if (const auto* function = std::get_if<function_stmt_t>(&node)) {
-            return named(function->name.text, function->modifiers);
+            return named(function->name.text, function->modifiers, "Function");
         }
 
         if (const auto* variable = std::get_if<variable_stmt_t>(&node)) {
-            return named(variable->name.text, variable->modifiers);
+            return named(variable->name.text, variable->modifiers,
+                         variable->kind == variable_kind_t::CONSTANT ? "Const" : "Global");
         }
 
         const auto* extension = std::get_if<extend_stmt_t>(&node);
@@ -2017,11 +2159,13 @@ private:
         const std::string_view extended = type ? builtin_name(*type) : std::string_view();
         for (const stmt_id_t member : extension->members) {
             if (const auto* method = std::get_if<function_stmt_t>(&ast.get(member).node)) {
-                std::ranges::copy(named(method->name.text, method->modifiers, array, extended),
-                                  std::back_inserter(members));
+                std::ranges::copy(
+                    named(method->name.text, method->modifiers, "Method", array, extended),
+                    std::back_inserter(members));
             } else if (const auto* property = std::get_if<property_stmt_t>(&ast.get(member).node)) {
-                std::ranges::copy(named(property->name.text, property->modifiers, array, extended),
-                                  std::back_inserter(members));
+                std::ranges::copy(
+                    named(property->name.text, property->modifiers, "Property", array, extended),
+                    std::back_inserter(members));
             }
         }
 
@@ -2029,10 +2173,58 @@ private:
     }
 };
 
+/// Gives each warning about a lint the level its module's [lints] has for it: it's left out of
+/// a module without lints, as the standard library's and a registry's packages' are, or where
+/// it's off, and an error where [lints] makes it one. An inspection's warnings in a file with
+/// errors are left out, as what an error left unchecked can look unused or unreachable, and
+/// code checked more than once, as generic code is, gives each one once.
+void apply_lints(compilation_t& compilation) {
+    const module_table_t& modules = compilation.ast.modules();
+    std::set<file_id_t> failed;
+    for (const diagnostic_t& diagnostic : compilation.diagnostics.diagnostics()) {
+        if (diagnostic.severity == severity_t::ERROR) {
+            failed.insert(diagnostic.span.file);
+        }
+    }
+
+    diagnostic_bag_t kept;
+    std::set<std::tuple<lint_t, file_id_t, std::uint32_t, std::uint32_t, std::string>> given;
+    for (diagnostic_t diagnostic : compilation.diagnostics.diagnostics()) {
+        if (!diagnostic.lint) {
+            kept.report(std::move(diagnostic));
+            continue;
+        }
+
+        const lint_t lint = *diagnostic.lint;
+        const std::optional<module_id_t> module = modules.of(diagnostic.span.file);
+        const std::optional<lints_t> lints =
+            module ? modules.get(*module).lints : std::optional<lints_t>();
+        if (!lints || !lints->on(lint) ||
+            (lint_info(lint).inspection && failed.contains(diagnostic.span.file)) ||
+            !given
+                 .emplace(lint, diagnostic.span.file, diagnostic.span.begin, diagnostic.span.end,
+                          diagnostic.message)
+                 .second) {
+            continue;
+        }
+
+        if (lints->level(lint) == lint_level_t::ERROR) {
+            diagnostic.severity = severity_t::ERROR;
+        }
+
+        kept.report(std::move(diagnostic));
+    }
+
+    compilation.diagnostics = std::move(kept);
+}
+
 /// The main file is in `compilation` already, at `path` in the program, and the files it
 /// imports come from `files`.
 void run_front_end(compilation_t& compilation, file_set_t files, const std::string& path,
                    const build_mode_t mode) {
+    // The front end asks the disk the same things for each Import, so it asks once.
+    const disk_scope_t disk_scope;
+    const bool root_bodies = files.root_bodies;
     loader_t loader(compilation, std::move(files), mode);
     loader.run(path);
     const embed_reader_t embeds{
@@ -2043,8 +2235,24 @@ void run_front_end(compilation_t& compilation, file_set_t files, const std::stri
                 return loader.embed_folder(at, target);
             },
     };
+    // A check of a few files checks only their bodies, but for what needs the others'.
+    if (root_bodies) {
+        const diagnostic_bag_t loaded = compilation.diagnostics;
+        const std::vector<file_id_t> roots = loader.roots();
+        compilation.analysis = analyze(compilation.sources, compilation.ast,
+                                       compilation.diagnostics, mode, embeds, &roots);
+        if (!compilation.analysis.needs_every_body) {
+            apply_lints(compilation);
+            compilation.diagnostics.sort();
+            return;
+        }
+
+        compilation.diagnostics = loaded;
+    }
+
     compilation.analysis =
         analyze(compilation.sources, compilation.ast, compilation.diagnostics, mode, embeds);
+    apply_lints(compilation);
     // Each stage adds its own diagnostics, so sorting puts them back in source order.
     compilation.diagnostics.sort();
 }
@@ -2219,11 +2427,11 @@ private:
                                     std::vector<std::size_t>& chain,
                                     const locked_package_t* locked) {
         std::error_code ignored;
-        const std::filesystem::path root = std::filesystem::weakly_canonical(folder, ignored);
+        const std::filesystem::path root = disk::weakly_canonical(folder, ignored);
         // A folder read already, by another path or in other letter cases, is the same package,
         // which every dependency on it names alike.
         for (std::size_t index = 0; index < m_folders.size(); ++index) {
-            if (!std::filesystem::equivalent(m_folders[index], root, ignored)) {
+            if (!disk::equivalent(m_folders[index], root, ignored)) {
                 continue;
             }
 
@@ -2248,15 +2456,15 @@ private:
         }
 
         if (std::ranges::any_of(m_broken, [&](const std::filesystem::path& broken) {
-                return std::filesystem::equivalent(broken, root, ignored);
+                return disk::equivalent(broken, root, ignored);
             })) {
             return std::nullopt;
         }
 
         const std::filesystem::path manifest_path = root / "project.toml";
-        const bool there = std::filesystem::is_regular_file(manifest_path, ignored);
+        const bool there = disk::is_regular_file(manifest_path, ignored);
         std::string missing = std::format("there's no project.toml in '{}'", to_utf8(root));
-        if (std::filesystem::is_regular_file(root, ignored)) {
+        if (disk::is_regular_file(root, ignored)) {
             missing = std::format("'{}' is a file, not a package's folder", to_utf8(root));
         }
 
@@ -2337,7 +2545,7 @@ private:
         const std::filesystem::path main = root / path_from_utf8(manifest->main);
         const bool library = manifest->type == package_type_t::LIBRARY;
         if (!library && has_main(root, *manifest)) {
-            package.main = std::filesystem::weakly_canonical(main, ignored);
+            package.main = disk::weakly_canonical(main, ignored);
         } else if (!library && manifest->main_span) {
             fail(*manifest->main_span, "there's no {} in the package's folder, which 'main' names",
                  manifest->main);
@@ -2348,6 +2556,11 @@ private:
         }
 
         read_prebuilt(*manifest, package);
+        // A registry's package isn't the program's to fix, nor is a prebuilt library's code,
+        // nor one in the cache, opened on its own.
+        if (locked == nullptr && package.interface.empty() && !in_cache(root)) {
+            package.lints = manifest->lints;
+        }
 
         // Only a program's own package builds an executable; the ones it uses are libraries.
         if (named != nullptr &&
@@ -2446,10 +2659,11 @@ private:
         const std::string shown =
             std::format("lib/{}/{}/{}.fbi", build_target(), mode_folder(m_mode), manifest.name);
         std::error_code ignored;
-        if (!std::filesystem::is_regular_file(interface, ignored)) {
-            // A prebuilt library without this build has no source either.
-            if (library_files(package).empty() &&
-                has_interface(package.root / "lib", manifest.name)) {
+        if (!disk::is_regular_file(interface, ignored)) {
+            // A prebuilt library without this build has no source either. Listing a package's
+            // files takes long, so they're looked at only when lib/ has some other build.
+            if (has_interface(package.root / "lib", manifest.name) &&
+                library_files(package).empty()) {
                 fail(manifest.name_span, "{} is prebuilt, but not for this build: there's no {}",
                      manifest.name, shown);
             }
@@ -2487,7 +2701,7 @@ private:
             }
         }
 
-        package.interface = std::filesystem::weakly_canonical(interface, ignored);
+        package.interface = disk::weakly_canonical(interface, ignored);
         package.modules = std::move(*modules);
     }
 
@@ -2497,19 +2711,12 @@ private:
     static bool has_main(const std::filesystem::path& root, const manifest_t& manifest) {
         std::error_code error;
         if (manifest.main_span) {
-            return std::filesystem::is_regular_file(root / path_from_utf8(manifest.main), error);
+            return disk::is_regular_file(root / path_from_utf8(manifest.main), error);
         }
 
-        for (auto entry = std::filesystem::directory_iterator(root, error);
-             !error && entry != std::filesystem::directory_iterator(); entry.increment(error)) {
-            std::error_code ignored;
-            if (to_utf8(entry->path().filename()) == manifest.main &&
-                entry->is_regular_file(ignored)) {
-                return true;
-            }
-        }
-
-        return false;
+        return std::ranges::any_of(*disk::entries(root, error), [&](const disk_entry_t& entry) {
+            return to_utf8(entry.path.filename()) == manifest.main && entry.file;
+        });
     }
 
     /// Whether `folder` has an interface file of the library `name` for some target and mode,
@@ -2614,7 +2821,7 @@ private:
         }
 
         std::error_code ignored;
-        if (std::filesystem::is_directory(root / written, ignored)) {
+        if (disk::is_directory(root / written, ignored)) {
             fail(native.path_span, "\"{}\" is a folder, not a dynamic library", native.path);
             return;
         }
@@ -2624,7 +2831,7 @@ private:
         const std::string file_name = dynamic_file_name(name);
         const std::filesystem::path folder = root / written.parent_path();
         const std::filesystem::path file = folder / path_from_utf8(file_name);
-        if (!std::filesystem::is_regular_file(file, ignored)) {
+        if (!disk::is_regular_file(file, ignored)) {
             fail(native.path_span,
                  "the {} package has no dynamic library \"{}\" for {}: there's no {}{}",
                  manifest.name, native.name, target, shown(path, file),
@@ -2657,8 +2864,8 @@ private:
         }
 
         dynamic_native_t library{
-            .linked = std::filesystem::weakly_canonical(file, ignored),
-            .file = std::filesystem::weakly_canonical(file, ignored),
+            .linked = disk::weakly_canonical(file, ignored),
+            .file = disk::weakly_canonical(file, ignored),
             .beside = file_name,
         };
         if (windows) {
@@ -2669,7 +2876,7 @@ private:
                 "lib" + name + ".a",
             };
             const auto found = std::ranges::find_if(imports, [&](const std::string& import) {
-                return std::filesystem::is_regular_file(folder / path_from_utf8(import), ignored);
+                return disk::is_regular_file(folder / path_from_utf8(import), ignored);
             });
             if (found == imports.end()) {
                 fail(native.path_span,
@@ -2688,7 +2895,7 @@ private:
                 return;
             }
 
-            library.linked = std::filesystem::weakly_canonical(import, ignored);
+            library.linked = disk::weakly_canonical(import, ignored);
         } else if (apple) {
             // The executable records the install name, and looks for an @rpath one in
             // @loader_path, beside it.
@@ -2770,8 +2977,8 @@ private:
         std::error_code ignored;
         const std::filesystem::path path = root / path_from_utf8(written);
         for (const std::filesystem::path& candidate : archive_names(path)) {
-            if (std::filesystem::is_regular_file(candidate, ignored)) {
-                return std::filesystem::weakly_canonical(candidate, ignored);
+            if (disk::is_regular_file(candidate, ignored)) {
+                return disk::weakly_canonical(candidate, ignored);
             }
         }
 
@@ -2803,7 +3010,7 @@ private:
                            const native_t& native, const std::string& path) {
         const std::filesystem::path written = path_from_utf8(path);
         std::error_code ignored;
-        if (std::filesystem::is_directory(root / written, ignored)) {
+        if (disk::is_directory(root / written, ignored)) {
             fail(native.path_span, "\"{}\" is a folder, not a static library", native.path);
             return;
         }
@@ -2934,7 +3141,7 @@ std::vector<std::string> library_files(const package_t& package) {
         } else if (entry->is_directory(ignored)) {
             if (name.starts_with('.') ||
                 (entry.depth() == 0 && (name == "build" || name == "tests")) ||
-                std::filesystem::exists(entry->path() / "project.toml", ignored)) {
+                disk::exists(entry->path() / "project.toml", ignored)) {
                 entry.disable_recursion_pending();
             }
         } else if (entry->path().extension() == ".fb") {
@@ -2968,8 +3175,8 @@ std::vector<std::string> library_files(const package_t& package) {
 std::optional<package_t> tests_package(const package_t& own) {
     std::error_code error;
     const std::filesystem::path root = own.root / "tests";
-    if (!std::filesystem::is_directory(root, error) || is_link(root) ||
-        std::filesystem::exists(root / "project.toml", error)) {
+    if (!disk::is_directory(root, error) || is_link(root) ||
+        disk::exists(root / "project.toml", error)) {
         return std::nullopt;
     }
 
@@ -2980,6 +3187,7 @@ std::optional<package_t> tests_package(const package_t& own) {
         .prefix = own.name + ".tests/",
         .dependencies = { own.name },
         .tests = own.name,
+        .lints = own.lints,
     };
     std::ranges::copy(own.dependencies, std::back_inserter(tests.dependencies));
     return tests;
@@ -3484,14 +3692,6 @@ private:
     std::expected<file_lock_t, std::string> m_lock;
 };
 
-/// Whether `path` is in fb_home()'s cache, where a registry's packages are, as they were
-/// published, and nothing writes.
-bool in_cache(const std::filesystem::path& path) {
-    const std::optional<std::filesystem::path> at = real_path(path);
-    const std::optional<std::filesystem::path> cache = real_path(fb_home() / "cache");
-    return at && cache && is_under(*at, *cache);
-}
-
 /// `text`'s lines, without the line break after the last.
 std::vector<std::string> lines_of(const std::string_view text) {
     std::vector<std::string> lines;
@@ -3767,6 +3967,8 @@ bool run_build_step(compilation_t& compilation, package_t& package, const build_
     const std::int64_t started = time_now();
     const std::expected<process_result_t, std::string> ran =
         run_process(executable, {}, std::string_view(), environment, process_life_t::TIED);
+    // What it wrote isn't what the disk said before it ran.
+    disk::forget();
     if (!ran) {
         return fail(std::format("{}'s build step can't run: {}", package.name, ran.error()), {});
     }
@@ -3865,6 +4067,7 @@ std::expected<compilation_t, std::string> compile_package(
     const std::optional<std::filesystem::path>& locked = std::nullopt,
     const status_t& status = {}) {
     const bool testing = purpose != purpose_t::BUILD;
+    const disk_scope_t disk_scope;
     compilation_t compilation;
     package_loader_t reader(compilation, mode, main.has_value());
     std::optional<std::vector<package_t>> packages = reader.run(folder, locked);
@@ -3938,13 +4141,13 @@ std::expected<compilation_t, std::string> compile_package(
     };
     std::error_code error;
     const std::filesystem::path written =
-        std::filesystem::weakly_canonical(own.root / path_from_utf8(manifest.main), error);
+        disk::weakly_canonical(own.root / path_from_utf8(manifest.main), error);
     std::filesystem::path main_path = written;
     if (main) {
-        main_path = std::filesystem::weakly_canonical(*main, error);
+        main_path = disk::weakly_canonical(*main, error);
         // A library's main.fb is a module like the others, which names its program too.
         if (manifest.type == package_type_t::LIBRARY ||
-            !std::filesystem::equivalent(main_path, written, error)) {
+            !disk::equivalent(main_path, written, error)) {
             compilation.package->program = to_utf8(main_path.stem());
         }
     }
@@ -4008,13 +4211,13 @@ std::expected<compilation_t, std::string> compile_package(
     // check_files()'s, by their paths in the program, the tests/ folder's first, as it's inside
     // the package's.
     if (request != nullptr) {
-        // Both as real_path() gives them, in the disk's letter case, as is_under() compares, though
-        // an editor may name a file in other cases.
+        // Both as disk::real_path() gives them, in the disk's letter case, as is_under() compares,
+        // though an editor may name a file in other cases.
         for (const std::filesystem::path& file : request->files) {
-            const std::optional<std::filesystem::path> real = real_path(file);
+            const std::optional<std::filesystem::path> real = disk::real_path(file);
             for (const std::size_t index : folders | std::views::reverse) {
                 const package_t& package = packages->at(index);
-                const std::optional<std::filesystem::path> root = real_path(package.root);
+                const std::optional<std::filesystem::path> root = disk::real_path(package.root);
                 if (real && root && is_under(*real, *root)) {
                     extra.push_back(package.prefix + program_path(*root, *real));
                     break;
@@ -4068,6 +4271,8 @@ std::expected<compilation_t, std::string> compile_package(
                           .read = read,
                           .cache = request != nullptr ? request->cache : nullptr,
                           .generated = std::move(generated),
+                          .root_bodies = request != nullptr,
+                          .inspect = request == nullptr || request->inspect,
                       },
                       path, mode);
         record_builds(compilation, others);
@@ -4082,8 +4287,9 @@ std::expected<compilation_t, std::string> compile_package(
     compilation.file = *file;
     const std::filesystem::path root = own.root;
     // In the disk's letter case, which the main file may be given in another of.
-    const std::string path = own.prefix + program_path(real_path(own.root).value_or(own.root),
-                                                       real_path(main_path).value_or(main_path));
+    const std::string path =
+        own.prefix + program_path(disk::real_path(own.root).value_or(own.root),
+                                  disk::real_path(main_path).value_or(main_path));
     std::erase(extra, path);
     run_front_end(compilation,
                   {
@@ -4094,6 +4300,8 @@ std::expected<compilation_t, std::string> compile_package(
                       .read = read,
                       .cache = request != nullptr ? request->cache : nullptr,
                       .generated = std::move(generated),
+                      .root_bodies = request != nullptr,
+                      .inspect = request == nullptr || request->inspect,
                   },
                   path, mode);
     record_builds(compilation, others);
@@ -4235,9 +4443,12 @@ compilation_t compile(std::string path, std::string text) {
 }
 
 compilation_t compile(std::string path, std::string text, std::vector<library_file_t> library,
-                      const build_mode_t mode) {
+                      const build_mode_t mode, const std::optional<lints_t>& lints) {
     // A path given twice keeps its first text.
-    file_set_t files{ .files = std::move(library) };
+    file_set_t files{
+        .files = std::move(library),
+        .lints = lints.value_or(lints_t{ .inspect = false }),
+    };
     std::ranges::stable_sort(files.files, {}, &library_file_t::path);
 
     // The main file's path in the program is its name, from its own folder.
@@ -4255,8 +4466,8 @@ namespace {
 std::optional<std::string> unreadable_std() {
     std::error_code error;
     const std::filesystem::path& std_folder = toolchain().std;
-    if (!std::filesystem::is_regular_file(std_folder / "core" / "error.fb", error) ||
-        !std::filesystem::is_regular_file(std_folder / "collections" / "map.fb", error)) {
+    if (!disk::is_regular_file(std_folder / "core" / "error.fb", error) ||
+        !disk::is_regular_file(std_folder / "collections" / "map.fb", error)) {
         return std::format("cannot read the standard library in '{}'", to_utf8(std_folder));
     }
 
@@ -4265,10 +4476,10 @@ std::optional<std::string> unreadable_std() {
 
 /// A .fb file outside a package, with the files it imports from its folder, and `read`'s texts
 /// in place of theirs on disk, with the std names `cache` has.
-std::expected<compilation_t, std::string> compile_loose(const std::filesystem::path& path,
-                                                        const build_mode_t mode,
-                                                        const source_reader_t& read,
-                                                        std_names_cache_t* cache = nullptr) {
+std::expected<compilation_t, std::string>
+compile_loose(const std::filesystem::path& path, const build_mode_t mode,
+              const source_reader_t& read, std_names_cache_t* cache = nullptr,
+              const bool root_bodies = false, const bool inspect = true) {
     compilation_t compilation;
     const std::expected<file_id_t, std::string> file = load_main(compilation, path, read);
     if (!file) {
@@ -4277,7 +4488,15 @@ std::expected<compilation_t, std::string> compile_loose(const std::filesystem::p
 
     compilation.file = *file;
     const std::filesystem::path folder = path.has_parent_path() ? path.parent_path() : ".";
-    run_front_end(compilation, { .root = folder, .read = read, .cache = cache },
+    run_front_end(compilation,
+                  {
+                      .root = folder,
+                      .read = read,
+                      .cache = cache,
+                      .root_bodies = root_bodies,
+                      .lints = lints_t(),
+                      .inspect = inspect,
+                  },
                   to_utf8(path.filename()), mode);
     return compilation;
 }
@@ -4294,7 +4513,13 @@ std::filesystem::path compilation_t::interface_path(const file_id_t id) const {
     return index < in_interface.size() ? in_interface[index] : std::filesystem::path();
 }
 
+std::filesystem::path compilation_t::made_from_path(const file_id_t id) const {
+    const auto index = static_cast<std::size_t>(std::to_underlying(id));
+    return index < made_from.size() ? made_from[index] : std::filesystem::path();
+}
+
 std::expected<compilation_t, std::string> check_files(const check_request_t& request) {
+    const disk_scope_t disk_scope(request.disk);
     if (const std::optional<std::string> unreadable = unreadable_std()) {
         return std::unexpected(*unreadable);
     }
@@ -4304,10 +4529,9 @@ std::expected<compilation_t, std::string> check_files(const check_request_t& req
     }
 
     std::error_code error;
-    const std::filesystem::path first =
-        std::filesystem::weakly_canonical(request.files.front(), error);
-    const std::optional<std::filesystem::path> standard = real_path(toolchain().std);
-    const std::optional<std::filesystem::path> real = real_path(first);
+    const std::filesystem::path first = disk::weakly_canonical(request.files.front(), error);
+    const std::optional<std::filesystem::path> standard = disk::real_path(toolchain().std);
+    const std::optional<std::filesystem::path> real = disk::real_path(first);
     if (standard && real && is_under(*real, *standard)) {
         // The standard library's files, with an empty main file beside them, which no file of
         // std is named like.
@@ -4315,7 +4539,7 @@ std::expected<compilation_t, std::string> check_files(const check_request_t& req
         compilation.file = compilation.sources.add("(std).fb", std::string());
         std::vector<std::string> extra;
         for (const std::filesystem::path& file : request.files) {
-            if (const std::optional<std::filesystem::path> at = real_path(file);
+            if (const std::optional<std::filesystem::path> at = disk::real_path(file);
                 at && is_under(*at, *standard)) {
                 extra.push_back("std/" + program_path(*standard, *at));
             }
@@ -4327,6 +4551,9 @@ std::expected<compilation_t, std::string> check_files(const check_request_t& req
                           .extra = std::move(extra),
                           .read = request.read,
                           .cache = request.cache,
+                          .root_bodies = true,
+                          .std_lints = lints_t(),
+                          .inspect = request.inspect,
                       },
                       "(std).fb", request.mode);
         return compilation;
@@ -4337,7 +4564,7 @@ std::expected<compilation_t, std::string> check_files(const check_request_t& req
                                request.build_steps);
     }
 
-    return compile_loose(first, request.mode, request.read, request.cache);
+    return compile_loose(first, request.mode, request.read, request.cache, true, request.inspect);
 }
 
 std::expected<compilation_t, std::string> compile_file(const std::filesystem::path& path,
@@ -4349,8 +4576,8 @@ std::expected<compilation_t, std::string> compile_file(const std::filesystem::pa
         return std::unexpected(*unreadable);
     }
 
-    if (std::filesystem::is_directory(path, error)) {
-        if (!std::filesystem::is_regular_file(path / "project.toml", error)) {
+    if (disk::is_directory(path, error)) {
+        if (!disk::is_regular_file(path / "project.toml", error)) {
             return std::unexpected(std::format(
                 "there's no project.toml in '{}'; give a package's folder, or a .fb file",
                 to_utf8(path)));
@@ -4360,15 +4587,14 @@ std::expected<compilation_t, std::string> compile_file(const std::filesystem::pa
                                std::nullopt, status);
     }
 
-    if (std::filesystem::is_regular_file(path, error) &&
-        folded(to_utf8(path.extension())) != ".fb") {
+    if (disk::is_regular_file(path, error) && folded(to_utf8(path.extension())) != ".fb") {
         return std::unexpected(std::format("'{}' isn't a .fb file; give a .fb file, or a package's "
                                            "folder",
                                            to_utf8(path)));
     }
 
     // A file in a package's folder, or under it, is that package's main file.
-    if (std::filesystem::is_regular_file(path, error)) {
+    if (disk::is_regular_file(path, error)) {
         const std::filesystem::path folder =
             path.has_parent_path() ? path.parent_path() : std::filesystem::current_path(error);
         if (const std::optional<std::filesystem::path> root = find_package(folder)) {
@@ -4388,11 +4614,9 @@ compile_tests(const std::filesystem::path& path, const build_mode_t mode, const 
 
     std::error_code error;
     std::optional<std::filesystem::path> root;
-    if (std::filesystem::is_directory(path, error) &&
-        std::filesystem::is_regular_file(path / "project.toml", error)) {
+    if (disk::is_directory(path, error) && disk::is_regular_file(path / "project.toml", error)) {
         root = path;
-    } else if (std::filesystem::is_regular_file(path, error) &&
-               folded(to_utf8(path.extension())) == ".fb") {
+    } else if (disk::is_regular_file(path, error) && folded(to_utf8(path.extension())) == ".fb") {
         root = find_package(path.has_parent_path() ? path.parent_path()
                                                    : std::filesystem::current_path(error));
     }
@@ -4402,8 +4626,7 @@ compile_tests(const std::filesystem::path& path, const build_mode_t mode, const 
                                build_steps_t::RUN, std::nullopt, status);
     }
 
-    if (!std::filesystem::is_regular_file(path, error) ||
-        folded(to_utf8(path.extension())) != ".fb") {
+    if (!disk::is_regular_file(path, error) || folded(to_utf8(path.extension())) != ".fb") {
         return compile_file(path, mode, build_steps_t::RUN, status);
     }
 
@@ -4463,7 +4686,7 @@ std::expected<compilation_t, std::string> compile_docs(const std::filesystem::pa
 
     std::error_code error;
     // What isn't there can't be read, as fb build says.
-    if (!std::filesystem::exists(path, error)) {
+    if (!disk::exists(path, error)) {
         std::error_code missing;
         static_cast<void>(std::filesystem::file_size(path, missing));
         return std::unexpected(
@@ -4471,8 +4694,8 @@ std::expected<compilation_t, std::string> compile_docs(const std::filesystem::pa
     }
 
     std::optional<std::filesystem::path> root;
-    if (std::filesystem::is_directory(path, error)) {
-        if (!std::filesystem::is_regular_file(path / "project.toml", error)) {
+    if (disk::is_directory(path, error)) {
+        if (!disk::is_regular_file(path / "project.toml", error)) {
             return std::unexpected(std::format(
                 "there's no project.toml in '{}'; fb doc documents a package, from its folder or "
                 "one of its .fb files, or std",
@@ -4480,11 +4703,10 @@ std::expected<compilation_t, std::string> compile_docs(const std::filesystem::pa
         }
 
         root = path;
-    } else if (std::filesystem::is_regular_file(path, error) &&
-               folded(to_utf8(path.extension())) == ".fb") {
+    } else if (disk::is_regular_file(path, error) && folded(to_utf8(path.extension())) == ".fb") {
         root = find_package(path.has_parent_path() ? path.parent_path()
                                                    : std::filesystem::current_path(error));
-    } else if (std::filesystem::is_regular_file(path, error)) {
+    } else if (disk::is_regular_file(path, error)) {
         return std::unexpected(std::format(
             "'{}' isn't a .fb file; give a package's folder, one of its .fb files, or std",
             to_utf8(path)));
@@ -4501,13 +4723,14 @@ std::expected<compilation_t, std::string> compile_docs(const std::filesystem::pa
                            status);
 }
 
-std::expected<compilation_t, std::string> compile_standard_docs(const build_mode_t mode) {
+std::expected<compilation_t, std::string>
+compile_standard_docs(const build_mode_t mode, const std::optional<lints_t>& lints) {
     if (const std::optional<std::string> unreadable = unreadable_std()) {
         return std::unexpected(*unreadable);
     }
 
     std::error_code error;
-    file_set_t files{ .root = std::filesystem::current_path(error) };
+    file_set_t files{ .root = std::filesystem::current_path(error), .std_lints = lints };
     files.extra = std_files(files);
     return compile_standard(compilation_t(), std::move(files), mode);
 }
@@ -4555,9 +4778,9 @@ std::vector<test_case_t> package_tests(const compilation_t& compilation) {
 
 std::optional<std::filesystem::path> find_package(const std::filesystem::path& folder) {
     std::error_code error;
-    std::filesystem::path at = std::filesystem::weakly_canonical(folder, error);
+    std::filesystem::path at = disk::weakly_canonical(folder, error);
     while (!at.empty()) {
-        if (std::filesystem::is_regular_file(at / "project.toml", error)) {
+        if (disk::is_regular_file(at / "project.toml", error)) {
             return at;
         }
 
@@ -4672,7 +4895,7 @@ std::expected<void, std::string> copy_beside(const std::vector<dynamic_native_t>
     for (const dynamic_native_t& library : libraries) {
         const std::filesystem::path copy = output.parent_path() / path_from_utf8(library.beside);
         std::error_code error;
-        if (std::filesystem::equivalent(library.file, copy, error)) {
+        if (disk::equivalent(library.file, copy, error)) {
             continue;
         }
 
@@ -5328,7 +5551,7 @@ bool remove_temporary(const std::filesystem::path& path) {
         std::error_code removing;
         std::filesystem::remove_all(path, removing);
         std::error_code looking;
-        if (!std::filesystem::exists(path, looking) && !looking) {
+        if (!disk::exists(path, looking) && !looking) {
             return true;
         }
 

@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <expected>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iterator>
 #include <map>
@@ -47,6 +48,163 @@ std::filesystem::path std_folder() {
 bool inside(const std::string_view key, const std::string_view folder) {
     return key == folder ||
            (key.starts_with(folder) && (folder.ends_with('/') || key[folder.size()] == '/'));
+}
+
+/// The text of a document parsed alone, as a compilation of its one file, whose diagnostics are
+/// its syntax errors.
+std::shared_ptr<compilation_t> parse_alone(const std::filesystem::path& path, std::string text) {
+    auto parsed = std::make_shared<compilation_t>();
+    parsed->file = parsed->sources.add(to_utf8(path), std::move(text));
+    parsed->on_disk.resize(static_cast<std::size_t>(std::to_underlying(parsed->file)) + 1);
+    parsed->on_disk.back() = path;
+    const source_file_t& file = parsed->sources.get(parsed->file);
+    std::vector<span_t> docs;
+    const std::vector<token_t> tokens =
+        lex(file, parsed->diagnostics, defined_symbols(build_mode_t::DEBUG), &docs);
+    parse_into(file, tokens, parsed->diagnostics, parsed->ast, false, docs);
+    return parsed;
+}
+
+/// Where the offsets of one text are in another, which an edit made of it: the same before
+/// what changed, moved by as much as it grew after it, and nowhere in it.
+class moved_t {
+public:
+    moved_t(const std::string_view from, const std::string_view to)
+        : m_grown(static_cast<std::int64_t>(to.size()) - static_cast<std::int64_t>(from.size())) {
+        const std::size_t shorter = std::min(from.size(), to.size());
+        while (m_before < shorter && from[m_before] == to[m_before]) {
+            ++m_before;
+        }
+
+        std::size_t after = 0;
+        while (after < shorter - m_before &&
+               from[from.size() - 1 - after] == to[to.size() - 1 - after]) {
+            ++after;
+        }
+
+        m_after = from.size() - after;
+    }
+
+    /// Where `span` of the first text is in the second, nullopt when the edit was in it.
+    [[nodiscard]] std::optional<span_t> operator()(span_t span) const {
+        if (span.end <= m_before) {
+            return span;
+        }
+
+        if (span.begin < m_after) {
+            return std::nullopt;
+        }
+
+        span.begin = static_cast<std::uint32_t>(span.begin + m_grown);
+        span.end = static_cast<std::uint32_t>(span.end + m_grown);
+        return span;
+    }
+
+private:
+    std::int64_t m_grown = 0;
+    std::size_t m_before = 0;
+    std::size_t m_after = 0;
+};
+
+/// The Public names each module of a check declares at its top level, by its path in the program,
+/// each with the name an Import gives the module.
+std::vector<std::pair<std::string, std::vector<export_t>>>
+exports_of(const compilation_t& compilation) {
+    const ast_t& ast = compilation.ast;
+    const analysis_t& analysis = compilation.analysis;
+    const std::set<stmt_id_t> top_level(ast.items().begin(), ast.items().end());
+    std::map<file_id_t, std::vector<export_t>> by_file;
+    for (const symbol_t& symbol : analysis.symbols) {
+        if (symbol.span.empty() || symbol.owner != type_id_t::INVALID || !symbol.declaration ||
+            !top_level.contains(*symbol.declaration) ||
+            (symbol.modifiers.visibility != visibility_t::PUBLIC &&
+             symbol.modifiers.visibility != visibility_t::PACKAGE)) {
+            continue;
+        }
+
+        std::string_view kind;
+        switch (symbol.kind) {
+        case symbol_kind_t::FUNCTION:
+            kind = "Function";
+            break;
+        case symbol_kind_t::ALIAS:
+            kind = "Alias";
+            break;
+        case symbol_kind_t::GLOBAL:
+            kind = "Global";
+            break;
+        case symbol_kind_t::CONSTANT:
+            kind = "Const";
+            break;
+        case symbol_kind_t::TYPE:
+            switch (analysis.types.get(symbol.type).kind) {
+            case type_kind_t::CLASS:
+                kind = "Class";
+                break;
+            case type_kind_t::INTERFACE:
+                kind = "Interface";
+                break;
+            case type_kind_t::ENUM:
+                kind = "Enum";
+                break;
+            default:
+                kind = "Struct";
+                break;
+            }
+
+            break;
+        default:
+            continue;
+        }
+
+        std::vector<export_t>& names = by_file[symbol.span.file];
+        if (std::ranges::none_of(names,
+                                 [&](const export_t& name) { return name.name == symbol.name; })) {
+            names.push_back({
+                .name = std::string(symbol.name),
+                .kind = std::string(kind),
+                .package_only = symbol.modifiers.visibility == visibility_t::PACKAGE,
+            });
+        }
+    }
+
+    std::vector<std::pair<std::string, std::vector<export_t>>> found;
+    for (const module_t& module : ast.modules().modules()) {
+        if (module.name.empty() || module.name.contains('(')) {
+            continue;
+        }
+
+        // A std module in a folder is the folder's, as "std.collections" for its map.fb.
+        std::string imported = module.name;
+        if (module.path.starts_with("std/") && std::ranges::count(module.path, '/') > 1) {
+            imported = imported.substr(0, imported.rfind('.'));
+        }
+
+        // A .proto's module, and a program's without a project.toml, are imported by their paths.
+        const package_id_t package = module.package;
+        const bool loose =
+            !ast.modules().has_manifest(package) && !ast.modules().is_standard(package);
+        std::filesystem::path quoted = compilation.made_from_path(module.file);
+        if (quoted.empty() && loose) {
+            quoted = compilation.disk_path(module.file);
+        }
+
+        std::vector<export_t> names = by_file[module.file];
+        for (export_t& name : names) {
+            name.module = imported;
+            if (ast.modules().is_standard(package)) {
+                name.package = "std";
+            } else if (!loose) {
+                name.package = ast.modules().package_name(package);
+            }
+
+            name.quoted = quoted;
+        }
+
+        found.emplace_back(module.path, std::move(names));
+    }
+
+    return found;
 }
 
 /// A file's text on disk, or nullopt when it can't be read.
@@ -135,7 +293,12 @@ unit_t make_unit(const unit_t::kind_t kind, const std::filesystem::path& root) {
         if (const std::optional<manifest_t> read = read_manifest(sources.get(*manifest), ignored)) {
             unit.name = read->name;
             unit.width = read->format_width.value_or(default_format_width);
+            for (const dependency_t& dependency : read->dependencies) {
+                unit.dependencies.push_back(dependency.name);
+            }
+
             const std::filesystem::path main = root / path_from_utf8(read->main);
+            unit.named_main = main;
             std::error_code error;
             if (std::filesystem::is_regular_file(main, error)) {
                 unit.main = main;
@@ -190,8 +353,90 @@ workspace_t::~workspace_t() {
     m_background.join();
 }
 
+void workspace_t::watched(const bool watches) {
+    const std::scoped_lock lock(m_mutex);
+    m_watched = watches;
+    rewatch();
+}
+
+void workspace_t::on_outside(watch_t watch) {
+    const std::scoped_lock lock(m_mutex);
+    m_watch = std::move(watch);
+}
+
+void workspace_t::on_tests(tests_t tests) {
+    const std::scoped_lock lock(m_mutex);
+    m_tests_changed = std::move(tests);
+}
+
+std::vector<tests_found_t> workspace_t::tests() const {
+    const std::scoped_lock lock(m_mutex);
+    std::vector<tests_found_t> found;
+    for (const auto& [key, tests] : m_tests) {
+        if (!tests.tests.empty()) {
+            found.push_back(tests);
+        }
+    }
+
+    return found;
+}
+
+void workspace_t::watching(const std::vector<std::filesystem::path>& folders) {
+    const std::scoped_lock lock(m_mutex);
+    std::ranges::copy(folders, std::back_inserter(m_watched_outside));
+    rewatch();
+}
+
+void workspace_t::rewatch() {
+    std::vector<std::filesystem::path> folders = m_folders;
+    folders.push_back(std_folder());
+    std::ranges::copy(m_watched_outside, std::back_inserter(folders));
+    m_disk.keep_only_under(folders);
+    forget_file_keys();
+}
+
+void workspace_t::note_tests(const std::string& key, const std::filesystem::path& path,
+                             const std::shared_ptr<const compilation_t>& compilation,
+                             const module_t& module) {
+    tests_found_t found{ .path = path, .compilation = compilation };
+    for (const test_function_t& test : compilation->analysis.tests) {
+        const symbol_t& function = compilation->analysis.symbol(test.function);
+        if (function.span.file == module.file) {
+            found.tests.emplace_back(std::format("{}.{}", module.name, function.name),
+                                     test.function);
+        }
+    }
+
+    const auto known = m_tests.find(key);
+    const bool same =
+        known == m_tests.end()
+            ? found.tests.empty()
+            : std::ranges::equal(
+                  known->second.tests, found.tests, [&](const auto& before, const auto& now) {
+                      return before.first == now.first &&
+                             known->second.compilation->analysis.symbol(before.second).span.begin ==
+                                 compilation->analysis.symbol(now.second).span.begin;
+                  });
+    m_tests[key] = found;
+    if (!same && m_tests_changed) {
+        m_tests_changed(found);
+    }
+}
+
+void workspace_t::disk_changed() {
+    m_disk.clear();
+    forget_file_keys();
+}
+
 void workspace_t::add_folders(const std::vector<std::filesystem::path>& folders) {
     std::unique_lock lock(m_mutex);
+    disk_changed();
+    // Its folders are the cache's too, once it's told them.
+    const auto told = [this] {
+        if (m_watched) {
+            rewatch();
+        }
+    };
     for (const std::filesystem::path& folder : folders) {
         std::error_code error;
         const std::filesystem::path absolute =
@@ -231,18 +476,24 @@ void workspace_t::add_folders(const std::vector<std::filesystem::path>& folders)
         }
     }
 
+    told();
     lock.unlock();
     m_work.notify_all();
 }
 
 void workspace_t::remove_folders(const std::vector<std::filesystem::path>& folders) {
     const std::scoped_lock lock(m_mutex);
+    disk_changed();
     for (const std::filesystem::path& folder : folders) {
         std::error_code error;
         const std::string key = file_key(
             std::filesystem::weakly_canonical(std::filesystem::absolute(folder, error), error));
         std::erase_if(m_folders,
                       [&](const std::filesystem::path& each) { return file_key(each) == key; });
+    }
+
+    if (m_watched) {
+        rewatch();
     }
 
     // The units that aren't the workspace's now aren't checked whole, and what's published for
@@ -296,15 +547,90 @@ void workspace_t::open(const std::filesystem::path& path, const std::int64_t ver
 
 void workspace_t::change(const std::filesystem::path& path, const std::int64_t version,
                          std::string text) {
+    // Its syntax errors show as it's typed, before the check that waits for the next keystroke.
+    const std::shared_ptr<compilation_t> parsed = parse_alone(path, text);
     {
         const std::scoped_lock lock(m_mutex);
         const std::string key = file_key(path);
         m_documents[key] = { .version = version, .text = std::move(text) };
         ++m_generation;
+        show_syntax(key, path, version, parsed);
         edited(key);
     }
 
     m_work.notify_all();
+}
+
+void workspace_t::show_syntax(const std::string& key, const std::filesystem::path& path,
+                              const std::int64_t version,
+                              const std::shared_ptr<compilation_t>& parsed) {
+    shown_t& shown = m_shown[key];
+    const bool syntax = !parsed->diagnostics.diagnostics().empty();
+    if (!syntax && !shown.syntax) {
+        return;
+    }
+
+    // Its check's other diagnostics, where the edits since moved them, but for those an edit
+    // was in, and their labels in its own text.
+    std::vector<diagnostic_t> others;
+    if (shown.compilation) {
+        const moved_t moved(shown.text, parsed->source().text());
+        for (const diagnostic_t* other : shown.others) {
+            const std::optional<span_t> span = moved(other->span);
+            if (!span) {
+                continue;
+            }
+
+            diagnostic_t carried = *other;
+            carried.span = { .file = parsed->file, .begin = span->begin, .end = span->end };
+            carried.suggestions.clear();
+            std::erase_if(carried.labels, [&](label_t& label) {
+                const std::optional<span_t> at =
+                    label.span.file == other->span.file ? moved(label.span) : std::nullopt;
+                if (at) {
+                    label.span = { .file = parsed->file, .begin = at->begin, .end = at->end };
+                }
+
+                return !at;
+            });
+            others.push_back(std::move(carried));
+        }
+    }
+
+    for (diagnostic_t& other : others) {
+        parsed->diagnostics.report(std::move(other));
+    }
+
+    parsed->diagnostics.sort();
+    published_t published{ .path = path, .version = version, .compilation = parsed };
+    for (const diagnostic_t& diagnostic : parsed->diagnostics.diagnostics()) {
+        published.diagnostics.push_back(&diagnostic);
+    }
+
+    // A check of an older text doesn't replace it, as it's newer.
+    m_published[key] = m_generation;
+    shown.syntax = syntax;
+    m_publish(published);
+}
+
+void workspace_t::note_shown(const std::string& key, const std::string& text,
+                             const std::shared_ptr<const compilation_t>& compilation,
+                             const std::vector<const diagnostic_t*>& diagnostics) {
+    // The check's syntax errors are those of a parse of its text alone, which a quick parse
+    // shows itself.
+    const std::shared_ptr<compilation_t> parsed = parse_alone(std::filesystem::path(), text);
+    const std::vector<diagnostic_t>& syntax = parsed->diagnostics.diagnostics();
+    shown_t& shown = m_shown[key];
+    shown = { .compilation = compilation, .text = text, .syntax = !syntax.empty() };
+    for (const diagnostic_t* diagnostic : diagnostics) {
+        const bool parse = std::ranges::any_of(syntax, [&](const diagnostic_t& found) {
+            return found.span.begin == diagnostic->span.begin &&
+                   found.span.end == diagnostic->span.end && found.message == diagnostic->message;
+        });
+        if (!parse) {
+            shown.others.push_back(diagnostic);
+        }
+    }
 }
 
 void workspace_t::edited(const std::string& key) {
@@ -314,9 +640,12 @@ void workspace_t::edited(const std::string& key) {
 void workspace_t::close(const std::filesystem::path& path) {
     {
         const std::scoped_lock lock(m_mutex);
+        // Its text on disk is read again, which it may have been saved over.
+        disk_changed();
         const std::string key = file_key(path);
         m_documents.erase(key);
         m_latest.erase(key);
+        m_shown.erase(key);
         m_edited.erase(key);
         ++m_generation;
         // Its text on disk may differ from what was checked, and a file outside the workspace has
@@ -339,8 +668,26 @@ void workspace_t::close(const std::filesystem::path& path) {
 void workspace_t::changed_on_disk(const std::vector<std::filesystem::path>& paths) {
     {
         const std::scoped_lock lock(m_mutex);
+        disk_changed();
         ++m_generation;
+        // A folder that went takes its files, which the client may not name one by one.
+        std::vector<std::filesystem::path> changed = paths;
         for (const std::filesystem::path& path : paths) {
+            std::error_code error;
+            if (path.extension() == ".fb" || path.filename() == "project.toml" ||
+                std::filesystem::exists(path, error)) {
+                continue;
+            }
+
+            const std::string folder = file_key(path);
+            for (const auto& [key, known] : m_paths) {
+                if (key != folder && inside(key, folder)) {
+                    changed.push_back(known);
+                }
+            }
+        }
+
+        for (const std::filesystem::path& path : changed) {
             const std::string key = file_key(path);
             if (m_documents.contains(key)) {
                 continue;
@@ -353,7 +700,29 @@ void workspace_t::changed_on_disk(const std::vector<std::filesystem::path>& path
                 continue;
             }
 
+            // A package's fb.lock, a library its project.toml names, or its prebuilt interface
+            // file: what the package is made of, as its project.toml says.
+            const std::string extension = to_utf8(path.extension());
+            if (path.filename() == "fb.lock" || extension == ".dll" || extension == ".so" ||
+                extension == ".dylib" || extension == ".a" || extension == ".lib" ||
+                extension == ".fbi") {
+                if (const std::optional<std::filesystem::path> root =
+                        find_package(path.parent_path())) {
+                    changed_manifest(*root / "project.toml", true);
+                }
+
+                continue;
+            }
+
+            // A .proto's module, which the files that import it are checked again for.
+            if (extension == ".proto") {
+                m_dependents[key] = steady_t::now() + m_options.dependents_delay;
+                continue;
+            }
+
+            // Any other file is what an embed may name, which dependents() finds.
             if (path.extension() != ".fb") {
+                m_dependents[key] = steady_t::now() + m_options.dependents_delay;
                 continue;
             }
 
@@ -372,6 +741,16 @@ void workspace_t::changed_on_disk(const std::vector<std::filesystem::path>& path
                 m_alone.push_back(path);
             } else {
                 m_imports.erase(key);
+                m_embeds.erase(key);
+                if (const auto tests = m_tests.find(key); tests != m_tests.end()) {
+                    tests->second.tests.clear();
+                    if (m_tests_changed) {
+                        m_tests_changed(tests->second);
+                    }
+
+                    m_tests.erase(tests);
+                }
+
                 m_published[key] = m_generation;
                 m_publish({ .path = path });
             }
@@ -507,6 +886,51 @@ workspace_t::with_dependents(const std::filesystem::path& path) {
     return compilations;
 }
 
+std::vector<export_t> workspace_t::importable(const std::filesystem::path& path) {
+    std::vector<export_t> found;
+    {
+        const std::scoped_lock lock(m_mutex);
+        const std::size_t index = unit_index(path);
+        const unit_t& unit = m_units[index];
+        // Its own package's, its tests' only from its tests/ folder, and its dependencies'.
+        std::set<std::string> packages{ "std" };
+        if (unit.kind == unit_t::kind_t::PACKAGE) {
+            packages.insert(unit.name);
+            packages.insert(unit.dependencies.begin(), unit.dependencies.end());
+            if (inside(file_key(path), file_key(unit.root / "tests"))) {
+                packages.insert(unit.name + ".tests");
+            }
+        } else if (unit.kind == unit_t::kind_t::LOOSE) {
+            packages.insert("");
+        }
+
+        for (const auto& [module, names] : m_exports[index]) {
+            std::ranges::copy_if(names, std::back_inserter(found), [&](const export_t& name) {
+                // A Package name only to its own package's files and tests.
+                return packages.contains(name.package) &&
+                       (!name.package_only || name.package == unit.name);
+            });
+        }
+    }
+
+    // std's modules that no check had, from the names they declare.
+    const std::scoped_lock lock(m_std_names.mutex);
+    for (const auto& [file, names] : m_std_names.files) {
+        for (const std_name_t& name : names.names) {
+            if (name.extended.empty() && !name.array_method) {
+                found.push_back({
+                    .name = name.name,
+                    .module = name.module,
+                    .kind = name.kind,
+                    .package = "std",
+                });
+            }
+        }
+    }
+
+    return found;
+}
+
 unit_t workspace_t::unit_of(const std::filesystem::path& path) {
     const std::scoped_lock lock(m_mutex);
     return m_units[unit_index(path)];
@@ -522,6 +946,16 @@ bool workspace_t::owns(const std::filesystem::path& path) const {
     return std::ranges::any_of(m_folders, [&](const std::filesystem::path& folder) {
         return inside(key, file_key(folder));
     });
+}
+
+bool workspace_t::watched() const {
+    const std::scoped_lock lock(m_mutex);
+    return m_watched;
+}
+
+bool workspace_t::owned(const std::filesystem::path& path) const {
+    const std::scoped_lock lock(m_mutex);
+    return owns(path);
 }
 
 void workspace_t::settle() {
@@ -588,7 +1022,7 @@ void workspace_t::run_background() {
             jobs.push_back({
                 .unit = unit,
                 .roots = whole.files,
-                .main = whole.kind == unit_t::kind_t::PACKAGE ? whole.main : std::nullopt,
+                .main = whole.kind == unit_t::kind_t::PACKAGE ? main_of(whole) : std::nullopt,
             });
         } else {
             m_done.notify_all();
@@ -635,6 +1069,7 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
     }
 
     const std::uint64_t generation = m_generation;
+    disk_cache_t* disk = m_watched ? &m_disk : nullptr;
     ++m_running;
     lock.unlock();
     const auto start = steady_t::now();
@@ -646,15 +1081,50 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
             return found != texts.end() ? std::optional(found->second) : std::nullopt;
         },
         .cache = &m_std_names,
+        .disk = disk,
         .examples = job.examples,
         .workspace = std::move(workspace),
+        // References' and renames' checks aren't published.
+        .inspect = !job.examples,
     });
     std::shared_ptr<const compilation_t> compilation =
         result ? std::make_shared<const compilation_t>(std::move(*result)) : nullptr;
     const auto took =
         std::chrono::duration_cast<std::chrono::milliseconds>(steady_t::now() - start);
+    // What its modules declare that others can import, for completion, found unlocked.
+    std::vector<std::pair<std::string, std::vector<export_t>>> exported;
+    if (compilation) {
+        exported = exports_of(*compilation);
+    }
+
     lock.lock();
     --m_running;
+    for (auto& [path, names] : exported) {
+        m_exports[job.unit][path] = std::move(names);
+    }
+
+    // The folders of packages it read outside the client's, which only a watcher of their own
+    // sees.
+    if (compilation && m_watched && m_watch) {
+        std::vector<std::filesystem::path> outside;
+        for (const module_t& module : compilation->ast.modules().modules()) {
+            const std::filesystem::path path = compilation->disk_path(module.file);
+            if (path.empty() || module.path.starts_with("std/") || owns(path)) {
+                continue;
+            }
+
+            const std::filesystem::path root =
+                find_package(path.parent_path()).value_or(path.parent_path());
+            if (m_outside.insert(file_key(root)).second) {
+                outside.push_back(root);
+            }
+        }
+
+        if (!outside.empty()) {
+            m_watch(outside);
+        }
+    }
+
     m_history.push_back({
         .roots = job.roots,
         .modules = compilation ? compilation->ast.modules().size() : 0,
@@ -666,12 +1136,27 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
         m_history.erase(m_history.begin());
     }
 
-    // The modules it had, by key, and what each imports.
+    // The modules it had, by key, and what each imports. A .proto's module is the .proto's.
     std::map<std::string, file_id_t> files;
     if (compilation) {
+        const auto where = [&](const file_id_t file) {
+            const std::filesystem::path path = compilation->disk_path(file);
+            return path.empty() ? compilation->made_from_path(file) : path;
+        };
+        // Any of the roots' code can have named what its embeds did.
+        std::set<std::string> roots;
+        for (const std::filesystem::path& root : job.roots) {
+            roots.insert(file_key(root));
+        }
+
+        std::set<std::string> named;
+        for (const std::filesystem::path& each : compilation->embeds_named) {
+            named.insert(file_key(each));
+        }
+
         const module_table_t& modules = compilation->ast.modules();
         for (const module_t& module : modules.modules()) {
-            const std::filesystem::path path = compilation->disk_path(module.file);
+            const std::filesystem::path path = where(module.file);
             if (path.empty()) {
                 continue;
             }
@@ -692,11 +1177,19 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
             }
 
             recorded = generation;
+            if (roots.contains(key)) {
+                m_embeds[key] = named;
+            }
+
+            if (owns(path)) {
+                note_tests(key, path, compilation, module);
+            }
+
             std::set<std::string>& imports = m_imports[key];
             imports.clear();
             for (const module_import_t& imported : module.imports) {
                 for (const module_id_t id : imported.modules) {
-                    const std::filesystem::path file = compilation->disk_path(modules.get(id).file);
+                    const std::filesystem::path file = where(modules.get(id).file);
                     if (!file.empty()) {
                         imports.insert(file_key(file));
                     }
@@ -706,9 +1199,14 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
     }
 
     // What's published, for one of the roots or a project.toml: its diagnostics, unless a newer
-    // check has published its own.
+    // check has published its own. A check for references, a rename, a lens, or a hierarchy has
+    // no inspections, so it neither publishes nor is what's shown.
     const auto publish = [&](const std::string& key, const std::filesystem::path& path,
                              const std::optional<file_id_t> file) {
+        if (job.examples) {
+            return;
+        }
+
         const auto document = m_documents.find(key);
         const auto read = versions.find(key);
         const bool current =
@@ -752,6 +1250,10 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
                     diagnostics.diagnostics.push_back(&diagnostic);
                 }
             }
+        }
+
+        if (document != m_documents.end()) {
+            note_shown(key, texts.at(key), compilation, diagnostics.diagnostics);
         }
 
         m_publish(diagnostics);
@@ -819,6 +1321,18 @@ std::size_t workspace_t::unit_index(const std::filesystem::path& path) {
     return index;
 }
 
+std::optional<std::filesystem::path> workspace_t::main_of(const unit_t& unit) const {
+    if (unit.main) {
+        return unit.main;
+    }
+
+    if (unit.named_main && m_documents.contains(file_key(*unit.named_main))) {
+        return unit.named_main;
+    }
+
+    return std::nullopt;
+}
+
 workspace_t::job_t workspace_t::job_for(const std::filesystem::path& path) {
     const std::size_t unit = unit_index(path);
     const auto document = m_documents.find(file_key(path));
@@ -849,15 +1363,34 @@ std::set<std::string> workspace_t::dependents(const std::string& key) const {
         return candidates;
     }
 
+    // Through files no check has as a root, as a .proto another imports, or a package's outside
+    // the client's folders.
     std::set<std::string> found;
+    std::set<std::string> walked{ key };
     std::vector<std::string> work{ key };
+    // The files whose embeds named it, a folder it's in, or, for a folder, a file in it, and what
+    // imports them.
+    for (const auto& [file, named] : m_embeds) {
+        const bool embeds = std::ranges::any_of(named, [&](const std::string& each) {
+            return each == key || inside(key, each) || inside(each, key);
+        });
+        if (embeds && walked.insert(file).second) {
+            work.push_back(file);
+            if (candidates.contains(file)) {
+                found.insert(file);
+            }
+        }
+    }
+
     while (!work.empty()) {
         const std::string imported = work.back();
         work.pop_back();
         for (const auto& [file, imports] : m_imports) {
-            if (imports.contains(imported) && file != key && candidates.contains(file) &&
-                found.insert(file).second) {
+            if (imports.contains(imported) && walked.insert(file).second) {
                 work.push_back(file);
+                if (candidates.contains(file)) {
+                    found.insert(file);
+                }
             }
         }
     }
@@ -889,7 +1422,7 @@ std::vector<workspace_t::job_t> workspace_t::jobs_for(const std::set<std::string
             continue;
         }
 
-        const std::optional<std::filesystem::path>& main = m_units[unit].main;
+        const std::optional<std::filesystem::path> main = main_of(m_units[unit]);
         const bool has_main =
             main && std::ranges::any_of(roots, [&](const std::filesystem::path& root) {
                 return file_key(root) == file_key(*main);

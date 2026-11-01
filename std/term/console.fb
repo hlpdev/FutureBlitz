@@ -17,7 +17,6 @@
 //! End If
 //! ```
 
-Import std.core
 Import std.time.duration
 Import std.term.input
 Import std.term.terminal
