@@ -344,6 +344,7 @@ TEST_CASE("fb-lsp completes a dependency's name and version from its registry", 
     CHECK(labels(names) == std::vector<std::string>{ "physics", "physics2d" });
     CHECK(inserted(names, "physics") == "physics = \"1.3.0\"");
     CHECK(names[0].at("documentation") == "A test package");
+    CHECK(inserted(complete(head + "\"phys\"", "\"phys", 5), "physics") == "physics");
 
     // A version, from its index, newest first, without the yanked one.
     const json_t versions = complete(head + "physics = \"\"", "physics = \"", 11);
@@ -351,6 +352,19 @@ TEST_CASE("fb-lsp completes a dependency's name and version from its registry", 
     CHECK(versions[0].at("preselect") == true);
     CHECK(labels(complete(head + "physics = { version = \"1\" }", "version = \"1", 12)) ==
           std::vector<std::string>{ "1.3.0", "1.2.0" });
+
+    // A name with "registry" in it isn't the key, and a dependency's own table's registry is
+    // the one its versions are from.
+    registry.add(version_of("registry-tools", "0.5.0"));
+    CHECK(labels(complete(head + "registry-tools = \"\"", "tools = \"", 9)) ==
+          std::vector<std::string>{ "0.5.0" });
+    fb::testing::registry_server_t company;
+    company.add(version_of("physics", "9.0.0"));
+    const std::string two =
+        std::format("{}\n[registries]\nfutureblitz = {{ index = \"{}\" }}\ncompany = {{ index = "
+                    "\"{}\" }}\n\n[dependencies.physics]\nregistry = \"company\"\nversion = \"\"\n",
+                    game_manifest, registry.index(), company.index());
+    CHECK(labels(complete(two, "version = \"", 11)) == std::vector<std::string>{ "9.0.0" });
 
     // Hover has its description and newest version.
     client.change(uri, head + "physics = \"1.2\"\n");

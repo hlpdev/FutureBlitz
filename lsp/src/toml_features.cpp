@@ -326,16 +326,47 @@ std::vector<registry_entry_t> registries_in(const std::string_view text) {
     return registries;
 }
 
-/// The value of a dependency's `registry`, on its line or in its own table, as it's typed.
+/// The value of the key `registry` on a line, `registry = "company"`, as it's typed, but not a
+/// name that has the word in it, like `registry-tools`.
 std::optional<std::string> registry_of(const std::string_view line) {
-    const std::size_t key = line.find("registry");
-    const std::size_t open = key == std::string_view::npos ? key : line.find('"', key);
-    const std::size_t close = open == std::string_view::npos ? open : line.find('"', open + 1);
-    if (close == std::string_view::npos) {
-        return std::nullopt;
+    constexpr std::string_view word = "registry";
+    for (std::size_t key = line.find(word); key != std::string_view::npos;
+         key = line.find(word, key + 1)) {
+        const std::size_t after = line.find_first_not_of(" \t", key + word.size());
+        if ((key > 0 && is_key_char(line[key - 1])) || after == std::string_view::npos ||
+            line[after] != '=') {
+            continue;
+        }
+
+        const std::size_t open = line.find('"', after);
+        const std::size_t close = open == std::string_view::npos ? open : line.find('"', open + 1);
+        if (close != std::string_view::npos) {
+            return std::string(line.substr(open + 1, close - open - 1));
+        }
     }
 
-    return std::string(line.substr(open + 1, close - open - 1));
+    return std::nullopt;
+}
+
+/// The registry a dependency names: on its line, `physics = { registry = "company" }`, or in its
+/// own table, `[dependencies.physics]`, when `own` is its name.
+std::optional<std::string> registry_named(const std::string_view text, const std::string_view line,
+                                          const std::string_view own) {
+    if (own.empty()) {
+        return registry_of(line);
+    }
+
+    bool inside = false;
+    for (const auto& [begin, end] : lines_of(text)) {
+        const std::string_view each = text.substr(begin, end - begin);
+        if (const std::optional<header_t> header = header_of(each)) {
+            inside = header->table == "dependencies" && header->sub == own;
+        } else if (inside && key_of(each) == "registry") {
+            return registry_of(each);
+        }
+    }
+
+    return std::nullopt;
 }
 
 /// The versions that aren't yanked, newest first.
@@ -742,7 +773,7 @@ json_t toml_features_t::completion(const document_t& document, const json_t& par
     const auto add_versions = [&](const std::string& name) {
         const std::vector<registry_entry_t> registries = registries_in(text);
         const std::optional<std::string> index =
-            registry_index(registry_of(line), registries, root);
+            registry_index(registry_named(text, line, own_table ? header->sub : ""), registries, root);
         if (!index || !place.string_begin) {
             return;
         }
@@ -818,11 +849,15 @@ json_t toml_features_t::completion(const document_t& document, const json_t& par
                 continue;
             }
 
-            json_t entry = item(package.name, module_kind,
-                                package.version.empty()
-                                    ? std::format("{} = ", package.name)
-                                    : std::format("{} = \"{}\"", package.name, package.version),
-                                range);
+            // A quoted key, `"phys`, is only the name; a bare one, the line.
+            std::string line_text = std::format("{} = ", package.name);
+            if (place.string_begin) {
+                line_text = package.name;
+            } else if (!package.version.empty()) {
+                line_text = std::format("{} = \"{}\"", package.name, package.version);
+            }
+
+            json_t entry = item(package.name, module_kind, line_text, range);
             entry["detail"] = package.version;
             if (!package.description.empty()) {
                 entry["documentation"] = package.description;
@@ -933,7 +968,8 @@ json_t toml_features_t::hover(const document_t& document, const json_t& params) 
     }
 
     const std::optional<std::string> index =
-        registry_index(registry_of(line), registries_in(text), document.path.parent_path());
+        registry_index(registry_named(text, line, own_header ? own_header->sub : ""),
+                       registries_in(text), document.path.parent_path());
     if (!index) {
         return nullptr;
     }
