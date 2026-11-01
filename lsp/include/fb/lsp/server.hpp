@@ -18,7 +18,6 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <stop_token>
 #include <string>
 #include <thread>
 #include <vector>
@@ -38,6 +37,10 @@ public:
     };
 
     explicit server_t(send_t send, options_t options = {});
+    server_t(const server_t&) = delete;
+    server_t& operator=(const server_t&) = delete;
+    /// Stops the lens thread first, as it reads the workspace.
+    ~server_t();
 
     /// Handles one message: a request, which it answers before it returns, or a notification.
     void handle(const json_t& message);
@@ -116,14 +119,17 @@ private:
     };
     std::deque<lens_job_t> m_lens_jobs;
     std::mutex m_lens_mutex;
-    std::condition_variable_any m_lens_ready;
+    std::condition_variable m_lens_ready;
+    /// Set, under m_lens_mutex, when the server goes, which ends the lens thread.
+    bool m_lens_stop = false;
     /// project.toml's documents and requests, whose thread stops before what it sends through.
     std::unique_ptr<toml_features_t> m_toml;
     /// After what its threads send through, so it's destroyed, and they stop, before that.
     std::unique_ptr<workspace_t> m_workspace;
-    /// After the workspace, so it stops first, as it reads the workspace's checks: the thread
-    /// that answers code lens resolves, started with the first.
-    std::jthread m_lens_thread;
+    /// The thread that answers code lens resolves, started with the first; the destructor stops
+    /// and joins it before the workspace goes, as it reads the workspace's checks. A std::thread,
+    /// as Apple's libc++ has no std::jthread.
+    std::thread m_lens_thread;
 
     void send(const json_t& message);
     /// Asks the client to watch every file of `folders`, or of its own folders when it's empty.
@@ -135,7 +141,7 @@ private:
     /// Answers a request, or says why it can't.
     void answer_request(const json_t& id, const std::string& method, const json_t& params);
     /// The lens thread's work: each waiting resolve answered, until it's asked to stop.
-    void answer_lenses(const std::stop_token& stop);
+    void answer_lenses();
     /// The checks of `file` and what imports it, which every use of what it declares is in, made
     /// once for each version of an open document.
     std::vector<std::shared_ptr<const compilation_t>> dependents(const std::filesystem::path& file);

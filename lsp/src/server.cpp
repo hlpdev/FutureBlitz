@@ -159,6 +159,18 @@ server_t::server_t(send_t send, const options_t options) : m_send(std::move(send
     });
 }
 
+server_t::~server_t() {
+    {
+        const std::scoped_lock lock(m_lens_mutex);
+        m_lens_stop = true;
+    }
+
+    m_lens_ready.notify_one();
+    if (m_lens_thread.joinable()) {
+        m_lens_thread.join();
+    }
+}
+
 void server_t::register_watchers(const std::vector<std::filesystem::path>& folders) {
     json_t watchers = json_t::array();
     if (folders.empty()) {
@@ -318,8 +330,7 @@ void server_t::handle(const json_t& message) {
             const std::scoped_lock lock(m_lens_mutex);
             m_lens_jobs.push_back({ .id = id, .lens = params });
             if (!m_lens_thread.joinable()) {
-                m_lens_thread =
-                    std::jthread([this](const std::stop_token& stop) { answer_lenses(stop); });
+                m_lens_thread = std::thread([this] { answer_lenses(); });
             }
         }
 
@@ -475,12 +486,13 @@ std::optional<json_t> server_t::answer(const std::string& method, const json_t& 
     return std::nullopt;
 }
 
-void server_t::answer_lenses(const std::stop_token& stop) {
+void server_t::answer_lenses() {
     while (true) {
         lens_job_t job;
         {
             std::unique_lock lock(m_lens_mutex);
-            if (!m_lens_ready.wait(lock, stop, [this] { return !m_lens_jobs.empty(); })) {
+            m_lens_ready.wait(lock, [this] { return m_lens_stop || !m_lens_jobs.empty(); });
+            if (m_lens_stop) {
                 return;
             }
 
