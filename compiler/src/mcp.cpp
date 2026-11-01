@@ -479,8 +479,9 @@ json_t success(const json_t& id, json_t result) {
     return { { "jsonrpc", "2.0" }, { "id", id }, { "result", std::move(result) } };
 }
 
-/// What takes a message's answer: the line it's sent as, or its batch's.
-using reply_t = std::function<void(json_t answer)>;
+/// What takes a message's answer: the line it's sent as, or its batch's; nullopt for a call
+/// that's cancelled, which a batch waits for no more.
+using reply_t = std::function<void(const std::optional<json_t>& answer)>;
 
 /// The tools, by name.
 constexpr std::array<std::string_view, 4> tool_names{ "search_docs", "lookup", "check", "format" };
@@ -944,6 +945,24 @@ struct mcp_server_t::core_t : std::enable_shared_from_this<core_t> {
         changed.notify_all();
     }
 
+    /// Leaves the call `key` names unanswered, which its batch, if it's in one, counts as done.
+    void cancel(const std::string& key) {
+        std::unique_lock lock(mutex);
+        const auto found = calls.find(key);
+        if (found == calls.end()) {
+            return;
+        }
+
+        const reply_t reply = std::move(found->second.reply);
+        calls.erase(found);
+        ++replying;
+        lock.unlock();
+        reply(std::nullopt);
+        lock.lock();
+        --replying;
+        changed.notify_all();
+    }
+
     /// Starts a tool call on a thread of its own.
     void call(const json_t& id, const json_t& params, const reply_t& reply) {
         if (!params.contains("name") || !params.at("name").is_string()) {
@@ -1047,9 +1066,7 @@ struct mcp_server_t::core_t : std::enable_shared_from_this<core_t> {
         // A notification has no answer; one that cancels a call leaves its answer unsent.
         if (!has_id) {
             if (method == "notifications/cancelled" && params.contains("requestId")) {
-                const std::scoped_lock lock(mutex);
-                calls.erase(params.at("requestId").dump());
-                changed.notify_all();
+                cancel(params.at("requestId").dump());
             }
 
             return false;
@@ -1115,7 +1132,11 @@ mcp_server_t::~mcp_server_t() {
 
 void mcp_server_t::receive(const std::string_view line) {
     core_t& core = *m_core;
-    const reply_t single = [&core](const json_t& answer) { core.write(answer); };
+    const reply_t single = [&core](const std::optional<json_t>& answer) {
+        if (answer) {
+            core.write(*answer);
+        }
+    };
     if (too_deep(line)) {
         single(failure(nullptr, invalid_request,
                        std::format("a message nests at most {} deep", deepest_nesting)));
@@ -1160,7 +1181,7 @@ void mcp_server_t::receive(const std::string_view line) {
             core.write(answers);
         }
     };
-    const reply_t into = [counted](json_t answer) { counted(std::move(answer), false); };
+    const reply_t into = [counted](const std::optional<json_t>& answer) { counted(answer, false); };
     for (const json_t& each : message) {
         counted(std::nullopt, true);
         if (!core.process(each, into)) {

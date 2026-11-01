@@ -286,6 +286,19 @@ TEST_CASE("fb mcp takes JSON-RPC's messages as the version agreed on has them", 
     server.send(R"([{"jsonrpc":"2.0","method":"notifications/initialized"}])");
     CHECK_FALSE(server.answers_within(300ms));
     CHECK(error_of(server, "[]") == std::pair{ json_t(), -32600 });
+
+    // From the review: a cancelled call in a batch is one its answer doesn't wait for.
+    const json_t calls = json_t::array({
+        call_request("slow", "check", { { "code", slow_code(3) } }),
+        call_request("quick", "format", { { "code", "Local  y=2\n" } }),
+    });
+    server.send(calls.dump());
+    server.send(
+        R"({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":"slow"}})");
+    const json_t rest = server.next();
+    REQUIRE(rest.is_array());
+    REQUIRE(rest.size() == 1);
+    CHECK(rest[0].at("id") == "quick");
 }
 
 // From the review: nlohmann/json copies a value nested 100,000 deep recursively, which overflowed
