@@ -13,6 +13,7 @@
 #include <cstddef>
 #include <expected>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <functional>
 #include <map>
@@ -377,6 +378,186 @@ TEST_CASE("a refactoring isn't offered where it would change what the code does"
     CHECK(!std::ranges::contains(
         titles(compilation, selected(compilation, file, "Twice(Next())", "Twice")),
         "Inline this call of 'Twice'"));
+}
+
+namespace {
+
+/// A Struct whose count a ByRef Method and a ByRef parameter change, which the review's cases
+/// share.
+constexpr std::string_view counters = "Import std.core\n"
+                                      "Struct Counter\n"
+                                      "    Field count: Int\n"
+                                      "    ByRef Method Bump()\n"
+                                      "        count += 1\n"
+                                      "    End Method\n"
+                                      "End Struct\n"
+                                      "Struct Holder\n"
+                                      "    Field inner: Counter\n"
+                                      "End Struct\n"
+                                      "Function Add(ByRef n: Int)\n"
+                                      "    n += 1\n"
+                                      "End Function\n";
+
+/// The change of `function`'s signature in the program's main file, or why not.
+std::expected<std::vector<fb::fix_t>, std::string>
+changed_signature(const fb::compilation_t& compilation, const std::string_view function,
+                  const std::string_view parameters) {
+    const fb::lsp::query_t query(compilation, compilation.file);
+    const fb::span_t at =
+        selected(compilation, compilation.file,
+                 std::string("Function ") + std::string(function) + "(", function);
+    const std::optional<fb::lsp::named_t> named = query.name_at(at.begin);
+    REQUIRE(named);
+    return fb::lsp::change_signature(query, query.key(named.value_or(fb::lsp::named_t{}).symbol),
+                                     parameters);
+}
+
+} // namespace
+
+TEST_CASE("a value passed ByRef, or a ByRef Method's Struct, isn't extracted, nor a Struct copy "
+          "it changes inlined",
+          "[lsp][refactor]") {
+    const program_t program =
+        own_program(std::string(counters) + "Local c = Counter(0)\n"
+                                            "Add(ByRef c.count)\n"
+                                            "Local h = Holder(Counter(0))\n"
+                                            "h.inner.Bump()\n"
+                                            "Local a = Counter(0)\n"
+                                            "Local b = a\n"
+                                            "b.Bump()\n"
+                                            "Local d = a\n"
+                                            "Add(ByRef d.count)\n"
+                                            "Local e = a\n"
+                                            "a.Bump()\n"
+                                            "Print(\"{c.count} {h.inner.count} {a.count} {b.count} "
+                                            "{d.count} {e.count}\")\n");
+    const fb::compilation_t compilation = compiled(program);
+    REQUIRE(!compilation.diagnostics.has_errors());
+    const fb::file_id_t file = compilation.file;
+    // A copy of the place would be what changes.
+    CHECK(!std::ranges::contains(
+        titles(compilation, selected(compilation, file, "Add(ByRef c.count)", "c.count")),
+        "Extract to a Local"));
+    CHECK(!std::ranges::contains(
+        titles(compilation, selected(compilation, file, "h.inner.Bump()", "h.inner")),
+        "Extract to a Local"));
+    // A copy that changes, or whose Struct does after it's made, isn't the Struct.
+    for (const std::string_view name : { "b", "d", "e" }) {
+        const std::string local = std::format("Local {} = a", name);
+        CHECK(!std::ranges::contains(titles(compilation, selected(compilation, file, local, name)),
+                                     std::format("Inline '{}'", name)));
+    }
+}
+
+TEST_CASE("an inlined call keeps its arguments' conversions to its parameters' types",
+          "[lsp][refactor]") {
+    const program_t program = own_program("Import std.core\n"
+                                          "Function Half(x: Float64): Float64 => x / 2\n"
+                                          "Local n = 3\n"
+                                          "Print(Half(n))\n"
+                                          "Print(Half(3))\n");
+    const std::string before = printed(program, "converted");
+    const fb::compilation_t compilation = compiled(program);
+    for (const std::string_view call : { "Half(n)", "Half(3)" }) {
+        const fb::lsp::refactoring_t inlined =
+            offered(compilation, selected(compilation, compilation.file, call, "Half"),
+                    "Inline this call of 'Half'");
+        CHECK(inserted(inlined.edits).contains("As Float64)"));
+        CHECK(printed(applied(compilation, program, inlined.edits), "converted") == before);
+    }
+}
+
+TEST_CASE("a signature's change doesn't take out a parameter its code uses, nor rename one to a "
+          "name its code has",
+          "[lsp][refactor]") {
+    const program_t program = own_program("Import std.core\n"
+                                          "Global scale = 10\n"
+                                          "Function Grow(n: Int): Int => n * scale\n"
+                                          "Function Sum(a: Int, b: Int): Int\n"
+                                          "    Local total = a + b\n"
+                                          "    Return total\n"
+                                          "End Function\n"
+                                          "Print(Grow(2) + Sum(1, 2))\n");
+    const fb::compilation_t compilation = compiled(program);
+    REQUIRE(!compilation.diagnostics.has_errors());
+    CHECK(!changed_signature(compilation, "Grow", "scale: Int <- n"));
+    CHECK(!changed_signature(compilation, "Sum", "total: Int <- a, b: Int"));
+    CHECK(!changed_signature(compilation, "Sum", "a: Int"));
+    CHECK(changed_signature(compilation, "Grow", "size: Int <- n"));
+}
+
+TEST_CASE("a signature's change finds the parentheses by the code, not by their characters",
+          "[lsp][refactor]") {
+    const program_t program = own_program(
+        "Import std.core\n"
+        "Function Tag(open: String, n: Int, close: String = \")\"): String => open + \"{n}\" + "
+        "close\n"
+        "Print(Tag(\"(\", 1))\n"
+        "Print(Tag(\"(\", 2, \"]\"))\n");
+    const std::string before = printed(program, "parentheses");
+    const fb::compilation_t compilation = compiled(program);
+    const std::expected<std::vector<fb::fix_t>, std::string> changed =
+        changed_signature(compilation, "Tag", "n: Int, open: String, close: String = \")\"");
+    REQUIRE(changed);
+    const program_t after = applied(compilation, program, *changed);
+    CHECK(after.main.contains("Print(Tag(1, \"(\"))\n"));
+    CHECK(after.main.contains("Print(Tag(2, \"(\", \"]\"))\n"));
+    CHECK(printed(after, "parentheses") == before);
+}
+
+TEST_CASE("code that changes a variable through ByRef, or rethrows from a Catch, isn't "
+          "extracted",
+          "[lsp][refactor]") {
+    const program_t program = own_program(std::string(counters) + "Function F()\n"
+                                                                  "    Local c = Counter(0)\n"
+                                                                  "    c.Bump()\n"
+                                                                  "    Add(ByRef c.count)\n"
+                                                                  "    Print(c.count)\n"
+                                                                  "End Function\n"
+                                                                  "Function G() Throws Error\n"
+                                                                  "    Try\n"
+                                                                  "        Throw Error(\"inner\")\n"
+                                                                  "    Catch e\n"
+                                                                  "        Throw Error(\"again\")\n"
+                                                                  "    End Try\n"
+                                                                  "End Function\n"
+                                                                  "F()\n"
+                                                                  "Try\n"
+                                                                  "    G()\n"
+                                                                  "Catch e\n"
+                                                                  "    Print(e.Message)\n"
+                                                                  "End Try\n");
+    const fb::compilation_t compilation = compiled(program);
+    REQUIRE(!compilation.diagnostics.has_errors());
+    const fb::file_id_t file = compilation.file;
+    CHECK(titles(compilation, selected(compilation, file, "    c.Bump()\n    Add(ByRef c.count)\n"))
+              .empty());
+    CHECK(titles(compilation, selected(compilation, file,
+                                       "    Try\n"
+                                       "        Throw Error(\"inner\")\n"
+                                       "    Catch e\n"
+                                       "        Throw Error(\"again\")\n"
+                                       "    End Try\n"))
+              .empty());
+}
+
+TEST_CASE("an extracted Function's parameter has the type a check narrowed its value to",
+          "[lsp][refactor]") {
+    const program_t program = own_program("Import std.core\n"
+                                          "Function F(x: Int?)\n"
+                                          "    If x != Null\n"
+                                          "        Print(x + 1)\n"
+                                          "    End If\n"
+                                          "End Function\n"
+                                          "F(4)\n"
+                                          "F(Null)\n");
+    const std::string before = printed(program, "narrowed");
+    const fb::compilation_t compilation = compiled(program);
+    const fb::lsp::refactoring_t extracted =
+        offered(compilation, selected(compilation, compilation.file, "        Print(x + 1)\n"),
+                "Extract to a Function");
+    CHECK(inserted(extracted.edits).contains("(x: Int32)"));
+    CHECK(printed(applied(compilation, program, extracted.edits), "narrowed") == before);
 }
 
 TEST_CASE("fb-lsp offers the refactorings, organizes Imports, and changes signatures",

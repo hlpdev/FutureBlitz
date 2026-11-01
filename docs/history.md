@@ -215,6 +215,12 @@ Method to override, or the Class made Abstract (`member_stub`, `suggest_implemen
 (`added_end`, `changed_end`). `@MainThread` has no error it fixes, and `fb add`'s fix is in Deferred
 work. Tests: tests/compiler/fixes_tests.cpp, each fix made and its program compiled.
 
+Step 7's review fixes (2026-11-01, on dev/m11): `root_of`, `by_ref_method`, `passed_in`, and
+`changed_in` in refactor.cpp, for extract_local's ByRef places, inline_local's and inlined_call's
+changes, and extract_function's inputs; inlined_call's `(arg As T)`; change_signature's used and
+taken names, and its spans from the AST; movable()'s Throws only in a Try's body with a Catch for
+every error; and extract_function's narrowed parameter types. Tests in refactor_tests.
+
 The second recheck (2026-11-01, on dev/m11): `varies` through operators, members, and Locals'
 values; the benchmark's references and rename after an edit; `dependents_t::checked`,
 `server_t::written_since`, and `workspace_t::watched`; `code_of`'s block comments. Tests in

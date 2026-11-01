@@ -1065,6 +1065,17 @@ an operand that names a Function or Field declared in a file with an `#If`, or i
 wchar_t (`varies` of an expression). The editor's folders no longer turn lints off: a path
 dependency's show as fb build applies them, and only a package opened from the cache has none.
 
+**Step 7's review fixes** (2026-11-01): what's passed ByRef, a ByRef Method's Struct, or a part
+of either, isn't extracted to a Local, which would be a copy that changes; a Local isn't inlined
+when it, or a variable its value reads, changes through ByRef, a ByRef Method, or a member set
+(`changed_in`, `passed_in`, `root_of`); nor is code extracted that changes an input that way;
+an inlined call's argument keeps its conversion to its parameter's type with an As; a
+signature's change doesn't take out a parameter the code uses, nor rename one to a name the code
+already has, and finds a declaration's and a call's arguments by their spans, not by counting
+parentheses, which a string can have; a Throw counts as caught only in a Try's body with a Catch
+for every error; and an extracted function's parameter has the type its first use has, which a
+check may have narrowed.
+
 **The second recheck** (2026-11-01): `varies` follows an operator's operands, a member's
 object, and a Local's value, each Local once, so `Local n = Fd()` then `n As Int64` isn't
 redundant when Fd's result is under an `#If`; the benchmark's references and rename each follow

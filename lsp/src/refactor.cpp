@@ -365,6 +365,84 @@ template <typename Id>
     return found;
 }
 
+/// The variable a member or an index is of, as `c` is `c.items[0].count`'s, or nullopt.
+[[nodiscard]] std::optional<symbol_id_t> root_of(const query_t& query, expr_id_t id) {
+    while (true) {
+        const expr_node_t& node = query.ast().get(id).node;
+        if (const auto* member = std::get_if<member_expr_t>(&node)) {
+            id = member->object;
+        } else if (const auto* indexed = std::get_if<index_expr_t>(&node)) {
+            id = indexed->object;
+        } else {
+            break;
+        }
+    }
+
+    return std::holds_alternative<name_expr_t>(query.ast().get(id).node) ? info(query, id).symbol
+                                                                         : std::nullopt;
+}
+
+/// Whether a call is of a ByRef Method, which can change the Struct it's called on.
+[[nodiscard]] bool by_ref_method(const query_t& query, const expr_id_t call) {
+    const auto* node = std::get_if<call_expr_t>(&query.ast().get(call).node);
+    const std::optional<symbol_id_t> called = info(query, call).symbol;
+    return node != nullptr &&
+           std::holds_alternative<member_expr_t>(query.ast().get(node->callee).node) && called &&
+           symbol_of(query, *called).kind == symbol_kind_t::METHOD &&
+           symbol_of(query, *called).by_ref;
+}
+
+/// The variables code in `span` may change through what it passes ByRef, a member of one among
+/// them, or calls a ByRef Method on.
+[[nodiscard]] std::set<symbol_id_t> passed_in(const query_t& query, const span_t span) {
+    std::set<symbol_id_t> found;
+    for (const expr_id_t id : exprs_in(query, span)) {
+        const auto* call = std::get_if<call_expr_t>(&query.ast().get(id).node);
+        if (call == nullptr) {
+            continue;
+        }
+
+        for (const argument_t& argument : call->arguments) {
+            if (const std::optional<symbol_id_t> root = root_of(query, argument.value);
+                root && argument.by_ref) {
+                found.insert(*root);
+            }
+        }
+
+        if (by_ref_method(query, id)) {
+            const auto& member = std::get<member_expr_t>(query.ast().get(call->callee).node);
+            if (const std::optional<symbol_id_t> root = root_of(query, member.object)) {
+                found.insert(*root);
+            }
+        }
+    }
+
+    return found;
+}
+
+/// The variables code in `span` changes in any way: those assigned_in() and passed_in() find, and
+/// those a member or an index of is set.
+[[nodiscard]] std::set<symbol_id_t> changed_in(const query_t& query, const span_t span) {
+    std::set<symbol_id_t> found = assigned_in(query, span);
+    found.merge(passed_in(query, span));
+    for (const stmt_id_t statement : statements_in(query, span)) {
+        const stmt_node_t& node = query.ast().get(statement).node;
+        std::optional<expr_id_t> target;
+        if (const auto* assigned = std::get_if<assign_stmt_t>(&node)) {
+            target = assigned->target;
+        } else if (const auto* increment = std::get_if<increment_stmt_t>(&node)) {
+            target = increment->target;
+        }
+
+        if (const std::optional<symbol_id_t> root =
+                target ? root_of(query, *target) : std::nullopt) {
+            found.insert(*root);
+        }
+    }
+
+    return found;
+}
+
 /// Whether an expression in `statement`'s span, before `span`, may act, so moving `span`'s code
 /// before the statement would change their order.
 [[nodiscard]] bool acts_before(const query_t& query, const span_t statement, const span_t span) {
@@ -503,6 +581,28 @@ std::optional<refactoring_t> extract_local(const query_t& query, const span_t se
         return std::nullopt;
     }
 
+    // What's passed ByRef, or a ByRef Method is called on, or a part of either, is a place, not a
+    // value: a copy of it would be what changes.
+    for (const expr_id_t id : exprs_in(query, query.ast().get(*statement).span)) {
+        const auto* call = std::get_if<call_expr_t>(&query.ast().get(id).node);
+        if (call == nullptr) {
+            continue;
+        }
+
+        for (const argument_t& argument : call->arguments) {
+            if (argument.by_ref && within(selection, span_of(query, argument.value))) {
+                return std::nullopt;
+            }
+        }
+
+        if (by_ref_method(query, id) &&
+            within(selection,
+                   span_of(query,
+                           std::get<member_expr_t>(query.ast().get(call->callee).node).object))) {
+            return std::nullopt;
+        }
+    }
+
     // What's set isn't a value to work out first.
     for (const stmt_id_t id : statements_in(query, query.ast().get(*statement).span)) {
         const stmt_node_t& setting = query.ast().get(id).node;
@@ -614,8 +714,16 @@ std::optional<refactoring_t> extract_local(const query_t& query, const span_t se
                 const stmt_node_t& outer = query.ast().get(other).node;
                 const bool holds =
                     within(query.ast().get(id).span, query.ast().get(other).span) && other != id;
+                // A Throw is caught in a Try's body with a Catch for every error, not in its
+                // Catches or its Finally.
                 if (std::holds_alternative<throw_stmt_t>(node)) {
-                    return holds && std::holds_alternative<try_stmt_t>(outer);
+                    const auto* tried = std::get_if<try_stmt_t>(&outer);
+                    return holds && tried != nullptr &&
+                           std::ranges::any_of(tried->catches,
+                                               [](const catch_t& each) { return !each.type; }) &&
+                           std::ranges::any_of(tried->body, [&](const stmt_id_t part) {
+                               return within(query.ast().get(id).span, query.ast().get(part).span);
+                           });
                 }
 
                 return holds && (std::holds_alternative<while_stmt_t>(outer) ||
@@ -782,7 +890,9 @@ std::vector<refactoring_t> extract_function(const query_t& query, const span_t s
     }
 
     // It can't change what's outside it: a variable, or a Struct's field through one.
-    const std::set<symbol_id_t> assigned = assigned_in(query, range);
+    // Nor through ByRef, or a ByRef Method.
+    std::set<symbol_id_t> assigned = assigned_in(query, range);
+    assigned.merge(passed_in(query, range));
     if (std::ranges::any_of(inputs, [&](const symbol_id_t id) { return assigned.contains(id); })) {
         return {};
     }
@@ -856,10 +966,22 @@ std::vector<refactoring_t> extract_function(const query_t& query, const span_t s
     const std::string name = unused_name(text, "Extracted");
     std::string parameters;
     std::string arguments;
+    // Each parameter of the type its first use has there, which a check before the code may
+    // have narrowed, as a T? that isn't Null is a T.
     for (const symbol_id_t id : inputs) {
         const symbol_t& input = symbol_of(query, id);
+        type_id_t type = input.type;
+        std::uint32_t first_use = UINT32_MAX;
+        for (const expr_id_t use : exprs_in(query, range)) {
+            if (std::holds_alternative<name_expr_t>(query.ast().get(use).node) &&
+                info(query, use).symbol == id && span_of(query, use).begin < first_use) {
+                first_use = span_of(query, use).begin;
+                type = info(query, use).type;
+            }
+        }
+
         parameters += std::format("{}{}: {}", parameters.empty() ? "" : ", ", input.name,
-                                  query.type_name(input.type));
+                                  query.type_name(type));
         arguments += std::format("{}{}", arguments.empty() ? "" : ", ", input.name);
     }
 
@@ -972,7 +1094,8 @@ std::optional<refactoring_t> inline_local(const query_t& query, const named_t& n
                   .begin = 0,
                   .end = static_cast<std::uint32_t>(text.size()),
               };
-    const std::set<symbol_id_t> assigned = assigned_in(query, scope);
+    // Nothing changes it, a Struct's copy, nor what its value reads.
+    const std::set<symbol_id_t> assigned = changed_in(query, scope);
     if (assigned.contains(named.symbol)) {
         return std::nullopt;
     }
@@ -1042,7 +1165,7 @@ std::optional<std::string> inlined_call(const query_t& query, const symbol_id_t 
                      .end = static_cast<std::uint32_t>(query.source().text().size()),
                  };
     const std::vector<named_t> names = query.names();
-    const std::set<symbol_id_t> assigned = assigned_in(query, calling);
+    const std::set<symbol_id_t> assigned = changed_in(query, calling);
     std::vector<std::pair<span_t, std::string>> replaced;
     std::size_t acting = 0;
     for (const named_t& named : names) {
@@ -1071,7 +1194,13 @@ std::optional<std::string> inlined_call(const query_t& query, const symbol_id_t 
         const std::size_t at = static_cast<std::size_t>(parameter - declared.parameters.begin());
         std::string argument;
         if (const std::optional<expr_id_t> given = called.arguments[at]) {
-            argument = placed(query, *given, std::string(text_of(query, span_of(query, *given))));
+            // The parameter's type, which the call converts the argument to.
+            const type_id_t type = symbol_of(query, *parameter).type;
+            argument =
+                needs_as(query, *given, type)
+                    ? std::format("({} As {})", text_of(query, span_of(query, *given)),
+                                  query.type_name(type))
+                    : placed(query, *given, std::string(text_of(query, span_of(query, *given))));
             if (!steady(query, *given,
                         [&](const symbol_id_t id) { return !assigned.contains(id); })) {
                 ++acting;
@@ -1564,26 +1693,61 @@ change_signature(const query_t& query, const symbol_key_t& key, const std::strin
         changes.push_back(std::move(change));
     }
 
+    // What goes can't be what the code still uses, and a new name can't be what it names
+    // already, which the parameter would hide, or what it declares.
+    const span_t body = query.ast().get(*declared.declaration).span;
+    const std::vector<named_t> named_in = query.names(declared.span.file);
+    for (std::size_t old = 0; old < declared.parameters.size(); ++old) {
+        const bool kept = std::ranges::any_of(
+            changes, [&](const changed_t& change) { return change.from == old; });
+        const bool used = std::ranges::any_of(named_in, [&](const named_t& named) {
+            return named.symbol == declared.parameters[old] && within(named.span, body) &&
+                   named.span != node.parameters[old].name.span;
+        });
+        if (!kept && used) {
+            return std::unexpected(std::format("'{}' goes, but the code still uses it",
+                                               node.parameters[old].name.text));
+        }
+    }
+
+    for (const changed_t& change : changes) {
+        const std::optional<symbol_id_t> own =
+            change.from ? std::optional(declared.parameters[*change.from]) : std::nullopt;
+        const bool taken = std::ranges::any_of(named_in, [&](const named_t& named) {
+            const symbol_t& other = symbol_of(query, named.symbol);
+            const bool parameter = std::ranges::contains(declared.parameters, named.symbol);
+            return within(named.span, body) && other.name == change.name && named.symbol != own &&
+                   !parameter;
+        });
+        if (taken) {
+            return std::unexpected(std::format(
+                "the code names '{}' already, which a parameter of that name would hide",
+                change.name));
+        }
+    }
+
     std::vector<fix_t> edits;
-    // The declaration's parameters, between its parentheses.
+    // The declaration's parameters, from the first one's start to the last one's end, or between
+    // its parentheses, which have none.
     const std::string_view text = query.compilation().sources.get(declared.span.file).text();
-    std::uint32_t open = declared.span.end;
-    while (open < text.size() && text[open] != '(') {
-        ++open;
-    }
-
-    std::uint32_t close = open + 1;
-    for (int depth = 1; close < text.size(); ++close) {
-        if (text[close] == '(') {
-            ++depth;
-        } else if (text[close] == ')') {
-            --depth;
+    const auto [open, close] = [&] {
+        if (!node.parameters.empty()) {
+            return std::pair(parameter_span(query, node.parameters.front()).begin,
+                             parameter_span(query, node.parameters.back()).end);
         }
 
-        if (depth == 0) {
-            break;
+        std::uint32_t from = declared.span.end;
+        while (from < node.header_end && text[from] != '(') {
+            ++from;
         }
-    }
+
+        std::uint32_t to = from + 1;
+        while (to < node.header_end && text[to] != ')') {
+            ++to;
+        }
+
+        return std::pair(from + 1, to);
+    }();
 
     std::string list;
     for (const changed_t& change : changes) {
@@ -1591,19 +1755,18 @@ change_signature(const query_t& query, const symbol_key_t& key, const std::strin
     }
 
     edits.push_back({
-        .span = { .file = declared.span.file, .begin = open + 1, .end = close },
+        .span = { .file = declared.span.file, .begin = open, .end = close },
         .replacement = list,
     });
 
     // A renamed parameter's uses in the function's code.
-    const span_t body = query.ast().get(*declared.declaration).span;
     for (const changed_t& change : changes) {
         if (!change.from || node.parameters[*change.from].name.text == change.name) {
             continue;
         }
 
         const symbol_id_t parameter = declared.parameters[*change.from];
-        for (const named_t& named : query.names(declared.span.file)) {
+        for (const named_t& named : named_in) {
             if (named.symbol == parameter && within(named.span, body) &&
                 named.span != node.parameters[*change.from].name.span) {
                 edits.push_back({ .span = named.span, .replacement = change.name });
@@ -1692,26 +1855,32 @@ change_signature(const query_t& query, const symbol_key_t& key, const std::strin
                                      named ? change.name + ": " : "", argument);
         }
 
-        // The parentheses the call ends with.
+        // Its arguments, from the first one's start, its name's or ByRef's, to the last one's
+        // end, or between the parentheses the call ends with, which have none.
         const span_t whole = span_of(query, id);
         const std::string_view source = query.compilation().sources.get(whole.file).text();
-        std::uint32_t begin = whole.end - 1;
-        for (int depth = 0; begin > whole.begin; --begin) {
-            if (source[begin] == ')') {
-                ++depth;
-            } else if (source[begin] == '(') {
-                --depth;
+        span_t listed{ .file = whole.file, .begin = whole.end - 1, .end = whole.end - 1 };
+        if (call->arguments.empty()) {
+            while (listed.begin > span_of(query, call->callee).end &&
+                   source[listed.begin - 1] != '(') {
+                --listed.begin;
+            }
+        } else {
+            const argument_t& first = call->arguments.front();
+            listed.begin = span_of(query, first.value).begin;
+            if (first.name) {
+                listed.begin = first.name->span.begin;
+            } else if (first.by_ref) {
+                const std::size_t keyword = source.rfind("ByRef", listed.begin);
+                listed.begin = keyword == std::string_view::npos
+                                   ? listed.begin
+                                   : static_cast<std::uint32_t>(keyword);
             }
 
-            if (depth == 0) {
-                break;
-            }
+            listed.end = span_of(query, call->arguments.back().value).end;
         }
 
-        edits.push_back({
-            .span = { .file = whole.file, .begin = begin + 1, .end = whole.end - 1 },
-            .replacement = arguments,
-        });
+        edits.push_back({ .span = listed, .replacement = arguments });
     }
 
     return edits;
