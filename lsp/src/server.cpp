@@ -5,6 +5,7 @@
 #include "fb/lsp/features.hpp"
 #include "fb/lsp/protocol.hpp"
 #include "fb/lsp/query.hpp"
+#include "fb/lsp/refactor.hpp"
 #include "fb/lsp/workspace.hpp"
 #include "fb/module.hpp"
 #include "fb/source.hpp"
@@ -15,6 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <expected>
 #include <filesystem>
 #include <format>
 #include <functional>
@@ -26,6 +28,7 @@
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -399,6 +402,10 @@ std::optional<json_t> server_t::answer(const std::string& method, const json_t& 
         return code_actions(params);
     }
 
+    if (method == "fb/changeSignature") {
+        return change_signature(params);
+    }
+
     if (method == "textDocument/formatting") {
         return formatting(params);
     }
@@ -720,7 +727,20 @@ json_t server_t::initialize(const json_t& params) {
                     "semanticTokensProvider",
                     { { "legend", semantic_tokens_legend() }, { "full", true } },
                 },
-                { "codeActionProvider", { { "codeActionKinds", json_t::array({ "quickfix" }) } } },
+                {
+                    "codeActionProvider",
+                    {
+                        {
+                            "codeActionKinds",
+                            json_t::array({
+                                "quickfix",
+                                "refactor.extract",
+                                "refactor.inline",
+                                "source.organizeImports",
+                            }),
+                        },
+                    },
+                },
                 { "documentFormattingProvider", true },
                 { "foldingRangeProvider", true },
                 { "selectionRangeProvider", true },
@@ -1023,8 +1043,120 @@ json_t server_t::code_actions(const json_t& params) {
         .begin = m_positions.offset(query.source(), range.at("start")),
         .end = m_positions.offset(query.source(), range.at("end")),
     };
-    return lsp::code_actions(query, span, m_positions,
-                             [this](const std::filesystem::path& file) { return editable(file); });
+    json_t actions =
+        lsp::code_actions(query, span, m_positions,
+                          [this](const std::filesystem::path& file) { return editable(file); });
+
+    // A kind the client asks for, or without `only`, all but source actions, which a menu of
+    // their own asks for.
+    const json_t only = object_at(params, "context").value("only", json_t());
+    const auto wanted = [&](const std::string& kind) {
+        if (!only.is_array()) {
+            return !kind.starts_with("source");
+        }
+
+        return std::ranges::any_of(only, [&](const json_t& asked) {
+            return asked.is_string() && (kind == asked.get<std::string>() ||
+                                         kind.starts_with(asked.get<std::string>() + "."));
+        });
+    };
+
+    // Refactorings and organizing the Imports are of the document's text as its check had it.
+    const std::optional<std::string> current = m_workspace->text(*path);
+    if (!current || *current != query.source().text()) {
+        return actions;
+    }
+
+    const auto action = [&](const std::string& title, const std::string& kind,
+                            const std::vector<fix_t>& fixes) {
+        if (std::optional<json_t> edit = workspace_edit(query.compilation(), fixes)) {
+            actions.push_back(
+                { { "title", title }, { "kind", kind }, { "edit", std::move(*edit) } });
+        }
+    };
+    for (const refactoring_t& refactoring : refactorings(query, span)) {
+        if (wanted(refactoring.kind)) {
+            action(refactoring.title, refactoring.kind, refactoring.edits);
+        }
+    }
+
+    if (wanted("source.organizeImports")) {
+        if (const std::vector<fix_t> fixes = organized_imports(query); !fixes.empty()) {
+            action("Organize Imports", "source.organizeImports", fixes);
+        }
+    }
+
+    return actions;
+}
+
+std::optional<json_t> server_t::workspace_edit(const compilation_t& compilation,
+                                               const std::vector<fix_t>& fixes) const {
+    json_t changes = json_t::object();
+    std::set<std::tuple<std::string, std::uint32_t, std::uint32_t, std::string>> seen;
+    for (const fix_t& fix : fixes) {
+        const std::filesystem::path path = compilation.disk_path(fix.span.file);
+        if (path.empty() || !editable(path)) {
+            return std::nullopt;
+        }
+
+        const std::string uri = uri_of(path);
+        if (!seen.emplace(uri, fix.span.begin, fix.span.end, fix.replacement).second) {
+            continue;
+        }
+
+        changes[uri].push_back({
+            { "range", m_positions.range(compilation.sources.get(fix.span.file), fix.span) },
+            { "newText", fix.replacement },
+        });
+    }
+
+    return json_t{ { "changes", std::move(changes) } };
+}
+
+json_t server_t::change_signature(const json_t& params) {
+    const std::optional<target_t> found = target(params);
+    if (!found) {
+        throw std::runtime_error("there's no Function or Method here");
+    }
+
+    const query_t query(*found->checked.compilation, found->checked.file);
+    // Without new parameters, the ones it has, for the editor to change.
+    if (!params.contains("parameters")) {
+        const std::expected<std::string, std::string> written =
+            signature_parameters(query, found->named.symbol);
+        if (!written) {
+            throw std::runtime_error(written.error());
+        }
+
+        return { { "parameters", *written } };
+    }
+
+    // Its declaration and calls in each check that has them, the same edit once.
+    const std::string written = params.at("parameters").get<std::string>();
+    json_t changes = json_t::object();
+    for (const std::shared_ptr<const compilation_t>& compilation : found->compilations) {
+        const query_t each(*compilation, compilation->file);
+        const std::expected<std::vector<fix_t>, std::string> fixes =
+            lsp::change_signature(each, found->key, written);
+        if (!fixes) {
+            throw std::runtime_error(fixes.error());
+        }
+
+        const std::optional<json_t> edit = workspace_edit(*compilation, *fixes);
+        if (!edit) {
+            throw std::runtime_error("a call of it isn't the workspace's to change");
+        }
+
+        for (const auto& [uri, edits] : edit->at("changes").items()) {
+            for (const json_t& one : edits) {
+                if (!std::ranges::contains(changes[uri], one)) {
+                    changes[uri].push_back(one);
+                }
+            }
+        }
+    }
+
+    return { { "changes", std::move(changes) } };
 }
 
 json_t server_t::formatting(const json_t& params) {

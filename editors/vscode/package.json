@@ -175,6 +175,11 @@
         "command": "futureblitz.showReferences",
         "title": "Show References",
         "category": "FutureBlitz"
+      },
+      {
+        "command": "futureblitz.changeSignature",
+        "title": "Change Signature",
+        "category": "FutureBlitz"
       }
     ],
     "menus": {
@@ -182,6 +187,17 @@
         {
           "command": "futureblitz.showReferences",
           "when": "false"
+        },
+        {
+          "command": "futureblitz.changeSignature",
+          "when": "editorLangId == futureblitz"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "futureblitz.changeSignature",
+          "when": "editorLangId == futureblitz",
+          "group": "1_modification"
         }
       ],
       "editor/title/run": [

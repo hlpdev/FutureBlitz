@@ -215,6 +215,16 @@ Method to override, or the Class made Abstract (`member_stub`, `suggest_implemen
 (`added_end`, `changed_end`). `@MainThread` has no error it fixes, and `fb add`'s fix is in Deferred
 work. Tests: tests/compiler/fixes_tests.cpp, each fix made and its program compiled.
 
+Step 7, refactorings (2026-11-01, on dev/m11): lsp/include/fb/lsp/refactor.hpp and
+lsp/src/refactor.cpp, with `refactoring_t`, `refactorings` (`extract_local`, `extract_function`,
+`inline_local`, `inline_function`, `inlined_call`), `organized_imports`,
+`signature_parameters`, and `change_signature`, over `acts`, `acts_within`, `steady`,
+`assigned_in`, `conditional`, and `needs_as`; fb-lsp's code actions of kinds refactor.extract,
+refactor.inline, and source.organizeImports, `server_t::workspace_edit`, and the
+fb/changeSignature request (`server_t::change_signature`); the extension's
+futureblitz.changeSignature command (editors/vscode/src/refactor.ts). Tests in
+tests/lsp/refactor_tests.cpp.
+
 The inspections' recheck (2026-11-01, on dev/m11): Consts in `m_effectful_modules` and
 `check_unused_private`'s effects; `holds_object` for unused_local's Remove, and `pure`'s
 ThreadLocal reads; `varies` of an expression, with C's long and wchar_t; `check_request_t` and

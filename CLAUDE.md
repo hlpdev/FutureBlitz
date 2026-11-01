@@ -47,8 +47,8 @@ typed, completion that imports, quick fixes, inspections, refactorings, project.
 editor, `fb mcp`), is planned in docs/tooling.md with its latency budgets; step 0, measuring, is
 done (2026-10-31), with where the time goes, and so are step 1, checks that keep what didn't
 change, step 2, errors as typed, step 3, completion that knows, step 4, the editor's basics, and
-step 5, quick fixes, and step 6, inspections (2026-10-31, on dev/m11); step 7, refactorings, is
-next.
+step 5, quick fixes, step 6, inspections (2026-10-31, on dev/m11), and step 7, refactorings
+(2026-11-01, on dev/m11); steps 8 and 9 are the fb11 lane's, and step 10's review is next.
 
 ## History
 Each milestone's steps, in detail (what each added, by name, and each review's fixes), are in

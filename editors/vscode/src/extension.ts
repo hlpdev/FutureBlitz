@@ -10,6 +10,7 @@ import { ServerClient } from "./client";
 import { DEBUG_TYPE, FbDebugConfigurationProvider, defaultProgram } from "./debug";
 import { FbCommand, relativeTarget } from "./fb";
 import { Found, currentEnvironment, findFb, findLldbScript, findLsp } from "./paths";
+import { changeSignature } from "./refactor";
 import { FbTaskProvider, TASK_TYPE, runTask } from "./tasks";
 import { FbTestController } from "./tests";
 
@@ -80,6 +81,7 @@ export function activate(context: vscode.ExtensionContext): Api {
         vscode.commands.registerCommand("futureblitz.showOutput", () => output.show(true)),
         vscode.commands.registerCommand("futureblitz.run", () => runCommand("run", tasks)),
         vscode.commands.registerCommand("futureblitz.test", () => runCommand("test", tasks)),
+        vscode.commands.registerCommand("futureblitz.changeSignature", () => changeSignature(server.client)),
         // A code lens's count of references, which fb-lsp's codeLens/resolve gives as JSON.
         vscode.commands.registerCommand(
             "futureblitz.showReferences",

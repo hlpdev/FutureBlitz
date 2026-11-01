@@ -30,6 +30,13 @@ server's errors as you type and formatting on save, tasks for `fb build`, `fb ru
   uses or reaches is faded, with a fix that removes it, and a name that hides another, an As that
   changes nothing, and a condition that's always True or False are reported. A warning's code is
   its lint, which project.toml's `[lints]` turns off or makes an error.
+- **Refactorings**: a selection can be extracted to a Local, a Function, or a Method, and a
+  Local or a Function's call inlined, from the light bulb or Refactor...; Source Action...
+  organizes Imports, sorted and without unused ones, and `"editor.codeActionsOnSave": {
+  "source.organizeImports": "explicit" }` does it on save. FutureBlitz: Change Signature, in the
+  editor's context menu, reorders, renames ("new: Type <- old"), takes out, and adds ("name:
+  Type = value") a Function's or Method's parameters, changing every call. Each is offered only
+  where the code does the same after it.
 - **Reading code**: inlay hints show the types of Locals, For variables, and lambda parameters
   where none is written, and the parameters' names at a call's arguments (each a setting). A
   name's other uses in its file are highlighted, reads and writes apart; blocks, each If branch,

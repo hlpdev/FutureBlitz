@@ -671,7 +671,7 @@ a half times it:
 | 4 | **The editor's basics** (done 2026-10-31). Inlay hints (a Local's inferred type, parameter names at calls, each a setting); highlighting a symbol's other uses; folding by blocks, comments, and Import groups; expanding a selection by syntax; go to type definition and to implementations; call and type hierarchies; code lenses for references; run and debug for each `@Test` and main file in VS Code's Testing panel and the gutter | each request has tests, and the extension's Testing panel runs and debugs a package's tests |
 | 5 | **Quick fixes** (done 2026-10-31, but for `fb add`'s, in Deferred work). Every error that has a likely fix offers it, from the compiler: import the module that declares an unknown name (and `fb add` the registry package that has it, when one does); "did you mean" for a misspelled name; add `Try`, `Try?`, or a Throws; create the Function, Method, Field, Property, Local, or Enum member a use names, with its types from the use; implement an Interface's members or an Abstract Class's; add a missing `End`; a conversion with `As`; a Null check or `?` for nullability; make a declaration Public or Package for a use that can't see it; wrap in `Unsafe`; add a missing Return; fix a keyword's case | each fix has a test that applies it and checks the file compiles |
 | 6 | **Inspections** (done 2026-10-31). Warnings, with fixes, from the compiler: unused Locals, parameters, Imports, and Private members; unreachable code; a name that shadows another; a redundant `As` or `?`; a condition that's always True or False. `fb check` and `fb build` show them; project.toml's `[lints]` turns each off or makes it an error | each inspection has tests of when it warns and when it doesn't, and std builds with none |
-| 7 | **Refactorings.** Extract a Local, a Function, or a Method from a selection (with its parameters and its result worked out); inline a Local or a Function; change a signature (add, remove, rename, and reorder parameters, updating every call); organize Imports (sorted, unused ones removed), on save if asked | each refactoring has tests over std-sized code that check the result compiles and behaves the same |
+| 7 | **Refactorings** (done 2026-11-01). Extract a Local, a Function, or a Method from a selection (with its parameters and its result worked out); inline a Local or a Function; change a signature (add, remove, rename, and reorder parameters, updating every call); organize Imports (sorted, unused ones removed), on save if asked | each refactoring has tests over std-sized code that check the result compiles and behaves the same |
 | 8 | **project.toml.** fb-lsp serves project.toml too: completion and hover for its keys and values from what fb reads, the errors fb gives for it as you type, package names completed from the registry's search, versions from its index, hover with a package's description and newest version, quick fixes to update a dependency or add what `fb publish` needs; offline, from the cache | completing a dependency's name and version against a test registry works, and every project.toml error fb has shows in the editor |
 | 9 | **AI that knows FutureBlitz.** `fb mcp`, an MCP server over stdio, gives any assistant tools to search the spec and std's reference (fb doc's JSON), look up the project's symbols, check a file or a snippet and read its errors, and format code; the VS Code extension offers it to Copilot through VS Code's MCP and language-model tool APIs, so agent mode uses it without setup; `fb new` writes an AGENTS.md with a short primer on the language and `fb mcp`, which Copilot, Claude Code, and Cursor read | an assistant given only `fb mcp` writes a program that compiles from a one-line request, in a test with a scripted client |
 | 10 | **Loose ends and the review**, with the budgets met, and FutureBlitz 1.2 released | every step's done-when holds, the budgets pass, and the release is out |
@@ -1064,6 +1064,44 @@ ThreadLocal Global, which `pure` counts as a call; `redundant_as` and `constant_
 an operand that names a Function or Field declared in a file with an `#If`, or is C's long or
 wchar_t (`varies` of an expression). The editor's folders no longer turn lints off: a path
 dependency's show as fb build applies them, and only a package opened from the cache has none.
+
+**Step 7, refactorings** (2026-11-01): fb-lsp's code actions offer, for a selection, Extract to
+a Local, to a Function, and to a Method, and for the name the selection starts at, Inline a
+Local, a call of a Function, or a Private Function everywhere; `source.organizeImports` sorts a
+file's Imports, std's first and quoted paths last, without what the inspections say is unused;
+and `fb/changeSignature` gives a Function's or Method's parameters as its declaration writes
+them, and, given a new list, the edits of its declaration, its code's uses of a renamed one, and
+every call, which the extension's Change Signature command asks for. Each is offered only where
+the code does the same after it (lsp/src/refactor.cpp):
+
+- **Extract to a Local** takes an expression its statement works out once, before the rest of
+  it: not a While's or an ElseIf's condition, the right of `&&`, `||`, or `??`, a branch of
+  `?:`, a lambda's code, or what's set, and not after something in the statement that acts, a
+  call, an index, a Property's Get. It's written with its type when a literal or the like takes
+  that from where it is.
+- **Extract to a Function or a Method** takes whole statements side by side in one block: what
+  they read from around them become parameters, and a Local they declare that the code after
+  them reads, one at most, the result. Not code with a Return, a Defer, an Await, a Try that
+  passes an error on, a Throw or a Break that leaves it, or that sets a variable from around it,
+  or a Struct's field through one; nor code of a generic function or type, an Async or Unsafe
+  one, or a lambda's. Code that uses Self is a Method of its type, Static from a Static Method.
+- **Inline a Local** puts its value at each use, and **a Function's call** its one Return's value
+  with the arguments for its parameters, when the value gives the same there: literals, and
+  variables nothing in the code changes, with operators that can't trap, as integer arithmetic
+  can in a debug build; an argument that acts has to be the only one, used once. An As keeps a
+  literal's type.
+- **Change signature** keeps, moves, renames ("new: Type <- old"), takes out, and adds ("name:
+  Type = value", whose value each call passes) parameters; a call's arguments go in the new
+  order, named after one that takes its default. Not for what overrides, implements, is
+  overridden, or is used as a value, nor where an argument that acts would go or move.
+- **Organize Imports** runs on save with VS Code's `"editor.codeActionsOnSave":
+  { "source.organizeImports": "explicit" }`, and leaves Imports with a comment or an `#If` among
+  them as they are.
+
+Tests (tests/lsp/refactor_tests.cpp) make each on std's own code, std/text/diff.fb, template.fb,
+and yaml_scanner.fb, and run tests/programs' text_diff.fb, text_template.fb, and data_yaml.fb
+before and after, checking each prints the same; and what isn't offered, and fb-lsp's actions
+and requests.
 
 ## Not in M8
 

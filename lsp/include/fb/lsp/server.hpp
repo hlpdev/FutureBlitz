@@ -177,6 +177,11 @@ private:
     /// textDocument/prepareTypeHierarchy, typeHierarchy/supertypes, and subtypes.
     json_t type_hierarchy(const std::string& method, const json_t& params);
     json_t code_lenses(const json_t& params);
+    /// fb/changeSignature: a Function's or Method's parameters, or the edits that change them.
+    json_t change_signature(const json_t& params);
+    /// `fixes` as a WorkspaceEdit, or nullopt when one isn't the workspace's to change.
+    [[nodiscard]] std::optional<json_t> workspace_edit(const compilation_t& compilation,
+                                                       const std::vector<fix_t>& fixes) const;
     json_t resolve_code_lens(json_t lens);
     /// fb/tests: every file's @Test Functions the checks have found.
     json_t tests();

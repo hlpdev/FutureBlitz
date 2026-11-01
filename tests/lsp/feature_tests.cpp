@@ -777,7 +777,13 @@ TEST_CASE("code actions make the fix-its fb has", "[lsp]") {
                                           {
                                               { "textDocument", { { "uri", uri } } },
                                               { "range", diagnostics[0]["range"] },
-                                              { "context", { { "diagnostics", diagnostics } } },
+                                              {
+                                                  "context",
+                                                  {
+                                                      { "diagnostics", diagnostics },
+                                                      { "only", json_t::array({ "quickfix" }) },
+                                                  },
+                                              },
                                           });
     REQUIRE(actions.size() == 1);
     CHECK(actions[0]["kind"] == "quickfix");
@@ -816,7 +822,13 @@ TEST_CASE("each of a diagnostic's suggestions is a code action, the likeliest pr
                                           {
                                               { "textDocument", { { "uri", uri } } },
                                               { "range", diagnostics[0]["range"] },
-                                              { "context", { { "diagnostics", diagnostics } } },
+                                              {
+                                                  "context",
+                                                  {
+                                                      { "diagnostics", diagnostics },
+                                                      { "only", json_t::array({ "quickfix" }) },
+                                                  },
+                                              },
                                           });
     REQUIRE(actions.size() == 2);
     CHECK(actions[0]["title"] == "Add Try");
@@ -880,13 +892,18 @@ TEST_CASE("an inspection's warning has its lint's name, and what's unused is fad
     client.settle();
     CHECK(client.diagnostics(uri) == diagnostics);
 
-    const json_t actions =
-        client.request("textDocument/codeAction",
-                       {
-                           { "textDocument", { { "uri", uri } } },
-                           { "range", diagnostics[1]["range"] },
-                           { "context", { { "diagnostics", json_t::array({ diagnostics[1] }) } } },
-                       });
+    const json_t actions = client.request(
+        "textDocument/codeAction", {
+                                       { "textDocument", { { "uri", uri } } },
+                                       { "range", diagnostics[1]["range"] },
+                                       {
+                                           "context",
+                                           {
+                                               { "diagnostics", json_t::array({ diagnostics[1] }) },
+                                               { "only", json_t::array({ "quickfix" }) },
+                                           },
+                                       },
+                                   });
     REQUIRE(actions.size() == 2);
     CHECK(actions[0]["title"] == "Remove 'unused'");
     CHECK(actions[1]["title"] == "Rename to '_unused'");
@@ -911,7 +928,13 @@ TEST_CASE("a miscased keyword's code action says what it writes", "[lsp]") {
                                           { "end", client_t::position(9, 0) },
                                       },
                                   },
-                                  { "context", { { "diagnostics", diagnostics } } },
+                                  {
+                                      "context",
+                                      {
+                                          { "diagnostics", diagnostics },
+                                          { "only", json_t::array({ "quickfix" }) },
+                                      },
+                                  },
                               });
     };
 
@@ -1003,7 +1026,13 @@ TEST_CASE("a fix's edits are of the workspace's files, and go after a BOM", "[ls
                                           {
                                               { "textDocument", { { "uri", main } } },
                                               { "range", diagnostics[0]["range"] },
-                                              { "context", { { "diagnostics", diagnostics } } },
+                                              {
+                                                  "context",
+                                                  {
+                                                      { "diagnostics", diagnostics },
+                                                      { "only", json_t::array({ "quickfix" }) },
+                                                  },
+                                              },
                                           });
     for (const json_t& action : actions) {
         CHECK(!action["title"].get<std::string>().contains("Public"));
