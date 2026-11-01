@@ -41,7 +41,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Version
         id: version
@@ -83,7 +83,7 @@ jobs:
             os: ubuntu-22.04-arm
             arch: aarch64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # glibc's headers are glibc-headers' and glibc-devel's, which has gnu/stubs-64.h and
       # gnu/lib-names-64.h, or arm64's -lp64.h, that glibc's own include.
@@ -109,7 +109,7 @@ jobs:
           cmake --build build -j "$(nproc)"
           cmake --install build --prefix out
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: runtime-${{ matrix.target }}
           path: out/lib/${{ matrix.target }}
@@ -147,7 +147,7 @@ jobs:
       VERSION: ${{ needs.version.outputs.version }}
       RELEASE: futureblitz-${{ needs.version.outputs.version }}-${{ matrix.target }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Windows: MinGW's GCC from MSYS2, and the official LLVM installer, as ci.yml has them.
       - name: Install MinGW
@@ -198,7 +198,7 @@ jobs:
           echo "CXX=g++-14" >> "$GITHUB_ENV"
           echo "FB_CONFIGURE=-DLLVM_DIR=/usr/lib/llvm-22/lib/cmake/llvm -DFB_LLVM_STATIC=ON -DFB_TOOLCHAIN_PREBUILT=$RUNNER_TEMP/prebuilt" >> "$GITHUB_ENV"
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         if: runner.os == 'Linux'
         with:
           name: runtime-${{ matrix.target }}
@@ -464,7 +464,7 @@ jobs:
             --identifier dev.futureblitz.fb --version "$VERSION" \
             --scripts tools/install/macos "dist/$RELEASE.pkg"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.target }}
           path: dist
@@ -499,9 +499,9 @@ jobs:
           - target: macos-x64
             os: macos-15-intel
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: release-${{ matrix.target }}
           path: dist
@@ -785,7 +785,7 @@ jobs:
           test ! -e /usr/bin/fb
           test ! -e /usr/lib/futureblitz/bin/fb
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: runner.os == 'Linux'
         with:
           name: old-${{ matrix.target }}
@@ -808,7 +808,7 @@ jobs:
           - target: linux-arm64
             os: ubuntu-22.04-arm
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: old-${{ matrix.target }}
 
@@ -838,7 +838,7 @@ jobs:
           - target: linux-arm64
             os: ubuntu-22.04-arm
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: release-${{ matrix.target }}
           path: dist
@@ -872,9 +872,9 @@ jobs:
       run:
         working-directory: editors/vscode
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -892,7 +892,7 @@ jobs:
           npx vsce ls | grep -x images/file-light.svg
           npx vsce ls | grep -x images/file-dark.svg
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-vscode
           path: dist
@@ -910,9 +910,9 @@ jobs:
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: release-*
           path: dist
@@ -928,7 +928,7 @@ jobs:
           python3 tools/release/packages.py homebrew "$VERSION" dist/SHA256SUMS channels/futureblitz.rb
           ruby -c channels/futureblitz.rb
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: channels
           path: channels
