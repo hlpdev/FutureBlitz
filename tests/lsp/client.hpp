@@ -61,6 +61,8 @@ public:
         std::vector<std::string> encodings;
         /// Whether project.toml's registries are read only from the cache.
         bool offline = false;
+        /// Whether the client says it takes snippet edits in a workspace edit.
+        bool snippet_edits = false;
     };
 
     explicit client_t(options_t options);

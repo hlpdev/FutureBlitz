@@ -9,12 +9,14 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <deque>
 #include <filesystem>
 #include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -55,6 +57,12 @@ public:
 
     /// The client's folders, whose packages' builds made a registry package's build step's files.
     void add_folders(const std::vector<std::filesystem::path>& folders);
+
+    /// Whether the client takes snippet edits in a code action's workspace edit, LSP 3.18's
+    /// workspace.workspaceEdit.snippetEditSupport, which a quick fix's placeholders are.
+    void set_snippet_edits(const bool snippets) {
+        m_snippet_edits = snippets;
+    }
     void remove_folders(const std::vector<std::filesystem::path>& folders);
 
     /// Whether the editor has the project.toml at `path` open, so its diagnostics are this one's
@@ -105,27 +113,57 @@ private:
     std::map<std::string, std::filesystem::path> m_closed;
     std::vector<std::filesystem::path> m_folders;
     bool m_checking = false;
+    /// Only the server's thread reads it.
+    bool m_snippet_edits = false;
     bool m_stopping = false;
-    /// Registry answers, by index and package name, and by index and search; only the server's
-    /// thread asks.
+    std::thread m_thread;
+
+    /// What a registry's asked, on a thread of its own, as a registry can take seconds or never
+    /// answer: a package's versions, or a search.
+    struct fetch_t {
+        bool search = false;
+        std::string index;
+        /// The package's name, or the search's words.
+        std::string what;
+    };
+
+    /// What the registries said, by index and package name, and by index and search, and what
+    /// they're being asked, which m_registry_mutex guards.
+    std::mutex m_registry_mutex;
+    std::condition_variable m_fetch_work;
     std::map<std::string, asked_t<std::vector<index_entry_t>>> m_versions;
     std::map<std::string, asked_t<std::vector<found_package_t>>> m_searches;
-    std::thread m_thread;
+    std::deque<fetch_t> m_fetches;
+    std::set<std::string> m_fetching;
+    bool m_fetcher_stopping = false;
+    /// One an index, which remembers when it can't be reached; only the fetching thread has them.
+    std::map<std::string, std::unique_ptr<registry_t>> m_registries;
+    /// The indexes whose search couldn't be reached, and when; only the fetching thread has them.
+    std::map<std::string, std::chrono::steady_clock::time_point> m_unreachable;
+    std::thread m_fetcher;
 
     void run();
     /// Checks one document, or a closed one from disk, and publishes its errors.
     void check(const std::string& key);
 
     [[nodiscard]] json_t hover(const document_t& document, const json_t& params);
-    [[nodiscard]] json_t completion(const document_t& document, const json_t& params);
+    /// The completion's items, and whether a registry's being asked for more.
+    [[nodiscard]] json_t completion(const document_t& document, const json_t& params, bool& asking);
     [[nodiscard]] json_t code_actions(const document_t& document, const json_t& params);
 
-    /// A package's versions, oldest first, from the registry at `index`, a canonical one, or the
-    /// cache's offline or when it can't be reached. Empty when neither has it.
-    const std::vector<index_entry_t>& versions(const std::string& index, const std::string& name);
-    /// The registry's packages whose names start with `prefix`, the closest first, or the
-    /// cache's offline or when it can't be reached.
-    const std::vector<found_package_t>& search(const std::string& index, const std::string& prefix);
+    /// A package's versions, oldest first, as the registry at `index`, a canonical one, last said
+    /// them, or as the cache on disk has them until it has, without waiting for the network.
+    /// `asking` is set when the registry's being asked, so a later request has its answer.
+    std::vector<index_entry_t> versions(const std::string& index, const std::string& name,
+                                        bool& asking);
+    /// The registry's packages whose names start with `prefix`, the closest first, as it last
+    /// said them, or the cache's index files' until it has, as versions() has them.
+    std::vector<found_package_t> search(const std::string& index, const std::string& prefix,
+                                        bool& asking);
+    /// Asks a registry, unless it's being asked that already.
+    void ask(fetch_t fetch);
+    /// Asks the registries what ask() queued, until it stops.
+    void fetch();
 };
 
 } // namespace fb::lsp

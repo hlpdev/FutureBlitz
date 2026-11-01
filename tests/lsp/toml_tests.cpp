@@ -8,16 +8,22 @@
 
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
+#include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <functional>
 #include <iterator>
+#include <memory>
+#include <mutex>
 #include <set>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -34,10 +40,15 @@ std::string read_file(const std::filesystem::path& path) {
     return { std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>() };
 }
 
+/// A completion's items: a list's, or the array they are.
+json_t items_of(const json_t& completion) {
+    return completion.is_array() ? completion : completion.at("items");
+}
+
 /// The labels of a completion's items, in order.
 std::vector<std::string> labels(const json_t& items) {
     std::vector<std::string> out;
-    for (const json_t& item : items.is_array() ? items : items.at("items")) {
+    for (const json_t& item : items_of(items)) {
         out.push_back(item.at("label").get<std::string>());
     }
 
@@ -46,7 +57,7 @@ std::vector<std::string> labels(const json_t& items) {
 
 /// What a completion's item named `label` puts in the document.
 std::string inserted(const json_t& items, const std::string& label) {
-    for (const json_t& item : items) {
+    for (const json_t& item : items_of(items)) {
         if (item.at("label") == label) {
             return item.at("textEdit").at("newText").get<std::string>();
         }
@@ -54,6 +65,21 @@ std::string inserted(const json_t& items, const std::string& label) {
 
     FAIL("no item " << label);
     return "";
+}
+
+/// What `ask` gives once it gives something, as a request that waits on a registry fb-lsp is
+/// asking does, trying for ten seconds at most.
+template <typename Ask>
+std::string eventually(const Ask& ask) {
+    for (int tries = 0; tries < 500; ++tries) {
+        if (std::string answer = ask(); !answer.empty()) {
+            return answer;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    return {};
 }
 
 /// The messages of the diagnostics published, in order.
@@ -282,7 +308,7 @@ TEST_CASE("fb-lsp completes project.toml's tables, keys, and values", "[lsp][tom
     CHECK(std::ranges::contains(project, "version"));
     CHECK(std::ranges::contains(project, "license"));
     CHECK(inserted(keys, "version") == "version = ");
-    CHECK(keys[0].at("documentation").at("value").get<std::string>().starts_with('`'));
+    CHECK(items_of(keys)[0].at("documentation").at("value").get<std::string>().starts_with('`'));
 
     // A key's values, when they're few, quoted or in the string typed.
     CHECK(labels(complete(std::string(game_manifest) + "type = ", "type = ", 7)) ==
@@ -333,10 +359,23 @@ TEST_CASE("fb-lsp completes a dependency's name and version from its registry", 
     client_t client({ .folders = { folder.root() } });
     const std::string uri = folder.uri("project.toml");
     client.open(uri, head);
+    // The registry's asked on a thread of fb-lsp's own, and a completion that waits for it is
+    // incomplete, so the client asks again until it isn't.
     const auto complete = [&](const std::string& text, const std::string& at,
                               const std::uint32_t offset) {
         client.change(uri, text);
-        return client.request("textDocument/completion", client.at(uri, at, offset));
+        json_t answer;
+        for (int tries = 0; tries < 500; ++tries) {
+            answer = client.request("textDocument/completion", client.at(uri, at, offset));
+            if (!answer.at("isIncomplete").get<bool>()) {
+                break;
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+
+        CHECK_FALSE(answer.at("isIncomplete").get<bool>());
+        return answer.at("items");
     };
 
     // A name, from the registry's search, with its newest version that isn't yanked.
@@ -368,26 +407,33 @@ TEST_CASE("fb-lsp completes a dependency's name and version from its registry", 
 
     // Hover has its description and newest version.
     client.change(uri, head + "physics = \"1.2\"\n");
-    const std::string hovered = client.request("textDocument/hover", client.at(uri, "physics =", 2))
-                                    .at("contents")
-                                    .at("value")
-                                    .get<std::string>();
+    const std::string hovered = eventually([&] {
+        const json_t found = client.request("textDocument/hover", client.at(uri, "physics =", 2));
+        // Its newest version can come before its description, which a search gives.
+        const std::string shown =
+            found.is_null() ? std::string() : found.at("contents").at("value").get<std::string>();
+        return shown.contains("A test package") ? shown : std::string();
+    });
     CHECK(hovered.starts_with("**physics** 1.3.0\n\nA test package"));
 
-    // A range that doesn't take the newest version updates to it.
+    // A range that doesn't take the newest version updates to it, once the registry says.
     registry.add(version_of("physics", "2.0.0"));
     client_t fresh({ .folders = { folder.root() } });
     fresh.open(uri, head + "physics = \"1.2\"\n");
-    const json_t actions = fresh.request(
-        "textDocument/codeAction",
-        {
-            { "textDocument", { { "uri", uri } } },
+    json_t actions;
+    (void)eventually([&] {
+        actions = fresh.request(
+            "textDocument/codeAction",
             {
-                "range",
-                { { "start", client_t::position(8, 2) }, { "end", client_t::position(8, 2) } },
-            },
-            { "context", { { "diagnostics", json_t::array() } } },
-        });
+                { "textDocument", { { "uri", uri } } },
+                {
+                    "range",
+                    { { "start", client_t::position(8, 2) }, { "end", client_t::position(8, 2) } },
+                },
+                { "context", { { "diagnostics", json_t::array() } } },
+            });
+        return actions.empty() ? std::string() : actions.dump();
+    });
     REQUIRE(actions.size() == 1);
     CHECK(actions[0].at("title") == "Update physics to 2.0.0");
     CHECK(applied(head + "physics = \"1.2\"\n", actions[0], uri) == head + "physics = \"2.0.0\"\n");
@@ -428,9 +474,34 @@ TEST_CASE("fb-lsp's quick fix adds what fb publish needs to [project]", "[lsp][t
     const json_t added = actions(std::string(game_manifest), 1);
     REQUIRE(added.size() == 1);
     CHECK(added[0].at("title") == "Add what fb publish needs: type, description and license");
-    CHECK(applied(std::string(game_manifest), added[0], uri) ==
-          std::string(game_manifest).substr(0, game_manifest.size() - 1) +
-              "\ntype = \"library\"\ndescription = \"\"\nlicense = \"\"\n");
+    const std::string publishable = applied(std::string(game_manifest), added[0], uri);
+    CHECK(publishable == std::string(game_manifest).substr(0, game_manifest.size() - 1) +
+                             "\ntype = \"library\"\ndescription = \"The game package\"\nlicense = "
+                             "\"MIT\"\n");
+
+    // From the review: what it adds is what fb check and fb publish take, which empty strings
+    // weren't.
+    folder.write("project.toml", publishable);
+    const std::expected<fb::compilation_t, std::string> compiled = fb::compile_file(folder.root());
+    REQUIRE(compiled);
+    CHECK(compiled->diagnostics.diagnostics().empty());
+    folder.write("project.toml", std::string(game_manifest));
+
+    // A multi-line value's last line is where the table's last key ends, and a document's line
+    // breaks are what's put in it.
+    const std::string multiline = "[project]\nname = \"game\"\nversion = \"0.1.0\"\ndescription = "
+                                  "\"\"\"\nA game\nof squares\n\"\"\"\n\n[format]\nwidth = 90\n";
+    const json_t after_string = actions(multiline, 0);
+    REQUIRE(after_string.size() == 1);
+    CHECK(applied(multiline, after_string[0], uri) ==
+          "[project]\nname = \"game\"\nversion = \"0.1.0\"\ndescription = \"\"\"\nA game\nof "
+          "squares\n\"\"\"\ntype = \"library\"\nlicense = \"MIT\"\n\n[format]\nwidth = 90\n");
+    const std::string crlf = "[project]\r\nname = \"game\"\r\nversion = \"0.1.0\"\r\n";
+    const json_t crlf_actions = actions(crlf, 0);
+    REQUIRE(crlf_actions.size() == 1);
+    CHECK(applied(crlf, crlf_actions[0], uri) ==
+          "[project]\r\nname = \"game\"\r\nversion = \"0.1.0\"\r\ntype = \"library\"\r\n"
+          "description = \"The game package\"\r\nlicense = \"MIT\"\r\n");
 
     // A written type is changed, and what's there stays.
     const std::string typed = "[project]\nname = \"game\"\ntype = \"executable\"\nversion = "
@@ -440,7 +511,7 @@ TEST_CASE("fb-lsp's quick fix adds what fb publish needs to [project]", "[lsp][t
     CHECK(changed[0].at("title") == "Add what fb publish needs: type and description");
     CHECK(applied(typed, changed[0], uri) ==
           "[project]\nname = \"game\"\ntype = \"library\"\nversion = \"0.1.0\"\nlicense = "
-          "\"MIT\"\ndescription = \"\"\n\n[format]\nwidth = 90\n");
+          "\"MIT\"\ndescription = \"The game package\"\n\n[format]\nwidth = 90\n");
 
     // Nothing outside [project], or for a library that has them.
     CHECK(actions(typed, 7).empty());
@@ -495,4 +566,97 @@ TEST_CASE("fb-lsp doesn't read a project.toml as FutureBlitz code", "[lsp][toml]
               .request("textDocument/hover", { { "textDocument", { { "uri", uri } } },
                                                { "position", client_t::position(1, 1) } })
               .is_null());
+}
+
+// From the review: the quick fix's values are placeholders the user types over where the client
+// takes snippet edits.
+TEST_CASE("fb-lsp's publish fix is a snippet where the client takes one", "[lsp][toml]") {
+    const folder_t folder(
+        { { "project.toml", std::string(game_manifest) }, { "main.fb", "Import std.core\n" } });
+    client_t client({ .folders = { folder.root() }, .snippet_edits = true });
+    const std::string uri = folder.uri("project.toml");
+    client.open(uri, game_manifest);
+    const json_t actions = client.request(
+        "textDocument/codeAction",
+        {
+            { "textDocument", { { "uri", uri } } },
+            {
+                "range",
+                { { "start", client_t::position(0, 0) }, { "end", client_t::position(0, 0) } },
+            },
+            { "context", { { "diagnostics", json_t::array() } } },
+        });
+    REQUIRE(actions.size() == 1);
+    const json_t& changes = actions[0].at("edit").at("documentChanges");
+    REQUIRE(changes.size() == 1);
+    CHECK(changes[0].at("textDocument").at("uri") == uri);
+    const json_t& edits = changes[0].at("edits");
+    REQUIRE(edits.size() == 1);
+    CHECK(edits[0].at("snippet").at("kind") == "snippet");
+    CHECK(edits[0].at("snippet").at("value") == "\ntype = \"library\"\ndescription = \"${1:What "
+                                                "the package does}\"\nlicense = \"${2:MIT}\"");
+}
+
+// From the review: a comment's words and a string's searched the registry and showed keys' docs.
+TEST_CASE("fb-lsp's hover in a project.toml's comment or string is nothing", "[lsp][toml]") {
+    const folder_t folder(
+        { { "project.toml", std::string(game_manifest) }, { "main.fb", "Import std.core\n" } });
+    client_t client({ .folders = { folder.root() }, .offline = true });
+    const std::string uri = folder.uri("project.toml");
+    client.open(uri, std::string(game_manifest) +
+                         "# add the name later\n\n[dependencies]\n# add physics later\nshapes = { "
+                         "path = \"../version\" }\n");
+    for (const auto& [at, offset] : {
+             std::pair{ "# add the name", 6U },
+             std::pair{ "# add physics", 2U },
+             std::pair{ "# add physics", 6U },
+             std::pair{ "../version", 4U },
+         }) {
+        INFO(at);
+        CHECK(client.request("textDocument/hover", client.at(uri, at, offset)).is_null());
+    }
+}
+
+// From the review: a registry that's slow, or never answers, held up fb-lsp's every request.
+TEST_CASE("fb-lsp answers while a registry it asks never answers", "[lsp][toml]") {
+    const fb::testing::sandbox_t sandbox;
+    std::mutex mutex;
+    std::condition_variable released;
+    bool done = false;
+    const fb::testing::http_server_t stalled([&](const fb::http_request_t&) {
+        std::unique_lock lock(mutex);
+        released.wait(lock, [&] { return done; });
+        return fb::http_response_t{ .status = 503 };
+    });
+    // Before fb-lsp, whose fetching thread it frees, goes.
+    const std::unique_ptr<void, std::function<void(void*)>> release(&done, [&](void*) {
+        {
+            const std::scoped_lock lock(mutex);
+            done = true;
+        }
+
+        released.notify_all();
+    });
+    const std::string head = std::format(
+        "{}\n[registries]\nfutureblitz = {{ index = \"{}index/\" }}\n\n[dependencies]\n",
+        game_manifest, stalled.url());
+    const folder_t folder({ { "project.toml", head }, { "main.fb", "Import std.core\n" } });
+    client_t client({ .folders = { folder.root() } });
+    const std::string uri = folder.uri("project.toml");
+    client.open(uri, head + "physics = \"\"\nphys");
+    const auto start = std::chrono::steady_clock::now();
+    const json_t versions =
+        client.request("textDocument/completion", client.at(uri, "physics = \"", 11));
+    CHECK(versions.at("isIncomplete") == true);
+    CHECK(versions.at("items").empty());
+    CHECK(
+        client.request("textDocument/completion", client.at(uri, "\nphys", 5)).at("isIncomplete") ==
+        true);
+    CHECK(client.request("textDocument/hover", client.at(uri, "physics", 2)).is_null());
+    CHECK(client.request("textDocument/hover", client.at(uri, "version", 1))
+              .at("contents")
+              .at("value")
+              .get<std::string>()
+              .starts_with("`version`"));
+    CHECK(std::chrono::steady_clock::now() - start < std::chrono::seconds(5));
 }

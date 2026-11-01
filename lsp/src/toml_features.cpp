@@ -75,13 +75,23 @@ std::string unquoted(std::string_view key) {
     return std::string(key);
 }
 
-/// The line of `text` that `offset` is on: where it starts, and where it ends, before its break.
+/// The line of `text` that `offset` is on: where it starts, and where it ends, before its break,
+/// "\n" or "\r\n".
 std::pair<std::uint32_t, std::uint32_t> line_at(const std::string_view text,
                                                 const std::uint32_t offset) {
     const std::size_t before = offset == 0 ? std::string_view::npos : text.rfind('\n', offset - 1);
     const std::size_t begin = before == std::string_view::npos ? 0 : before + 1;
-    const std::size_t end = std::min(text.find('\n', offset), text.size());
+    std::size_t end = std::min(text.find('\n', offset), text.size());
+    if (end > begin && text[end - 1] == '\r') {
+        --end;
+    }
+
     return { static_cast<std::uint32_t>(begin), static_cast<std::uint32_t>(end) };
+}
+
+/// The line break `text` has, "\r\n" or "\n", which what's put in it has too.
+std::string_view line_break(const std::string_view text) {
+    return text.contains("\r\n") ? "\r\n" : "\n";
 }
 
 /// A table's header: `[dependencies]`, or `[dependencies.physics]`, a dependency's own table.
@@ -108,25 +118,48 @@ std::optional<header_t> header_of(const std::string_view line) {
     };
 }
 
-/// Each line of `text`, from the start, as offsets, but those in a multi-line string.
+/// Each line of `text`, from the start, as offsets: a value written over several lines, a
+/// multi-line string, is one, from its key's line to the end of the line that closes it.
 std::vector<std::pair<std::uint32_t, std::uint32_t>> lines_of(const std::string_view text) {
     std::vector<std::pair<std::uint32_t, std::uint32_t>> lines;
-    bool multiline = false;
-    for (std::uint32_t at = 0; at <= text.size();) {
-        const auto [begin, end] = line_at(text, at);
+    std::string_view open;
+    std::uint32_t first = 0;
+    std::uint32_t last = 0;
+    for (std::size_t at = 0; at <= text.size();) {
+        const auto [begin, end] = line_at(text, static_cast<std::uint32_t>(at));
         const std::string_view line = text.substr(begin, end - begin);
-        std::size_t quotes = 0;
-        for (std::size_t found = line.find(R"(""")"); found != std::string_view::npos;
-             found = line.find(R"(""")", found + 3)) {
-            ++quotes;
+        if (open.empty()) {
+            first = begin;
         }
 
-        if (!multiline) {
-            lines.emplace_back(begin, end);
+        // Three quotes, of either kind, open a multi-line string, or close the one that's open.
+        for (std::size_t found = 0; found < line.size(); ++found) {
+            const std::string_view rest = line.substr(found);
+            if (open.empty() && (rest.starts_with(R"(""")") || rest.starts_with(R"(''')"))) {
+                open = rest.substr(0, 3);
+                found += 2;
+            } else if (!open.empty() && rest.starts_with(open)) {
+                open = {};
+                found += 2;
+            }
         }
 
-        multiline = multiline != (quotes % 2 == 1);
-        at = end + 1;
+        last = end;
+        if (open.empty()) {
+            lines.emplace_back(first, end);
+        }
+
+        const std::size_t next = text.find('\n', begin);
+        if (next == std::string_view::npos) {
+            break;
+        }
+
+        at = next + 1;
+    }
+
+    // A string that's never closed goes to the end.
+    if (!open.empty()) {
+        lines.emplace_back(first, last);
     }
 
     return lines;
@@ -383,6 +416,33 @@ std::vector<version_t> unyanked(const std::vector<index_entry_t>& entries) {
     return versions;
 }
 
+/// A package's versions as the cache on disk has its index, read without the network.
+std::vector<index_entry_t> cached_versions(const std::string& index, const std::string& name) {
+    registry_t cache(index, send_http, true, {});
+    return cache.versions(name).value_or(std::vector<index_entry_t>{});
+}
+
+/// The packages whose names start with `prefix` that the cache on disk has an index of, each
+/// with its newest version that isn't yanked, sorted by name.
+std::vector<found_package_t> cached_names(const std::string& index, const std::string& prefix) {
+    std::vector<found_package_t> packages;
+    const std::filesystem::path folder =
+        fb_home() / "cache" / "index" / path_from_utf8(registry_folder(index));
+    std::error_code error;
+    for (std::filesystem::directory_iterator each(folder, error), end; !error && each != end;
+         each.increment(error)) {
+        const std::string name = to_utf8(each->path().filename());
+        if (each->is_regular_file(error) && !name.contains('.') && name.starts_with(prefix)) {
+            const std::vector<version_t> known = unyanked(cached_versions(index, name));
+            packages.push_back(
+                { .name = name, .version = known.empty() ? "" : known.front().text() });
+        }
+    }
+
+    std::ranges::sort(packages, {}, &found_package_t::name);
+    return packages;
+}
+
 /// A completion item that puts `text` where the word or string at the cursor is.
 json_t item(const std::string& label, const int kind, const std::string& text,
             const json_t& range) {
@@ -420,6 +480,7 @@ bool is_manifest(const std::filesystem::path& path) {
 toml_features_t::toml_features_t(send_t send, const positions_t& positions, options_t options)
     : m_send(std::move(send)), m_positions(positions), m_options(std::move(options)) {
     m_thread = std::thread([this] { run(); });
+    m_fetcher = std::thread([this] { fetch(); });
 }
 
 toml_features_t::~toml_features_t() {
@@ -430,6 +491,13 @@ toml_features_t::~toml_features_t() {
 
     m_work.notify_all();
     m_thread.join();
+    {
+        const std::scoped_lock lock(m_registry_mutex);
+        m_fetcher_stopping = true;
+    }
+
+    m_fetch_work.notify_all();
+    m_fetcher.join();
 }
 
 void toml_features_t::add_folders(const std::vector<std::filesystem::path>& folders) {
@@ -658,74 +726,141 @@ std::optional<json_t> toml_features_t::answer(const std::string& method, const j
         return hover(document, params);
     }
 
+    // A completion that's asking a registry is incomplete, so the client asks again.
     if (method == "textDocument/completion") {
-        return completion(document, params);
+        bool asking = false;
+        json_t items = completion(document, params, asking);
+        return json_t{ { "isIncomplete", asking }, { "items", std::move(items) } };
     }
 
     return code_actions(document, params);
 }
 
-const std::vector<index_entry_t>& toml_features_t::versions(const std::string& index,
-                                                            const std::string& name) {
+std::vector<index_entry_t> toml_features_t::versions(const std::string& index,
+                                                     const std::string& name, bool& asking) {
     const std::string key = index + '\n' + name;
-    const auto found = m_versions.find(key);
-    if (found != m_versions.end() &&
-        steady_t::now() - found->second.when < m_options.registry_life) {
-        return found->second.value;
+    {
+        const std::scoped_lock lock(m_registry_mutex);
+        if (const auto found = m_versions.find(key); found != m_versions.end()) {
+            if (steady_t::now() - found->second.when >= m_options.registry_life) {
+                asking = true;
+                ask({ .index = index, .what = name });
+            }
+
+            return found->second.value;
+        }
     }
 
-    registry_t registry(index, m_options.http, m_options.offline, {});
-    std::vector<index_entry_t> entries =
-        registry.versions(name).value_or(std::vector<index_entry_t>{});
-    asked_t<std::vector<index_entry_t>>& kept = m_versions[key];
-    kept = { .value = std::move(entries), .when = steady_t::now() };
-    return kept.value;
+    // Until the registry says, what the cache on disk has, read without the network.
+    std::vector<index_entry_t> cached = cached_versions(index, name);
+    if (m_options.offline) {
+        const std::scoped_lock lock(m_registry_mutex);
+        m_versions[key] = { .value = cached, .when = steady_t::now() };
+    } else {
+        asking = true;
+        const std::scoped_lock lock(m_registry_mutex);
+        ask({ .index = index, .what = name });
+    }
+
+    return cached;
 }
 
-const std::vector<found_package_t>& toml_features_t::search(const std::string& index,
-                                                            const std::string& prefix) {
+std::vector<found_package_t> toml_features_t::search(const std::string& index,
+                                                     const std::string& prefix, bool& asking) {
     const std::string key = index + '\n' + prefix;
-    const auto found = m_searches.find(key);
-    if (found != m_searches.end() &&
-        steady_t::now() - found->second.when < m_options.registry_life) {
-        return found->second.value;
+    {
+        const std::scoped_lock lock(m_registry_mutex);
+        if (const auto found = m_searches.find(key); found != m_searches.end()) {
+            if (steady_t::now() - found->second.when >= m_options.registry_life) {
+                asking = true;
+                ask({ .search = true, .index = index, .what = prefix });
+            }
+
+            return found->second.value;
+        }
     }
 
-    std::vector<found_package_t> packages;
-    const registry_session_t session{ .index = index, .http = m_options.http };
-    std::expected<std::pair<std::vector<found_package_t>, std::size_t>, std::string> searched =
-        m_options.offline ? std::unexpected(std::string("offline"))
-                          : search_packages(prefix, searched_packages, session);
-    if (searched) {
-        packages = std::move(searched->first);
+    std::vector<found_package_t> cached = cached_names(index, prefix);
+    if (m_options.offline) {
+        const std::scoped_lock lock(m_registry_mutex);
+        m_searches[key] = { .value = cached, .when = steady_t::now() };
     } else {
-        // Offline, or with the registry out of reach, the cache's index files are what it has.
-        const std::filesystem::path folder =
-            fb_home() / "cache" / "index" / path_from_utf8(registry_folder(index));
-        std::error_code error;
-        for (std::filesystem::directory_iterator each(folder, error), end; !error && each != end;
-             each.increment(error)) {
-            const std::string name = to_utf8(each->path().filename());
-            if (each->is_regular_file(error) && !name.contains('.') && name.starts_with(prefix)) {
-                const std::vector<version_t> known = unyanked(versions(index, name));
-                packages.push_back(
-                    { .name = name, .version = known.empty() ? "" : known.front().text() });
-            }
+        asking = true;
+        const std::scoped_lock lock(m_registry_mutex);
+        ask({ .search = true, .index = index, .what = prefix });
+    }
+
+    return cached;
+}
+
+void toml_features_t::ask(fetch_t fetch) {
+    const std::string key = std::format("{}\n{}\n{}", fetch.search, fetch.index, fetch.what);
+    if (m_fetching.insert(key).second) {
+        m_fetches.push_back(std::move(fetch));
+        m_fetch_work.notify_all();
+    }
+}
+
+void toml_features_t::fetch() {
+    std::unique_lock lock(m_registry_mutex);
+    while (!m_fetcher_stopping) {
+        if (m_fetches.empty()) {
+            m_fetch_work.wait(lock);
+            continue;
         }
 
-        std::ranges::sort(packages, {}, &found_package_t::name);
-    }
+        const fetch_t asked = std::move(m_fetches.front());
+        m_fetches.pop_front();
+        lock.unlock();
+        std::unique_ptr<registry_t>& registry = m_registries[asked.index];
+        if (registry == nullptr) {
+            registry = std::make_unique<registry_t>(asked.index, m_options.http, m_options.offline,
+                                                    status_t{});
+        }
 
-    // A name that starts with what's typed comes first, the shortest first.
-    std::ranges::stable_sort(packages, {}, [&](const found_package_t& package) {
-        return std::pair(!package.name.starts_with(prefix), package.name.size());
-    });
-    asked_t<std::vector<found_package_t>>& kept = m_searches[key];
-    kept = { .value = std::move(packages), .when = steady_t::now() };
-    return kept.value;
+        std::vector<index_entry_t> entries;
+        std::vector<found_package_t> packages;
+        if (!asked.search) {
+            // A registry out of reach gives the cache's, as registry_t remembers it is.
+            entries =
+                registry->versions(asked.what).value_or(cached_versions(asked.index, asked.what));
+        } else {
+            const auto unreachable = m_unreachable.find(asked.index);
+            const bool reachable = unreachable == m_unreachable.end() ||
+                                   steady_t::now() - unreachable->second >= m_options.registry_life;
+            const registry_session_t session{ .index = asked.index, .http = m_options.http };
+            auto searched = reachable ? search_packages(asked.what, searched_packages, session)
+                                      : std::unexpected(std::string("unreachable"));
+            if (searched) {
+                packages = std::move(searched->first);
+                m_unreachable.erase(asked.index);
+            } else {
+                if (reachable) {
+                    m_unreachable[asked.index] = steady_t::now();
+                }
+
+                packages = cached_names(asked.index, asked.what);
+            }
+
+            // A name that starts with what's typed comes first, the shortest first.
+            std::ranges::stable_sort(packages, {}, [&](const found_package_t& package) {
+                return std::pair(!package.name.starts_with(asked.what), package.name.size());
+            });
+        }
+
+        lock.lock();
+        const std::string key = asked.index + '\n' + asked.what;
+        if (asked.search) {
+            m_searches[key] = { .value = std::move(packages), .when = steady_t::now() };
+        } else {
+            m_versions[key] = { .value = std::move(entries), .when = steady_t::now() };
+        }
+
+        m_fetching.erase(std::format("{}\n{}\n{}", asked.search, asked.index, asked.what));
+    }
 }
 
-json_t toml_features_t::completion(const document_t& document, const json_t& params) {
+json_t toml_features_t::completion(const document_t& document, const json_t& params, bool& asking) {
     const source_file_t file(file_id_t{}, to_utf8(document.path), document.text);
     const std::string_view text = file.text();
     const std::uint32_t offset = m_positions.offset(file, params.at("position"));
@@ -779,7 +914,7 @@ json_t toml_features_t::completion(const document_t& document, const json_t& par
         }
 
         std::size_t order = 0;
-        for (const version_t& version : unyanked(versions(*index, name))) {
+        for (const version_t& version : unyanked(versions(*index, name, asking))) {
             json_t entry = item(version.text(), value_kind, version.text(), range);
             entry["sortText"] = std::format("{:04}", order);
             entry["preselect"] = order++ == 0;
@@ -844,7 +979,7 @@ json_t toml_features_t::completion(const document_t& document, const json_t& par
         }
 
         const std::set<std::string> written = keys_in(text, "dependencies").first;
-        for (const found_package_t& package : search(*index, place.word)) {
+        for (const found_package_t& package : search(*index, place.word, asking)) {
             if (written.contains(package.name) && package.name != place.word) {
                 continue;
             }
@@ -906,6 +1041,11 @@ json_t toml_features_t::hover(const document_t& document, const json_t& params) 
     const std::uint32_t offset = m_positions.offset(file, params.at("position"));
     const auto [line_begin, line_end] = line_at(text, offset);
     const std::string_view line = text.substr(line_begin, line_end - line_begin);
+
+    // A comment's words and a string's aren't keys or packages.
+    if (const place_t at = place_at(text, offset); at.comment || at.string_begin) {
+        return nullptr;
+    }
 
     // The word at the cursor, a key or a table's name.
     std::uint32_t begin = offset;
@@ -975,13 +1115,19 @@ json_t toml_features_t::hover(const document_t& document, const json_t& params) 
     }
 
     std::string description;
-    for (const found_package_t& package : search(*index, word)) {
+    bool asking = false;
+    for (const found_package_t& package : search(*index, word, asking)) {
         if (package.name == word) {
             description = package.description;
         }
     }
 
-    const std::vector<version_t> known = unyanked(versions(*index, word));
+    const std::vector<version_t> known = unyanked(versions(*index, word, asking));
+    // While the registry's asked, the next hover has its answer.
+    if (known.empty() && asking) {
+        return nullptr;
+    }
+
     if (known.empty()) {
         return shown(std::format("**{}**: {} has no such package, or can't be reached and the "
                                  "cache has nothing of it",
@@ -1062,7 +1208,9 @@ json_t toml_features_t::code_actions(const document_t& document, const json_t& p
         return out;
     }
 
-    // A dependency whose range doesn't take its registry's newest version.
+    // A dependency whose range doesn't take its registry's newest version, as the registry last
+    // said it, which a code action asked for as the cursor moves doesn't wait for.
+    bool asking = false;
     const std::filesystem::path root = document.path.parent_path();
     for (const dependency_t& dependency : manifest->dependencies) {
         const span_t span = dependency.range_span;
@@ -1074,7 +1222,7 @@ json_t toml_features_t::code_actions(const document_t& document, const json_t& p
         const std::optional<std::string> index =
             registry_index(dependency.registry, manifest->registries, root);
         const std::vector<version_t> known =
-            index ? unyanked(versions(*index, dependency.name)) : std::vector<version_t>{};
+            index ? unyanked(versions(*index, dependency.name, asking)) : std::vector<version_t>{};
         if (known.empty() || dependency.range->matches(known.front())) {
             continue;
         }
@@ -1124,8 +1272,13 @@ json_t toml_features_t::code_actions(const document_t& document, const json_t& p
         (!manifest->type &&
          (manifest->main_span ||
           std::filesystem::is_regular_file(root / path_from_utf8(manifest->main), error)));
+    // A client that takes snippet edits gets placeholders to type over, and one that doesn't,
+    // values that fb check and fb publish take, to change; each in the document's line breaks.
+    const std::string_view newline = line_break(file.text());
     std::vector<std::string> missing;
     std::string lines;
+    std::string snippet;
+    int placeholder = 0;
     json_t edits = json_t::array();
     if (executable) {
         missing.emplace_back("type");
@@ -1135,27 +1288,55 @@ json_t toml_features_t::code_actions(const document_t& document, const json_t& p
                 { "newText", "\"library\"" },
             });
         } else {
-            lines += "\ntype = \"library\"";
+            lines += std::format("{}type = \"library\"", newline);
+            snippet += std::format("{}type = \"library\"", newline);
         }
     }
 
     if (!manifest->description) {
         missing.emplace_back("description");
-        lines += "\ndescription = \"\"";
+        lines += std::format("{}description = \"The {} package\"", newline, manifest->name);
+        snippet += std::format("{}description = \"${{{}:What the package does}}\"", newline,
+                               ++placeholder);
     }
 
     if (!manifest->license) {
         missing.emplace_back("license");
-        lines += "\nlicense = \"\"";
+        lines += std::format("{}license = \"MIT\"", newline);
+        snippet += std::format("{}license = \"${{{}:MIT}}\"", newline, ++placeholder);
     }
 
     if (missing.empty()) {
         return out;
     }
 
-    if (!lines.empty()) {
-        edits.push_back(
-            insertion(file, m_positions, keys_in(file.text(), "project").second, lines));
+    const std::uint32_t at = keys_in(file.text(), "project").second;
+    json_t edit;
+    if (m_snippet_edits) {
+        if (!snippet.empty()) {
+            edits.push_back({
+                { "range", m_positions.range(file, { .file = file.id(), .begin = at, .end = at }) },
+                { "snippet", { { "kind", "snippet" }, { "value", snippet } } },
+            });
+        }
+
+        edit = {
+            {
+                "documentChanges",
+                json_t::array({
+                    {
+                        { "textDocument", { { "uri", uri }, { "version", document.version } } },
+                        { "edits", std::move(edits) },
+                    },
+                }),
+            },
+        };
+    } else {
+        if (!lines.empty()) {
+            edits.push_back(insertion(file, m_positions, at, lines));
+        }
+
+        edit = { { "changes", { { uri, std::move(edits) } } } };
     }
 
     std::string named;
@@ -1170,7 +1351,7 @@ json_t toml_features_t::code_actions(const document_t& document, const json_t& p
     out.push_back({
         { "title", std::format("Add what fb publish needs: {}", named) },
         { "kind", "quickfix" },
-        { "edit", { { "changes", { { uri, std::move(edits) } } } } },
+        { "edit", std::move(edit) },
     });
     return out;
 }

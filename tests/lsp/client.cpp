@@ -82,6 +82,10 @@ client_t::client_t(options_t options)
         capabilities["general"] = { { "positionEncodings", options.encodings } };
     }
 
+    if (options.snippet_edits) {
+        capabilities["workspace"] = { { "workspaceEdit", { { "snippetEditSupport", true } } } };
+    }
+
     m_initialized =
         request("initialize", {
                                   { "processId", nullptr },

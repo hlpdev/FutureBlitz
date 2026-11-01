@@ -697,12 +697,21 @@ each as it's typed:
   version, from its registry.
 - **Quick fixes**: the fixes fb's errors have; "Update physics to 2.0.0", for a dependency whose
   range doesn't take its registry's newest version; and in [project], "Add what fb publish needs",
-  `type = "library"` for a package that would be an executable, and an empty `description` and
-  `license` where they aren't written.
-- **Registries** are each dependency's, as `registry_index()` finds them from [registries], read
-  through `registry_t` and `search_packages()`, and kept for a minute. Offline, or with a registry
-  out of reach, names come from the cache's index files, versions from its index of the package,
-  and a description from its newest version's project.toml in the cache, if it's there.
+  `type = "library"` for a package that would be an executable, and a `description` and a
+  `license` where they aren't written, after the table's last line, a multi-line value's closing
+  one, in the document's line breaks: placeholders to type over, `${1:What the package does}` and
+  `${2:MIT}`, where the client takes snippet edits (LSP 3.18's
+  `workspace.workspaceEdit.snippetEditSupport`), and else values fb check and fb publish take,
+  "The <name> package" and "MIT".
+- **Registries** are each dependency's, as `registry_index()` finds them from [registries], and
+  never waited for: completion, hover, and quick fixes answer from what a registry last said, or
+  until it has, from the cache on disk, and a thread of their own asks it, through one
+  `registry_t` an index, which remembers one it can't reach, and `search_packages()`. A completion
+  that's waiting is `isIncomplete`, so the client asks again, and what a registry says is kept for
+  a minute. Offline, or with a registry out of reach, names come from the cache's index files,
+  versions from its index of the package, and a description from its newest version's
+  project.toml in the cache, if it's there.
+- Hover in a comment or a string is nothing.
 - The server's other requests for a project.toml, semantic tokens and formatting among them, get
   nothing, and a closed file that isn't a .fb file isn't checked as FutureBlitz code, which the
   workspace did with any file in its folders before. The VS Code extension sends project.toml to

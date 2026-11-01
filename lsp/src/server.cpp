@@ -469,6 +469,9 @@ json_t server_t::initialize(const json_t& params) {
     m_positions.unit = utf8 ? column_unit_t::UTF8 : column_unit_t::UTF16;
     m_watches = watches;
     m_format_on_save = format_on_save;
+    // A project.toml's quick fix has placeholders where the client takes snippet edits.
+    m_toml->set_snippet_edits(object_at(object_at(capabilities, "workspace"), "workspaceEdit")
+                                  .value("snippetEditSupport", false));
     m_folders = std::move(folders);
     m_initialized = true;
     return {

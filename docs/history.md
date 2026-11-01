@@ -113,6 +113,21 @@ update against registry_server.hpp's registry, now with `add()`, and offline fro
 publish fix, hover, and the other requests; manifest_tests.cpp's keys read back; driver_tests'
 check_manifest() with unsaved texts.
 
+From step 8's review: completion, hover, and code actions called the registries on fb-lsp's
+message loop, so a registry that didn't answer held up every request; they answer from what a
+registry last said, or the cache on disk, and `toml_features_t::fetch()`, a thread of its own,
+asks the registries ask() queues, one `registry_t` an index, so one out of reach is remembered,
+and completion is `isIncomplete` while it asks. "Add what fb publish needs" wrote `license = ""`
+and `description = ""`, which fb check and fb publish refuse: it's a snippet with placeholders
+where the client takes snippet edits (`set_snippet_edits()`, from initialize), and else "MIT" and
+"The <name> package". `lines_of()` made a multi-line string's lines one, to the line that closes
+it, so the fix no longer lands inside one, and `line_at()` ends a line before its ``, with what's
+put in a document in its own line breaks (`line_break()`). Hover in a comment or a string is
+nothing. Tests: toml_tests' registry that never answers, a completion of the registry's answered
+once it's complete, the fix applied and checked by compile_file, its snippet, after a multi-line
+value, and in CRLF, and hover in comments and strings; the site's project-toml.md has [build] and
+`file://`.
+
 ## 1.1.0
 
 (2026-10-31.) Dependencies with both a path and a version, `fbengine = { path = "../fbengine",
