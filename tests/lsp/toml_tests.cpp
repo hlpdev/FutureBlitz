@@ -7,6 +7,7 @@
 #include "fb/utf8.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
 #include <condition_variable>
@@ -484,7 +485,11 @@ TEST_CASE("fb-lsp's quick fix adds what fb publish needs to [project]", "[lsp][t
     folder.write("project.toml", publishable);
     const std::expected<fb::compilation_t, std::string> compiled = fb::compile_file(folder.root());
     REQUIRE(compiled);
-    CHECK(compiled->diagnostics.diagnostics().empty());
+    // Errors only, as inspections can warn of the package's code.
+    CHECK(
+        std::ranges::none_of(compiled->diagnostics.diagnostics(), [](const fb::diagnostic_t& each) {
+            return each.severity == fb::severity_t::ERROR;
+        }));
     folder.write("project.toml", std::string(game_manifest));
 
     // A multi-line value's last line is where the table's last key ends, and a document's line
@@ -628,7 +633,13 @@ TEST_CASE("fb-lsp answers while a registry it asks never answers", "[lsp][toml]"
         released.wait(lock, [&] { return done; });
         return fb::http_response_t{ .status = 503 };
     });
-    // Before fb-lsp, whose fetching thread it frees, goes.
+    const std::string head = std::format(
+        "{}\n[registries]\nfutureblitz = {{ index = \"{}index/\" }}\n\n[dependencies]\n",
+        game_manifest, stalled.url());
+    const folder_t folder({ { "project.toml", head }, { "main.fb", "Import std.core\n" } });
+    client_t client({ .folders = { folder.root() } });
+    // After fb-lsp, so it goes first and frees fb-lsp's fetching thread, which the client's end
+    // waits for.
     const std::unique_ptr<void, std::function<void(void*)>> release(&done, [&](void*) {
         {
             const std::scoped_lock lock(mutex);
@@ -637,11 +648,6 @@ TEST_CASE("fb-lsp answers while a registry it asks never answers", "[lsp][toml]"
 
         released.notify_all();
     });
-    const std::string head = std::format(
-        "{}\n[registries]\nfutureblitz = {{ index = \"{}index/\" }}\n\n[dependencies]\n",
-        game_manifest, stalled.url());
-    const folder_t folder({ { "project.toml", head }, { "main.fb", "Import std.core\n" } });
-    client_t client({ .folders = { folder.root() } });
     const std::string uri = folder.uri("project.toml");
     client.open(uri, head + "physics = \"\"\nphys");
     const auto start = std::chrono::steady_clock::now();
@@ -659,4 +665,75 @@ TEST_CASE("fb-lsp answers while a registry it asks never answers", "[lsp][toml]"
               .get<std::string>()
               .starts_with("`version`"));
     CHECK(std::chrono::steady_clock::now() - start < std::chrono::seconds(5));
+}
+
+// From the recheck: a quoted key is a dependency's name, which hover shows, and three quotes in a
+// comment open no string.
+TEST_CASE("fb-lsp's hover on a quoted name, and a comment's quotes", "[lsp][toml]") {
+    const fb::testing::sandbox_t sandbox;
+    fb::testing::registry_server_t registry;
+    registry.add(version_of("physics", "1.0.0"));
+    const std::string head = std::format(
+        "{}# write \"\"\" for long text\n\n[registries]\nfutureblitz = {{ index = \"{}\" }}\n\n"
+        "[dependencies]\n\"physics\" = \"1.0\"\n\n[format]\nwid\n",
+        game_manifest, registry.index());
+    const folder_t folder({ { "project.toml", head }, { "main.fb", "Import std.core\n" } });
+    client_t client({ .folders = { folder.root() } });
+    const std::string uri = folder.uri("project.toml");
+    client.open(uri, head);
+    const std::string hovered = eventually([&] {
+        const json_t found = client.request("textDocument/hover", client.at(uri, "\"physics\"", 2));
+        return found.is_null() ? std::string()
+                               : found.at("contents").at("value").get<std::string>();
+    });
+    CHECK(hovered.starts_with("**physics** 1.0.0"));
+    CHECK(labels(client.request("textDocument/completion", client.at(uri, "\nwid", 4))) ==
+          std::vector<std::string>{ "width" });
+}
+
+// From the recheck: a registry that couldn't be reached once was never asked again for versions.
+TEST_CASE("fb-lsp asks a registry again that couldn't be reached", "[lsp][toml]") {
+    const fb::testing::sandbox_t sandbox;
+    fb::testing::registry_server_t registry;
+    registry.add(version_of("physics", "1.0.0"));
+    std::atomic<bool> down = true;
+    const std::string head = std::format(
+        "{}\n[registries]\nfutureblitz = {{ index = \"{}\" }}\n\n[dependencies]\nphysics = \"\"\n",
+        game_manifest, registry.index());
+    const folder_t folder({ { "project.toml", head }, { "main.fb", "Import std.core\n" } });
+    client_t client({
+        .folders = { folder.root() },
+        .http = [&](const fb::http_request_t& request)
+            -> std::expected<fb::http_response_t, std::string> {
+            if (down) {
+                return std::unexpected("the registry is down");
+            }
+
+            return fb::send_http(request);
+        },
+        .registry_life = std::chrono::seconds(1),
+    });
+    const std::string uri = folder.uri("project.toml");
+    client.open(uri, head);
+    // Once the registry's answer, or its failure, is in.
+    const auto versions = [&] {
+        json_t answer;
+        for (int tries = 0; tries < 500; ++tries) {
+            answer = client.request("textDocument/completion", client.at(uri, "physics = \"", 11));
+            if (!answer.at("isIncomplete").get<bool>()) {
+                break;
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+
+        return labels(answer);
+    };
+    CHECK(versions().empty());
+    down = false;
+    const std::string asked_again = eventually([&] {
+        return versions() == std::vector<std::string>{ "1.0.0" } ? std::string("1.0.0")
+                                                                 : std::string();
+    });
+    CHECK(asked_again == "1.0.0");
 }

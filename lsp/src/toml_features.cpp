@@ -132,7 +132,8 @@ std::vector<std::pair<std::uint32_t, std::uint32_t>> lines_of(const std::string_
             first = begin;
         }
 
-        // Three quotes, of either kind, open a multi-line string, or close the one that's open.
+        // Three quotes, of either kind, open a multi-line string, or close the one that's open; a
+        // string on one line is passed over, and a comment ends what's read of the line.
         for (std::size_t found = 0; found < line.size(); ++found) {
             const std::string_view rest = line.substr(found);
             if (open.empty() && (rest.starts_with(R"(""")") || rest.starts_with(R"(''')"))) {
@@ -141,6 +142,11 @@ std::vector<std::pair<std::uint32_t, std::uint32_t>> lines_of(const std::string_
             } else if (!open.empty() && rest.starts_with(open)) {
                 open = {};
                 found += 2;
+            } else if (open.empty() && (rest.front() == '"' || rest.front() == '\'')) {
+                const std::size_t close = line.find(rest.front(), found + 1);
+                found = close == std::string_view::npos ? line.size() : close;
+            } else if (open.empty() && rest.front() == '#') {
+                break;
             }
         }
 
@@ -812,18 +818,28 @@ void toml_features_t::fetch() {
         const fetch_t asked = std::move(m_fetches.front());
         m_fetches.pop_front();
         lock.unlock();
-        std::unique_ptr<registry_t>& registry = m_registries[asked.index];
-        if (registry == nullptr) {
+        // A registry_t remembers it couldn't reach its index, so one that couldn't is made again
+        // once that's older than what's kept, as a search tries again.
+        auto& [registry, failed] = m_registries[asked.index];
+        if (registry == nullptr ||
+            (failed && steady_t::now() - *failed >= m_options.registry_life)) {
             registry = std::make_unique<registry_t>(asked.index, m_options.http, m_options.offline,
                                                     status_t{});
+            failed.reset();
         }
 
         std::vector<index_entry_t> entries;
         std::vector<found_package_t> packages;
         if (!asked.search) {
-            // A registry out of reach gives the cache's, as registry_t remembers it is.
-            entries =
-                registry->versions(asked.what).value_or(cached_versions(asked.index, asked.what));
+            // A registry out of reach gives the cache's, or nothing, as registry_t remembers it
+            // is, until it's made again.
+            std::expected<std::vector<index_entry_t>, std::string> asked_for =
+                registry->versions(asked.what);
+            if ((!asked_for || !registry->notes().empty()) && !failed) {
+                failed = steady_t::now();
+            }
+
+            entries = std::move(asked_for).value_or(cached_versions(asked.index, asked.what));
         } else {
             const auto unreachable = m_unreachable.find(asked.index);
             const bool reachable = unreachable == m_unreachable.end() ||
@@ -1042,8 +1058,9 @@ json_t toml_features_t::hover(const document_t& document, const json_t& params) 
     const auto [line_begin, line_end] = line_at(text, offset);
     const std::string_view line = text.substr(line_begin, line_end - line_begin);
 
-    // A comment's words and a string's aren't keys or packages.
-    if (const place_t at = place_at(text, offset); at.comment || at.string_begin) {
+    // A comment's words and a value's string's aren't keys or packages, though a quoted key is.
+    if (const place_t at = place_at(text, offset);
+        at.comment || (at.string_begin && (at.value || at.table_value))) {
         return nullptr;
     }
 

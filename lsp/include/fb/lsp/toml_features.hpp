@@ -136,8 +136,11 @@ private:
     std::deque<fetch_t> m_fetches;
     std::set<std::string> m_fetching;
     bool m_fetcher_stopping = false;
-    /// One an index, which remembers when it can't be reached; only the fetching thread has them.
-    std::map<std::string, std::unique_ptr<registry_t>> m_registries;
+    /// One an index, which remembers when it can't be reached, with when it first couldn't be,
+    /// after which it's made again; only the fetching thread has them.
+    std::map<std::string, std::pair<std::unique_ptr<registry_t>,
+                                    std::optional<std::chrono::steady_clock::time_point>>>
+        m_registries;
     /// The indexes whose search couldn't be reached, and when; only the fetching thread has them.
     std::map<std::string, std::chrono::steady_clock::time_point> m_unreachable;
     std::thread m_fetcher;

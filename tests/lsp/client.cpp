@@ -71,7 +71,10 @@ client_t::client_t(options_t options)
           { .workspace = { .delay = options.delay,
                            .dependents_delay = options.dependents_delay.value_or(options.delay),
                            .load_folders = options.load_folders, },
-            .toml = { .delay = options.delay, .offline = options.offline }, }) {
+            .toml = { .delay = options.delay,
+                      .offline = options.offline,
+                      .http = options.http,
+                      .registry_life = options.registry_life, }, }) {
     json_t folders = json_t::array();
     for (const std::filesystem::path& folder : options.folders) {
         folders.push_back({ { "uri", uri_of(folder) }, { "name", to_utf8(folder.filename()) } });
