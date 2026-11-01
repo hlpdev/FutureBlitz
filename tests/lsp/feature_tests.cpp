@@ -848,6 +848,15 @@ TEST_CASE("an inspection's warning has its lint's name, and what's unused is fad
     client.open(uri, text);
     client.settle();
     const json_t diagnostics = client.diagnostics(uri);
+    // The package's whole check, as it's outside the client's folders, has the main file too,
+    // which isn't on disk, so it doesn't publish the file's diagnostics as none.
+    for (const json_t& message : client.notifications()) {
+        if (message["method"] == "textDocument/publishDiagnostics" &&
+            message["params"]["uri"] == uri) {
+            CHECK(message["params"]["diagnostics"].size() == 2);
+        }
+    }
+
     REQUIRE(diagnostics.size() == 2);
     // [lints] makes the hidden Global's an error.
     CHECK(diagnostics[0]["code"] == "shadowed");
@@ -857,6 +866,19 @@ TEST_CASE("an inspection's warning has its lint's name, and what's unused is fad
     CHECK(diagnostics[1]["severity"] == 2);
     CHECK(diagnostics[1]["tags"] == json_t::array({ 1 }));
     CHECK(diagnostics[1]["range"]["start"] == client_t::position(4, 10));
+
+    // A check for references has no inspections, so it leaves the warnings shown, and their
+    // fixes.
+    CHECK(client
+              .request("textDocument/references",
+                       {
+                           { "textDocument", { { "uri", uri } } },
+                           { "position", client_t::position(5, 12) },
+                           { "context", { { "includeDeclaration", true } } },
+                       })
+              .size() == 2);
+    client.settle();
+    CHECK(client.diagnostics(uri) == diagnostics);
 
     const json_t actions =
         client.request("textDocument/codeAction",
@@ -956,4 +978,59 @@ TEST_CASE("formatting gives the document in fb's style, and on save when asked",
     CHECK(client.request("textDocument/formatting", params).empty());
     client.change(uri, "Import std.core\nLocal a = (\n");
     CHECK(client.request("textDocument/formatting", params).empty());
+}
+
+TEST_CASE("a fix's edits are of the workspace's files, and go after a BOM", "[lsp]") {
+    // lib, a path dependency, isn't in the client's folders, so it's not the workspace's to
+    // change, and making its Private Function Public isn't offered.
+    const folder_t folder({
+        {
+            "app/project.toml",
+            "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\nlib "
+            "= { path = \"../lib\" }\n",
+        },
+        { "app/main.fb", "Import std.core\nImport lib\nPrint(Hidden())\n" },
+        { "lib/project.toml", "[project]\nname = \"lib\"\nversion = \"0.1.0\"\n" },
+        { "lib/lib.fb", "Function Hidden(): Int => 1\nPublic Function Shown(): Int => Hidden()\n" },
+    });
+    client_t client({ .folders = { folder.root() / "app" } });
+    const std::string main = folder.uri("app/main.fb");
+    client.open(main, "Import std.core\nImport lib\nPrint(Hidden())\n");
+    client.settle();
+    const json_t diagnostics = client.diagnostics(main);
+    REQUIRE(!diagnostics.empty());
+    const json_t actions = client.request("textDocument/codeAction",
+                                          {
+                                              { "textDocument", { { "uri", main } } },
+                                              { "range", diagnostics[0]["range"] },
+                                              { "context", { { "diagnostics", diagnostics } } },
+                                          });
+    for (const json_t& action : actions) {
+        CHECK(!action["title"].get<std::string>().contains("Public"));
+    }
+
+    // A file with a BOM, which an editor's text leaves out as a source file's offsets do: the
+    // Import goes at its start, after the BOM.
+    const std::string uri = folder.uri("app/bom.fb");
+    client.open(uri, "\xEF\xBB\xBFLocal s = Stack<Int>()\nLocal n = s.Count\n");
+    client.settle();
+    const json_t errors = client.diagnostics(uri);
+    REQUIRE(!errors.empty());
+    const json_t fixes =
+        client.request("textDocument/codeAction", {
+                                                      { "textDocument", { { "uri", uri } } },
+                                                      { "range", errors[0]["range"] },
+                                                      { "context", { { "diagnostics", errors } } },
+                                                  });
+    const auto imported = std::ranges::find_if(
+        fixes, [](const json_t& action) { return action["title"] == "Import std.collections"; });
+    REQUIRE(imported != fixes.end());
+    const json_t& action = *imported;
+    const json_t& edit = action["edit"]["changes"][uri][0];
+    CHECK(edit["range"]["start"] == client_t::position(0, 0));
+    client.edit(uri,
+                json_t::array({ { { "range", edit["range"] }, { "text", edit["newText"] } } }));
+    client.settle();
+    INFO(client.errors(uri).dump());
+    CHECK(client.errors(uri).empty());
 }

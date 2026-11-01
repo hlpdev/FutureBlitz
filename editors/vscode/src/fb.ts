@@ -248,10 +248,10 @@ export function testOutcomes(output: string): Map<string, TestOutcome> {
 
 // fb's arguments to run a package's or a file's tests, those whose names have `filter` in them,
 // or with `output`, to build their executable there for a debugger.
-export function testArguments(target: string, filter: string | undefined, output?: string): string[] {
+export function testArguments(target: string, names: readonly string[], output?: string): string[] {
     const args = ["test", "--color", "never"];
-    if (filter !== undefined && filter !== "") {
-        args.push("--filter", filter);
+    for (const name of names) {
+        args.push("--exact", name);
     }
 
     if (output !== undefined) {
@@ -260,11 +260,4 @@ export function testArguments(target: string, filter: string | undefined, output
 
     args.push(target);
     return args;
-}
-
-// What --filter takes for the tests of one file, whose names start with its module's: that
-// module's name and a '.', as "game.shapes." for game.shapes.Area.
-export function moduleFilter(name: string): string {
-    const dot = name.lastIndexOf(".");
-    return dot < 0 ? name : name.slice(0, dot + 1);
 }

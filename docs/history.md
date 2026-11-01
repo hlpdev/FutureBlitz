@@ -215,6 +215,27 @@ Method to override, or the Class made Abstract (`member_stub`, `suggest_implemen
 (`added_end`, `changed_end`). `@MainThread` has no error it fixes, and `fb add`'s fix is in Deferred
 work. Tests: tests/compiler/fixes_tests.cpp, each fix made and its program compiled.
 
+Step 6's review fixes (2026-11-01, on dev/m11): fb-lsp's checks with `examples` neither publish
+nor set `m_latest`; `m_effectful_modules` and `loads_effects`, `has_destroy`, and `pure`'s names
+by their kinds; `m_extends_interfaces` without the importers' count, for Extends of other
+modules' Interfaces; `note_written` for an attribute's Attribute and qualifier;
+`m_reflected_parameters`, which `note_reflected_uses` adds to `m_reflected_types`;
+`has_directives`, `whole_file`, and `varies`, with `m_directives`; `report_shadowing` by kind and
+`self_member`'s `can_use`; `check_unused_parameters`' Protected and reflected Methods;
+`check_request_t::folders` and `file_set_t::folders`, and no lints in the cache (`in_cache`).
+Tests in inspect_tests, driver_tests, packages_tests, and feature_tests.
+
+Steps 4 and 5's review fixes (2026-10-31, on dev/m11): code lenses resolve from one check of their
+file and what imports it, by version (`lens_check_t`, `m_lens_checks`), with ContentModified for a
+stale lens and RequestCancelled for a cancelled request, through `inbox_t`, which fb-lsp's reader
+thread fills (`server_t::set_inbox`); `written_type`, `written_declared`, `written_suffixed`, and
+`written_listed` for fixes' types, with the Imports they need; `takes_throws`, `is_accessor`,
+`catch_suggestion`, `acting_statement`, and `wrap_fix`; `import_offset`; `line_break`,
+`indent_step`, and `in_style`; `member_use_t` and `member_names`' filtering; `exposed_types`;
+`visible_type_names`; Fields in the call hierarchy; `fb test --exact`; `unit_t::named_main` and
+`main_of`. The benchmark's lenses, syntax_error_lenses, and highlights. Tests in fixes_tests,
+navigate_tests, feature_tests, completion_tests, packages_tests, and cli_tests.
+
 Step 6, inspections (2026-10-31, on dev/m11): `lint_t`, `lint_level_t`, `lints_t`, `lints()`,
 `lint_info`, and `lint_named` (fb/lint.hpp, lint.cpp); `diagnostic_t::lint` and
 `diagnostic_bag_t::lint`, which name a warning by its lint's `code`; `[lints]` in project.toml

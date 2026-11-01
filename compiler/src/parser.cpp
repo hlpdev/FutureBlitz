@@ -733,17 +733,32 @@ private:
         const auto line_start = [&](const std::size_t offset) {
             return offset == 0 ? 0 : source.rfind('\n', offset - 1) + 1;
         };
+        // Back over the blank lines, comments, a doc comment among them, and the #If lines that
+        // come before what's next, which the End goes before; but not into an #If's branch.
         std::size_t where =
             at(token_kind_t::END_OF_FILE) ? source.size() : line_start(peek().span.begin);
-        while (where > 0 && source.substr(line_start(where - 1), where - 1 - line_start(where - 1))
-                                    .find_first_not_of(" \t\r") == std::string_view::npos) {
-            where = line_start(where - 1);
+        while (where > 0) {
+            const std::size_t previous = line_start(where - 1);
+            const std::string_view line = source.substr(previous, where - 1 - previous);
+            const std::size_t first = line.find_first_not_of(" \t\r");
+            const std::string_view trimmed =
+                first == std::string_view::npos ? std::string_view() : line.substr(first);
+            if (!trimmed.empty() && !trimmed.starts_with("//") && !trimmed.starts_with("#If")) {
+                break;
+            }
+
+            where = previous;
         }
 
         const std::size_t opened = line_start(opening.span.begin);
         const std::string_view indent =
             source.substr(opened, source.find_first_not_of(" \t", opened) - opened);
-        const std::string lead = where > 0 && source[where - 1] != '\n' ? "\n" : "";
+        const std::size_t first_break = source.find('\n');
+        const std::string_view br = first_break != std::string_view::npos && first_break > 0 &&
+                                            source[first_break - 1] == '\r'
+                                        ? "\r\n"
+                                        : "\n";
+        const std::string lead = where > 0 && source[where - 1] != '\n' ? std::string(br) : "";
         const span_t place{
             .file = m_file.id(),
             .begin = static_cast<std::uint32_t>(where),
@@ -753,7 +768,7 @@ private:
             .title = std::format("Add 'End {}'", text(opening)),
             .fixes = { { .span = place,
                          .replacement =
-                             std::format("{}{}End {}\n", lead, indent, text(opening)), }, },
+                             std::format("{}{}End {}{}", lead, indent, text(opening), br), }, },
         };
     }
 

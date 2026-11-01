@@ -550,6 +550,13 @@ std::expected<void, std::string> parse_into(const std::span<const std::string_vi
 
             parsed = value().transform(
                 [&](const std::string_view text) { options.filter = std::string(text); });
+        } else if (name == "--exact") {
+            if (options.command != command_t::TEST) {
+                return std::unexpected("'--exact' only works with 'fb test'");
+            }
+
+            parsed = value().transform(
+                [&](const std::string_view text) { options.exact.emplace_back(text); });
         } else if (argument.starts_with('-')) {
             return std::unexpected(std::format("unknown option '{}'", argument));
         } else if (!options.input.empty()) {

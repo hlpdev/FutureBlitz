@@ -61,6 +61,10 @@ enum class error_code_t : std::int32_t {
     INVALID_PARAMS = -32602,
     INTERNAL_ERROR = -32603,
     SERVER_NOT_INITIALIZED = -32002,
+    /// The client cancelled the request before the server started on it.
+    REQUEST_CANCELLED = -32800,
+    /// What the request is about changed, so its answer would be stale.
+    CONTENT_MODIFIED = -32801,
     REQUEST_FAILED = -32803,
 };
 

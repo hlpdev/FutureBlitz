@@ -2006,6 +2006,27 @@ TEST_CASE("fb test runs a package's tests, filters them, and reports each", "[cl
                                    "\ntest result: ok. 2 passed; 0 failed; 0 skipped; 9 filtered "
                                    "out; finished in "));
 
+    // --exact runs the tests it names, each whole, not what has the name in it.
+    const fb::process_result_t exact = fb_run({
+        "test",
+        tested,
+        "--exact",
+        "tested.counting.Counts",
+        "--exact",
+        "tested.counting.Parses",
+        "--exact",
+        "Count",
+        "--color",
+        "never",
+    });
+    INFO(exact.output);
+    CHECK(exact.exit_code == 0);
+    CHECK(exact.output.contains("     Running 2 tests\n"
+                                "test tested.counting.Counts ... ok\n"
+                                "test tested.counting.Parses ... ok\n"
+                                "\ntest result: ok. 2 passed; 0 failed; 0 skipped; 9 filtered "
+                                "out; finished in "));
+
     // A file in the package tests the package.
     const fb::process_result_t file = fb_run({
         "test",
@@ -2065,6 +2086,7 @@ TEST_CASE("fb test runs a package's tests, filters them, and reports each", "[cl
     CHECK_FALSE(broken.output.contains("Running"));
 
     check_usage_error({ "build", tested, "--filter", "x" }, "'--filter' only works with 'fb test'");
+    check_usage_error({ "build", tested, "--exact", "x" }, "'--exact' only works with 'fb test'");
     check_usage_error({ "test", tested, "--show", "mir" },
                       "'--show' only works with 'fb check', 'fb build', and 'fb run'");
     CHECK(

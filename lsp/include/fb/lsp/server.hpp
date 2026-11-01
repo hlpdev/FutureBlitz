@@ -1,6 +1,7 @@
 #pragma once
 
 #include "fb/lsp/features.hpp"
+#include "fb/lsp/inbox.hpp"
 #include "fb/lsp/protocol.hpp"
 #include "fb/lsp/query.hpp"
 #include "fb/lsp/workspace.hpp"
@@ -33,6 +34,13 @@ public:
 
     /// Handles one message: a request, which it answers before it returns, or a notification.
     void handle(const json_t& message);
+
+    /// The messages waiting behind the one being handled, which it looks at: a request whose
+    /// $/cancelRequest waits is cancelled, and a code lens of a document whose change waits is
+    /// stale. Without one, each message is handled as it comes.
+    void set_inbox(inbox_t* inbox) {
+        m_inbox = inbox;
+    }
 
     /// Once the client has said exit: what the process exits with, 0 after a shutdown and 1
     /// without one.
@@ -75,6 +83,15 @@ private:
     std::map<std::string, std::pair<std::string, json_t>> m_symbols;
     /// The standard library's modules, as an Import names them.
     std::vector<std::string> m_std_modules;
+    inbox_t* m_inbox = nullptr;
+    /// For each open document whose code lenses are resolved, by its key: the check of it and
+    /// what imports it, which every one of its lenses counts its references in, and the version
+    /// it was for. Any document's change empties it.
+    struct lens_check_t {
+        std::int64_t version = 0;
+        std::vector<std::shared_ptr<const compilation_t>> compilations;
+    };
+    std::map<std::string, lens_check_t> m_lens_checks;
     /// Last, so it's destroyed first, and its threads stop before what they send through.
     std::unique_ptr<workspace_t> m_workspace;
 

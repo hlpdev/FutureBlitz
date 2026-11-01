@@ -71,6 +71,7 @@ client_t::client_t(options_t options)
           { .workspace = { .delay = options.delay,
                            .dependents_delay = options.dependents_delay.value_or(options.delay),
                            .load_folders = options.load_folders, }, }) {
+    m_server.set_inbox(&m_inbox);
     json_t folders = json_t::array();
     for (const std::filesystem::path& folder : options.folders) {
         folders.push_back({ { "uri", uri_of(folder) }, { "name", to_utf8(folder.filename()) } });
@@ -177,6 +178,56 @@ void client_t::open(const std::string& uri, const std::string_view text) {
         { "text", text },
     };
     notify("textDocument/didOpen", { { "textDocument", document } });
+}
+
+std::int64_t client_t::queue(const std::string& method, json_t params) {
+    const std::int64_t id = m_next_id++;
+    m_inbox.push({
+        { "jsonrpc", "2.0" },
+        { "id", id },
+        { "method", method },
+        { "params", std::move(params) },
+    });
+    return id;
+}
+
+void client_t::queue_notification(const std::string& method, json_t params) {
+    m_inbox.push({ { "jsonrpc", "2.0" }, { "method", method }, { "params", std::move(params) } });
+}
+
+void client_t::queue_change(const std::string& uri, const std::string_view text) {
+    m_texts[uri] = text;
+    const std::int64_t version = ++m_versions[uri];
+    mark(uri);
+    m_inbox.push({
+        { "jsonrpc", "2.0" },
+        { "method", "textDocument/didChange" },
+        {
+            "params",
+            {
+                { "textDocument", { { "uri", uri }, { "version", version } } },
+                { "contentChanges", json_t::array({ { { "text", text } } }) },
+            },
+        },
+    });
+}
+
+void client_t::drain() {
+    while (const std::optional<json_t> message = m_inbox.try_pop()) {
+        m_server.handle(*message);
+    }
+}
+
+json_t client_t::response(const std::int64_t id) const {
+    const std::scoped_lock lock(m_mutex);
+    for (const json_t& message : m_received) {
+        if (message.contains("id") && message["id"] == id && !message.contains("method")) {
+            return message;
+        }
+    }
+
+    FAIL("no response to request " << id);
+    return nullptr;
 }
 
 void client_t::change(const std::string& uri, const std::string_view text) {

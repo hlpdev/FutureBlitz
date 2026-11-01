@@ -298,6 +298,7 @@ unit_t make_unit(const unit_t::kind_t kind, const std::filesystem::path& root) {
             }
 
             const std::filesystem::path main = root / path_from_utf8(read->main);
+            unit.named_main = main;
             std::error_code error;
             if (std::filesystem::is_regular_file(main, error)) {
                 unit.main = main;
@@ -1011,7 +1012,7 @@ void workspace_t::run_background() {
             jobs.push_back({
                 .unit = unit,
                 .roots = whole.files,
-                .main = whole.kind == unit_t::kind_t::PACKAGE ? whole.main : std::nullopt,
+                .main = whole.kind == unit_t::kind_t::PACKAGE ? main_of(whole) : std::nullopt,
             });
         } else {
             m_done.notify_all();
@@ -1057,6 +1058,8 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
         }
     }
 
+    std::vector<std::filesystem::path> folders = m_folders;
+
     const std::uint64_t generation = m_generation;
     disk_cache_t* disk = m_watched ? &m_disk : nullptr;
     ++m_running;
@@ -1075,6 +1078,7 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
         .workspace = std::move(workspace),
         // References' and renames' checks aren't published.
         .inspect = !job.examples,
+        .folders = std::move(folders),
     });
     std::shared_ptr<const compilation_t> compilation =
         result ? std::make_shared<const compilation_t>(std::move(*result)) : nullptr;
@@ -1188,9 +1192,14 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
     }
 
     // What's published, for one of the roots or a project.toml: its diagnostics, unless a newer
-    // check has published its own.
+    // check has published its own. A check for references, a rename, a lens, or a hierarchy has
+    // no inspections, so it neither publishes nor is what's shown.
     const auto publish = [&](const std::string& key, const std::filesystem::path& path,
                              const std::optional<file_id_t> file) {
+        if (job.examples) {
+            return;
+        }
+
         const auto document = m_documents.find(key);
         const auto read = versions.find(key);
         const bool current =
@@ -1305,6 +1314,18 @@ std::size_t workspace_t::unit_index(const std::filesystem::path& path) {
     return index;
 }
 
+std::optional<std::filesystem::path> workspace_t::main_of(const unit_t& unit) const {
+    if (unit.main) {
+        return unit.main;
+    }
+
+    if (unit.named_main && m_documents.contains(file_key(*unit.named_main))) {
+        return unit.named_main;
+    }
+
+    return std::nullopt;
+}
+
 workspace_t::job_t workspace_t::job_for(const std::filesystem::path& path) {
     const std::size_t unit = unit_index(path);
     const auto document = m_documents.find(file_key(path));
@@ -1394,7 +1415,7 @@ std::vector<workspace_t::job_t> workspace_t::jobs_for(const std::set<std::string
             continue;
         }
 
-        const std::optional<std::filesystem::path>& main = m_units[unit].main;
+        const std::optional<std::filesystem::path> main = main_of(m_units[unit]);
         const bool has_main =
             main && std::ranges::any_of(roots, [&](const std::filesystem::path& root) {
                 return file_key(root) == file_key(*main);

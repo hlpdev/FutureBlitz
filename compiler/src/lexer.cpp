@@ -932,4 +932,70 @@ std::vector<token_t> lex_layout(const source_file_t& file, diagnostic_bag_t& dia
     return lexer_t(file, diagnostics, {}, &trivia).run();
 }
 
+std::uint32_t import_offset(const std::string_view text) {
+    std::size_t at = text.starts_with("\xEF\xBB\xBF") ? 3 : 0;
+    std::size_t place = at;
+    // How deep in #Ifs the line is, and whether an Import is in the outermost one.
+    int depth = 0;
+    bool inside = false;
+    bool documented = true;
+    bool continued = false;
+    while (at < text.size()) {
+        const std::size_t end = std::min(text.find('\n', at), text.size());
+        const std::size_t next = std::min(end + 1, text.size());
+        std::string_view line = text.substr(at, end - at);
+        if (line.ends_with('\r')) {
+            line.remove_suffix(1);
+        }
+
+        const std::size_t first = line.find_first_not_of(" \t");
+        const std::string_view trimmed =
+            first == std::string_view::npos ? std::string_view() : line.substr(first);
+        at = next;
+        // The module doc comment's lines come first.
+        if (documented && trimmed.starts_with("//!")) {
+            place = next;
+            continue;
+        }
+
+        documented = false;
+        // An Import's names can go on after a comma.
+        if (continued) {
+            continued = trimmed.ends_with(',');
+            if (depth == 0) {
+                place = next;
+            }
+
+            continue;
+        }
+
+        if (trimmed.empty() || trimmed.starts_with("//")) {
+            continue;
+        }
+
+        if (trimmed.starts_with("#If")) {
+            ++depth;
+        } else if (trimmed.starts_with("#End If")) {
+            depth = std::max(depth - 1, 0);
+            if (depth == 0 && inside) {
+                place = next;
+                inside = false;
+            }
+        } else if (trimmed.starts_with("#Else")) {
+            continue;
+        } else if (trimmed.starts_with("Import ") || trimmed.starts_with("From ")) {
+            continued = trimmed.ends_with(',');
+            if (depth == 0) {
+                place = next;
+            } else {
+                inside = true;
+            }
+        } else {
+            break;
+        }
+    }
+
+    return static_cast<std::uint32_t>(place);
+}
+
 } // namespace fb

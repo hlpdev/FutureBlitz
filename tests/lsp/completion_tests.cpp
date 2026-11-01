@@ -540,3 +540,31 @@ TEST_CASE("the names to import are those the file can import, each module's its 
 
     CHECK(details == std::set<std::string>{ "Struct from app.grid", "Struct from app.shapes" });
 }
+
+TEST_CASE("completion's Import goes after an #If among the Imports, and after a //! comment",
+          "[lsp]") {
+    const folder_t folder({
+        { "project.toml", "[project]\nname = \"geo\"\nversion = \"0.1.0\"\n" },
+        { "shapes.fb", "Public Struct Point\n    Public Field X: Int\nEnd Struct\n" },
+        { "report.fb", "Public Function Report(): Int => 1\n" },
+    });
+    client_t client({ .folders = { folder.root() } });
+    client.settle();
+    const std::string report = folder.uri("report.fb");
+    client.open(report, "Public Function Report(): Int => 1\n");
+    const auto import_at = [&](const std::string& head) {
+        const std::string text =
+            head + "Public Function Report(): Int\n    Local p = Poi\n    Return 1\nEnd Function\n";
+        client.change(report, text);
+        const json_t found = client.request("textDocument/completion", client.at(report, "Poi", 3));
+        const std::vector<json_t> items(found["items"].begin(), found["items"].end());
+        const json_t point = item_of(items, "Point");
+        REQUIRE(point["additionalTextEdits"].size() == 1);
+        CHECK(point["additionalTextEdits"][0]["newText"] == "Import geo.shapes\n");
+        return point["additionalTextEdits"][0]["range"]["start"];
+    };
+
+    CHECK(import_at("Import std.core\n#If DEBUG\nImport std.text\n#End If\n\n") ==
+          client_t::position(4, 0));
+    CHECK(import_at("//! Reports.\n\n") == client_t::position(1, 0));
+}

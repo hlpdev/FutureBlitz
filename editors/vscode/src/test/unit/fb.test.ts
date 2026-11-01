@@ -11,7 +11,6 @@ import {
     findPackageRoot,
     lldbImportCommand,
     missingFbMessage,
-    moduleFilter,
     packageName,
     projectOf,
     relativeTarget,
@@ -219,21 +218,21 @@ describe("testOutcomes", () => {
     });
 });
 
-test("testArguments runs a filter's tests, or builds their executable", () => {
-    assert.deepEqual(testArguments("C:/counted", undefined), ["test", "--color", "never", "C:/counted"]);
-    assert.deepEqual(testArguments("C:/counted", "counted.counting.Doubles", "C:/t/tests.exe"), [
-        "test",
-        "--color",
-        "never",
-        "--filter",
-        "counted.counting.Doubles",
-        "-o",
-        "C:/t/tests.exe",
-        "C:/counted",
-    ]);
-});
-
-test("moduleFilter picks a file's tests by their module", () => {
-    assert.equal(moduleFilter("game.shapes.Area"), "game.shapes.");
-    assert.equal(moduleFilter("Area"), "Area");
+test("testArguments runs exactly the tests named, or builds their executable", () => {
+    assert.deepEqual(testArguments("C:/counted", []), ["test", "--color", "never", "C:/counted"]);
+    assert.deepEqual(
+        testArguments("C:/counted", ["counted.counting.Doubles", "counted.counting.Breaks"], "C:/t/tests.exe"),
+        [
+            "test",
+            "--color",
+            "never",
+            "--exact",
+            "counted.counting.Doubles",
+            "--exact",
+            "counted.counting.Breaks",
+            "-o",
+            "C:/t/tests.exe",
+            "C:/counted",
+        ],
+    );
 });

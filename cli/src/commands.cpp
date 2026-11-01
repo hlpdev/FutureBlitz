@@ -342,6 +342,8 @@ std::string help_text(const std::optional<command_t> command, const style_t& sty
 
     if (command == command_t::TEST) {
         out += entry("    --filter <name>", "Run only the tests whose names have <name> in them");
+        out += entry("    --exact <name>", "Run the test named <name>, and each other one --exact "
+                                           "names");
     } else if (command != command_t::DOC) {
         out += entry("    --show <stages>", "Print stages: tokens, ast, types, mir, llvm, or all");
     }
@@ -1112,7 +1114,8 @@ int test_command(const options_t& options) {
     const std::vector<test_case_t> found = package_tests(compilation);
     std::vector<test_case_t> tests;
     std::ranges::copy_if(found, std::back_inserter(tests), [&](const test_case_t& test) {
-        return !options.filter || test.name.contains(*options.filter);
+        return (!options.filter || test.name.contains(*options.filter)) &&
+               (options.exact.empty() || std::ranges::contains(options.exact, test.name));
     });
     const mir_module_t module = lower_tests(compilation.ast, compilation.analysis, tests);
     if (const std::optional<mir_error_t>& error = module.error) {

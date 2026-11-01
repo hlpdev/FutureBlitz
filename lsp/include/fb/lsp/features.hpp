@@ -135,8 +135,11 @@ struct call_at_t {
 [[nodiscard]] json_t semantic_tokens(const query_t& query, const positions_t& positions);
 
 /// textDocument/codeAction: a quick fix for each diagnostic in the file that has fix-its, of
-/// those that `range`, offsets in the file, touches.
-[[nodiscard]] json_t code_actions(const query_t& query, span_t range, const positions_t& positions);
+/// those that `range`, offsets in the file, touches, but for one with an edit of a file that
+/// `editable` says isn't the workspace's to change.
+[[nodiscard]] json_t
+code_actions(const query_t& query, span_t range, const positions_t& positions,
+             const std::function<bool(const std::filesystem::path&)>& editable);
 
 /// textDocument/formatting's edits: the whole document as format_source() has it, or none when
 /// it's formatted already or doesn't parse.

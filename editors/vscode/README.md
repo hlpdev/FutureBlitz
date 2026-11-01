@@ -38,7 +38,8 @@ CodeLLDB. The design is in [docs/tooling.md](https://github.com/hlpdev/FutureBli
   Type Hierarchy work across the package, and a count of references sits above each type and
   function.
 - **Tests**: the Testing panel lists each file's `@Test` Functions, and runs or debugs a file's or
-  one test's, with their buttons in the gutter too: a run is `fb test --filter`, and a debug run
+  one test's, with their buttons in the gutter too: a run is `fb test --exact` with each test's
+  name, and a debug run
   builds the tests' executable with `fb test -o` and runs it under CodeLLDB. A program's main file
   has Run and Debug above its first line.
 - **Run** and **Debug** are in the editor's title bar on a .fb file, and in the Command Palette as

@@ -656,6 +656,7 @@ a half times it:
 | A syntax error shown, from the keystroke | 50 ms |
 | A type error shown, from the last keystroke | 300 ms |
 | Completion, hover, signature help, highlights | 100 ms |
+| Every code lens of a file resolved, as the editor asks once it's shown | 1,000 ms |
 | The quick fixes at a position | 100 ms |
 | A rename or find references across the package | 1 s |
 
@@ -668,7 +669,7 @@ a half times it:
 | 2 | **Errors as typed** (done 2026-10-31). Each change parses the file alone at once and publishes its syntax errors with no wait, with its last check's other errors where the edit moved them; the full check follows at its pause, and its errors replace them. The parser recovers at each statement and block, and a declaration that only goes at the top level, starting its line, ends the blocks a missing `End` left open, so one missing `End` or `)` doesn't hide the rest of the file's errors; tests of recovery for each block and each kind of broken line | a syntax error shows within 50 ms, and a file with three unrelated syntax errors shows all three |
 | 3 | **Completion that knows** (done 2026-10-31). Names from every module the file can import (its package's, std's, its dependencies'), not only those it imports, with the Import added when one is chosen; ranked by the type expected where the cursor is, then by scope and use; an Enum's members where an Enum is expected; named arguments; the members a Class can override and an Interface's to implement, written out with their signatures; keywords only where they can go; postfix completions (`.if`, `.ifnull`, `.for`, `.not`, `.try`, `.local`); completion on a word as it's typed, not only after `.` | each kind has a test of what's offered and in what order, and choosing an unimported name adds its Import |
 | 4 | **The editor's basics** (done 2026-10-31). Inlay hints (a Local's inferred type, parameter names at calls, each a setting); highlighting a symbol's other uses; folding by blocks, comments, and Import groups; expanding a selection by syntax; go to type definition and to implementations; call and type hierarchies; code lenses for references; run and debug for each `@Test` and main file in VS Code's Testing panel and the gutter | each request has tests, and the extension's Testing panel runs and debugs a package's tests |
-| 5 | **Quick fixes** (done 2026-10-31, but for `fb add`'s, in Deferred work). Every error that has a likely fix offers it, from the compiler: import the module that declares an unknown name (and `fb add` the registry package that has it, when one does); "did you mean" for a misspelled name; add `Try`, `Try?`, or a Throws; create the Function, Method, Field, Property, Local, or Enum member a use names, with its types from the use; implement an Interface's members or an Abstract Class's; add a missing `End`; a conversion with `As`; a Null check or `?` for nullability; make a declaration Public or Package for a use that can't see it; add `@MainThread`; wrap in `Unsafe`; add a missing Return; fix a keyword's case | each fix has a test that applies it and checks the file compiles |
+| 5 | **Quick fixes** (done 2026-10-31, but for `fb add`'s, in Deferred work). Every error that has a likely fix offers it, from the compiler: import the module that declares an unknown name (and `fb add` the registry package that has it, when one does); "did you mean" for a misspelled name; add `Try`, `Try?`, or a Throws; create the Function, Method, Field, Property, Local, or Enum member a use names, with its types from the use; implement an Interface's members or an Abstract Class's; add a missing `End`; a conversion with `As`; a Null check or `?` for nullability; make a declaration Public or Package for a use that can't see it; wrap in `Unsafe`; add a missing Return; fix a keyword's case | each fix has a test that applies it and checks the file compiles |
 | 6 | **Inspections** (done 2026-10-31). Warnings, with fixes, from the compiler: unused Locals, parameters, Imports, and Private members; unreachable code; a name that shadows another; a redundant `As` or `?`; a condition that's always True or False. `fb check` and `fb build` show them; project.toml's `[lints]` turns each off or makes it an error | each inspection has tests of when it warns and when it doesn't, and std builds with none |
 | 7 | **Refactorings.** Extract a Local, a Function, or a Method from a selection (with its parameters and its result worked out); inline a Local or a Function; change a signature (add, remove, rename, and reorder parameters, updating every call); organize Imports (sorted, unused ones removed), on save if asked | each refactoring has tests over std-sized code that check the result compiles and behaves the same |
 | 8 | **project.toml.** fb-lsp serves project.toml too: completion and hover for its keys and values from what fb reads, the errors fb gives for it as you type, package names completed from the registry's search, versions from its index, hover with a package's description and newest version, quick fixes to update a dependency or add what `fb publish` needs; offline, from the cache | completing a dependency's name and version against a test registry works, and every project.toml error fb has shows in the editor |
@@ -891,7 +892,8 @@ outline in features.cpp:
 - **The Testing panel**: fb-lsp sends each file's @Test Functions as the checks find them, by fb
   test's names, `fb/tests` (when initializationOptions.tests asks), and answers an `fb/tests`
   request with all of them. The extension's controller (editors/vscode/src/tests.ts) lists them by
-  file, runs a file's or a test's with `fb test --filter` and reads its output for each one's
+  file, runs a file's or a test's with `fb test --exact` and each test's name, which runs only
+  those, and reads its output for each one's
   result (`testOutcomes`), and debugs them by building the executable with `fb test -o`, new
   here, which builds the tests without running them, and running it under CodeLLDB with fb's
   script.
@@ -948,6 +950,31 @@ declare.
 Each fix has a test that makes it and checks the program then compiles (tests/compiler/
 fixes_tests.cpp), and fb-lsp's code actions their own.
 
+**Steps 4 and 5's review fixes** (2026-10-31): a file's code lenses count their references in one
+check of it and what imports it, kept until a document changes, with the version each lens is
+for, so a resolve of a version that's moved on, or one with a change of its document waiting
+behind it, is ContentModified, and fb-lsp's reader is a thread of its own, whose inbox
+(`inbox_t`) lets the server see what waits: a request whose $/cancelRequest waits is
+RequestCancelled. The benchmark times a file's lenses resolved (std's collections/map.fb, against
+the references budget), a syntax error with them waiting (the syntax error's), and highlights.
+Fixes write each type as the file they go in names it (`written_type`): bare where nothing else
+it sees has the name, with the qualifier an Import As gives, or else with the Import its module
+needs added, with an As where a plain one would make the name ambiguous; a generic Method's stub
+has its own type parameters and their constraints. Where the function can't have a Throws, an
+Override's, an Interface's Method's, an Operator's, a Destroy's, or a Property's Get's or Set's,
+a call that throws is caught in a Try block, whose Catch panics with the error's message, or made
+a Try? as a statement. An Import, the quick fix's and completion's, goes after an #If among the
+Imports and after a //! comment (`import_offset`); a missing End goes before the doc comments and
+#If lines before what's next; a Property's Get isn't made Unsafe; fixes write the file's line
+breaks and indentation. "Did you mean" offers only what the use can use, through a value or the
+type, and a misspelled type's name gets it too. Making a declaration Public or Package makes the
+types its signature exposes so too, or isn't offered when one isn't the workspace's; a fix whose
+edits aren't the program's own code isn't offered, and fb-lsp's code actions leave out what isn't
+the workspace's to change. A call in a Field's default is the Field's in the call hierarchy.
+`fb test --exact <name>` runs exactly the tests named, which the Testing panel passes, and a
+debug run's folder goes however it ends. A package's whole check takes its main file, open in the
+editor and not saved yet, as its main, so it doesn't publish the file's diagnostics as none.
+
 **Step 6, inspections** (2026-10-31): every warning sema gives has a lint now (`lint_t`, in
 fb/lint.hpp), whose name `diagnostic_t::code` is, as `fb check` shows it, `warning[unused_local]`,
 and which project.toml's `[lints]` turns off or makes an error for the package's own code (the
@@ -1001,6 +1028,23 @@ taken out, a Return after an endless loop, redundant As's, and bits.fb's unsigne
 with 0. Each inspection has tests of when it warns and when it doesn't, and of its fixes
 (tests/compiler/inspect_tests.cpp), with std's, `[lints]`'s (manifest_tests.cpp,
 driver_tests.cpp), and fb-lsp's (feature_tests.cpp).
+
+**Step 6's review fixes** (2026-11-01): a check for references, a rename, a lens, or a hierarchy
+has no inspections, so it neither publishes nor becomes what a document's code actions read.
+Each rule keeps what leaving out would change: a Global whose initializer does more than read,
+or whose value has a Destroy, isn't unused, nor is an Import of a module whose loading runs
+code, in it or in a module only it loads (std's Globals make only what its code uses, so std's
+modules don't count); an Import of a module with an Extend that gives another module's
+Interface to another module's type is always kept, as two files' Imports of it may both look
+unused; an attribute is a use of its Attribute; a loop over a type parameter's Methods or
+Properties goes over those of each type given to it; a Local whose value is a Property's Get
+isn't left out; and a Protected Method's parameters in a Public Class that isn't Final, and
+those of the Methods a loop over its type's Methods calls, aren't unused. Code nothing reaches
+isn't reported in a function with an `#If`, nor are redundant As's and constant conditions in
+a file with one or on a type an Alias under one names. `shadowed` is for Locals, parameters,
+loop variables, and Consts in functions, not an Enum's values, and a base Class's Field that
+code can't use isn't hidden. A package in the cache, or, in the editor, outside its folders
+(`check_request_t::folders`), has no lints.
 
 ## Not in M8
 

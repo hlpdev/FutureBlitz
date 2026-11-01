@@ -106,6 +106,12 @@ std::vector<metric_t> metrics() {
             .enforced = true,
         },
         {
+            .name = "highlights",
+            .what = "a name's other uses highlighted",
+            .budget = milliseconds(100),
+            .enforced = true,
+        },
+        {
             .name = "code_action",
             .what = "the quick fixes at an error",
             .budget = milliseconds(100),
@@ -121,6 +127,18 @@ std::vector<metric_t> metrics() {
             .name = "rename",
             .what = "a rename across the package",
             .budget = milliseconds(1000),
+            .enforced = true,
+        },
+        {
+            .name = "lenses",
+            .what = "every code lens of a file resolved, as the editor asks once it's shown",
+            .budget = milliseconds(1000),
+            .enforced = true,
+        },
+        {
+            .name = "syntax_error_lenses",
+            .what = "a syntax error shown, with the file's lens resolves waiting before it",
+            .budget = milliseconds(50),
             .enforced = true,
         },
     };
@@ -161,6 +179,9 @@ struct workload_t {
     /// A name to hover over, declared in the file and used across the package, which is found
     /// and renamed.
     std::string symbol;
+    /// The file whose code lenses are resolved: the edited one, or for std, collections/map.fb,
+    /// whose declarations the most of std uses.
+    std::filesystem::path lenses;
     /// How many .fb files the folder has, and their lines.
     std::size_t files = 0;
     std::size_t lines = 0;
@@ -351,6 +372,7 @@ workload_t std_workload() {
         .local = "chars",
         .function = "Best",
         .symbol = "Best",
+        .lenses = root / "collections" / "map.fb",
     };
 }
 
@@ -490,6 +512,9 @@ void measure(workload_t& workload, const std::size_t samples, const std::chrono:
     for (std::size_t sample = 0; sample < samples; ++sample) {
         metric("hover").samples.push_back(
             timed([&] { CHECK(client.request("textDocument/hover", name_at).is_object()); }));
+        metric("highlights").samples.push_back(timed([&] {
+            CHECK(!client.request("textDocument/documentHighlight", name_at).empty());
+        }));
 
         json_t references_params = name_at;
         references_params["context"] = { { "includeDeclaration", true } };
@@ -520,6 +545,52 @@ void measure(workload_t& workload, const std::size_t samples, const std::chrono:
 
     client.change(uri, text);
     client.settle();
+
+    // Every code lens of a file resolved: the first resolve checks it with what imports it, which
+    // the rest share, until a document changes, as a save says one may have.
+    const std::filesystem::path lens_file =
+        workload.lenses.empty() ? workload.file : workload.lenses;
+    const std::string lens_uri = fb::lsp::uri_of(lens_file);
+    if (lens_uri != uri) {
+        client.open(lens_uri, read(lens_file));
+        client.settle();
+    }
+
+    const json_t lens_params{ { "textDocument", { { "uri", lens_uri } } } };
+    for (std::size_t sample = 0; sample < samples; ++sample) {
+        client.notify("textDocument/didSave", lens_params);
+        const json_t lenses = client.request("textDocument/codeLens", lens_params);
+        REQUIRE(!lenses.empty());
+        metric("lenses").samples.push_back(timed([&] {
+            for (const json_t& lens : lenses) {
+                CHECK(client.request("codeLens/resolve", lens).contains("command"));
+            }
+        }));
+    }
+
+    // A syntax error typed while the editor's asked for the file's lenses: the server sees the
+    // change waiting behind them, so they're stale, and the error shows.
+    const json_t own_lenses =
+        client.request("textDocument/codeLens", { { "textDocument", { { "uri", uri } } } });
+    const std::string unclosed = typing(text, workload, "Local wrong = (1 +").first;
+    for (std::size_t sample = 0; sample < samples; ++sample) {
+        const json_t current =
+            client.request("textDocument/codeLens", { { "textDocument", { { "uri", uri } } } });
+        for (const json_t& lens : current) {
+            (void)client.queue("codeLens/resolve", lens);
+        }
+
+        client.queue_change(uri, unclosed);
+        const steady_t::time_point edited = steady_t::now();
+        client.drain();
+        CHECK(!client.published(uri).empty());
+        metric("syntax_error_lenses")
+            .samples.push_back(milliseconds_t(steady_t::now() - edited).count());
+        client.change(uri, text);
+        client.settle();
+    }
+
+    CHECK(!own_lenses.empty());
     const std::string key = fb::lsp::file_key(workload.file);
     for (const fb::lsp::check_record_t& check : client.server().workspace().history()) {
         if (check.roots.size() == 1 && fb::lsp::file_key(check.roots.front()) == key) {

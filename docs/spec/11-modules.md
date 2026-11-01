@@ -167,9 +167,10 @@ layout = { path = "../layout", version = "0.4" }    # its folder here, 0.4 once 
 - `[lints]` gives a level to each lint it names: `"off"`, `"warning"`, or `"error"`, which the
   package's own code's warnings about it have; `unused_local = "error"` makes a Local that's
   never read an error. Each is a warning without it. A name that isn't a lint is a warning, and
-  another level an error. The standard library's code, a registry's packages', a prebuilt
-  library's, and the files a build step or a .proto makes get none of these warnings, as they
-  aren't the program's to fix. The lints, by their names:
+  another level an error. The standard library's code, a registry's packages', in the cache or
+  through fb.lock, a prebuilt library's, and the files a build step or a .proto makes get none
+  of these warnings, as they aren't the program's to fix, nor, in the editor, does a package
+  outside its folders. The lints, by their names:
 
   | Lint | Warns about |
   |---|---|
@@ -178,7 +179,7 @@ layout = { path = "../layout", version = "0.4" }    # its folder here, 0.4 once 
   | `unused_import` | an Import, or a From line's name, that nothing in its file uses |
   | `unused_private` | a Private declaration that nothing in its file uses |
   | `unreachable` | code after what always leaves its block |
-  | `shadowed` | a Local or parameter named as a Global, Const, Function, type, or Field of Self |
+  | `shadowed` | a variable named as a Global, Const, Function, type, or Field of Self |
   | `redundant_as` | an As whose value has its type already |
   | `redundant_null` | `?.`, `??`, or a comparison with Null on what can't be Null |
   | `constant_condition` | a condition that's always True or always False |
@@ -189,19 +190,32 @@ layout = { path = "../layout", version = "0.4" }    # its folder here, 0.4 once 
 
   The first seven are inspections, and so are the conditions `constant_condition` finds of
   literals alone, as `1 > 2`, and of an integer compared with a literal past what its type holds,
-  as `count < 0` for a UInt32; `fb check`, `build`, `run`, and `test` and the editor give them. A name that starts with `_` is one that's meant to go unused, so a Local's or a
-  parameter's, or a Private declaration's, isn't reported, nor is a variable a For loop or a
-  Catch declares, which its line has to name. A parameter isn't reported when something else
-  sets the function's parameters: a Public function's, which callers outside the package see,
+  as `count < 0` for a UInt32; `fb check`, `build`, `run`, and `test` and the editor give them.
+  Each leaves alone what the compiler can't see is used, as a fix that breaks code is worse than
+  a warning that's missing. A name that starts with `_` is one that's meant to go unused, so a
+  Local's or a parameter's, or a Private declaration's, isn't reported, nor is a variable a For
+  loop or a Catch declares, which its line has to name. A Local is left out by its fix only when
+  its value is literals, variables, and Fields, as a call or a Property's Get may do what the
+  program needs. A parameter isn't reported when something else sets the function's
+  parameters: a Public function's, which callers outside the package see, a Protected Method's
+  of a Public Class that isn't Final, which a Class outside the package may override and call,
   an Interface's or a base Class's Method's that it implements or overrides, what overrides it,
-  an Operator's, a Property's Set's, one used as a value, an Extern's, and one whose body is
-  only a Todo, Panic, or Unreachable. A Private Field isn't reported, as equality, a debug form,
-  Save, and a C layout read Fields without naming them, nor what runs without its name being
-  written: a New, a Destroy, OnLoaded, ToString, or Hash, an Operator, a `@Test`, what has
-  attributes, and the members of a type a For Method or For Property loop goes over. Code an
-  `#If`'s branch that's off may leave out, which no check sees, can use what looks unused, so a
-  function with an `#If` in it isn't looked at for its Locals and parameters, nor a file with
-  one for its Imports and Private declarations; and neither is code in a file with errors.
+  an Operator's, a Property's Set's, one used as a value or called by a loop over its type's
+  Methods, an Extern's, and one whose body is only a Todo, Panic, or Unreachable. A Private
+  Field isn't reported, as equality, a debug form, Save, and a C layout read Fields without
+  naming them, nor what runs without its name being written: a New, a Destroy, OnLoaded,
+  ToString, or Hash, an Operator, a `@Test`, what has attributes, the members of a type a For
+  Method or For Property loop goes over, itself or through a type parameter, and a Global whose
+  initializer does more than read, or whose value has a Destroy. An attribute is a use of its
+  Attribute. An Import isn't reported when its module is loaded for what it does without being
+  named: an Extend that gives an Interface to another module's type, or a Global whose
+  initializer does more than read, in the module or in one only it loads. Code an `#If`'s branch
+  that's off may leave out, which no check sees, can use what looks unused, or not leave where
+  the other branch does, so a function with an `#If` in it isn't looked at for its Locals,
+  parameters, and code nothing reaches, nor a file with one for its Imports and Private
+  declarations; and neither is code in a file with errors. An Alias under an `#If` may be
+  another type in another build, so neither `redundant_as` nor `constant_condition` reports on
+  a type one names, nor in a file with an `#If`.
 - A dependency's own project.toml names it as `[dependencies]` does, and so do the packages it
   depends on, each read once, by whatever path reaches its folder, however many packages depend
   on it. Two packages of one name, and packages that depend on each other in a cycle, are

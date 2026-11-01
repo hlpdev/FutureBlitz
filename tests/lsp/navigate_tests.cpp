@@ -523,6 +523,74 @@ TEST_CASE("code lenses count each declaration's references, and run and debug a 
     CHECK(own[1]["command"]["command"] == "futureblitz.debug");
 }
 
+TEST_CASE("a file's code lenses count their references in one check of it and what imports it",
+          "[lsp]") {
+    const folder_t folder(zoo());
+    client_t client({ .folders = { folder.root() } });
+    const std::string zoo_uri = folder.uri("zoo.fb");
+    client.open(zoo_uri, zoo_text);
+    client.open(folder.uri("main.fb"), main_text);
+    client.settle();
+    const json_t lenses =
+        client.request("textDocument/codeLens", { { "textDocument", { { "uri", zoo_uri } } } });
+    REQUIRE(lenses.size() == 10);
+    CHECK(lenses[0]["data"]["version"] == 1);
+    const std::size_t before = client.server().workspace().history().size();
+    std::vector<std::string> titles;
+    for (const json_t& lens : lenses) {
+        titles.push_back(client.request("codeLens/resolve", lens)["command"]["title"]);
+    }
+
+    // The first resolve's check of zoo.fb with main.fb, which imports it, and none after.
+    const std::size_t checks = client.server().workspace().history().size() - before;
+    CHECK(checks >= 1);
+    CHECK(checks <= 2);
+    CHECK(titles[9] == "1 reference");
+    CHECK(titles[2] == "3 references");
+
+    // After a change, a lens of the version before is stale, and the client asks again.
+    client.change(zoo_uri, std::string(zoo_text) + "\n");
+    const json_t stale = client.send("codeLens/resolve", lenses[2]);
+    REQUIRE(stale.contains("error"));
+    CHECK(stale["error"]["code"] == -32801);
+    const json_t fresh =
+        client.request("textDocument/codeLens", { { "textDocument", { { "uri", zoo_uri } } } });
+    CHECK(fresh[2]["data"]["version"] == 2);
+    CHECK(client.request("codeLens/resolve", fresh[2])["command"]["title"] == "3 references");
+}
+
+TEST_CASE("lens resolves behind a change are stale, and a cancelled request isn't answered",
+          "[lsp]") {
+    const folder_t folder(zoo());
+    client_t client({ .folders = { folder.root() } });
+    const std::string zoo_uri = folder.uri("zoo.fb");
+    client.open(zoo_uri, zoo_text);
+    client.settle();
+    const json_t lenses =
+        client.request("textDocument/codeLens", { { "textDocument", { { "uri", zoo_uri } } } });
+    REQUIRE(lenses.size() == 10);
+
+    // The editor asks for every lens, then the text changes before the server gets to them.
+    std::vector<std::int64_t> resolves;
+    for (const json_t& lens : lenses) {
+        resolves.push_back(client.queue("codeLens/resolve", lens));
+    }
+
+    client.queue_change(zoo_uri, std::string(zoo_text) + "\n");
+    const std::int64_t hover =
+        client.queue("textDocument/hover", {
+                                               { "textDocument", { { "uri", zoo_uri } } },
+                                               { "position", client_t::position(3, 17) },
+                                           });
+    client.queue_notification("$/cancelRequest", { { "id", hover } });
+    client.drain();
+    for (const std::int64_t id : resolves) {
+        CHECK(client.response(id)["error"]["code"] == -32801);
+    }
+
+    CHECK(client.response(hover)["error"]["code"] == -32800);
+}
+
 TEST_CASE("each file's @Test Functions are sent as the checks find them, with fb test's names",
           "[lsp]") {
     const folder_t folder({
@@ -583,4 +651,38 @@ TEST_CASE("each file's @Test Functions are sent as the checks find them, with fb
     }
 
     CHECK(tests == 2);
+}
+
+TEST_CASE("a call in a Field's default is the Field's, not the file's top-level code's", "[lsp]") {
+    const folder_t folder({});
+    const std::string uri = folder.uri("fields.fb");
+    const std::string text = "Import std.core\n"
+                             "Function Start(): Int => 1\n"
+                             "Class Box\n"
+                             "    Field size: Int = Start()\n"
+                             "End Class\n"
+                             "Print(Box().size + Start())\n";
+    client_t client({});
+    client.open(uri, text);
+    client.settle();
+    const json_t prepared =
+        client.request("textDocument/prepareCallHierarchy", client.at(uri, "Start(): Int"));
+    REQUIRE(prepared.size() == 1);
+    const json_t incoming =
+        client.request("callHierarchy/incomingCalls", { { "item", prepared[0] } });
+    std::vector<std::string> callers;
+    for (const json_t& call : incoming) {
+        callers.push_back(call["from"]["name"]);
+        if (call["from"]["name"] == "Box.size") {
+            CHECK(call["from"]["kind"] == 8);
+            // What the Field's default calls.
+            const json_t outgoing =
+                client.request("callHierarchy/outgoingCalls", { { "item", call["from"] } });
+            REQUIRE(outgoing.size() == 1);
+            CHECK(outgoing[0]["to"]["name"] == "Start");
+        }
+    }
+
+    std::ranges::sort(callers);
+    CHECK(callers == std::vector<std::string>{ "Box.size", "fields.fb" });
 }

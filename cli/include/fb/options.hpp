@@ -87,6 +87,9 @@ struct options_t {
     /// From `--filter`, which only `fb test` takes: what the names of the tests it runs have in
     /// them. Nullopt runs them all.
     std::optional<std::string> filter;
+    /// From each `--exact`, which only `fb test` takes: the whole names of the tests it runs.
+    /// Empty for every test, or those `filter` names.
+    std::vector<std::string> exact;
     /// What `fb fmt` formats: .fb files and folders. Empty for the current package.
     std::vector<std::filesystem::path> paths;
     /// `fb fmt --check`: lists the files it would change, without changing them. `fb doc

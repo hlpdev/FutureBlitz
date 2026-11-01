@@ -391,6 +391,8 @@ int item_kind(const analysis_t& analysis, const symbol_t& symbol) {
     switch (symbol.kind) {
     case symbol_kind_t::METHOD:
         return 6;
+    case symbol_kind_t::FIELD:
+        return 8;
     case symbol_kind_t::CONSTRUCTOR:
         return 9;
     case symbol_kind_t::PROPERTY:
@@ -458,8 +460,8 @@ bool callable(const symbol_t& symbol) {
            (symbol.kind == symbol_kind_t::CONSTRUCTOR && symbol.declaration);
 }
 
-/// The Functions, Methods, and News declared in `file`, with where each is, for what's around a
-/// use.
+/// The Functions, Methods, and News declared in `file`, and the Fields with defaults, whose code
+/// calls as a function's does, with where each is, for what's around a use.
 std::vector<std::pair<span_t, symbol_id_t>> functions_in(const query_t& query,
                                                          const file_id_t file) {
     std::vector<std::pair<span_t, symbol_id_t>> found;
@@ -474,6 +476,20 @@ std::vector<std::pair<span_t, symbol_id_t>> functions_in(const query_t& query,
 
         if (const std::optional<symbol_id_t> symbol = query.analysis().stmt(id).symbol) {
             found.emplace_back(statement.span, *symbol);
+        }
+    }
+
+    const analysis_t& analysis = query.analysis();
+    for (std::size_t i = 0; i < analysis.symbols.size(); ++i) {
+        const symbol_t& field = analysis.symbols[i];
+        if (field.kind != symbol_kind_t::FIELD || field.span.file != file || !field.declaration) {
+            continue;
+        }
+
+        const stmt_t& statement = ast.get(*field.declaration);
+        if (const auto* variable = std::get_if<variable_stmt_t>(&statement.node);
+            variable != nullptr && variable->value) {
+            found.emplace_back(statement.span, static_cast<symbol_id_t>(i));
         }
     }
 
@@ -513,8 +529,15 @@ std::optional<json_t> hierarchy_item(const query_t& query, const symbol_id_t id,
     const symbol_key_t key = query.key(id);
     const json_t selection =
         positions.range(compilation.sources.get(symbol.span.file), symbol.span);
+    // A Field by its type's name too, as "Box.size".
+    std::string name(symbol.name);
+    if (symbol.kind == symbol_kind_t::FIELD && symbol.owner != type_id_t::INVALID) {
+        const std::string_view owner = query.analysis().types.name(symbol.owner);
+        name = std::format("{}.{}", owner.substr(0, owner.find('<')), symbol.name);
+    }
+
     return json_t{
-        { "name", std::string(symbol.name) },
+        { "name", name },
         { "kind", item_kind(query.analysis(), symbol) },
         { "detail", query.signature(id) },
         { "uri", location->at("uri") },

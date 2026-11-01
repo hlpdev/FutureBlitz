@@ -60,6 +60,9 @@ struct unit_t { // NOLINT(bugprone-exception-escape)
     std::set<std::string> keys;
     /// The package's main file, which its project.toml names, when it's there.
     std::optional<std::filesystem::path> main;
+    /// The main file its project.toml names, there or not, which an open document can be before
+    /// it's saved.
+    std::optional<std::filesystem::path> named_main;
     /// The names of the packages its project.toml depends on.
     std::vector<std::string> dependencies;
     /// The line width its code is formatted to, from its project.toml's `[format] width`.
@@ -305,6 +308,9 @@ private:
     std::size_t unit_index(const std::filesystem::path& path);
     /// The job that checks the file at `path` on its own.
     job_t job_for(const std::filesystem::path& path);
+    /// A package's main file: the one its project.toml names, on disk, or open as a document
+    /// that isn't saved yet.
+    [[nodiscard]] std::optional<std::filesystem::path> main_of(const unit_t& unit) const;
     /// The files of the workspace's units that import the file `key`, directly or not.
     [[nodiscard]] std::set<std::string> dependents(const std::string& key) const;
     /// Jobs that check `keys`, one for each unit they're in.

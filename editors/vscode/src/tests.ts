@@ -14,7 +14,6 @@ import {
     findPackageRoot,
     lldbImportCommand,
     missingFbMessage,
-    moduleFilter,
     taskEnvironment,
     testArguments,
     testOutcomes,
@@ -37,11 +36,11 @@ export interface TestHelpers {
 }
 
 // What fb runs a test item's tests on: its package's folder, or a file outside any package, and
-// the filter that picks them.
+// the tests it runs, by their names, with what to call them.
 interface Target {
     folder: vscode.WorkspaceFolder | undefined;
     root: string;
-    filter: string;
+    label: string;
     tests: vscode.TestItem[];
 }
 
@@ -186,9 +185,7 @@ export class FbTestController implements vscode.Disposable {
 
         const folder = vscode.workspace.getWorkspaceFolder(uri);
         const root = findPackageRoot(uri.fsPath, folder?.uri.fsPath, (file) => fs.existsSync(file)) ?? uri.fsPath;
-        // A file's tests, or the one.
-        const filter = item.children.size > 0 ? moduleFilter(tests[0].id) : item.id;
-        return { folder, root, filter, tests };
+        return { folder, root, label: item.label, tests };
     }
 
     // fb, or undefined after saying it's missing.
@@ -248,7 +245,8 @@ export class FbTestController implements vscode.Disposable {
         }
 
         const cwd = fs.statSync(target.root).isDirectory() ? target.root : path.dirname(target.root);
-        const { code, output } = await this.fb(fb, testArguments(target.root, target.filter), cwd, run, token);
+        const names = target.tests.map((test) => test.id);
+        const { code, output } = await this.fb(fb, testArguments(target.root, names), cwd, run, token);
         const outcomes = testOutcomes(output);
         for (const test of target.tests) {
             const outcome = outcomes.get(test.id);
@@ -285,13 +283,29 @@ export class FbTestController implements vscode.Disposable {
         }
 
         const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "fb-tests-"));
+        try {
+            await this.debugIn(scratch, fb, target, run, token);
+        } finally {
+            fs.rmSync(scratch, { recursive: true, force: true });
+        }
+    }
+
+    // debug()'s work, with the tests' executable built in `scratch`, which it removes after.
+    private async debugIn(
+        scratch: string,
+        fb: string,
+        target: Target,
+        run: vscode.TestRun,
+        token: vscode.CancellationToken,
+    ): Promise<void> {
         const executable = path.join(scratch, process.platform === "win32" ? "tests.exe" : "tests");
         const cwd = fs.statSync(target.root).isDirectory() ? target.root : path.dirname(target.root);
         for (const test of target.tests) {
             run.started(test);
         }
 
-        const { code } = await this.fb(fb, testArguments(target.root, target.filter, executable), cwd, run, token);
+        const names = target.tests.map((test) => test.id);
+        const { code } = await this.fb(fb, testArguments(target.root, names, executable), cwd, run, token);
         if (code !== 0 || !fs.existsSync(executable)) {
             for (const test of target.tests) {
                 run.errored(test, new vscode.TestMessage("the tests didn't build; the output says why"));
@@ -301,7 +315,7 @@ export class FbTestController implements vscode.Disposable {
         }
 
         const script = this.m_helpers.lldbScript(target.folder);
-        const name = `Debug ${target.tests.length === 1 ? target.tests[0].label : target.filter}`;
+        const name = `Debug ${target.label}`;
         const ended = new Promise<void>((resolve) => {
             const listener = vscode.debug.onDidTerminateDebugSession((session) => {
                 if (session.name === name) {
@@ -326,8 +340,6 @@ export class FbTestController implements vscode.Disposable {
         if (started) {
             await ended;
         }
-
-        fs.rmSync(scratch, { recursive: true, force: true });
     }
 
     dispose(): void {

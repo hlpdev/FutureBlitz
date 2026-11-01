@@ -90,6 +90,22 @@ public:
 
     void notify(const std::string& method, json_t params);
 
+    /// Puts a request in the server's inbox without handling it, as a client sends one while the
+    /// server is busy, until drain(). Gives its id.
+    std::int64_t queue(const std::string& method, json_t params);
+
+    /// Puts a notification in the inbox.
+    void queue_notification(const std::string& method, json_t params);
+
+    /// Puts a change of the document's whole text in the inbox, as change() sends one.
+    void queue_change(const std::string& uri, std::string_view text);
+
+    /// Handles what waits in the inbox, in order, as fb-lsp's loop does.
+    void drain();
+
+    /// The response to a request queue() put in, once it's drained.
+    [[nodiscard]] json_t response(std::int64_t id) const;
+
     void open(const std::string& uri, std::string_view text);
     /// Replaces the document's whole text.
     void change(const std::string& uri, std::string_view text);
@@ -156,6 +172,7 @@ private:
     std::map<std::string, std::int64_t> m_versions;
     std::int64_t m_next_id = 1;
     json_t m_initialized;
+    inbox_t m_inbox;
     server_t m_server;
 };
 

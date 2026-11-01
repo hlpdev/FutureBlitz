@@ -4825,6 +4825,17 @@ TEST_CASE("check_files's inspections look unless it's asked not to, as reference
     };
     CHECK(lints_in(true) == std::vector<std::string>{ "unused_local" });
     CHECK(lints_in(false).empty());
+
+    // A package outside the editor's folders isn't the workspace's, so its code has no lints.
+    const auto lints_with = [&](const std::filesystem::path& folder) {
+        const std::expected<fb::compilation_t, std::string> checked =
+            fb::check_files({ .files = { packages / "app/a.fb" }, .folders = { folder } });
+        REQUIRE(checked);
+        return checked->diagnostics.diagnostics().size();
+    };
+    packages.write("other/project.toml", "[project]\nname = \"other\"\nversion = \"0.1.0\"\n");
+    CHECK(lints_with(packages / "app") == 1);
+    CHECK(lints_with(packages / "other") == 0);
     packages.remove();
 }
 

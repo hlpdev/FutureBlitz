@@ -1,5 +1,6 @@
 #include "fb/diagnostic.hpp"
 #include "fb/driver.hpp"
+#include "fb/lexer.hpp"
 #include "fb/source.hpp"
 
 #include <algorithm>
@@ -442,4 +443,353 @@ TEST_CASE("code that needs Unsafe is wrapped in an Unsafe block, or its function
         },
     };
     CHECK(suggested(program, "needs Unsafe") == messages_t{ "Make 'Peek' Unsafe" });
+}
+
+TEST_CASE("a fix writes each type as its file names it, and imports what it can't", "[fixes]") {
+    const std::string geo =
+        "Import std.core\nPublic Struct Point\n    Public Field X: Int\nEnd "
+        "Struct\nPublic Interface Shape\n    Method Move(by: Point): Point\nEnd "
+        "Interface\n";
+    // An Interface's Method, under the qualifier an As gives its module.
+    program_t program{
+        {
+            "test.fb",
+            "Import std.core\nImport \"./geo\" As g\nClass Sq Implements g.Shape\nEnd "
+            "Class\n",
+        },
+        { "geo.fb", geo },
+    };
+    program_t out = fixed(program, "needs a Method", "Implement 'Move'");
+    CHECK(out.at("test.fb").contains("    Method Move(by: g.Point): g.Point\n"));
+    CHECK(messages(out).empty());
+
+    // std's types, as an As qualifier names them, with their type arguments.
+    program = {
+        {
+            "test.fb",
+            "Import std.core\nImport std.collections As C\nInterface Holder\n    "
+            "Method Take(items: C.Stack<Int>): C.Map<String, Int>\nEnd "
+            "Interface\nClass H Implements Holder\nEnd Class\n",
+        },
+    };
+    out = fixed(program, "needs a Method", "Implement 'Take'");
+    CHECK(out.at("test.fb").contains("Method Take(items: C.Stack<Int32>): C.Map<String, Int32>\n"));
+    CHECK(messages(out).empty());
+
+    // A Function, a Field, and an Enum's zero, each made with the qualifier.
+    program = {
+        {
+            "test.fb",
+            "Import std.core\nImport \"./geo\" As g\nLocal p = g.Point(1)\nLocal q: "
+            "g.Point = Shift(p)\n",
+        },
+        { "geo.fb", geo },
+    };
+    out = fixed(program, "'Shift'", "Create Function 'Shift'");
+    CHECK(out.at("test.fb").contains("Function Shift(p: g.Point): g.Point\n"));
+    CHECK(messages(out).empty());
+    program = {
+        {
+            "test.fb",
+            "Import std.core\nImport \"./geo\" As g\nStruct Box\n    Field Size: "
+            "Int\nEnd Struct\nLocal b = Box(1)\nb.Spot = g.Point(1)\n",
+        },
+        { "geo.fb", geo },
+    };
+    out = fixed(program, "'Spot'", "Create Field 'Spot' in Box");
+    CHECK(out.at("test.fb").contains("    Field Spot: g.Point\n"));
+    CHECK(messages(out).empty());
+    program = {
+        {
+            "test.fb",
+            "Import std.core\nImport \"./colors\" As c\nFunction Pick(): c.Color?\n    "
+            "Return Null\nEnd Function\nLocal k: c.Color = Pick()\n",
+        },
+        { "colors.fb", "Import std.core\nPublic Enum Color\n    RED, GREEN\nEnd Enum\n" },
+    };
+    out = fixed(program, "may be Null", "Give a value for Null with '?? c.Color.RED'");
+    CHECK(out.at("test.fb").contains("Local k: c.Color = Pick() ?? c.Color.RED\n"));
+    CHECK(messages(out).empty());
+
+    // A Throws, under an As, and where only a From line brings in the call, with the Import of
+    // the error's module.
+    const std::string errs = "Import std.core\nPublic Class ParseError Extends Error\nEnd "
+                             "Class\nPublic Function Parse(): Int Throws ParseError\n    Throw "
+                             "ParseError(\"no\")\nEnd Function\n";
+    program = {
+        {
+            "test.fb",
+            "Import std.core\nImport \"./errs\" As e\nFunction Use(): Int\n    Return "
+            "e.Parse()\nEnd Function\nPrint(1)\n",
+        },
+        { "errs.fb", errs },
+    };
+    out = fixed(program, "can throw", "Add Try, and Throws e.ParseError to 'Use'");
+    CHECK(out.at("test.fb").contains("Function Use(): Int Throws e.ParseError\n"));
+    CHECK(messages(out).empty());
+    program = {
+        {
+            "test.fb",
+            "Import std.core\nFrom \"./errs\" Import Parse\nFunction Use(): Int\n    "
+            "Return Parse()\nEnd Function\nPrint(1)\n",
+        },
+        { "errs.fb", errs },
+    };
+    // std.core has a ParseError too, so this one's Import has an As.
+    out = fixed(program, "can throw", "Add Try, and Throws errs.ParseError to 'Use'");
+    CHECK(out.at("test.fb").contains("Import \"./errs\" As errs\n"));
+    CHECK(out.at("test.fb").contains("Function Use(): Int Throws errs.ParseError\n"));
+    CHECK(messages(out).empty());
+}
+
+TEST_CASE("a call that throws where nothing can say so is caught, not given a Throws", "[fixes]") {
+    const std::string risky = "Import std.core\nFunction Risky(): Int Throws Error\n    Throw "
+                              "Error(\"no\")\nEnd Function\n";
+    // An Override, an Interface's Method, an Operator, a Destroy, and a Property's Get.
+    const std::vector<std::string> cases{
+        risky + "Class Base\n    Method Run(): Int => 1\nEnd Class\nClass D Extends Base\n    "
+                "Override Method Run(): Int\n        Return Risky()\n    End Method\nEnd "
+                "Class\nPrint(D().Run())\n",
+        risky + "Interface Runner\n    Method Run(): Int\nEnd Interface\nClass D Implements "
+                "Runner\n    Method Run(): Int\n        Return Risky()\n    End Method\nEnd "
+                "Class\nPrint(D().Run())\n",
+        risky + "Struct V\n    Field X: Int\n    Operator +(a: V, b: V): V\n        Return V(a.X + "
+                "Risky())\n    End Operator\nEnd Struct\nPrint((V(1) + V(2)).X)\n",
+        risky + "Class Box\n    Method Destroy()\n        Risky()\n    End Method\nEnd "
+                "Class\nLocal b = Box()\n",
+        risky + "Class Box\n    Property Size: Int\n        Get\n            Return Risky()\n     "
+                "   End Get\n    End Property\nEnd Class\nPrint(Box().Size)\n",
+    };
+    for (const std::string& text : cases) {
+        INFO(text);
+        const program_t program{ { "test.fb", text } };
+        const messages_t titles = suggested(program, "can throw");
+        CHECK(std::ranges::none_of(
+            titles, [](const std::string& title) { return title.contains("Throws"); }));
+        CHECK(std::ranges::contains(titles, "Catch it in a Try block"));
+        const program_t out = fixed(program, "can throw", "Catch it in a Try block");
+        CHECK(out.at("test.fb").contains("Catch e As Error\n"));
+        CHECK(messages(out).empty());
+    }
+
+    // A statement of its own can be a Try? too.
+    CHECK(std::ranges::contains(suggested(program_t{ { "test.fb", cases[3] } }, "can throw"),
+                                "Add Try?"));
+}
+
+TEST_CASE("a generic Method is written with its own type parameters and their constraints",
+          "[fixes]") {
+    program_t program{
+        {
+            "test.fb",
+            "Import std.core\nInterface Mapper<T>\n    Method Apply<U>(f: "
+            "Func(T): U): U\nEnd Interface\nClass Box Implements "
+            "Mapper<Int>\nEnd Class\n",
+        },
+    };
+    program_t out = fixed(program, "needs a Method", "Implement 'Apply'");
+    CHECK(out.at("test.fb").contains("    Method Apply<U>(f: Func(Int32): U): U\n"));
+    CHECK(messages(out).empty());
+
+    program = {
+        {
+            "test.fb",
+            "Import std.core\nInterface Sorter\n    Method Best<K: "
+            "Comparable>(items: K[]): K\nEnd Interface\nClass S Implements "
+            "Sorter\nEnd Class\n",
+        },
+    };
+    out = fixed(program, "needs a Method", "Implement 'Best'");
+    CHECK(out.at("test.fb").contains("    Method Best<K: Comparable>(items: K[]): K\n"));
+    CHECK(messages(out).empty());
+}
+
+TEST_CASE("an Import goes after an #If among the Imports, and after a module's doc comment",
+          "[fixes]") {
+    // Before its #End If, a release build wouldn't have it.
+    program_t program{
+        {
+            "test.fb",
+            "Import std.core\n#If DEBUG\nImport std.text\n#End If\n\nLocal "
+            "s = Stack<Int>()\nPrint(s.Count)\n",
+        },
+    };
+    program_t out = fixed(program, "'Stack'", "Import std.collections");
+    CHECK(out.at("test.fb") == "Import std.core\n#If DEBUG\nImport std.text\n#End If\nImport "
+                               "std.collections\n\nLocal s = Stack<Int>()\nPrint(s.Count)\n");
+    CHECK(messages(out).empty());
+
+    // In a file with no Imports, after its //! comment, which would end there otherwise.
+    program = {
+        {
+            "test.fb",
+            "//! Shapes.\n\n/// Counts.\nFunction Count(): Int\n    Return "
+            "Stack<Int>().Count\nEnd Function\nPrint(Count())\n",
+        },
+    };
+    out = fixed(program, "'Stack'", "Import std.collections");
+    CHECK(out.at("test.fb").starts_with("//! Shapes.\nImport std.collections\n\n/// Counts.\n"));
+
+    CHECK(fb::import_offset("Import std.core\nFrom std.math Import Clamp,\n    Lerp\nPrint(1)\n") ==
+          std::string_view("Import std.core\nFrom std.math Import Clamp,\n    Lerp\n").size());
+    CHECK(fb::import_offset("\xEF\xBB\xBFPrint(1)\n") == 3);
+}
+
+TEST_CASE("a missing End goes before a doc comment and an #If, not into them", "[fixes]") {
+    program_t program{
+        {
+            "test.fb",
+            "Import std.core\n\n/// A gives one.\nFunction A(): Int\n    "
+            "Return 1\n\n/// B gives two.\nFunction B(): Int\n    Return "
+            "2\nEnd Function\nPrint(A() + B())\n",
+        },
+    };
+    program_t out = fixed(program, "End Function", "Add 'End Function'");
+    CHECK(out.at("test.fb").contains("    Return 1\nEnd Function\n\n/// B gives two.\n"));
+    CHECK(messages(out).empty());
+
+    program = {
+        {
+            "test.fb",
+            "Import std.core\nFunction A(): Int\n    Return 1\n#If "
+            "DEBUG\nFunction B()\nEnd Function\n#End If\nPrint(A())\n",
+        },
+    };
+    out = fixed(program, "End Function", "Add 'End Function'");
+    CHECK(out.at("test.fb").contains("    Return 1\nEnd Function\n#If DEBUG\n"));
+    CHECK(messages(out).empty());
+}
+
+TEST_CASE("a Property's Get isn't made Unsafe, but its code is wrapped", "[fixes]") {
+    const program_t program{
+        {
+            "test.fb",
+            "Import std.core\nImport std.ffi\nGlobal p: Ptr<Int32> = "
+            "Null\nClass Box\n    Property Size: Int\n        "
+            "Get\n            Return p.Value\n        End Get\n    "
+            "End Property\nEnd Class\nPrint(Box().Size)\n",
+        },
+    };
+    CHECK(suggested(program, "needs Unsafe") == messages_t{ "Wrap in an Unsafe block" });
+    CHECK(messages(fixed(program, "needs Unsafe", "Wrap in an Unsafe block")).empty());
+}
+
+TEST_CASE("fixes write a file's own line breaks and indentation", "[fixes]") {
+    // CRLF, in an Import, an End, and an Unsafe block.
+    program_t program{
+        {
+            "test.fb",
+            "Import std.core\r\n\r\nLocal s = Stack<Int>()\r\nPrint(s.Count)"
+            "\r\n",
+        },
+    };
+    program_t out = fixed(program, "'Stack'", "Import std.collections");
+    CHECK(out.at("test.fb") ==
+          "Import std.core\r\nImport std.collections\r\n\r\nLocal s = Stack<Int>()\r\n"
+          "Print(s.Count)\r\n");
+    program = {
+        {
+            "test.fb",
+            "Import std.core\r\nFunction A(n: Int)\r\n    If n > 1\r\n        "
+            "Print(n)\r\nEnd Function\r\nA(2)\r\n",
+        },
+    };
+    out = fixed(program, "End If", "Add 'End If'");
+    CHECK(!out.at("test.fb").contains("\r\r"));
+    CHECK(out.at("test.fb").contains("    End If\r\n"));
+    CHECK(std::ranges::count(out.at("test.fb"), '\n') ==
+          std::ranges::count(out.at("test.fb"), '\r'));
+    CHECK(messages(out).empty());
+    program = {
+        {
+            "test.fb",
+            "Import std.core\r\nImport std.ffi\r\nGlobal p: Ptr<Int32> = "
+            "Null\r\nFunction Set()\r\n    p.Value = 6\r\nEnd Function\r\nSet()\r\n",
+        },
+    };
+    out = fixed(program, "needs Unsafe", "Wrap in an Unsafe block");
+    CHECK(out.at("test.fb").contains("    Unsafe\r\n        p.Value = 6\r\n    End Unsafe\r\n"));
+    CHECK(std::ranges::count(out.at("test.fb"), '\n') ==
+          std::ranges::count(out.at("test.fb"), '\r'));
+
+    // A tab a step, in a stub.
+    program = {
+        {
+            "test.fb",
+            "Import std.core\nInterface Shape\n\tMethod Area(): Double\nEnd "
+            "Interface\nClass Sq Implements Shape\n\tField Side: Double\nEnd "
+            "Class\n",
+        },
+    };
+    out = fixed(program, "needs a Method", "Implement 'Area'");
+    CHECK(out.at("test.fb").contains(
+        "\n\tMethod Area(): Float64\n\t\tPanic(\"'Area' isn't written yet\")\n\tEnd Method\n"));
+    CHECK(messages(out).empty());
+}
+
+TEST_CASE("did you mean offers only what the use can use", "[fixes]") {
+    const std::string shapes = "Import std.core\nPublic Class Box\n    Field secret: Int = 1\n    "
+                               "Public Field size: Int = 2\nEnd Class\n";
+    // Another file's Private member, through a value and inherited.
+    CHECK(suggested(program_t{ { "test.fb", "Import std.core\nImport \"./shapes\"\nLocal b = "
+                                            "shapes.Box()\nPrint(b.secrte)\n" },
+                               { "shapes.fb", shapes } },
+                    "'secrte'")
+              .empty());
+    CHECK(suggested(program_t{ { "test.fb", "Import std.core\nImport \"./shapes\"\nClass Big "
+                                            "Extends shapes.Box\n    Method Show(): Int => "
+                                            "secrte\nEnd Class\nPrint(1)\n" },
+                               { "shapes.fb", shapes } },
+                    "'secrte'")
+              .empty());
+
+    // A Static Method through a value, and a value's Field in a Static Method.
+    CHECK(
+        suggested(program_t{ { "test.fb", "Import std.core\nClass Box\n    Static Method Create(): "
+                                          "Box => Box()\n    Method Size(): Int => 1\nEnd "
+                                          "Class\nLocal b = Box()\nPrint(b.Craete())\n" } },
+                  "'Craete'")
+            .empty());
+    CHECK(suggested(program_t{ { "test.fb", "Import std.core\nClass Counter\n    Field count: "
+                                            "Int\n    Static Method Make(): Int => cuont\nEnd "
+                                            "Class\nPrint(Counter.Make())\n" } },
+                    "'cuont'")
+              .empty());
+
+    // What it can use, it still offers.
+    CHECK(
+        suggested(program_t{ { "test.fb", "Import std.core\nClass Box\n    Static Method Create(): "
+                                          "Box => Box()\nEnd Class\nPrint(Box.Craete())\n" } },
+                  "'Craete'") == messages_t{ "Change to 'Create'" });
+}
+
+TEST_CASE("making a declaration Public makes the types it exposes Public too", "[fixes]") {
+    const program_t program{
+        { "test.fb", "Import std.core\nImport \"./shapes\"\nPrint(Hidden().Size)\n" },
+        {
+            "shapes.fb",
+            "Import std.core\nClass Inner\n    Public Field Size: Int = 1\nEnd "
+            "Class\nFunction Hidden(): Inner => Inner()\n",
+        },
+    };
+    const program_t out = fixed(program, "'Hidden'", "Make 'Hidden' and 'Inner' Public");
+    CHECK(out.at("shapes.fb").contains("Public Class Inner\n"));
+    CHECK(out.at("shapes.fb").contains("Public Function Hidden(): Inner"));
+    CHECK(messages(out).empty());
+}
+
+TEST_CASE("a misspelled type's name offers the types spelled nearly so", "[fixes]") {
+    const program_t program{
+        {
+            "test.fb",
+            "Import std.core\nStruct Point\n    Field X: Int\nEnd "
+            "Struct\nLocal p: Piont = Point(1)\nPrint(p.X)\nLocal s: "
+            "Strng = \"a\"\nPrint(s)\n",
+        },
+    };
+    CHECK(suggested(program, "'Piont'") == messages_t{ "Change to 'Point'" });
+    CHECK(suggested(program, "'Strng'") == messages_t{ "Change to 'String'" });
+    CHECK(messages(fixed(fixed(program, "'Piont'", "Change to 'Point'"), "'Strng'",
+                         "Change to 'String'"))
+              .empty());
 }

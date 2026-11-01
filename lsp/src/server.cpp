@@ -32,6 +32,12 @@
 namespace fb::lsp {
 namespace {
 
+/// What a request is about changed since the client asked it, so it's the client's to ask again.
+class content_modified_t : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
+
 /// The file a request's textDocument names. nullopt for a URI that isn't a file's.
 std::optional<std::filesystem::path> document_path(const json_t& params) {
     return path_of(params.at("textDocument").at("uri").get<std::string>());
@@ -296,12 +302,19 @@ void server_t::handle(const json_t& message) {
         return;
     }
 
+    if (m_inbox != nullptr && m_inbox->take_cancel(id)) {
+        fail(id, error_code_t::REQUEST_CANCELLED, "the client cancelled it");
+        return;
+    }
+
     try {
         if (std::optional<json_t> result = answer(method, params)) {
             respond(id, std::move(*result));
         } else {
             fail(id, error_code_t::METHOD_NOT_FOUND, "the server doesn't do " + method);
         }
+    } catch (const content_modified_t& error) {
+        fail(id, error_code_t::CONTENT_MODIFIED, error.what());
     } catch (const json_t::exception& error) {
         fail(id, error_code_t::INVALID_PARAMS, error.what());
     } catch (const std::invalid_argument& error) {
@@ -425,6 +438,11 @@ std::optional<json_t> server_t::answer(const std::string& method, const json_t& 
 }
 
 void server_t::notified(const std::string& method, const json_t& params) {
+    // What a change of any file can change the references of.
+    if (method.starts_with("textDocument/did") || method == "workspace/didChangeWatchedFiles") {
+        m_lens_checks.clear();
+    }
+
     if (method == "exit") {
         m_exit = m_shut_down ? 0 : 1;
         return;
@@ -915,7 +933,8 @@ json_t server_t::code_actions(const json_t& params) {
         .begin = m_positions.offset(query.source(), range.at("start")),
         .end = m_positions.offset(query.source(), range.at("end")),
     };
-    return lsp::code_actions(query, span, m_positions);
+    return lsp::code_actions(query, span, m_positions,
+                             [this](const std::filesystem::path& file) { return editable(file); });
 }
 
 json_t server_t::formatting(const json_t& params) {
@@ -1092,6 +1111,13 @@ json_t server_t::code_lenses(const json_t& params) {
     const std::string uri = params.at("textDocument").at("uri").get<std::string>();
     json_t lenses =
         lsp::code_lenses(source_file_t(file_id_t{}, to_utf8(*path), *text), uri, m_positions);
+    // Each says which version of the document it's for, which a resolve of it checks.
+    if (const std::optional<std::pair<std::string, std::int64_t>> document =
+            m_workspace->document(*path)) {
+        for (json_t& lens : lenses) {
+            lens["data"]["version"] = document->second;
+        }
+    }
     // A program's main file runs and debugs from its top, as the editor's Run menu does.
     const unit_t unit = m_workspace->unit_of(*path);
     if (unit.kind == unit_t::kind_t::LOOSE || (unit.kind == unit_t::kind_t::PACKAGE && unit.main &&
@@ -1119,9 +1145,59 @@ json_t server_t::resolve_code_lens(json_t lens) {
         return lens;
     }
 
-    const json_t found = references(
-        { { "textDocument", { { "uri", data.at("uri") } } }, { "position", data.at("position") } },
-        false);
+    // A lens of a version the document has moved on from, or will once a change waiting behind
+    // it is read, is the client's to ask for again.
+    const std::string uri = data.at("uri").get<std::string>();
+    const json_t params{
+        { "textDocument", { { "uri", uri } } },
+        { "position", data.at("position") },
+    };
+    const std::optional<std::filesystem::path> path = document_path(params);
+    const std::optional<std::pair<std::string, std::int64_t>> document =
+        path ? m_workspace->document(*path) : std::nullopt;
+    if ((data.contains("version") &&
+         (!document || document->second != data.at("version").get<std::int64_t>())) ||
+        (m_inbox != nullptr && m_inbox->changes(uri))) {
+        throw content_modified_t("the document changed since its code lenses were given");
+    }
+
+    const std::optional<checked_t> checked = path ? m_workspace->checked(*path) : std::nullopt;
+    if (!checked) {
+        return lens;
+    }
+
+    const query_t query(*checked->compilation, checked->file);
+    const std::optional<named_t> named =
+        query.name_at(m_positions.offset(query.source(), data.at("position")));
+    if (!named) {
+        return lens;
+    }
+
+    // One check of the document and what imports it counts the references of all its lenses,
+    // until it changes.
+    std::vector<std::shared_ptr<const compilation_t>> compilations{ checked->compilation };
+    if (const std::optional<std::filesystem::path> declared = query.declared_in(named->symbol)) {
+        if (document && file_key(*declared) == file_key(*path)) {
+            lens_check_t& check = m_lens_checks[file_key(*path)];
+            if (check.compilations.empty() || check.version != document->second) {
+                check = {
+                    .version = document->second,
+                    .compilations = m_workspace->with_dependents(*declared),
+                };
+            }
+
+            compilations = check.compilations;
+        } else {
+            compilations = m_workspace->with_dependents(*declared);
+        }
+    }
+
+    const symbol_key_t key = query.key(named->symbol);
+    const auto kept = [this](const std::filesystem::path& file) {
+        return m_workspace->owns(file) || m_workspace->document(file).has_value();
+    };
+    const json_t found =
+        lsp::references(compilations, std::span(&key, 1), false, kept, m_positions);
     const std::size_t count = found.size();
     lens["command"] = {
         { "title", count == 1 ? std::string("1 reference") : std::format("{} references", count) },

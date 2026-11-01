@@ -171,6 +171,8 @@ struct file_set_t {
     /// Whether the inspections look, which a check that only answers questions, as references
     /// do, doesn't need.
     bool inspect = true;
+    /// For the LSP, the editor's folders, outside which a package's code has no lints.
+    std::vector<std::filesystem::path> folders;
 };
 
 /// Notes that `id`'s file is at `path` on disk.
@@ -283,6 +285,14 @@ bool is_under(const std::filesystem::path& path, const std::filesystem::path& fo
     }
 
     return true;
+}
+
+/// Whether `path` is in fb_home()'s cache, where a registry's packages are, as they were
+/// published, and nothing writes.
+bool in_cache(const std::filesystem::path& path) {
+    const std::optional<std::filesystem::path> at = real_path(path);
+    const std::optional<std::filesystem::path> cache = real_path(fb_home() / "cache");
+    return at && cache && is_under(*at, *cache);
 }
 
 /// Whether an entry of a folder is a link or a junction, which leads somewhere other than its
@@ -2021,6 +2031,19 @@ private:
             return std::nullopt;
         }
 
+        if (!m_files.folders.empty()) {
+            const std::optional<std::filesystem::path> root = disk::real_path(package.root);
+            const bool outside =
+                !root ||
+                std::ranges::none_of(m_files.folders, [&](const std::filesystem::path& folder) {
+                    const std::optional<std::filesystem::path> real = disk::real_path(folder);
+                    return real && is_under(*root, *real);
+                });
+            if (outside) {
+                return std::nullopt;
+            }
+        }
+
         return package.lints;
     }
 
@@ -2548,8 +2571,9 @@ private:
         }
 
         read_prebuilt(*manifest, package);
-        // A registry's package isn't the program's to fix, nor is a prebuilt library's code.
-        if (locked == nullptr && package.interface.empty()) {
+        // A registry's package isn't the program's to fix, nor is a prebuilt library's code,
+        // nor one in the cache, opened on its own.
+        if (locked == nullptr && package.interface.empty() && !in_cache(root)) {
             package.lints = manifest->lints;
         }
 
@@ -3683,14 +3707,6 @@ private:
     std::expected<file_lock_t, std::string> m_lock;
 };
 
-/// Whether `path` is in fb_home()'s cache, where a registry's packages are, as they were
-/// published, and nothing writes.
-bool in_cache(const std::filesystem::path& path) {
-    const std::optional<std::filesystem::path> at = real_path(path);
-    const std::optional<std::filesystem::path> cache = real_path(fb_home() / "cache");
-    return at && cache && is_under(*at, *cache);
-}
-
 /// `text`'s lines, without the line break after the last.
 std::vector<std::string> lines_of(const std::string_view text) {
     std::vector<std::string> lines;
@@ -4261,6 +4277,8 @@ std::expected<compilation_t, std::string> compile_package(
                           .generated = std::move(generated),
                           .root_bodies = request != nullptr,
                           .inspect = request == nullptr || request->inspect,
+                          .folders = request != nullptr ? request->folders
+                                                        : std::vector<std::filesystem::path>(),
                       },
                       path, mode);
         record_builds(compilation, others);
@@ -4279,19 +4297,21 @@ std::expected<compilation_t, std::string> compile_package(
         own.prefix + program_path(disk::real_path(own.root).value_or(own.root),
                                   disk::real_path(main_path).value_or(main_path));
     std::erase(extra, path);
-    run_front_end(compilation,
-                  {
-                      .root = root,
-                      .packages = std::move(*packages),
-                      .extra = std::move(extra),
-                      .testing = testing,
-                      .read = read,
-                      .cache = request != nullptr ? request->cache : nullptr,
-                      .generated = std::move(generated),
-                      .root_bodies = request != nullptr,
-                      .inspect = request == nullptr || request->inspect,
-                  },
-                  path, mode);
+    run_front_end(
+        compilation,
+        {
+            .root = root,
+            .packages = std::move(*packages),
+            .extra = std::move(extra),
+            .testing = testing,
+            .read = read,
+            .cache = request != nullptr ? request->cache : nullptr,
+            .generated = std::move(generated),
+            .root_bodies = request != nullptr,
+            .inspect = request == nullptr || request->inspect,
+            .folders = request != nullptr ? request->folders : std::vector<std::filesystem::path>(),
+        },
+        path, mode);
     record_builds(compilation, others);
     return compilation;
 }

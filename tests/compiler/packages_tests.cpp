@@ -1,5 +1,6 @@
 #include "fb/driver.hpp"
 #include "fb/interface.hpp"
+#include "fb/lint.hpp"
 #include "fb/lower.hpp"
 #include "fb/package_archive.hpp"
 #include "fb/packages.hpp"
@@ -619,4 +620,49 @@ TEST_CASE("a prebuilt library and a package's natives come from their targets' a
     REQUIRE_FALSE(tampered);
     CHECK(tampered.error().starts_with(
         std::format("solid-1.0.0-{}.fbpkg isn't what fb.lock says it is", target)));
+}
+
+TEST_CASE("a registry package's code gets no inspections, and no fix edits it in the cache",
+          "[packages]") {
+    const world_t world;
+    world.sandbox.library(
+        "physics", "physics", "1.3.0", shapes_dependency,
+        {
+            {
+                "world.fb",
+                physics_code("1.3.0") + "Function Inner(): Int\n    Local unused = 1\n    "
+                                        "Return 2\nEnd Function\n",
+            },
+        });
+    world.sandbox.publish("physics", world.index);
+    world.sandbox.write("game/main.fb",
+                        "Import std.core\nImport physics\nPrint(Describe())\nPrint(Inner())\n");
+    said_t said;
+    REQUIRE(world.sync(said));
+    const std::expected<fb::compilation_t, std::string> game =
+        fb::compile_file(world.sandbox / "game");
+    REQUIRE(game);
+    bool private_reported = false;
+    for (const fb::diagnostic_t& diagnostic : game->diagnostics.diagnostics()) {
+        INFO(diagnostic.message);
+        CHECK(diagnostic.lint != fb::lint_t::UNUSED_LOCAL);
+        if (diagnostic.message.contains("'Inner'")) {
+            private_reported = true;
+            CHECK(std::ranges::none_of(diagnostic.suggestions, [](const fb::suggestion_t& each) {
+                return each.title.contains("Public") || each.title.contains("Package");
+            }));
+        }
+    }
+
+    CHECK(private_reported);
+
+    // Opened from the cache, as an editor that follows a definition there opens it, it has no
+    // lints either.
+    const std::expected<fb::compilation_t, std::string> cached = fb::check_files(
+        { .files = { fb::package_cache_folder(world.index, "physics", "1.3.0") / "world.fb" } });
+    REQUIRE(cached);
+    for (const fb::diagnostic_t& diagnostic : cached->diagnostics.diagnostics()) {
+        INFO(diagnostic.message);
+        CHECK(!diagnostic.lint);
+    }
 }

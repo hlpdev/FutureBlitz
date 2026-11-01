@@ -1067,22 +1067,13 @@ private:
         }
 
         // After the Imports at its top, as one after its code is an error, or at its start.
-        std::uint32_t at = 0;
         const std::string_view text = m_query.source().text();
-        for (const stmt_id_t item : m_ast.items()) {
-            const stmt_t& statement = m_ast.get(item);
-            if (statement.span.file != m_query.file()) {
-                continue;
-            }
-
-            if (!std::holds_alternative<import_stmt_t>(statement.node)) {
-                break;
-            }
-
-            const std::size_t line_end = text.find('\n', statement.span.end);
-            at = line_end == std::string_view::npos ? static_cast<std::uint32_t>(text.size())
-                                                    : static_cast<std::uint32_t>(line_end + 1);
-        }
+        const std::uint32_t at = import_offset(text);
+        const std::size_t first_break = text.find('\n');
+        const std::string_view br = first_break != std::string_view::npos && first_break > 0 &&
+                                            text[first_break - 1] == '\r'
+                                        ? "\r\n"
+                                        : "\n";
 
         // Only those that start as the word being typed does, as there are many, and the editor
         // asks again as it's typed further.
@@ -1136,7 +1127,7 @@ private:
 
             const json_t import_edit{
                 { "range", range },
-                { "newText", std::format("Import {}\n", target) },
+                { "newText", std::format("Import {}{}", target, br) },
             };
             m_items.add_raw(
                 {

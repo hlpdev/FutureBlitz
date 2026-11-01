@@ -663,6 +663,279 @@ TEST_CASE("the inspections leave code an #If may leave out, and a file with erro
     }
 }
 
+TEST_CASE("what leaving out would change isn't unused: what runs when a module loads, and what "
+          "attributes and loops over members use",
+          "[inspect]") {
+    // A Global whose initializer runs code, or whose value has a Destroy, and an Import of a
+    // module with one, or of a module only it loads that has one.
+    const std::string started = "Import std.core\n"
+                                "Function Start(): Int\n"
+                                "    Print(\"started\")\n"
+                                "    Return 1\n"
+                                "End Function\n"
+                                "Class Keeper\n"
+                                "    Method Destroy()\n"
+                                "        Print(\"bye\")\n"
+                                "    End Method\n"
+                                "End Class\n"
+                                "Global started = Start()\n"
+                                "Global keeper: Keeper? = Null\n"
+                                "Global plain = 1\n"
+                                "Print(\"main\")\n";
+    CHECK(found(started, fb::lint_t::UNUSED_PRIVATE) ==
+          found_t{ "plain: the Global 'plain' is never used" });
+    const program_t loaded{
+        {
+            "test.fb",
+            "Import std.core\nImport \"./setup\"\nImport \"./outer\"\nImport \"./plain\"\n"
+            "Print(\"main\")\n",
+        },
+        {
+            "setup.fb",
+            "Import std.core\n"
+            "Function Init(): Int\n"
+            "    Print(\"init ran\")\n"
+            "    Return 1\n"
+            "End Function\n"
+            "Public Global ready = Init()\n",
+        },
+        { "outer.fb", "Import \"./inner\"\nPublic Function Outer(): Int => 1\n" },
+        {
+            "inner.fb",
+            "Import std.core\n"
+            "Function Load(): Int\n"
+            "    Print(\"inner ran\")\n"
+            "    Return 2\n"
+            "End Function\n"
+            "Public Global later = Load()\n",
+        },
+        { "plain.fb", "Public Global zero = 0\n" },
+    };
+    CHECK(found(loaded, fb::lint_t::UNUSED_IMPORT) ==
+          found_t{ "\"./plain\": nothing in this file uses ./plain" });
+
+    // Two files' Imports of a module whose Extend gives a String an Interface: both are kept, as
+    // leaving out both would leave it unloaded.
+    const program_t extended{
+        {
+            "test.fb",
+            "Import std.core\n"
+            "Import \"./sized\"\n"
+            "Import \"./extend\"\n"
+            "Import \"./other\"\n"
+            "Print(SizeOf2(\"abc\") + Other())\n",
+        },
+        {
+            "sized.fb",
+            "Public Interface Sized\n"
+            "    Method Measure(): Int\n"
+            "End Interface\n"
+            "Public Function SizeOf2<T: Sized>(x: T): Int => x.Measure()\n",
+        },
+        {
+            "extend.fb",
+            "Import \"./sized\"\n"
+            "Extend String Implements Sized\n"
+            "    Method Measure(): Int => 3\n"
+            "End Extend\n",
+        },
+        {
+            "other.fb",
+            "Import \"./sized\"\nImport \"./extend\"\nPublic Function Other(): Int => "
+            "SizeOf2(\"x\")\n",
+        },
+    };
+    CHECK(found(extended, fb::lint_t::UNUSED_IMPORT).empty());
+
+    // An Import whose module only an attribute names, by its name or after the Import's
+    // qualifier.
+    const program_t routed{
+        {
+            "test.fb",
+            "Import std.core\n"
+            "Import \"./attrs\"\n"
+            "Import \"./marks\" As marks\n"
+            "Class Api\n"
+            "    @Route(\"/\")\n"
+            "    @marks.Marked(\"x\")\n"
+            "    Public Method Home()\n"
+            "        Print(\"home\")\n"
+            "    End Method\n"
+            "End Class\n"
+            "Api().Home()\n",
+        },
+        { "attrs.fb", "Public Attribute Route(Path: String)\n" },
+        { "marks.fb", "Public Attribute Marked(Note: String)\n" },
+    };
+    CHECK(found(routed, fb::lint_t::UNUSED_IMPORT).empty());
+
+    // What a For Method or For Property loop over a type parameter goes over, and the
+    // parameters of what a typed For Method loop calls.
+    CHECK(found("Import std.core\n"
+                "Function RunAll<T>(value: T)\n"
+                "    For Method m In T\n"
+                "        m.Call(value)\n"
+                "    End For\n"
+                "End Function\n"
+                "Function Describe<T>(value: T): String\n"
+                "    Local text = \"\"\n"
+                "    For Property p: P In T\n"
+                "        Where P: Printable\n"
+                "        text = text + \"{p.Name}={p.Get(value)} \"\n"
+                "    End For\n"
+                "    Return text\n"
+                "End Function\n"
+                "Class Job\n"
+                "    Method Tick()\n"
+                "        Print(\"tick\")\n"
+                "    End Method\n"
+                "End Class\n"
+                "Class Box\n"
+                "    Field w: Int = 2\n"
+                "    Field h: Int = 3\n"
+                "    Property Area: Int\n"
+                "        Get => w * h\n"
+                "    End Property\n"
+                "End Class\n"
+                "RunAll(Job())\n"
+                "Print(Describe(Box()))\n",
+                fb::lint_t::UNUSED_PRIVATE)
+              .empty());
+    CHECK(found("Import std.core\n"
+                "Class Handler\n"
+                "    Method OnTick(dt: Int)\n"
+                "        Print(\"tick\")\n"
+                "    End Method\n"
+                "End Class\n"
+                "Function Fire(value: Handler)\n"
+                "    For Method m: M In Handler\n"
+                "        Where M: Func(Int)\n"
+                "        m.Call(value, 5)\n"
+                "    End For\n"
+                "End Function\n"
+                "Fire(Handler())\n",
+                fb::lint_t::UNUSED_PARAMETER)
+              .empty());
+
+    // A Protected Method's of a Public Class that isn't Final, which a Class outside the package
+    // may override and call.
+    CHECK(found("Import std.core\n"
+                "Public Class Widget\n"
+                "    Protected Method OnResize(width: Int, height: Int)\n"
+                "        Print(\"resized\")\n"
+                "    End Method\n"
+                "\n"
+                "    Public Method Resize()\n"
+                "        OnResize(1, 2)\n"
+                "    End Method\n"
+                "End Class\n"
+                "Widget().Resize()\n",
+                fb::lint_t::UNUSED_PARAMETER)
+              .empty());
+
+    // A Local set from a Property's Get, which runs code, is reported, but not left out.
+    const std::string skipped = "Import std.core\n"
+                                "Class Counter\n"
+                                "    Field n: Int\n"
+                                "    Public Property Next: Int\n"
+                                "        Get\n"
+                                "            n += 1\n"
+                                "            Return n\n"
+                                "        End Get\n"
+                                "    End Property\n"
+                                "    Public Method Skip()\n"
+                                "        Local skipped = Next\n"
+                                "    End Method\n"
+                                "End Class\n"
+                                "Local c = Counter()\n"
+                                "c.Skip()\n"
+                                "Print(c.Next)\n";
+    const fb::compilation_t compilation = compiled(program_t{ { "test.fb", skipped } });
+    bool reported = false;
+    for (const fb::diagnostic_t& diagnostic : compilation.diagnostics.diagnostics()) {
+        if (diagnostic.lint == fb::lint_t::UNUSED_LOCAL) {
+            reported = true;
+            REQUIRE(diagnostic.suggestions.size() == 1);
+            CHECK(diagnostic.suggestions[0].title == "Rename to '_skipped'");
+        }
+    }
+
+    CHECK(reported);
+}
+
+TEST_CASE("the inspections leave what another build may see otherwise, and what hides nothing",
+          "[inspect]") {
+    // A Return under an #If makes the next one reached in the other build.
+    CHECK(found("Import std.core\n"
+                "Function Mode(): String\n"
+                "#If DEBUG\n"
+                "    Return \"debug\"\n"
+                "#End If\n"
+                "    Return \"release\"\n"
+                "End Function\n"
+                "Print(Mode())\n",
+                fb::lint_t::UNREACHABLE)
+              .empty());
+
+    // A type an Alias under an #If gives, in its file or another, may be another type there.
+    const std::string handles = "Function Narrow(h: Handle): Int32 => h As Int32\n"
+                                "Function Fits(h: Handle): Bool => h <= 2147483647\n"
+                                "Print(Narrow(5))\n"
+                                "Print(Fits(5))\n";
+    const auto alias = [](const std::string_view visibility) {
+        return std::format(
+            "#If PLATFORM_WINDOWS\n{0}Alias Handle = Int32\n#Else\n{0}Alias Handle = "
+            "Int64\n#End If\n",
+            visibility);
+    };
+    for (const program_t& program : {
+             program_t{ { "test.fb", "Import std.core\n" + alias("") + handles } },
+             program_t{
+                 { "test.fb", "Import std.core\nImport \"./handle\"\n" + handles },
+                 { "handle.fb", alias("Public ") },
+             },
+         }) {
+        CHECK(found(program, fb::lint_t::REDUNDANT_AS).empty());
+        CHECK(found(program, fb::lint_t::CONSTANT_CONDITION).empty());
+    }
+
+    // A base Class's Private Field in another file, which Self.count can't name there, and a
+    // Function an Enum's value is named as.
+    const program_t derived{
+        {
+            "test.fb",
+            "Import std.core\n"
+            "Import \"./base\"\n"
+            "Class Derived Extends Base\n"
+            "    Method Run()\n"
+            "        Local count = 1\n"
+            "        Print(count)\n"
+            "    End Method\n"
+            "End Class\n"
+            "Derived().Run()\n",
+        },
+        {
+            "base.fb",
+            "Public Class Base\n"
+            "    Field count: Int = 5\n"
+            "    Public New()\n"
+            "    End New\n"
+            "    Public Method Show(): Int => count\n"
+            "End Class\n",
+        },
+    };
+    CHECK(found(derived, fb::lint_t::SHADOWED).empty());
+    CHECK(found("Import std.core\n"
+                "Function Save(): Int => 1\n"
+                "Enum Action\n"
+                "    Load, Save\n"
+                "End Enum\n"
+                "Print(Action.Save)\n"
+                "Print(Save())\n",
+                fb::lint_t::SHADOWED)
+              .empty());
+}
+
 TEST_CASE("std has none of the inspections' warnings", "[inspect]") {
     const std::expected<fb::compilation_t, std::string> compiled =
         fb::compile_standard_docs(fb::build_mode_t::DEBUG, fb::lints_t{});

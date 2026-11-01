@@ -1011,7 +1011,8 @@ std::optional<json_t> code_action(const compilation_t& compilation, const diagno
 
 } // namespace
 
-json_t code_actions(const query_t& query, const span_t range, const positions_t& positions) {
+json_t code_actions(const query_t& query, const span_t range, const positions_t& positions,
+                    const std::function<bool(const std::filesystem::path&)>& editable) {
     json_t out = json_t::array();
     const compilation_t& compilation = query.compilation();
     for (const diagnostic_t& diagnostic : compilation.diagnostics.diagnostics()) {
@@ -1020,12 +1021,21 @@ json_t code_actions(const query_t& query, const span_t range, const positions_t&
             continue;
         }
 
-        // Each suggestion, the likeliest preferred.
-        for (std::size_t i = 0; i < diagnostic.suggestions.size(); ++i) {
-            const suggestion_t& suggestion = diagnostic.suggestions[i];
+        // Each suggestion, the likeliest preferred, of those whose edits are the workspace's.
+        bool first = true;
+        for (const suggestion_t& suggestion : diagnostic.suggestions) {
+            const bool ours = std::ranges::all_of(suggestion.fixes, [&](const fix_t& fix) {
+                const std::filesystem::path path = compilation.disk_path(fix.span.file);
+                return path.empty() || editable(path);
+            });
+            if (!ours) {
+                continue;
+            }
+
             if (std::optional<json_t> action =
-                    code_action(compilation, diagnostic, suggestion, i == 0, positions)) {
+                    code_action(compilation, diagnostic, suggestion, first, positions)) {
                 out.push_back(std::move(*action));
+                first = false;
             }
         }
     }
