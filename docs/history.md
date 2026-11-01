@@ -3,6 +3,17 @@
 What each milestone and step added, by name, and each review's fixes, as CLAUDE.md kept
 them while each was built. Newest first.
 
+## 1.2.0
+
+(2026-11-01.) The release of 1.2's work and M11's, which the two sections after this say how
+each was built: reflection that sets (a For Property's `p.Set`, a For Static Field's `s.Set`,
+and `Where ... Has Set`); the recursive FileWatcher, on Windows, Linux, and macOS; long paths on
+Windows; and the IDE: checks that keep what didn't change, errors as typed, completion that
+knows and imports, the editor's basics, quick fixes, inspections and project.toml's `[lints]`,
+refactorings, project.toml in the editor, `fb test --exact`, and `fb mcp` with `fb new`'s
+AGENTS.md; and the VS Code extension's icon for .fb files. Its notes are the GitHub release's
+and the site's changelog/1-2-0.md.
+
 ## 1.2
 
 Reflection that sets (2026-10-31): a For Property's `p.Set(ByRef value, x)` calls the
