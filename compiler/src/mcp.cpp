@@ -493,11 +493,13 @@ void report(const compilation_t& compiled, std::string& text, std::size_t& error
     for (const diagnostic_t& diagnostic : compiled.diagnostics.diagnostics()) {
         (diagnostic.severity == severity_t::ERROR ? errors : warnings) += 1;
         text += render_pretty(diagnostic, compiled.sources);
-        for (const fix_t& fix : diagnostic.fixes) {
-            const source_file_t& in = compiled.sources.get(fix.span.file);
-            text += std::format("  fix: at line {}, put `{}` in place of `{}`\n",
-                                in.line_of(fix.span.begin) + 1, fix.replacement,
-                                in.text().substr(fix.span.begin, fix.span.length()));
+        for (const suggestion_t& suggestion : diagnostic.suggestions) {
+            for (const fix_t& fix : suggestion.fixes) {
+                const source_file_t& in = compiled.sources.get(fix.span.file);
+                text += std::format("  fix: at line {}, put `{}` in place of `{}`\n",
+                                    in.line_of(fix.span.begin) + 1, fix.replacement,
+                                    in.text().substr(fix.span.begin, fix.span.length()));
+            }
         }
 
         text += '\n';
