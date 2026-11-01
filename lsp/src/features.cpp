@@ -1009,6 +1009,115 @@ std::optional<json_t> code_action(const compilation_t& compilation, const diagno
     };
 }
 
+/// Each line of `text` with its line break, as a view of it.
+std::vector<std::string_view> lines_of(const std::string_view text) {
+    std::vector<std::string_view> lines;
+    std::size_t start = 0;
+    while (start < text.size()) {
+        const std::size_t newline = text.find('\n', start);
+        const std::size_t end = newline == std::string_view::npos ? text.size() : newline + 1;
+        lines.push_back(text.substr(start, end - start));
+        start = end;
+    }
+
+    return lines;
+}
+
+/// The edits that make `file`'s text `after`, a line at a time: each run of changed lines is one
+/// edit, so what an editor keeps among the lines that didn't change, its warnings' places and the
+/// cursor, stays where it was, as it wouldn't under one edit of the whole text. The lines between
+/// the common start and end are matched by their longest common run; past 2000 lines each way,
+/// they're one edit.
+json_t line_edits(const source_file_t& file, const std::string_view after,
+                  const positions_t& positions) {
+    const std::vector<std::string_view> old_lines = lines_of(file.text());
+    const std::vector<std::string_view> new_lines = lines_of(after);
+    std::vector<std::uint32_t> offsets(old_lines.size() + 1, 0);
+    for (std::size_t i = 0; i < old_lines.size(); ++i) {
+        offsets[i + 1] = offsets[i] + static_cast<std::uint32_t>(old_lines[i].size());
+    }
+
+    std::size_t first = 0;
+    while (first < old_lines.size() && first < new_lines.size() &&
+           old_lines[first] == new_lines[first]) {
+        ++first;
+    }
+
+    std::size_t old_end = old_lines.size();
+    std::size_t new_end = new_lines.size();
+    while (old_end > first && new_end > first && old_lines[old_end - 1] == new_lines[new_end - 1]) {
+        --old_end;
+        --new_end;
+    }
+
+    json_t edits = json_t::array();
+    const auto edit = [&](const std::size_t old_from, const std::size_t old_to,
+                          const std::size_t new_from, const std::size_t new_to) {
+        std::string text;
+        for (std::size_t i = new_from; i < new_to; ++i) {
+            text += new_lines[i];
+        }
+
+        const span_t replaced{
+            .file = file.id(),
+            .begin = offsets[old_from],
+            .end = offsets[old_to],
+        };
+        edits.push_back({
+            { "range", positions.range(file, replaced) },
+            { "newText", text },
+        });
+    };
+
+    const std::size_t old_count = old_end - first;
+    const std::size_t new_count = new_end - first;
+    constexpr std::size_t most = 2000;
+    if (old_count > most || new_count > most) {
+        edit(first, old_end, first, new_end);
+        return edits;
+    }
+
+    // The longest common run of what's left, as a table of how much of it each pair of tails
+    // shares, then walked from the start, each run of lines that differ one edit.
+    std::vector<std::uint16_t> common((old_count + 1) * (new_count + 1), 0);
+    const auto at = [&](const std::size_t i, const std::size_t j) -> std::uint16_t& {
+        return common[(i * (new_count + 1)) + j];
+    };
+    for (std::size_t i = old_count; i-- > 0;) {
+        for (std::size_t j = new_count; j-- > 0;) {
+            at(i, j) = old_lines[first + i] == new_lines[first + j]
+                           ? static_cast<std::uint16_t>(at(i + 1, j + 1) + 1)
+                           : std::max(at(i + 1, j), at(i, j + 1));
+        }
+    }
+
+    const auto same = [&](const std::size_t i, const std::size_t j) {
+        return i < old_count && j < new_count && old_lines[first + i] == new_lines[first + j];
+    };
+    std::size_t i = 0;
+    std::size_t j = 0;
+    while (i < old_count || j < new_count) {
+        if (same(i, j)) {
+            ++i;
+            ++j;
+            continue;
+        }
+
+        const std::size_t old_from = i;
+        const std::size_t new_from = j;
+        while ((i < old_count || j < new_count) && !same(i, j)) {
+            if (j == new_count || (i < old_count && at(i + 1, j) >= at(i, j + 1))) {
+                ++i;
+            } else {
+                ++j;
+            }
+        }
+
+        edit(first + old_from, first + i, first + new_from, first + j);
+    }
+
+    return edits;
+}
 } // namespace
 
 json_t code_actions(const query_t& query, const span_t range, const positions_t& positions,
@@ -1051,13 +1160,7 @@ json_t formatting(const source_file_t& file, const std::uint32_t width,
         return json_t::array();
     }
 
-    const span_t whole{
-        .file = file.id(),
-        .begin = 0,
-        .end = static_cast<std::uint32_t>(file.text().size()),
-    };
-    return json_t::array(
-        { { { "range", positions.range(file, whole) }, { "newText", *formatted } } });
+    return line_edits(file, *formatted, positions);
 }
 
 } // namespace fb::lsp
