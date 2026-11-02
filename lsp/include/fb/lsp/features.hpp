@@ -123,6 +123,22 @@ struct call_at_t {
                                 const std::function<std::vector<export_t>()>& importable,
                                 const positions_t& positions);
 
+/// What a '.' or a '(' just typed at `end` goes after: the innermost expression of the query's
+/// file that ends there, and what has it, as long as that's a member, a call, an index, or a
+/// slice of it, so "1 + Twice" gives Twice and "Not player" gives player. nullopt for none.
+[[nodiscard]] std::optional<expr_id_t> receiver_before(const query_t& query, std::uint32_t end);
+
+/// The members completion gives after a '.' at `dot`, which the query's text may not have yet:
+/// those of the expression that ends there.
+[[nodiscard]] json_t member_completion(const query_t& query, std::uint32_t dot,
+                                       const positions_t& positions);
+
+/// Signature help for a call of what the expression ending at `callee_end` names, its
+/// `active` parameter, as at a '(' the query's text doesn't have yet. Null for one that isn't
+/// a function.
+[[nodiscard]] json_t signature_help_before(const query_t& query, std::uint32_t callee_end,
+                                           std::uint32_t active, const positions_t& positions);
+
 /// textDocument/signatureHelp for the call `offset` is in.
 [[nodiscard]] json_t signature_help(const query_t& query, std::uint32_t offset,
                                     const positions_t& positions);
@@ -133,6 +149,10 @@ struct call_at_t {
 /// textDocument/semanticTokens/full: the file's names, as what they name, and its keywords,
 /// strings, numbers, and comments.
 [[nodiscard]] json_t semantic_tokens(const query_t& query, const positions_t& positions);
+
+/// The same from the lexer alone, without a check: keywords, strings, numbers, comments, and
+/// the built-in types' names, for a document whose check isn't done yet.
+[[nodiscard]] json_t lexical_tokens(const source_file_t& file, const positions_t& positions);
 
 /// textDocument/codeAction: a quick fix for each diagnostic in the file that has fix-its, of
 /// those that `range`, offsets in the file, touches, but for one with an edit of a file that

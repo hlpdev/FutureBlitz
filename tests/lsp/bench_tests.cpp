@@ -71,39 +71,63 @@ std::vector<metric_t> metrics(const bool small) {
             .enforced = true,
         },
         {
+            .name = "burst_formatting",
+            .what = "a save's formatting, behind the requests VS Code sends after an edit",
+            .budget = milliseconds(10),
+            .enforced = true,
+        },
+        {
+            .name = "burst_hover",
+            .what = "a hover, behind the requests VS Code sends after an edit",
+            .budget = milliseconds(20),
+            .enforced = true,
+        },
+        {
             .name = "completion_member",
             .what = "completion after `.`, from the keystroke",
-            .budget = milliseconds(100),
+            .budget = milliseconds(20),
             .enforced = true,
         },
         {
             .name = "completion_word",
             .what = "completion on a word being typed, from the keystroke",
-            .budget = milliseconds(100),
+            .budget = milliseconds(20),
             .enforced = true,
         },
         {
             .name = "completion_letter",
             .what = "completion on a word's first letter, from the keystroke",
-            .budget = milliseconds(100),
+            .budget = milliseconds(20),
             .enforced = true,
         },
         {
             .name = "completion_unimported",
             .what = "completion on 'S', with names to import, from the keystroke",
-            .budget = milliseconds(100),
+            .budget = milliseconds(20),
             .enforced = true,
         },
         {
             .name = "signature_help",
             .what = "signature help after `(`, from the keystroke",
-            .budget = milliseconds(100),
+            .budget = milliseconds(20),
             .enforced = true,
         },
         {
             .name = "hover",
             .what = "hover over a name",
-            .budget = milliseconds(100),
+            .budget = milliseconds(20),
+            .enforced = true,
+        },
+        {
+            .name = "semantic_tokens",
+            .what = "semantic tokens, from the keystroke",
+            .budget = milliseconds(20),
+            .enforced = true,
+        },
+        {
+            .name = "hover_typed",
+            .what = "hover over a name, from a keystroke on another line",
+            .budget = milliseconds(20),
             .enforced = true,
         },
         {
@@ -548,8 +572,12 @@ void measure(workload_t& workload, const std::size_t samples, const std::chrono:
         return took;
     };
 
-    // A request right after the keystroke that makes it, from that didChange to its response.
+    // A request right after the keystroke that makes it, from that didChange to its response,
+    // with the keystrokes before it checked, as typing gives the server time between them, and
+    // its own check still to come.
     const auto typed_request = [&](const std::string& typed, const std::string& method) {
+        client.change(uri, typing(text, workload, typed.substr(0, typed.size() - 1)).first);
+        client.settle();
         const auto [typed_text, end] = typing(text, workload, typed);
         json_t result;
         const double took = timed([&] {
@@ -579,6 +607,73 @@ void measure(workload_t& workload, const std::size_t samples, const std::chrono:
         metric("signature_help")
             .samples.push_back(
                 typed_request(workload.function + "(", "textDocument/signatureHelp"));
+        metric("semantic_tokens")
+            .samples.push_back(
+                typed_request(workload.local + " ", "textDocument/semanticTokens/full"));
+
+        // Hover over a name on a line the keystroke isn't on.
+        const std::string spared = typing(text, workload, "Local spare = 1").first;
+        const std::size_t name = spared.find(workload.symbol + "(");
+        REQUIRE(name != std::string::npos);
+        client.change(uri, typing(text, workload, "Local spare = ").first);
+        client.settle();
+        json_t hovered;
+        metric("hover_typed").samples.push_back(timed([&] {
+            client.change(uri, spared);
+            hovered = client.request("textDocument/hover", at_offset(uri, spared, name + 1));
+        }));
+        CHECK(hovered.is_object());
+        client.change(uri, text);
+        client.settle();
+    }
+
+    // What VS Code sends as an edit's made: semantic tokens, inlay hints, code lenses, symbols,
+    // folding, code actions, and highlights, then a save's formatting and a hover, each timed
+    // from the edit to its answer, which nothing ahead of it may keep waiting.
+    for (std::size_t sample = 0; sample < samples; ++sample) {
+        const std::string edited =
+            typing(text, workload, std::format("Local spare{} = 1", sample)).first;
+        const std::size_t at = edited.find(workload.symbol + "(");
+        REQUIRE(at != std::string::npos);
+        const json_t document{ { "uri", uri } };
+        const json_t hovered = at_offset(uri, edited, at + 1);
+        const json_t everything{
+            { "start", { { "line", 0 }, { "character", 0 } } },
+            { "end", { { "line", 100000 }, { "character", 0 } } },
+        };
+        const steady_t::time_point typed = steady_t::now();
+        client.queue_change(uri, edited);
+        (void)client.queue("textDocument/semanticTokens/full", { { "textDocument", document } });
+        (void)client.queue("textDocument/inlayHint",
+                           { { "textDocument", document }, { "range", everything } });
+        (void)client.queue("textDocument/codeLens", { { "textDocument", document } });
+        (void)client.queue("textDocument/documentSymbol", { { "textDocument", document } });
+        (void)client.queue("textDocument/foldingRange", { { "textDocument", document } });
+        (void)client.queue("textDocument/codeAction",
+                           {
+                               { "textDocument", document },
+                               { "range", hovered["position"].is_object()
+                                              ? json_t{ { "start", hovered["position"] },
+                                                        { "end", hovered["position"] }, }
+                                              : everything, },
+                               { "context", { { "diagnostics", json_t::array() } } },
+                           });
+        (void)client.queue("textDocument/documentHighlight", hovered);
+        const std::int64_t formatting =
+            client.queue("textDocument/formatting",
+                         {
+                             { "textDocument", document },
+                             { "options", { { "tabSize", 4 }, { "insertSpaces", true } } },
+                         });
+        const std::int64_t hover = client.queue("textDocument/hover", hovered);
+        client.drain();
+        CHECK(client.response(formatting).contains("result"));
+        metric("burst_formatting")
+            .samples.push_back(milliseconds_t(steady_t::now() - typed).count());
+        CHECK(client.response(hover)["result"].is_object());
+        metric("burst_hover").samples.push_back(milliseconds_t(steady_t::now() - typed).count());
+        client.change(uri, text);
+        client.settle();
     }
 
     // The rest, at rest: the file as it was, and every check done.

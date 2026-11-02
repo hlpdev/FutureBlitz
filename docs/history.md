@@ -47,6 +47,34 @@ checks only its bodies; server_tests' file key through a link that changes; the 
 check of the small program; and the extension's activate.test.ts, that activating loads none of
 vscode-languageclient.
 
+fb-lsp answers what needs a check on two workers (`worker_t`, `worker_for`, in place of the
+lens thread's `lens_job_t`): `m_quick` for what the last check answers as code is typed, and
+`m_slow` for what waits for the check of the text, so a hover doesn't wait behind a code action;
+the message thread answers formatting and what else the text gives at once; `$/cancelRequest`
+takes a waiting job out, and shutdown waits for both workers (`worker_t::wait_idle`). Semantic tokens from
+`workspace_t::checked_now`, else `lexical_tokens` (semantic.cpp's `tokens_of` without a query),
+with `workspace/semanticTokens/refresh` once the document's check is published
+(`m_lexical_tokens`, `m_tokens_refresh`); hover from `workspace_t::checked_last` when the line
+it's over is the same; the inlay hints' settings under `m_settings_mutex`; `editable` through
+`owned`. Requests from the last check (`last_check_t`, `last_check`, `line_to_then`,
+`at_last_check`, `moved`, `moved_items`), completion's `member_completion` and
+`signature_help_before` for what's just typed, and inlay hints' and code lenses' refreshes once a
+check is published (`published_t::checked`, `m_changed`). The benchmark's burst_formatting,
+burst_hover, semantic_tokens, and hover_typed, each typed request's last keystroke on its own,
+and the budgets of 20 ms and 10 ms. Tests in feature_tests, workspace_tests, and
+responsive_tests' ten seconds of typing.
+
+Its review's fixes: a job holds its document's version and text from when it came
+(`request_job_t::version`, `text`), which its handlers read through `asked_text` and
+`asked_check` (`m_answering`, the job a worker's thread answers), and waits only for that
+version's check (`workspace_t::checked(path, version)`, `wait_for_check`, with `change`
+waking the waits), ContentModified once the document's moved past it, `dependents` too; a
+same-file item from the last check moved by its file's key, not its URI's spelling; what a typed
+'(' or '.' goes after grown only through members, calls, indexes, and slices
+(`receiver_before`); the lexical tokens' key put in before `checked_now`, and `m_changed`
+holding the version a change made, which only a publish of it or later takes. Tests in
+responsive_tests, the reviewer's probes among them.
+
 ## 1.2.1
 
 (2026-11-01.) 1.2.0 was tagged but never released: its macOS build failed, as fb-lsp's code lens

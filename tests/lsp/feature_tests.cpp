@@ -688,6 +688,7 @@ TEST_CASE("semantic tokens say what each name is", "[lsp]") {
     client_t client({ .folders = { folder.root() }, .load_folders = false });
     const std::string main = folder.uri("main.fb");
     client.open(main, main_text);
+    client.settle();
 
     const std::vector<semantic_token_t> tokens = semantic_tokens(client, main);
     const auto type_at = [&](const std::uint32_t line, const std::uint32_t column) {
@@ -706,6 +707,62 @@ TEST_CASE("semantic tokens say what each name is", "[lsp]") {
     CHECK(type_at(4, 15) == "variable");
 }
 
+TEST_CASE("a save's formatting isn't kept waiting by requests for a check", "[lsp]") {
+    const folder_t folder({});
+    const std::string uri = folder.uri("waiting.fb");
+    client_t client({ .delay = std::chrono::milliseconds(2000) });
+    client.open(uri, "Import std.core\nLocal   n = 1\nPrint(n)\n");
+    const json_t document{ { "uri", uri } };
+    const json_t at{ { "textDocument", document }, { "position", client_t::position(2, 6) } };
+    const std::int64_t hover = client.queue("textDocument/hover", at);
+    const std::int64_t highlights = client.queue("textDocument/documentHighlight", at);
+    const std::int64_t formatting =
+        client.queue("textDocument/formatting",
+                     {
+                         { "textDocument", document },
+                         { "options", { { "tabSize", 4 }, { "insertSpaces", true } } },
+                     });
+    const auto asked = std::chrono::steady_clock::now();
+    client.drain();
+    const json_t edits = client.response(formatting)["result"];
+    REQUIRE(edits.size() == 1);
+    CHECK(edits[0]["range"]["start"]["line"] == 1);
+    CHECK(edits[0]["newText"] == "Local n = 1\n");
+    CHECK(std::chrono::steady_clock::now() - asked < std::chrono::milliseconds(1000));
+    // They come once the check's done, which they asked for.
+    CHECK(client.response(hover)["result"]["contents"]["value"].get<std::string>().contains(
+        "n: Int32"));
+    CHECK(client.response(highlights)["result"].size() == 2);
+}
+
+TEST_CASE("semantic tokens before a check are the lexer's, and the client asks again after it",
+          "[lsp]") {
+    const folder_t folder(geo());
+    client_t client({
+        .folders = { folder.root() },
+        .delay = std::chrono::milliseconds(2000),
+        .load_folders = false,
+        .tokens_refresh = true,
+    });
+    const std::string main = folder.uri("main.fb");
+    client.open(main, main_text);
+
+    // At once, without waiting for the check, which waits for the edit's pause.
+    const auto asked = std::chrono::steady_clock::now();
+    const std::vector<semantic_token_t> lexical = semantic_tokens(client, main);
+    CHECK(std::chrono::steady_clock::now() - asked < std::chrono::milliseconds(1000));
+    CHECK(token_at(lexical, 0, 0).type == "keyword");
+    CHECK(token_at(lexical, 1, 7).type == "string");
+    CHECK(token_at(lexical, 4, 0).type == "none");
+
+    // Once the check's done, the client's told to ask again, and the names are what they name.
+    client.settle();
+    CHECK(std::ranges::any_of(client.notifications(), [](const json_t& message) {
+        return message.value("method", "") == "workspace/semanticTokens/refresh";
+    }));
+    CHECK(token_at(semantic_tokens(client, main), 4, 0).type == "function");
+}
+
 TEST_CASE("a string's semantic tokens leave its escapes and interpolations' braces to the grammar",
           "[lsp]") {
     const folder_t folder({});
@@ -717,6 +774,7 @@ Print("a\tb{{c}}d{name}e\u{41}")
 Print(r"raw\t")
 Local c = '\n'
 )");
+    client.settle();
     const std::vector<semantic_token_t> tokens = semantic_tokens(client, uri);
     const auto type_at = [&](const std::uint32_t line, const std::uint32_t column) {
         return token_at(tokens, line, column).type;

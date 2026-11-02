@@ -407,38 +407,46 @@ public:
     }
 
     /// The members of the expression before the '.' that ends at `dot`, and for a value, the
-    /// postfix completions of it.
+    /// postfix completions of it. Before a check has the '.', as it's just been typed, the
+    /// expression is receiver_before()'s.
     json_t members(const std::uint32_t dot, const positions_t& positions) {
-        for (std::size_t i = 0; i < m_ast.expr_count(); ++i) {
+        std::optional<expr_id_t> found;
+        for (std::size_t i = 0; i < m_ast.expr_count() && !found; ++i) {
             const expr_t& expr = m_ast.get(static_cast<expr_id_t>(i));
             const auto* member = std::get_if<member_expr_t>(&expr.node);
-            if (member == nullptr || expr.span.file != m_query.file() ||
-                m_ast.get(member->object).span.end != dot) {
-                continue;
+            if (member != nullptr && expr.span.file == m_query.file() &&
+                m_ast.get(member->object).span.end == dot) {
+                found = member->object;
             }
+        }
 
-            // A module's qualifier, a type's name, or a value.
-            const expr_info_t& object = m_analysis.expr(member->object);
-            const auto* name = std::get_if<name_expr_t>(&m_ast.get(member->object).node);
-            const symbol_t* named = object.symbol ? &m_analysis.symbol(*object.symbol) : nullptr;
-            const std::optional<type_id_t> builtin =
-                name != nullptr && named == nullptr ? builtin_type(name->name) : std::nullopt;
-            if (named != nullptr && named->kind == symbol_kind_t::MODULE) {
-                for (const module_id_t module : named->modules) {
-                    add_module_names(module, {});
-                }
-            } else if (named != nullptr && name != nullptr &&
-                       (named->kind == symbol_kind_t::TYPE ||
-                        named->kind == symbol_kind_t::ALIAS)) {
-                add_statics(named->type);
-            } else if (builtin) {
-                add_statics(*builtin);
-            } else {
-                add_instance_members(object.type);
-                add_postfix(member->object, positions);
+        if (!found) {
+            found = receiver_before(m_query, dot);
+        }
+
+        if (!found) {
+            return m_items.take();
+        }
+
+        // A module's qualifier, a type's name, or a value.
+        const expr_id_t object_id = *found;
+        const expr_info_t& object = m_analysis.expr(object_id);
+        const auto* name = std::get_if<name_expr_t>(&m_ast.get(object_id).node);
+        const symbol_t* named = object.symbol ? &m_analysis.symbol(*object.symbol) : nullptr;
+        const std::optional<type_id_t> builtin =
+            name != nullptr && named == nullptr ? builtin_type(name->name) : std::nullopt;
+        if (named != nullptr && named->kind == symbol_kind_t::MODULE) {
+            for (const module_id_t module : named->modules) {
+                add_module_names(module, {});
             }
-
-            break;
+        } else if (named != nullptr && name != nullptr &&
+                   (named->kind == symbol_kind_t::TYPE || named->kind == symbol_kind_t::ALIAS)) {
+            add_statics(named->type);
+        } else if (builtin) {
+            add_statics(*builtin);
+        } else {
+            add_instance_members(object.type);
+            add_postfix(object_id, positions);
         }
 
         return m_items.take();
@@ -1653,6 +1661,12 @@ std::set<std::string> visible_names(const query_t& query, const std::uint32_t of
     }
 
     return names;
+}
+
+json_t member_completion(const query_t& query, const std::uint32_t dot,
+                         const positions_t& positions) {
+    completer_t completer(query, dot);
+    return completer.members(dot, positions);
 }
 
 json_t completion(const query_t& query, const std::uint32_t offset,

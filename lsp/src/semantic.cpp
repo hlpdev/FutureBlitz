@@ -169,6 +169,10 @@ token_type_t type_of(const analysis_t& analysis, const symbol_t& symbol) {
     }
 }
 
+/// A file's tokens, as semantic_tokens() gives them, with what a check knows of its names when
+/// `query` has one, and only what the lexer does without it.
+json_t tokens_of(const source_file_t& file, const query_t* query, const positions_t& positions);
+
 } // namespace
 
 json_t semantic_tokens_legend() {
@@ -179,8 +183,83 @@ json_t semantic_tokens_legend() {
 }
 
 json_t semantic_tokens(const query_t& query, const positions_t& positions) {
-    const source_file_t& file = query.source();
+    return tokens_of(query.source(), &query, positions);
+}
+
+json_t lexical_tokens(const source_file_t& file, const positions_t& positions) {
+    return tokens_of(file, nullptr, positions);
+}
+
+namespace {
+
+/// What a check knows of a file's tokens, over what the lexer says of them: an Import's dotted
+/// name, a module's, and names, as what they name.
+void add_checked(std::map<std::uint32_t, token_info_t>& tokens, const source_file_t& file,
+                 const query_t& query) {
+    // An Import's dotted name, a module's.
+    for (const stmt_id_t item : query.ast().items()) {
+        const auto* imported = std::get_if<import_stmt_t>(&query.ast().get(item).node);
+        if (imported == nullptr || imported->quoted || imported->target_span.file != file.id()) {
+            continue;
+        }
+
+        std::uint32_t begin = imported->target_span.begin;
+        for (std::uint32_t at = begin; at <= imported->target_span.end; ++at) {
+            if (at == imported->target_span.end || file.text()[at] == '.') {
+                if (at > begin) {
+                    tokens[begin] = { .end = at, .type = token_type_t::NAMESPACE };
+                }
+
+                begin = at + 1;
+            }
+        }
+    }
+
+    const std::string standard = file_key(toolchain().std);
+    std::map<file_id_t, bool> in_std;
+    // Names, as what they name, over what the lexer says of them.
     const analysis_t& analysis = query.analysis();
+    for (const named_t& named : query.names()) {
+        const symbol_t& symbol = analysis.symbol(named.symbol);
+        std::uint32_t modifiers = 0;
+        if (named.declaration) {
+            modifiers |= static_cast<std::uint32_t>(modifier_t::DECLARATION);
+        }
+
+        if (symbol.kind == symbol_kind_t::CONSTANT || symbol.kind == symbol_kind_t::LOOP_VARIABLE ||
+            (symbol.kind == symbol_kind_t::FIELD && symbol.modifiers.is_read_only)) {
+            modifiers |= static_cast<std::uint32_t>(modifier_t::READONLY);
+        }
+
+        if ((symbol.kind == symbol_kind_t::GLOBAL && symbol.owner != type_id_t::INVALID) ||
+            symbol.modifiers.is_static) {
+            modifiers |= static_cast<std::uint32_t>(modifier_t::STATIC);
+        }
+
+        if (symbol.kind == symbol_kind_t::BUILTIN_FUNCTION) {
+            modifiers |= static_cast<std::uint32_t>(modifier_t::DEFAULT_LIBRARY);
+        } else if (!symbol.span.empty()) {
+            auto [found, added] = in_std.try_emplace(symbol.span.file, false);
+            if (added) {
+                const std::filesystem::path path = query.compilation().disk_path(symbol.span.file);
+                const std::string key = path.empty() ? std::string() : file_key(path);
+                found->second = key.starts_with(standard + "/");
+            }
+
+            if (found->second) {
+                modifiers |= static_cast<std::uint32_t>(modifier_t::DEFAULT_LIBRARY);
+            }
+        }
+
+        tokens[named.span.begin] = {
+            .end = named.span.end,
+            .type = type_of(analysis, symbol),
+            .modifiers = modifiers,
+        };
+    }
+}
+
+json_t tokens_of(const source_file_t& file, const query_t* query, const positions_t& positions) {
     std::map<std::uint32_t, token_info_t> tokens;
 
     // What the lexer knows: keywords, literals, and comments.
@@ -237,65 +316,8 @@ json_t semantic_tokens(const query_t& query, const positions_t& positions) {
         tokens[comment.begin] = { .end = comment.end, .type = token_type_t::COMMENT };
     }
 
-    // An Import's dotted name, a module's.
-    for (const stmt_id_t item : query.ast().items()) {
-        const auto* imported = std::get_if<import_stmt_t>(&query.ast().get(item).node);
-        if (imported == nullptr || imported->quoted || imported->target_span.file != file.id()) {
-            continue;
-        }
-
-        std::uint32_t begin = imported->target_span.begin;
-        for (std::uint32_t at = begin; at <= imported->target_span.end; ++at) {
-            if (at == imported->target_span.end || file.text()[at] == '.') {
-                if (at > begin) {
-                    tokens[begin] = { .end = at, .type = token_type_t::NAMESPACE };
-                }
-
-                begin = at + 1;
-            }
-        }
-    }
-
-    // Names, as what they name, over what the lexer says of them.
-    const std::string standard = file_key(toolchain().std);
-    std::map<file_id_t, bool> in_std;
-    for (const named_t& named : query.names()) {
-        const symbol_t& symbol = analysis.symbol(named.symbol);
-        std::uint32_t modifiers = 0;
-        if (named.declaration) {
-            modifiers |= static_cast<std::uint32_t>(modifier_t::DECLARATION);
-        }
-
-        if (symbol.kind == symbol_kind_t::CONSTANT || symbol.kind == symbol_kind_t::LOOP_VARIABLE ||
-            (symbol.kind == symbol_kind_t::FIELD && symbol.modifiers.is_read_only)) {
-            modifiers |= static_cast<std::uint32_t>(modifier_t::READONLY);
-        }
-
-        if ((symbol.kind == symbol_kind_t::GLOBAL && symbol.owner != type_id_t::INVALID) ||
-            symbol.modifiers.is_static) {
-            modifiers |= static_cast<std::uint32_t>(modifier_t::STATIC);
-        }
-
-        if (symbol.kind == symbol_kind_t::BUILTIN_FUNCTION) {
-            modifiers |= static_cast<std::uint32_t>(modifier_t::DEFAULT_LIBRARY);
-        } else if (!symbol.span.empty()) {
-            auto [found, added] = in_std.try_emplace(symbol.span.file, false);
-            if (added) {
-                const std::filesystem::path path = query.compilation().disk_path(symbol.span.file);
-                const std::string key = path.empty() ? std::string() : file_key(path);
-                found->second = key.starts_with(standard + "/");
-            }
-
-            if (found->second) {
-                modifiers |= static_cast<std::uint32_t>(modifier_t::DEFAULT_LIBRARY);
-            }
-        }
-
-        tokens[named.span.begin] = {
-            .end = named.span.end,
-            .type = type_of(analysis, symbol),
-            .modifiers = modifiers,
-        };
+    if (query != nullptr) {
+        add_checked(tokens, file, *query);
     }
 
     // Relative to the token before, each line of one that goes over several.
@@ -341,5 +363,7 @@ json_t semantic_tokens(const query_t& query, const positions_t& positions) {
 
     return { { "data", std::move(data) } };
 }
+
+} // namespace
 
 } // namespace fb::lsp

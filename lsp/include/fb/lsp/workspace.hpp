@@ -77,6 +77,9 @@ struct published_t {
     std::optional<std::int64_t> version;
     std::shared_ptr<const compilation_t> compilation;
     std::vector<const diagnostic_t*> diagnostics;
+    /// A check's, which what's shown of the document can be asked for again from, not only its
+    /// parse's syntax errors.
+    bool checked = false;
 };
 
 /// One check the workspace ran, for its tests.
@@ -162,6 +165,16 @@ public:
     /// which this waits for; another file that no check has yet is checked now. nullopt when it
     /// can't be checked.
     [[nodiscard]] std::optional<checked_t> checked(const std::filesystem::path& path);
+    /// An open document's check of `version`, which this waits for, or nullopt once the document
+    /// has moved past it, as a version changed before its check is done never has one.
+    [[nodiscard]] std::optional<checked_t> checked(const std::filesystem::path& path,
+                                                   std::int64_t version);
+
+    /// An open document's check of its current text, if one's done, without waiting for it.
+    [[nodiscard]] std::optional<checked_t> checked_now(const std::filesystem::path& path) const;
+
+    /// An open document's last check that's done, of whichever version, without waiting.
+    [[nodiscard]] std::optional<checked_t> checked_last(const std::filesystem::path& path) const;
 
     /// Checks that together hold the file at `path` and every file of the workspace that imports
     /// it, directly or not, with their current texts: one for each unit they're in, for
@@ -308,6 +321,11 @@ private:
                     const std::vector<const diagnostic_t*>& diagnostics);
     /// Runs `job` with the lock unlocked, and takes in what it found. `foreground` checks are of
     /// edited documents.
+    /// An open document's check, of `version` or else of whichever version it's at, waited for
+    /// under `lock`; nullopt once it's closed, or has moved past `version`.
+    std::optional<checked_t> wait_for_check(std::unique_lock<std::mutex>& lock,
+                                            const std::string& key,
+                                            std::optional<std::int64_t> version);
     std::shared_ptr<const compilation_t> run_job(std::unique_lock<std::mutex>& lock,
                                                  const job_t& job);
     /// Frees m_replaced with the lock unlocked, as freeing a check with std's modules takes a

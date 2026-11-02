@@ -658,7 +658,10 @@ a half times it:
 |---|---|
 | A syntax error shown, from the keystroke, with a file's lens resolves waiting or being checked | 50 ms |
 | A type error shown, from the last keystroke | 300 ms |
-| Completion, hover, signature help, highlights | 100 ms |
+| Completion, signature help, hover, and semantic tokens, from a keystroke, its check still to come | 20 ms |
+| Highlights | 100 ms |
+| A save's formatting, behind the requests VS Code sends after an edit | 10 ms |
+| A hover, behind the requests VS Code sends after an edit | 20 ms |
 | Every code lens of a file resolved, as the editor asks once it's shown | 1,000 ms |
 | The quick fixes at a position | 100 ms |
 | A rename or find references across the package | 1 s |
@@ -1222,6 +1225,36 @@ knows other BASICs would be: given "Print the squares of the numbers from 1 to 1
 server, it writes QBasic's loop, and makes only the edits check's errors and fixes say, the
 parentheses Print's call needs, the `End For` the loop needs, and `Next` gone, until check has
 none, then formats what it wrote, which compiles.
+
+**Responsiveness** (1.2.2): nothing waits for a check on fb-lsp's message thread. What needs
+one, hover, definition, references, renames, completion, signature help, code actions,
+highlights, inlay hints, the type and call hierarchies, a lens's count, and Change Signature,
+goes to one of two workers, each answering its requests in the order they came (the code lens
+thread was the first of them): a quick one for hover, definition, type definition, completion,
+signature help, highlights, and inlay hints, which the last check answers as code is typed, and a
+slow one for the rest, which wait for the check of the text, so a hover never waits behind a code
+action. A request a worker answers is about the document's version and text as they were when
+it came, positions and all; one that waits for a check waits for that version's alone, and is
+answered ContentModified once the document has moved past it, as a version changed before its
+check is done never has one, so typing never keeps a worker waiting. A $/cancelRequest takes a
+waiting one out, and shutdown answers what's waiting first. What the text answers, formatting a save, folding, selection ranges, document and
+workspace symbols, and code lenses, is answered at once. Semantic tokens are the check's when
+it's of the document's text, and else the lexer's at once, keywords, strings, numbers, and
+comments, with `workspace/semanticTokens/refresh` sent when the check's done, so coloring never
+waits for one, and inlay hints' and code lenses' refreshes too. Hover, definition, type
+definition, highlights, and inlay hints are the last check's, with positions moved through what
+changed since, one text's start and end being the other's (`last_check_t`), for a position whose
+line is unchanged; completion is too, and right after a word or a '.' is typed, the last check's
+at where the typing started, the items' edits moved to the cursor and marked incomplete, so the
+editor asks again as typing goes on; signature help is, after a '(' or a ',' typed, the last
+check's, of the call or the callee before it, what's before a typed '.' or '(' being a name and
+the members, calls, indexes, and slices of it, not an operator's ("1 + Twice(" is Twice's). Only
+what can't be told from the last check, a
+position on a line that changed otherwise, waits for the check of the text. The benchmark times
+each of these from a keystroke, with the keystrokes before it checked and its own check still to
+come, and a save's formatting and a hover behind VS Code's burst of requests after an edit
+(burst_formatting and burst_hover); a probe types without a pause for ten seconds with VS Code's
+requests after each keystroke, and checks every one is answered.
 
 ## Not in M8
 

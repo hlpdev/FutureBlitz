@@ -559,6 +559,8 @@ void workspace_t::change(const std::filesystem::path& path, const std::int64_t v
     }
 
     m_work.notify_all();
+    // A wait for the check of the version before ends.
+    m_done.notify_all();
 }
 
 void workspace_t::show_syntax(const std::string& key, const std::filesystem::path& path,
@@ -816,6 +818,30 @@ std::optional<std::string> workspace_t::text(const std::filesystem::path& path) 
     return read_disk(path);
 }
 
+std::optional<checked_t> workspace_t::checked_now(const std::filesystem::path& path) const {
+    const std::scoped_lock lock(m_mutex);
+    const std::string key = file_key(path);
+    const auto document = m_documents.find(key);
+    const auto latest = m_latest.find(key);
+    if (document == m_documents.end() || latest == m_latest.end() ||
+        latest->second.generation == 0 || latest->second.version != document->second.version) {
+        return std::nullopt;
+    }
+
+    return latest->second.checked;
+}
+
+std::optional<checked_t> workspace_t::checked_last(const std::filesystem::path& path) const {
+    const std::scoped_lock lock(m_mutex);
+    const std::string key = file_key(path);
+    const auto latest = m_latest.find(key);
+    if (!m_documents.contains(key) || latest == m_latest.end() || latest->second.generation == 0) {
+        return std::nullopt;
+    }
+
+    return latest->second.checked;
+}
+
 std::optional<checked_t> workspace_t::checked(const std::filesystem::path& path) {
     std::unique_lock lock(m_mutex);
     const std::string key = file_key(path);
@@ -824,31 +850,7 @@ std::optional<checked_t> workspace_t::checked(const std::filesystem::path& path)
     }
 
     if (m_documents.contains(key)) {
-        while (!m_stopping) {
-            const auto document = m_documents.find(key);
-            if (document == m_documents.end()) {
-                break;
-            }
-
-            const auto latest = m_latest.find(key);
-            if (latest != m_latest.end() && latest->second.generation > 0 &&
-                latest->second.version == document->second.version) {
-                return latest->second.checked;
-            }
-
-            // Its check is due now; a request doesn't wait for the next keystroke.
-            if (const auto edited = m_edited.find(key); edited != m_edited.end()) {
-                edited->second = steady_t::now();
-                m_work.notify_all();
-            } else if (m_running == 0) {
-                m_edited[key] = steady_t::now();
-                m_work.notify_all();
-            }
-
-            m_done.wait(lock);
-        }
-
-        return std::nullopt;
+        return wait_for_check(lock, key, std::nullopt);
     }
 
     const std::shared_ptr<const compilation_t> compilation = run_job(lock, job_for(path));
@@ -860,6 +862,47 @@ std::optional<checked_t> workspace_t::checked(const std::filesystem::path& path)
         if (file_key(compilation->disk_path(module.file)) == key) {
             return checked_t{ .compilation = compilation, .file = module.file };
         }
+    }
+
+    return std::nullopt;
+}
+
+std::optional<checked_t> workspace_t::checked(const std::filesystem::path& path,
+                                              const std::int64_t version) {
+    std::unique_lock lock(m_mutex);
+    const std::string key = file_key(path);
+    if (!m_paths.contains(key)) {
+        m_paths[key] = path;
+    }
+
+    return wait_for_check(lock, key, version);
+}
+
+std::optional<checked_t> workspace_t::wait_for_check(std::unique_lock<std::mutex>& lock,
+                                                     const std::string& key,
+                                                     const std::optional<std::int64_t> version) {
+    while (!m_stopping) {
+        const auto document = m_documents.find(key);
+        if (document == m_documents.end() || (version && document->second.version != *version)) {
+            break;
+        }
+
+        const auto latest = m_latest.find(key);
+        if (latest != m_latest.end() && latest->second.generation > 0 &&
+            latest->second.version == document->second.version) {
+            return latest->second.checked;
+        }
+
+        // Its check is due now; a request doesn't wait for the next keystroke.
+        if (const auto edited = m_edited.find(key); edited != m_edited.end()) {
+            edited->second = steady_t::now();
+            m_work.notify_all();
+        } else if (m_running == 0) {
+            m_edited[key] = steady_t::now();
+            m_work.notify_all();
+        }
+
+        m_done.wait(lock);
     }
 
     return std::nullopt;
@@ -1267,6 +1310,7 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
             .version = document != m_documents.end() ? std::optional(document->second.version)
                                                      : std::nullopt,
             .compilation = compilation,
+            .checked = compilation != nullptr,
         };
         if (compilation && file) {
             for (const diagnostic_t& diagnostic : compilation->diagnostics.diagnostics()) {
