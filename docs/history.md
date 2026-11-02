@@ -5,6 +5,8 @@ them while each was built. Newest first.
 
 ## 1.2.2
 
+- **fb mcp at exit** (the 2026-11-02 CI): a server waits for the thread reading std's docs, which a test's program could leave running as it exited, reading the compiler's statics as they were destroyed: a segfault on Linux.
+
 Performance (2026-11-01), measured on the user's test project, one file that imports std.core,
 std.math.random, std.data.json, std.time, std.text.string, and std.net.http, 111 modules with what
 they import, on a release build with the client watching files:
