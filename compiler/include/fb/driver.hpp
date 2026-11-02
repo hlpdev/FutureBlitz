@@ -271,10 +271,33 @@ struct std_names_cache_t {
         std::vector<span_t> docs;
     };
 
+    /// The files a check loaded besides its own, parsed, in the order it loaded them, which the
+    /// next check of the same files takes as they are while each is the same, as an editor's
+    /// checks of the file being typed in are: each one's path, its file as that check had it,
+    /// whose text the AST's names are in, whether it's a prebuilt library's interface, and its
+    /// items.
+    struct parsed_t {
+        struct file_t {
+            std::string path;
+            std::unique_ptr<const source_file_t> source;
+            bool prebuilt = false;
+            std::vector<stmt_id_t> items;
+        };
+
+        ast_t ast;
+        std::vector<file_t> files;
+    };
+
     std::mutex mutex;
     std::map<std::string, file_t, std::less<>> files;
     /// The files' tokens, by the symbols defined and the text, which checks share too.
     std::unordered_map<std::string, std::shared_ptr<const lexed_t>> lexed;
+    /// The parses of the files the last few checks' own files loaded, by the symbols defined
+    /// and their own files' paths, and those of the check before, which only a second check of
+    /// the same files in a row keeps, as the checks of the files that import an edited one
+    /// don't need.
+    std::map<std::string, std::shared_ptr<const parsed_t>, std::less<>> parsed;
+    std::string last_checked;
 };
 
 /// What check_files() checks.

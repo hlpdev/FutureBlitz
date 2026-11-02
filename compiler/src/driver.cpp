@@ -546,9 +546,23 @@ public:
         return files;
     }
 
-    /// The main file is in the compilation already, at `path` in the program.
-    void run(const std::string& path) {
+    /// The main file is in the compilation already, at `path` in the program. With `take`, it
+    /// takes the parse of the files the last check of the same files loaded, if there is one,
+    /// and gives false when this one loads others, for a run without it, which `keep` says
+    /// keeps a parse of them for the next check, as keeps() says.
+    bool run(const std::string& path, const bool take, const bool keep) {
         const source_file_t& main = m_compilation.source();
+        if (take) {
+            m_parsed = parsed(path);
+        } else {
+            m_keep = keep;
+        }
+
+        // The AST keeps the parse, whose files' texts its names are in.
+        if (m_parsed != nullptr) {
+            m_compilation.ast.set_base(std::shared_ptr<const ast_t>(m_parsed, &m_parsed->ast));
+        }
+
         m_loaded.push_back({ .path = path, .file = main.id() });
         m_keys.emplace(key_of(path), 0);
         parse_file(0, &m_compilation.tokens);
@@ -570,12 +584,28 @@ public:
         }
 
         // Loading a file adds its imports' files, which come after it.
-        for (std::size_t i = 0; i < m_loaded.size(); ++i) {
+        for (std::size_t i = 0; i < m_loaded.size() && !m_parsed_differs; ++i) {
             resolve_imports(i);
+        }
+
+        if (m_parsed != nullptr && (m_parsed_differs || m_taken != m_parsed->files.size())) {
+            drop_parsed(path);
+            return false;
         }
 
         add_modules();
         add_std_names();
+        if (m_parsed == nullptr) {
+            keep_parsed(path);
+        }
+
+        return true;
+    }
+
+    /// Whether a run without the parse it took keeps one: whether the check before was of the
+    /// same files.
+    [[nodiscard]] bool keeps() const {
+        return m_keep;
     }
 
     /// The bytes of the file that Embed or EmbedText names with `target`, written at `at`.
@@ -920,6 +950,14 @@ private:
     std::vector<std::size_t> m_extra;
     /// For each loaded file, the AST items it added.
     std::vector<std::vector<stmt_id_t>> m_items;
+    /// The parse of the files besides its own that the last check of the same files loaded,
+    /// which this one takes while it loads the same, and how many of them it has taken.
+    std::shared_ptr<const std_names_cache_t::parsed_t> m_parsed;
+    std::size_t m_taken = 0;
+    /// Whether a file this check loads isn't the parse's next, which a check without it redoes.
+    bool m_parsed_differs = false;
+    /// Whether the check keeps a parse of the files it loads besides its own, for the next.
+    bool m_keep = false;
     /// How messages name each package's folder.
     std::vector<std::string> m_folders;
     /// The bytes of each file an embed read, by its path in the program.
@@ -1077,6 +1115,21 @@ private:
             return std::nullopt;
         }
 
+        // A file the parse to take has is its next one, with the same text. The extras are the
+        // check's own files, which it leaves out.
+        const std_names_cache_t::parsed_t::file_t* taken = nullptr;
+        if (m_parsed != nullptr && !std::ranges::contains(m_files.extra, path)) {
+            if (m_parsed_differs || m_taken == m_parsed->files.size() ||
+                m_parsed->files[m_taken].path != path ||
+                m_parsed->files[m_taken].source->text() != *text ||
+                m_parsed->files[m_taken].prebuilt != (prebuilt_package(m_files, path) != nullptr)) {
+                m_parsed_differs = true;
+                return std::nullopt;
+            }
+
+            taken = &m_parsed->files[m_taken++];
+        }
+
         const generated_file_t* generated = generated_file(m_files, path);
         const file_id_t file = m_compilation.sources.add(
             shown_path(m_files, path), std::move(*text),
@@ -1098,7 +1151,18 @@ private:
         const std::size_t index = m_loaded.size();
         m_loaded.push_back({ .path = path, .file = file, .imported_at = imported_at });
         m_keys.emplace(key_of(path), index);
-        parse_file(index, nullptr);
+        m_items.resize(m_loaded.size());
+        if (taken == nullptr) {
+            parse_file(index, nullptr);
+        } else if (taken->source->id() != file) {
+            m_parsed_differs = true;
+        } else {
+            m_items[index] = taken->items;
+            for (const stmt_id_t item : taken->items) {
+                m_compilation.ast.add_item(item);
+            }
+        }
+
         return index;
     }
 
@@ -1200,6 +1264,11 @@ private:
         const std::string key = key_of(path);
         if (const auto found = m_keys.find(key); found != m_keys.end()) {
             return found->second;
+        }
+
+        if (m_parsed != nullptr) {
+            m_parsed_differs = true;
+            return std::nullopt;
         }
 
         if (const auto reading = std::ranges::find(m_reading, key); reading != m_reading.end()) {
@@ -1518,11 +1587,133 @@ private:
     /// How many files' tokens the checks keep.
     static constexpr std::size_t max_lexed = 4096;
 
+    /// How many checks' parses of the files they loaded the checks keep.
+    static constexpr std::size_t max_parsed = 4;
+
+    /// The key of the checks of the same files as this one: the symbols defined, the folder,
+    /// and the main file's and the extras' paths. Empty for a check whose parse isn't kept: one
+    /// that doesn't share a cache, one that checks every body, as a build, or one with generated
+    /// modules.
+    [[nodiscard]] std::string parsed_key(const std::string& path) const {
+        if (m_files.cache == nullptr || !m_files.root_bodies || !m_files.generated.empty()) {
+            return {};
+        }
+
+        std::string key;
+        for (const std::string_view symbol : m_defined) {
+            key += symbol;
+            key += ',';
+        }
+
+        key += '\n';
+        key += m_files.root ? to_utf8(*m_files.root) : std::string();
+        key += '\n';
+        key += path;
+        for (const std::string& extra : m_files.extra) {
+            key += '\n';
+            key += extra;
+        }
+
+        return key;
+    }
+
+    /// The parse the last check of the same files as this one kept, if any, noting this check
+    /// as the last one, and whether the one before was of the same files too.
+    [[nodiscard]] std::shared_ptr<const std_names_cache_t::parsed_t>
+    parsed(const std::string& path) {
+        const std::string key = parsed_key(path);
+        if (key.empty()) {
+            return nullptr;
+        }
+
+        const std::scoped_lock lock(m_files.cache->mutex);
+        m_keep = m_files.cache->last_checked == key;
+        m_files.cache->last_checked = key;
+        const auto found = m_files.cache->parsed.find(key);
+        return found != m_files.cache->parsed.end() ? found->second : nullptr;
+    }
+
+    /// Forgets the parse this check took, whose files it doesn't load, unless another check has
+    /// kept another since.
+    void drop_parsed(const std::string& path) {
+        const std::scoped_lock lock(m_files.cache->mutex);
+        const auto found = m_files.cache->parsed.find(parsed_key(path));
+        if (found != m_files.cache->parsed.end() && found->second == m_parsed) {
+            m_files.cache->parsed.erase(found);
+        }
+    }
+
+    /// Parses the files the check loaded besides its own again, in their order, for the next
+    /// check of the same files, when it's the second check of them in a row, and none of them
+    /// has an error or is made from a .proto.
+    void keep_parsed(const std::string& path) {
+        const std::string key = parsed_key(path);
+        if (!m_keep || key.empty()) {
+            return;
+        }
+
+        const auto own = [this](const std::size_t index) {
+            return index == 0 || std::ranges::contains(m_extra, index);
+        };
+        for (const diagnostic_t& diagnostic : m_compilation.diagnostics.diagnostics()) {
+            const auto file = std::ranges::find(m_loaded, diagnostic.span.file, &loaded_t::file);
+            if (file != m_loaded.end() &&
+                !own(static_cast<std::size_t>(std::distance(m_loaded.begin(), file)))) {
+                return;
+            }
+        }
+
+        auto parsed = std::make_shared<std_names_cache_t::parsed_t>();
+        diagnostic_bag_t reported;
+        for (std::size_t i = 0; i < m_loaded.size(); ++i) {
+            if (own(i)) {
+                continue;
+            }
+
+            if (m_loaded[i].proto != nullptr) {
+                return;
+            }
+
+            const source_file_t& loaded = m_compilation.sources.get(m_loaded[i].file);
+            auto source = std::make_unique<const source_file_t>(loaded.id(), loaded.path(),
+                                                                std::string(loaded.text()));
+            std::vector<span_t> docs;
+            const std::vector<token_t> tokens = lex_file(*source, docs);
+            const ast_t& ast = parsed->ast;
+            const std::size_t before = ast.items().size();
+            const bool prebuilt = prebuilt_package(m_files, m_loaded[i].path) != nullptr;
+            parse_into(*source, tokens, reported, parsed->ast, prebuilt, docs);
+            parsed->files.push_back({
+                .path = m_loaded[i].path,
+                .source = std::move(source),
+                .prebuilt = prebuilt,
+                .items = std::vector<stmt_id_t>(
+                    ast.items().begin() + static_cast<std::ptrdiff_t>(before), ast.items().end()),
+            });
+        }
+
+        if (!reported.diagnostics().empty()) {
+            return;
+        }
+
+        const std::scoped_lock lock(m_files.cache->mutex);
+        auto& kept = m_files.cache->parsed;
+        if (!kept.contains(key) && kept.size() >= max_parsed) {
+            kept.erase(kept.begin());
+        }
+
+        kept.insert_or_assign(key, std::move(parsed));
+    }
+
     /// Finds the files a loaded file's Import and From lines name, loading the new ones. Each
     /// that names nothing is reported at the line.
     void resolve_imports(const std::size_t index) {
         for (const stmt_id_t id : std::vector<stmt_id_t>(m_items[index])) {
             const auto* found = std::get_if<import_stmt_t>(&m_compilation.ast.get(id).node);
+            if (m_parsed_differs) {
+                return;
+            }
+
             if (found == nullptr) {
                 continue;
             }
@@ -2225,20 +2416,42 @@ void run_front_end(compilation_t& compilation, file_set_t files, const std::stri
     // The front end asks the disk the same things for each Import, so it asks once.
     const disk_scope_t disk_scope;
     const bool root_bodies = files.root_bodies;
-    loader_t loader(compilation, std::move(files), mode);
-    loader.run(path);
+    // An editor's check takes the parse of the files the last check of the same files loaded,
+    // and when it loads others, it loads them again without it, from where it began.
+    const bool reusable = files.cache != nullptr && files.root_bodies && files.generated.empty();
+    const std::size_t sources = compilation.sources.size();
+    const std::size_t on_disk = compilation.on_disk.size();
+    const std::size_t in_interface = compilation.in_interface.size();
+    std::optional<std::pair<file_set_t, diagnostic_bag_t>> before;
+    if (reusable) {
+        before.emplace(files, compilation.diagnostics);
+    }
+
+    std::optional<loader_t> loader(std::in_place, compilation, std::move(files), mode);
+    if (!loader->run(path, reusable, false) && before) {
+        const bool keep = loader->keeps();
+        compilation.sources.truncate(sources);
+        compilation.diagnostics = std::move(before->second);
+        compilation.ast = ast_t();
+        compilation.tokens.clear();
+        compilation.on_disk.resize(on_disk);
+        compilation.in_interface.resize(in_interface);
+        loader.emplace(compilation, std::move(before->first), mode);
+        loader->run(path, false, keep);
+    }
+
     const embed_reader_t embeds{
         .file = [&loader](const span_t at,
-                          const std::string_view target) { return loader.embed_file(at, target); },
+                          const std::string_view target) { return loader->embed_file(at, target); },
         .folder =
             [&loader](const span_t at, const std::string_view target) {
-                return loader.embed_folder(at, target);
+                return loader->embed_folder(at, target);
             },
     };
     // A check of a few files checks only their bodies, but for what needs the others'.
     if (root_bodies) {
         const diagnostic_bag_t loaded = compilation.diagnostics;
-        const std::vector<file_id_t> roots = loader.roots();
+        const std::vector<file_id_t> roots = loader->roots();
         compilation.analysis = analyze(compilation.sources, compilation.ast,
                                        compilation.diagnostics, mode, embeds, &roots);
         if (!compilation.analysis.needs_every_body) {

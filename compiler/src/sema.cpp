@@ -518,9 +518,14 @@ public:
                 check_function(id);
             }
         });
-        // A worker's work calls code whose bodies weren't checked, which may use what only the
-        // main thread can.
-        if (m_bodies && (!m_workers.empty() || !m_kept_workers.empty())) {
+        // A worker in the checked files calls code whose bodies weren't checked, which may use
+        // what only the main thread can. One elsewhere, as a std Shared Class's Destroy(), is
+        // its own file's, whose check reports it.
+        const auto checked = [this](const worker_t& worker) {
+            return m_bodies->contains(worker.span.file);
+        };
+        if (m_bodies && (std::ranges::any_of(m_workers, checked) ||
+                         std::ranges::any_of(m_kept_workers, checked))) {
             m_analysis.needs_every_body = true;
             return std::move(m_analysis);
         }
@@ -12481,9 +12486,12 @@ private:
         }
 
         link_compared_fields(also);
+        // A check of some files' bodies checks only their workers, as the others' code wasn't.
         for (const std::vector<worker_t>* list : { &m_workers, &m_kept_workers }) {
             for (const worker_t& worker : *list) {
-                in_file(worker.span.file, [&] { check_worker(worker, also); });
+                if (!m_bodies || m_bodies->contains(worker.span.file)) {
+                    in_file(worker.span.file, [&] { check_worker(worker, also); });
+                }
             }
         }
 

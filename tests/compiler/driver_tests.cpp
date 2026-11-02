@@ -4974,6 +4974,16 @@ TEST_CASE("check_files checks its files' bodies, and every body when theirs need
     REQUIRE(packages.messages(*checked).size() == 1);
     CHECK(packages.messages(*checked).front().starts_with("app/a.fb: "));
 
+    // A worker that another file starts is that file's, as std's Shared Classes' Destroy()s, so
+    // a's body isn't checked.
+    packages.write("app/locks.fb", "Import std.core\nImport std.concurrent.locks\n"
+                                   "Import \"./a\"\n"
+                                   "Public Function L(): Int\n    Local w = WaitGroup()\n"
+                                   "    w.Add(1)\n    Return A()\nEnd Function\n");
+    checked = fb::check_files({ .files = { packages / "app/locks.fb" } });
+    REQUIRE(checked);
+    CHECK(packages.messages(*checked).empty());
+
     // A worker's work goes through score's body, so every body is checked, a's too.
     checked = fb::check_files({ .files = { packages / "app/work.fb" } });
     REQUIRE(checked);
@@ -5043,6 +5053,138 @@ TEST_CASE("check_files checks the standard library's files, and a file outside a
     CHECK(each[1] == each[0]);
     CHECK(each[2] == each[0]);
     CHECK(cache.files.size() > 100);
+    packages.remove();
+}
+
+TEST_CASE("checks that share a cache take the parse of what the last check of their files loaded",
+          "[driver]") {
+    const packages_t packages;
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"0.1.0\"\n");
+    packages.write("app/a.fb", "Import std.core\n/// One.\nPublic Function A(): Int => 1\n");
+    packages.write("app/b.fb", "Import std.core\nPublic Function B(): Int => 2\n");
+    packages.write("app/main.fb", "Import std.core\nImport \"./a\"\nLocal n: Int = A()\n");
+    fb::std_names_cache_t cache;
+    std::string main = "Import std.core\nImport \"./a\"\nLocal n: Int = A()\n";
+    const fb::source_reader_t read =
+        [&](const std::filesystem::path& file) -> std::optional<std::string> {
+        return file.filename() == "main.fb" ? std::optional(main) : std::nullopt;
+    };
+    const auto check = [&] {
+        std::expected<fb::compilation_t, std::string> checked = fb::check_files({
+            .files = { packages / "app/main.fb" },
+            .main = packages / "app/main.fb",
+            .read = read,
+            .cache = &cache,
+        });
+        REQUIRE(checked);
+        return std::move(*checked);
+    };
+    // Each check's messages and modules, and A's doc comment, as a check without the cache
+    // gives them.
+    const auto same_as_alone = [&](const fb::compilation_t& checked) {
+        std::expected<fb::compilation_t, std::string> alone = fb::check_files({
+            .files = { packages / "app/main.fb" },
+            .main = packages / "app/main.fb",
+            .read = read,
+        });
+        REQUIRE(alone);
+        CHECK(packages.messages(checked) == packages.messages(*alone));
+        CHECK(own_modules(checked) == own_modules(*alone));
+        CHECK(checked.ast.stmt_count() == alone->ast.stmt_count());
+        const auto doc = [](const fb::compilation_t& compilation) {
+            for (const fb::stmt_id_t id : compilation.ast.items()) {
+                if (const fb::doc_comment_t* found = compilation.ast.doc(id)) {
+                    return found->lines.size();
+                }
+            }
+
+            return std::size_t{ 0 };
+        };
+        CHECK(doc(checked) == doc(*alone));
+    };
+
+    // The second check of the same files keeps the parse, and the third takes it, whose
+    // nodes come first.
+    same_as_alone(check());
+    CHECK(cache.parsed.empty());
+    same_as_alone(check());
+    REQUIRE(cache.parsed.size() == 1);
+    const std::shared_ptr<const fb::std_names_cache_t::parsed_t> kept =
+        cache.parsed.begin()->second;
+    CHECK(std::ranges::any_of(kept->files,
+                              [](const auto& file) { return file.path.ends_with("a.fb"); }));
+    main += "Local m: Int = \"not an Int\"\n";
+    const fb::compilation_t taken = check();
+    same_as_alone(taken);
+    CHECK(cache.parsed.begin()->second == kept);
+    CHECK(packages.messages(taken).size() == 1);
+    for (const fb::stmt_id_t id : taken.ast.items()) {
+        if (taken.ast.get(id).span.file == taken.file) {
+            CHECK(static_cast<std::size_t>(std::to_underlying(id)) >= kept->ast.stmt_count());
+        }
+    }
+
+    // A file it loads that's changed, or another, isn't taken: the check loads them again
+    // without it, and keeps another, as the check before was of the same files.
+    packages.write("app/a.fb", "Import std.core\nPublic Function A(): Int => 3\n");
+    same_as_alone(check());
+    REQUIRE(cache.parsed.size() == 1);
+    std::shared_ptr<const fb::std_names_cache_t::parsed_t> before = cache.parsed.begin()->second;
+    CHECK(before != kept);
+    main = "Import std.core\nImport \"./a\"\nImport \"./b\"\nLocal n: Int = A() + B()\n";
+    same_as_alone(check());
+    REQUIRE(cache.parsed.size() == 1);
+    CHECK(cache.parsed.begin()->second != before);
+    before = cache.parsed.begin()->second;
+    same_as_alone(check());
+    CHECK(cache.parsed.begin()->second == before);
+
+    // After a check of other files, as the checks of those that import an edited one are,
+    // none is kept.
+    cache.parsed.clear();
+    REQUIRE(fb::check_files({ .files = { packages / "app/b.fb" }, .cache = &cache }));
+    same_as_alone(check());
+    CHECK(cache.parsed.empty());
+
+    // Nor is one of files with mistakes.
+    packages.write("app/a.fb", "Import std.core\nPublic Function A(): Int => (\n");
+    same_as_alone(check());
+    same_as_alone(check());
+    CHECK(cache.parsed.empty());
+    packages.remove();
+}
+
+TEST_CASE("a check whose files are the parse's but have other ids loads them again", "[driver]") {
+    const packages_t packages;
+    packages.write("calc/project.toml", "[project]\nname = \"calc\"\nversion = \"0.1.0\"\n");
+    packages.write("calc/calc.fb", "Public Function Add(a: Int, b: Int): Int => a + b\n");
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"0.1.0\"\n");
+    packages.write("app/a.fb", "Public Function A(): Int => 1\n");
+    packages.write("app/main.fb", "Import std.core\nImport \"./a\"\nPrint(A())\n");
+    fb::std_names_cache_t cache;
+    const auto check = [&](fb::std_names_cache_t* shared) {
+        std::expected<fb::compilation_t, std::string> checked = fb::check_files({
+            .files = { packages / "app/main.fb" },
+            .main = packages / "app/main.fb",
+            .cache = shared,
+        });
+        REQUIRE(checked);
+        return std::pair(packages.messages(*checked), checked->ast.stmt_count());
+    };
+    CHECK(check(&cache) == check(nullptr));
+    CHECK(check(&cache) == check(nullptr));
+    REQUIRE(cache.parsed.size() == 1);
+    const std::shared_ptr<const fb::std_names_cache_t::parsed_t> kept =
+        cache.parsed.begin()->second;
+
+    // A dependency the program doesn't import adds its project.toml before the files the parse
+    // has, the same ones, so their ids differ.
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n"
+                                       "[dependencies]\ncalc = { path = \"../calc\" }\n");
+    CHECK(check(&cache) == check(nullptr));
+    REQUIRE(cache.parsed.size() == 1);
+    CHECK(cache.parsed.begin()->second != kept);
+    CHECK(check(&cache) == check(nullptr));
     packages.remove();
 }
 
