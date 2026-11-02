@@ -222,14 +222,13 @@ std::string file_key(const std::filesystem::path& path) {
 }
 
 void forget_file_keys() {
-    {
-        known_keys_t& known = known_keys();
-        const std::scoped_lock lock(known.mutex);
-        known.keys.clear();
-        ++known.forgotten;
-    }
-
+    // The disk's answers first: a key worked out from them before the keys are forgotten isn't
+    // kept, and one worked out after is from new ones.
     key_answers().clear();
+    known_keys_t& known = known_keys();
+    const std::scoped_lock lock(known.mutex);
+    known.keys.clear();
+    ++known.forgotten;
 }
 
 json_t positions_t::position(const source_file_t& file, const std::uint32_t offset) const {
