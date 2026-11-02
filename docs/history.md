@@ -82,6 +82,15 @@ signature help after a '(' typed after it, from the check before the '(', is its
 responsive_tests' "signature help at a '(' just typed is the call's, though its name alone
 wasn't a value".
 
+Master's CI's fixes: a $/cancelRequest of the request a worker is answering marks it
+(`request_job_t::cancelled`, `worker_t::m_current`), and it's answered RequestCancelled, not
+with its result, which a fast machine gave before (responsive_tests' "a request cancelled while
+a worker answers it is answered as cancelled"); doc.cpp's empty path a namespace's `no_path`,
+not a Function's static, which fb mcp's docs thread made as the program exited, waiting on
+Windows for the exit lock while exit joined it, so the assistant test, on the tests' shared
+server, hung at exit (it has a server of its own now, in mcp_tests); and fb_compiler_tests'
+tests a timeout of 1200 s.
+
 ## 1.2.1
 
 (2026-11-01.) 1.2.0 was tagged but never released: its macOS build failed, as fb-lsp's code lens

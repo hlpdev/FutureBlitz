@@ -7,6 +7,7 @@
 #include "fb/lsp/toml_features.hpp"
 #include "fb/lsp/workspace.hpp"
 
+#include <atomic>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
@@ -122,6 +123,8 @@ private:
         std::string key;
         std::optional<std::int64_t> version;
         std::string text;
+        /// Set when the client cancels it as it's answered, which it's answered as instead.
+        std::shared_ptr<std::atomic<bool>> cancelled = std::make_shared<std::atomic<bool>>(false);
     };
     /// A thread that answers requests that need a check, in the order they came, so none of them
     /// keeps the message thread, and what's behind it, waiting. Its thread starts with its first
@@ -137,7 +140,8 @@ private:
         }
 
         void push(request_job_t job);
-        /// Takes a request it hasn't started on out of those waiting, and whether it was there.
+        /// Takes a request it hasn't started on out of those waiting, and whether it was there;
+        /// the one it's answering is answered as cancelled instead.
         bool cancel(const json_t& id);
         /// Waits until it has answered every request it was given.
         void wait_idle();
@@ -150,8 +154,10 @@ private:
         std::mutex m_mutex;
         std::condition_variable m_ready;
         bool m_stop = false;
-        /// Whether it's answering one, which wait_idle() waits for, with those waiting.
+        /// Whether it's answering one, which wait_idle() waits for, with those waiting, and the
+        /// one.
         bool m_busy = false;
+        const request_job_t* m_current = nullptr;
         std::condition_variable m_idle;
         std::thread m_thread;
 

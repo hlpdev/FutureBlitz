@@ -705,7 +705,11 @@ std::string edited(const std::string& program, const std::string& errors) {
 TEST_CASE("an assistant given only fb mcp writes a program that compiles from a request", "[mcp]") {
     const std::string_view request = "Print the squares of the numbers from 1 to 10.";
     const std::filesystem::path folder = package_folder("assistant");
-    client_t& server = searcher();
+    // Its own server, which goes before the test ends, and with it the thread that reads std's
+    // reference, which none of its tools need, as a server that goes as the program exits waits
+    // for that thread there.
+    client_t server(FB_TEST_OUTPUT);
+    initialize(server);
     INFO(request);
 
     // What it knows from the start: the primer, which says what a program imports.

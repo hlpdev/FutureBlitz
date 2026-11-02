@@ -187,6 +187,47 @@ TEST_CASE("a request that waits for a check gives way once typing moves past its
           static_cast<std::int32_t>(fb::lsp::error_code_t::CONTENT_MODIFIED));
 }
 
+TEST_CASE("a request cancelled while a worker answers it is answered as cancelled", "[lsp]") {
+    const folder_t folder({});
+    const std::string uri = folder.uri("cancelled.fb");
+    client_t client({ .delay = std::chrono::milliseconds(300) });
+    client.open(uri, twice);
+    client.settle();
+
+    // A hover on a line that changed, which waits for the change's check, which a Const that
+    // computes a lot makes take seconds, and its cancel once the worker has it.
+    const std::string changed = std::string(twice) + "Const Function Spin(n: Int): Int\n"
+                                                     "    Local t = 0\n"
+                                                     "    For i = 1 To n\n"
+                                                     "        t = t + 1\n"
+                                                     "    End For\n"
+                                                     "    Return t\n"
+                                                     "End Function\n"
+                                                     "Const Slow = Spin(1000000)\n"
+                                                     "Local more = Twice(total)\n";
+    client.change(uri, changed);
+    const std::int64_t hover =
+        client.queue("textDocument/hover", {
+                                               { "textDocument", { { "uri", uri } } },
+                                               { "position", client_t::position(12, 15) },
+                                           });
+    client.drain();
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    client.notify("$/cancelRequest", { { "id", hover } });
+    client.settle();
+    CHECK(client.response(hover)["error"]["code"] ==
+          static_cast<std::int32_t>(fb::lsp::error_code_t::REQUEST_CANCELLED));
+
+    // One not cancelled is answered.
+    CHECK(client
+              .request("textDocument/hover",
+                       {
+                           { "textDocument", { { "uri", uri } } },
+                           { "position", client_t::position(12, 15) },
+                       })
+              .is_object());
+}
+
 TEST_CASE("shutdown is answered with requests waiting for a check that's in flight", "[lsp]") {
     const folder_t folder({});
     const std::string uri = folder.uri("closing.fb");
