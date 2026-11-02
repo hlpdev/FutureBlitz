@@ -4,6 +4,8 @@
 // FB_LSP_BENCH_REPORT naming a folder for its report, lsp-bench.md and lsp-bench.json, and
 // FB_LSP_BENCH_SAMPLES how many times each thing is timed. A missed budget fails it only with
 // FB_LSP_BENCH_ENFORCE set, as CI's lsp-bench job has it, since a PC busy with builds misses some.
+// The budgets are the PC's they were set on; FB_LSP_BENCH_SLOWER, how many times as slowly another
+// machine runs, multiplies each, as CI's runner sets it.
 // ctest runs a small one, which checks that each measurement works.
 
 #include "client.hpp"
@@ -173,12 +175,11 @@ std::vector<metric_t> metrics(const bool small) {
             .enforced = true,
         },
     };
-    // CI's runner checks about one and a half times as slowly as the PC the others were set on.
     if (small) {
         measured.push_back({
             .name = "small_check",
             .what = "a small program's check after an edit",
-            .budget = milliseconds(80),
+            .budget = milliseconds(50),
             .enforced = true,
         });
     }
@@ -198,10 +199,31 @@ double percentile(std::vector<double> samples, const double fraction) {
     return samples[std::clamp<std::size_t>(rank, 1, samples.size()) - 1];
 }
 
-/// Whether a metric's times meet its budget: the 50th percentile in it, and the 95th in one and a
-/// half times it.
-bool met(const metric_t& metric) {
-    const auto budget = static_cast<double>(metric.budget.count());
+/// An environment variable's value, when it's set and not empty.
+std::optional<std::string> environment(const char* name) {
+    const char* value = std::getenv(name); // NOLINT(concurrency-mt-unsafe)
+    if (value == nullptr || *value == '\0') {
+        return std::nullopt;
+    }
+
+    return value;
+}
+
+/// How many times as slowly as the PC the budgets were set on this machine runs, which each budget
+/// is multiplied by: FB_LSP_BENCH_SLOWER, as CI's runner sets it, or 1.
+double slower() {
+    return std::stod(environment("FB_LSP_BENCH_SLOWER").value_or("1"));
+}
+
+/// A metric's budget on a machine `slowness` times as slow as the PC, in milliseconds.
+double budget_of(const metric_t& metric, const double slowness) {
+    return static_cast<double>(metric.budget.count()) * slowness;
+}
+
+/// Whether a metric's times meet its budget on a machine `slowness` times as slow as the PC: the
+/// 50th percentile in it, and the 95th in one and a half times it.
+bool met(const metric_t& metric, const double slowness = slower()) {
+    const double budget = budget_of(metric, slowness);
     return percentile(metric.samples, 0.5) <= budget &&
            percentile(metric.samples, 0.95) <= budget * 1.5;
 }
@@ -837,9 +859,9 @@ std::string markdown(const std::vector<workload_t>& workloads) {
                 status = metric.enforced ? "**missed**" : "missed";
             }
 
-            out += std::format("| {} | {:.1f} | {:.1f} | {} | {} |\n", metric.what,
+            out += std::format("| {} | {:.1f} | {:.1f} | {:.0f} | {} |\n", metric.what,
                                percentile(metric.samples, 0.5), percentile(metric.samples, 0.95),
-                               metric.budget.count(), status);
+                               budget_of(metric, slower()), status);
         }
     }
 
@@ -854,7 +876,7 @@ json_t report_json(const std::vector<workload_t>& workloads) {
         for (const metric_t& metric : workload.metrics) {
             measured.push_back({
                 { "name", metric.name },
-                { "budget_ms", metric.budget.count() },
+                { "budget_ms", budget_of(metric, slower()) },
                 { "enforced", metric.enforced },
                 { "p50_ms", percentile(metric.samples, 0.5) },
                 { "p95_ms", percentile(metric.samples, 0.95) },
@@ -875,16 +897,6 @@ json_t report_json(const std::vector<workload_t>& workloads) {
     }
 
     return { { "workloads", std::move(out) } };
-}
-
-/// An environment variable's value, when it's set and not empty.
-std::optional<std::string> environment(const char* name) {
-    const char* value = std::getenv(name); // NOLINT(concurrency-mt-unsafe)
-    if (value == nullptr || *value == '\0') {
-        return std::nullopt;
-    }
-
-    return value;
 }
 
 } // namespace
@@ -953,6 +965,9 @@ TEST_CASE("the benchmark measures each request, on a small program", "[lsp]") {
     CHECK(met({ .budget = std::chrono::milliseconds(10), .samples = { 10, 10, 15 } }));
     CHECK(!met({ .budget = std::chrono::milliseconds(10), .samples = { 10, 11, 11 } }));
     CHECK(!met({ .budget = std::chrono::milliseconds(10), .samples = { 1, 1, 16 } }));
+    // On a machine 1.6 times as slow, 16 ms and 24.
+    CHECK(met({ .budget = std::chrono::milliseconds(10), .samples = { 15, 15, 23 } }, 1.6));
+    CHECK(!met({ .budget = std::chrono::milliseconds(10), .samples = { 17, 17, 17 } }, 1.6));
     CHECK(percentile({ 4, 1, 3, 2 }, 0.95) == 4);
     CHECK(percentile({}, 0.95) == 0);
 }

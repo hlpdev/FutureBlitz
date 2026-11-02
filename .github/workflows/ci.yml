@@ -130,6 +130,9 @@ jobs:
         env:
           FB_LSP_BENCH_REPORT: lsp-bench
           FB_LSP_BENCH_ENFORCE: 1
+          # The runner checks about 1.6 times as slowly as the PC the budgets were set on
+          # (docs/tooling.md).
+          FB_LSP_BENCH_SLOWER: 1.6
         run: build/tests/fb_lsp_tests "[bench]"
 
       - name: Summary

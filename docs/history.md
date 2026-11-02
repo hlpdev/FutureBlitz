@@ -37,8 +37,8 @@ they import, on a release build with the client watching files:
   fb.lock checked five times, and a registry dependency's error that it can't be read.
 
 The benchmark's new workload is a small program like it, whose warm checks have a budget of 50
-ms on the PC, which is 80 on CI's runner, about one and a half times as slow, enforced: 37 ms at
-the 50th percentile and 52 at the 95th on the PC. An edit's diagnostics went from 208 ms to 41 to
+ms on the PC, enforced: 37 ms at the 50th percentile and 52 at the 95th. Every budget is the
+PC's, and CI's runner, about 1.6 times as slow, multiplies each by `FB_LSP_BENCH_SLOWER=1.6`. An edit's diagnostics went from 208 ms to 41 to
 47, and the first diagnostics from about 400 ms to 270; an edit's check is about
 34 ms, of which loading takes 9, 26 with the parse done again, and sema and the lints 25. The
 extension's modules load in 9 ms, from 70. Tests: driver_tests' check that keeps a parse, of a file whose
