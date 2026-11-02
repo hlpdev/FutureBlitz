@@ -57,7 +57,7 @@ vV`, after the user's yes), and start release.yml again.
 - Publish it: `gh release edit vV --draft=false --latest`.
 - Every channel:
   ```bash
-  gh workflow run publish.yml --ref master -f version=V -f winget=true -f homebrew=true -f linux=true -f vscode=true
+  gh workflow run publish.yml --ref master -f version=V -f winget=true -f homebrew=true -f linux=true -f vscode=true -f discord=true
   ```
   and wait for it as above. Its winget job opens a pull request to microsoft/winget-pkgs; note
   its link (`gh pr list -R microsoft/winget-pkgs --author hlpdev`).
