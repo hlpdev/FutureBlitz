@@ -12,6 +12,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <tuple>
 #include <vector>
 
 // 1.2.2: fb-lsp answers every request while code is typed, none of them kept waiting for a
@@ -280,6 +281,55 @@ TEST_CASE("what a '(' or a '.' just typed goes after is what's before it, not an
     INFO(members.dump());
     const json_t& items = members.is_object() ? members["items"] : members;
     CHECK(std::ranges::any_of(items, [](const json_t& item) { return item["label"] == "Alive"; }));
+}
+
+TEST_CASE("signature help at a '(' just typed is the call's, though its name alone wasn't a "
+          "value",
+          "[lsp]") {
+    // A name on its own line, before the '(', is a function value, which one that throws, or a
+    // built-in one, can't be: what it names is still the call's, from the check before the '('
+    // and from its own, as a busy machine has it done before the request's answered.
+    const folder_t folder({});
+    const std::string uri = folder.uri("typed.fb");
+    const std::string head = "Import std.core\n"
+                             "Function Twice(n: Int): Int => n * 2\n"
+                             "Function Risky(n: Int): Int Throws Error\n"
+                             "    Throw Error(\"no\")\n"
+                             "End Function\n";
+    for (const bool checked : { false, true }) {
+        client_t client({ .delay = std::chrono::milliseconds(checked ? 0 : 300) });
+        for (const auto& [before, after, named] :
+             std::vector<std::tuple<std::string, std::string, std::string>>{
+                 { "Local total = 1 + Twice", "\n", "Twice" },
+                 { "Function Use()\n    Twice", "\nEnd Function\n", "Twice" },
+                 {
+                     "Function Use(): Int Throws Error\n    Risky",
+                     "\n    Return 1\nEnd Function\n",
+                     "Risky",
+                 },
+                 { "Print", "\n", "Print" },
+             }) {
+            client.open(uri, std::format("{}{}{}", head, before, after));
+            client.settle();
+            client.change(uri, std::format("{}{}({}", head, before, after));
+            if (checked) {
+                client.settle();
+            }
+
+            const std::string& typed = client.text(uri);
+            const std::size_t open = typed.rfind('(');
+            const json_t position = client_t::position(
+                static_cast<std::uint32_t>(std::ranges::count(typed.substr(0, open), '\n')),
+                static_cast<std::uint32_t>(open - typed.rfind('\n', open)));
+            const json_t help =
+                client.send("textDocument/signatureHelp",
+                            { { "textDocument", { { "uri", uri } } }, { "position", position } });
+            INFO(before << (checked ? ", checked: " : ": ") << help.dump());
+            REQUIRE(help["result"].is_object());
+            CHECK(help["result"]["signatures"][0]["label"].get<std::string>().contains(named));
+            client.close(uri);
+        }
+    }
 }
 
 TEST_CASE("each change's check brings the refreshes it asks for, though checks and changes cross",

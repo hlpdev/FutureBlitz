@@ -75,6 +75,13 @@ same-file item from the last check moved by its file's key, not its URI's spelli
 holding the version a change made, which only a publish of it or later takes. Tests in
 responsive_tests, the reviewer's probes among them.
 
+A name that can't be a function value, one that throws, is Async or Unsafe, has a ByRef
+parameter, or is built in, has its symbol all the same (sema's `check_function_value`), so
+signature help after a '(' typed after it, from the check before the '(', is its call's: a
+`Pick` alone on its line in the benchmark's small program, which throws, gave none. Its test is
+responsive_tests' "signature help at a '(' just typed is the call's, though its name alone
+wasn't a value".
+
 ## 1.2.1
 
 (2026-11-01.) 1.2.0 was tagged but never released: its macOS build failed, as fb-lsp's code lens

@@ -22515,6 +22515,9 @@ private:
             return type_id_t::INVALID;
         }
 
+        // What it names, though it can't be a value, as the editor's signature help reads once a
+        // '(' is typed after it.
+        info(id).symbol = chosen;
         const symbol_t& function = symbol(*chosen);
         if (function.kind == symbol_kind_t::BUILTIN_FUNCTION) {
             error(span, "'{}' is built in, so it can't be a value; use a lambda that calls it",
@@ -22608,7 +22611,6 @@ private:
             m_workers.push_back({ .work = *chosen, .span = span, .where = sendable_where });
         }
 
-        info(id).symbol = chosen;
         note_use(*chosen, span);
         info(id).type_arguments = arguments;
         info(id).closure = m_analysis.closures.size();
