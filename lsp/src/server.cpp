@@ -266,7 +266,10 @@ void server_t::publish(const published_t& published) {
             refreshed.emplace_back("workspace/semanticTokens/refresh");
         }
 
-        if (m_changed.erase(key) > 0) {
+        if (const auto changed = m_changed.find(key);
+            changed != m_changed.end() &&
+            (!published.version || *published.version >= changed->second)) {
+            m_changed.erase(changed);
             if (m_inlay_refresh) {
                 refreshed.emplace_back("workspace/inlayHint/refresh");
             }
@@ -353,11 +356,57 @@ void server_t::handle(const json_t& message) {
     // What waits for a check goes to a worker, so the message thread answers what doesn't at
     // once, formatting a save among them, and reads on.
     if (worker_t* worker = worker_for(method, params)) {
-        worker->push({ .id = id, .method = method, .params = params });
+        request_job_t job{ .id = id, .method = method, .params = params };
+        const json_t document =
+            params.is_object() ? params.value("textDocument", json_t()) : json_t();
+        const json_t uri = document.is_object() ? document.value("uri", json_t()) : json_t();
+        const std::optional<std::filesystem::path> path =
+            uri.is_string() ? path_of(uri.get<std::string>()) : std::nullopt;
+        if (std::optional<std::pair<std::string, std::int64_t>> open =
+                path ? m_workspace->document(*path) : std::nullopt) {
+            job.key = file_key(*path);
+            job.version = open->second;
+            job.text = std::move(open->first);
+        }
+
+        worker->push(std::move(job));
         return;
     }
 
     answer_request(id, method, params);
+}
+
+thread_local const server_t::request_job_t* server_t::m_answering = nullptr;
+
+void server_t::answer_job(const request_job_t& job) {
+    m_answering = &job;
+    answer_request(job.id, job.method, job.params);
+    m_answering = nullptr;
+}
+
+std::optional<std::string> server_t::asked_text(const std::filesystem::path& path) const {
+    if (m_answering != nullptr && m_answering->version && m_answering->key == file_key(path)) {
+        return m_answering->text;
+    }
+
+    return m_workspace->text(path);
+}
+
+std::optional<checked_t> server_t::asked_check(const std::filesystem::path& path) {
+    if (m_answering == nullptr || !m_answering->version || m_answering->key != file_key(path)) {
+        return m_workspace->checked(path);
+    }
+
+    std::optional<checked_t> checked = m_workspace->checked(path, *m_answering->version);
+    if (!checked) {
+        const std::optional<std::pair<std::string, std::int64_t>> document =
+            m_workspace->document(path);
+        if (document && document->second != *m_answering->version) {
+            throw content_modified_t("the document changed since it was asked about");
+        }
+    }
+
+    return checked;
 }
 
 void server_t::answer_request(const json_t& id, const std::string& method, const json_t& params) {
@@ -610,6 +659,11 @@ server_t::dependents(const std::filesystem::path& file) {
         return m_workspace->with_dependents(file);
     }
 
+    if (m_answering != nullptr && m_answering->version && m_answering->key == file_key(file) &&
+        *m_answering->version != document->second) {
+        throw content_modified_t("the document changed since it was asked about");
+    }
+
     // The first to ask for a version makes its checks, which the rest wait for.
     std::promise<std::vector<std::shared_ptr<const compilation_t>>> made;
     std::shared_future<std::vector<std::shared_ptr<const compilation_t>>> known;
@@ -758,11 +812,6 @@ void server_t::notified(const std::string& method, const json_t& params) {
             return;
         }
 
-        {
-            const std::scoped_lock lock(m_tokens_mutex);
-            m_changed.insert(file_key(*path));
-        }
-
         std::optional<std::pair<std::string, std::int64_t>> document = m_workspace->document(*path);
         const bool manifest = !document && is_manifest(*path);
         if (manifest) {
@@ -782,6 +831,13 @@ void server_t::notified(const std::string& method, const json_t& params) {
         if (manifest) {
             m_toml->change(*path, version, std::move(document->first));
         } else {
+            // Before the change, so its check's publish finds it, but the version's, so an earlier
+            // check's doesn't.
+            {
+                const std::scoped_lock lock(m_tokens_mutex);
+                m_changed[file_key(*path)] = version;
+            }
+
             m_workspace->change(*path, version, std::move(document->first));
         }
 
@@ -1028,10 +1084,10 @@ std::optional<server_t::last_check_t> server_t::last_check(const json_t& params)
 
     std::optional<checked_t> checked = m_workspace->checked_last(*path);
     if (!checked) {
-        checked = m_workspace->checked(*path);
+        checked = asked_check(*path);
     }
 
-    const std::optional<std::string> text = m_workspace->text(*path);
+    const std::optional<std::string> text = asked_text(*path);
     if (!checked || !text) {
         return std::nullopt;
     }
@@ -1083,7 +1139,7 @@ json_t server_t::at_last_check(const json_t& params,
     if (!at) {
         // Its line changed since: the check of the document's text, waited for.
         const std::optional<std::filesystem::path> path = document_path(params);
-        const std::optional<checked_t> current = path ? m_workspace->checked(*path) : std::nullopt;
+        const std::optional<checked_t> current = path ? asked_check(*path) : std::nullopt;
         if (!current) {
             return nullptr;
         }
@@ -1093,11 +1149,21 @@ json_t server_t::at_last_check(const json_t& params,
     }
 
     json_t result = answer(query_t(*last->checked.compilation, last->checked.file), *at);
-    // Its ranges in the document, moved to its text now; one in what's changed goes.
-    const std::string uri = params.at("textDocument").at("uri").get<std::string>();
+    // Its ranges in the document, moved to its text now; one in what's changed goes. An item is
+    // in it by its file, as a client's URI of it can be spelled otherwise, as VS Code's
+    // "file:///c%3A/" on Windows is.
+    const std::optional<std::filesystem::path> here = document_path(params);
+    const auto in_document = [&](const json_t& item) {
+        if (!item.contains("uri")) {
+            return true;
+        }
+
+        const std::optional<std::filesystem::path> there =
+            item["uri"].is_string() ? path_of(item["uri"].get<std::string>()) : std::nullopt;
+        return here && there && file_key(*here) == file_key(*there);
+    };
     const auto move = [&](json_t& item) {
-        if (item.is_object() && item.contains("range") &&
-            (!item.contains("uri") || item["uri"] == uri)) {
+        if (item.is_object() && item.contains("range") && in_document(item)) {
             return moved(*last, item["range"]);
         }
 
@@ -1140,7 +1206,7 @@ json_t server_t::definition(const json_t& params) {
 
 std::optional<server_t::target_t> server_t::target(const json_t& params) {
     const std::optional<std::filesystem::path> path = document_path(params);
-    const std::optional<checked_t> checked = path ? m_workspace->checked(*path) : std::nullopt;
+    const std::optional<checked_t> checked = path ? asked_check(*path) : std::nullopt;
     if (!checked) {
         return std::nullopt;
     }
@@ -1323,7 +1389,7 @@ json_t server_t::completion(const json_t& params) {
         return moved_items(*last, std::move(found), last->prefix, cursor);
     }
 
-    const std::optional<checked_t> checked = m_workspace->checked(*path);
+    const std::optional<checked_t> checked = asked_check(*path);
     if (!checked) {
         return nullptr;
     }
@@ -1417,7 +1483,7 @@ json_t server_t::signature_help(const json_t& params) {
         return found;
     }
 
-    const std::optional<checked_t> checked = m_workspace->checked(*path);
+    const std::optional<checked_t> checked = asked_check(*path);
     if (!checked) {
         return nullptr;
     }
@@ -1433,7 +1499,7 @@ json_t server_t::document_symbols(const json_t& params) {
         return nullptr;
     }
 
-    const std::optional<std::string> text = m_workspace->text(*path);
+    const std::optional<std::string> text = asked_text(*path);
     if (!text) {
         return nullptr;
     }
@@ -1451,7 +1517,7 @@ json_t server_t::workspace_symbols(const json_t& params) {
         }
 
         for (const std::filesystem::path& file : unit.files) {
-            std::optional<std::string> text = m_workspace->text(file);
+            std::optional<std::string> text = asked_text(file);
             if (!text) {
                 continue;
             }
@@ -1486,18 +1552,26 @@ json_t server_t::semantic_tokens(const json_t& params) {
         return nullptr;
     }
 
+    // Marked lexical before the check's looked for, so one published between is told, and not
+    // once it's found.
+    const std::string key = file_key(*path);
+    {
+        const std::scoped_lock lock(m_tokens_mutex);
+        m_lexical_tokens.insert(key);
+    }
+
     if (const std::optional<checked_t> checked = m_workspace->checked_now(*path)) {
+        {
+            const std::scoped_lock lock(m_tokens_mutex);
+            m_lexical_tokens.erase(key);
+        }
+
         return lsp::semantic_tokens(query_t(*checked->compilation, checked->file), m_positions);
     }
 
-    const std::optional<std::string> text = m_workspace->text(*path);
+    const std::optional<std::string> text = asked_text(*path);
     if (!text) {
         return nullptr;
-    }
-
-    {
-        const std::scoped_lock lock(m_tokens_mutex);
-        m_lexical_tokens.insert(file_key(*path));
     }
 
     return lsp::lexical_tokens(source_file_t(file_id_t{}, to_utf8(*path), *text), m_positions);
@@ -1505,7 +1579,7 @@ json_t server_t::semantic_tokens(const json_t& params) {
 
 json_t server_t::code_actions(const json_t& params) {
     const std::optional<std::filesystem::path> path = document_path(params);
-    const std::optional<checked_t> checked = path ? m_workspace->checked(*path) : std::nullopt;
+    const std::optional<checked_t> checked = path ? asked_check(*path) : std::nullopt;
     if (!checked) {
         return nullptr;
     }
@@ -1536,7 +1610,7 @@ json_t server_t::code_actions(const json_t& params) {
     };
 
     // Refactorings and organizing the Imports are of the document's text as its check had it.
-    const std::optional<std::string> current = m_workspace->text(*path);
+    const std::optional<std::string> current = asked_text(*path);
     if (!current || *current != query.source().text()) {
         return actions;
     }
@@ -1639,7 +1713,7 @@ json_t server_t::formatting(const json_t& params) {
         return nullptr;
     }
 
-    const std::optional<std::string> text = m_workspace->text(*path);
+    const std::optional<std::string> text = asked_text(*path);
     if (!text) {
         return nullptr;
     }
@@ -1650,7 +1724,7 @@ json_t server_t::formatting(const json_t& params) {
 
 json_t server_t::folding_ranges(const json_t& params) {
     const std::optional<std::filesystem::path> path = document_path(params);
-    const std::optional<std::string> text = path ? m_workspace->text(*path) : std::nullopt;
+    const std::optional<std::string> text = path ? asked_text(*path) : std::nullopt;
     if (!text) {
         return nullptr;
     }
@@ -1660,7 +1734,7 @@ json_t server_t::folding_ranges(const json_t& params) {
 
 json_t server_t::selection_ranges(const json_t& params) {
     const std::optional<std::filesystem::path> path = document_path(params);
-    const std::optional<std::string> text = path ? m_workspace->text(*path) : std::nullopt;
+    const std::optional<std::string> text = path ? asked_text(*path) : std::nullopt;
     if (!text) {
         return nullptr;
     }
@@ -1735,7 +1809,7 @@ json_t server_t::implementations(const json_t& params) {
 json_t server_t::call_hierarchy(const std::string& method, const json_t& params) {
     if (method == "textDocument/prepareCallHierarchy") {
         const std::optional<std::filesystem::path> path = document_path(params);
-        const std::optional<checked_t> checked = path ? m_workspace->checked(*path) : std::nullopt;
+        const std::optional<checked_t> checked = path ? asked_check(*path) : std::nullopt;
         if (!checked) {
             return nullptr;
         }
@@ -1761,7 +1835,7 @@ json_t server_t::call_hierarchy(const std::string& method, const json_t& params)
         throw std::invalid_argument("the server doesn't do " + method);
     }
 
-    const std::optional<checked_t> checked = m_workspace->checked(item->second);
+    const std::optional<checked_t> checked = asked_check(item->second);
     if (!checked) {
         return json_t::array();
     }
@@ -1773,7 +1847,7 @@ json_t server_t::call_hierarchy(const std::string& method, const json_t& params)
 json_t server_t::type_hierarchy(const std::string& method, const json_t& params) {
     if (method == "textDocument/prepareTypeHierarchy") {
         const std::optional<std::filesystem::path> path = document_path(params);
-        const std::optional<checked_t> checked = path ? m_workspace->checked(*path) : std::nullopt;
+        const std::optional<checked_t> checked = path ? asked_check(*path) : std::nullopt;
         if (!checked) {
             return nullptr;
         }
@@ -1797,7 +1871,7 @@ json_t server_t::type_hierarchy(const std::string& method, const json_t& params)
         throw std::invalid_argument("the server doesn't do " + method);
     }
 
-    const std::optional<checked_t> checked = m_workspace->checked(item->second);
+    const std::optional<checked_t> checked = asked_check(item->second);
     if (!checked) {
         return json_t::array();
     }
@@ -1807,7 +1881,7 @@ json_t server_t::type_hierarchy(const std::string& method, const json_t& params)
 
 json_t server_t::code_lenses(const json_t& params) {
     const std::optional<std::filesystem::path> path = document_path(params);
-    const std::optional<std::string> text = path ? m_workspace->text(*path) : std::nullopt;
+    const std::optional<std::string> text = path ? asked_text(*path) : std::nullopt;
     if (!text) {
         return nullptr;
     }
@@ -1868,7 +1942,7 @@ json_t server_t::resolve_code_lens(json_t lens) {
     };
     stale();
 
-    const std::optional<checked_t> checked = path ? m_workspace->checked(*path) : std::nullopt;
+    const std::optional<checked_t> checked = path ? asked_check(*path) : std::nullopt;
     if (!checked) {
         return lens;
     }

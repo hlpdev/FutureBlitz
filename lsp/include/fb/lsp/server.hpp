@@ -112,10 +112,16 @@ private:
     };
     std::map<std::string, dependents_t> m_dependents;
     std::mutex m_dependents_mutex;
+    /// A request a worker answers, with the version and text of the open document it's about
+    /// as they were when it came, which it's answered about: a document changed since has its
+    /// positions elsewhere.
     struct request_job_t {
         json_t id;
         std::string method;
         json_t params;
+        std::string key;
+        std::optional<std::int64_t> version;
+        std::string text;
     };
     /// A thread that answers requests that need a check, in the order they came, so none of them
     /// keeps the message thread, and what's behind it, waiting. Its thread starts with its first
@@ -158,9 +164,10 @@ private:
     bool m_tokens_refresh = false;
     std::set<std::string> m_lexical_tokens;
     /// Whether the client asks for code lenses again when told, and the open documents changed
-    /// since their last check, whose inlay hints and lenses are asked for again once it's done.
+    /// since their last check, with the version they changed to, whose inlay hints and lenses are
+    /// asked for again once a check of it, or of a later one, is done.
     bool m_lenses_refresh = false;
-    std::set<std::string> m_changed;
+    std::map<std::string, std::int64_t> m_changed;
     std::mutex m_tokens_mutex;
     /// project.toml's documents and requests, whose thread stops before what it sends through.
     std::unique_ptr<toml_features_t> m_toml;
@@ -170,12 +177,11 @@ private:
     /// check answers as code is typed, and a slow one for what waits for the check of the text, so
     /// a hover never waits behind a code action. After the workspace, so they stop before it goes,
     /// as they read its checks.
-    worker_t m_quick{ [this](const request_job_t& job) {
-        answer_request(job.id, job.method, job.params);
-    } };
-    worker_t m_slow{ [this](const request_job_t& job) {
-        answer_request(job.id, job.method, job.params);
-    } };
+    worker_t m_quick{ [this](const request_job_t& job) { answer_job(job); } };
+    worker_t m_slow{ [this](const request_job_t& job) { answer_job(job); } };
+    /// The request a worker's thread is answering, which asked_text() and asked_check() read,
+    /// or nullptr on another thread.
+    static thread_local const request_job_t* m_answering;
 
     void send(const json_t& message);
     /// Asks the client to watch every file of `folders`, or of its own folders when it's empty.
@@ -186,6 +192,15 @@ private:
     void fail(const json_t& id, error_code_t code, const std::string& message);
     /// Answers a request, or says why it can't.
     void answer_request(const json_t& id, const std::string& method, const json_t& params);
+    /// Answers a worker's request, about the text it was asked about.
+    void answer_job(const request_job_t& job);
+    /// The text of a file, as the request being answered sees it: an open document's as it was
+    /// when a worker's request about it came, or else as it is.
+    [[nodiscard]] std::optional<std::string> asked_text(const std::filesystem::path& path) const;
+    /// The check of a file, as the request being answered sees it: for a worker's request about
+    /// an open document, that of the version it was asked about, which throws content_modified_t
+    /// once the document has moved past it, or else that of its text now, waited for.
+    [[nodiscard]] std::optional<checked_t> asked_check(const std::filesystem::path& path);
     /// The worker that answers a request that needs a check of its document, one about what code
     /// names or means, or nullptr for one about a project.toml, or one its text answers, which
     /// the message thread answers at once.

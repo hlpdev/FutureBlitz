@@ -74,6 +74,8 @@ public:
         bool snippet_edits = false;
         /// Whether it asks for semantic tokens again when the server says to.
         bool tokens_refresh = false;
+        /// Whether it asks for inlay hints and code lenses again when the server says to.
+        bool hints_refresh = false;
         /// What project.toml's registries are asked through, and how long what they say is kept.
         fb::http_client_t http = fb::send_http;
         std::chrono::seconds registry_life{ 60 };
@@ -153,6 +155,9 @@ public:
 
     /// The messages the server sent that aren't responses.
     [[nodiscard]] std::vector<json_t> notifications() const;
+
+    /// Every message the server sent, in the order they came.
+    [[nodiscard]] std::vector<json_t> received() const;
 
     /// A position's JSON.
     static json_t position(std::uint32_t line, std::uint32_t character);

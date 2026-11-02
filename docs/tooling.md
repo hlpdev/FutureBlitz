@@ -1225,8 +1225,11 @@ goes to one of two workers, each answering its requests in the order they came (
 thread was the first of them): a quick one for hover, definition, type definition, completion,
 signature help, highlights, and inlay hints, which the last check answers as code is typed, and a
 slow one for the rest, which wait for the check of the text, so a hover never waits behind a code
-action; a $/cancelRequest takes a waiting one out, and shutdown answers what's waiting
-first. What the text answers, formatting a save, folding, selection ranges, document and
+action. A request a worker answers is about the document's version and text as they were when
+it came, positions and all; one that waits for a check waits for that version's alone, and is
+answered ContentModified once the document has moved past it, as a version changed before its
+check is done never has one, so typing never keeps a worker waiting. A $/cancelRequest takes a
+waiting one out, and shutdown answers what's waiting first. What the text answers, formatting a save, folding, selection ranges, document and
 workspace symbols, and code lenses, is answered at once. Semantic tokens are the check's when
 it's of the document's text, and else the lexer's at once, keywords, strings, numbers, and
 comments, with `workspace/semanticTokens/refresh` sent when the check's done, so coloring never
@@ -1236,7 +1239,9 @@ changed since, one text's start and end being the other's (`last_check_t`), for 
 line is unchanged; completion is too, and right after a word or a '.' is typed, the last check's
 at where the typing started, the items' edits moved to the cursor and marked incomplete, so the
 editor asks again as typing goes on; signature help is, after a '(' or a ',' typed, the last
-check's, of the call or the callee before it. Only what can't be told from the last check, a
+check's, of the call or the callee before it, what's before a typed '.' or '(' being a name and
+the members, calls, indexes, and slices of it, not an operator's ("1 + Twice(" is Twice's). Only
+what can't be told from the last check, a
 position on a line that changed otherwise, waits for the check of the text. The benchmark times
 each of these from a keystroke, with the keystrokes before it checked and its own check still to
 come, and a save's formatting and a hover behind VS Code's burst of requests after an edit

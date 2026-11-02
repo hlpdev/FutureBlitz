@@ -123,6 +123,11 @@ struct call_at_t {
                                 const std::function<std::vector<export_t>()>& importable,
                                 const positions_t& positions);
 
+/// What a '.' or a '(' just typed at `end` goes after: the innermost expression of the query's
+/// file that ends there, and what has it, as long as that's a member, a call, an index, or a
+/// slice of it, so "1 + Twice" gives Twice and "Not player" gives player. nullopt for none.
+[[nodiscard]] std::optional<expr_id_t> receiver_before(const query_t& query, std::uint32_t end);
+
 /// The members completion gives after a '.' at `dot`, which the query's text may not have yet:
 /// those of the expression that ends there.
 [[nodiscard]] json_t member_completion(const query_t& query, std::uint32_t dot,

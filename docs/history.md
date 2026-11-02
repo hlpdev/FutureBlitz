@@ -22,6 +22,17 @@ burst_hover, semantic_tokens, and hover_typed, each typed request's last keystro
 and the budgets of 20 ms and 10 ms. Tests in feature_tests, workspace_tests, and
 responsive_tests' ten seconds of typing.
 
+Its review's fixes: a job holds its document's version and text from when it came
+(`request_job_t::version`, `text`), which its handlers read through `asked_text` and
+`asked_check` (`m_answering`, the job a worker's thread answers), and waits only for that
+version's check (`workspace_t::checked(path, version)`, `wait_for_check`, with `change`
+waking the waits), ContentModified once the document's moved past it, `dependents` too; a
+same-file item from the last check moved by its file's key, not its URI's spelling; what a typed
+'(' or '.' goes after grown only through members, calls, indexes, and slices
+(`receiver_before`); the lexical tokens' key put in before `checked_now`, and `m_changed`
+holding the version a change made, which only a publish of it or later takes. Tests in
+responsive_tests, the reviewer's probes among them.
+
 ## 1.2.1
 
 (2026-11-01.) 1.2.0 was tagged but never released: its macOS build failed, as fb-lsp's code lens

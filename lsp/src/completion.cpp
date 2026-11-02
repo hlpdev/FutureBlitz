@@ -408,7 +408,7 @@ public:
 
     /// The members of the expression before the '.' that ends at `dot`, and for a value, the
     /// postfix completions of it. Before a check has the '.', as it's just been typed, the
-    /// expression is the outermost that ends where the '.' goes.
+    /// expression is receiver_before()'s.
     json_t members(const std::uint32_t dot, const positions_t& positions) {
         std::optional<expr_id_t> found;
         for (std::size_t i = 0; i < m_ast.expr_count() && !found; ++i) {
@@ -420,21 +420,8 @@ public:
             }
         }
 
-        for (std::size_t i = 0; i < m_ast.expr_count() && !found; ++i) {
-            const auto id = static_cast<expr_id_t>(i);
-            const span_t span = m_ast.get(id).span;
-            if (span.file == m_query.file() && span.end == dot && !span.empty()) {
-                // The outermost: what has it ends there too, as "a.b" has "a.b" and "b".
-                std::optional<expr_id_t> outer = id;
-                for (std::size_t j = 0; j < m_ast.expr_count(); ++j) {
-                    const span_t other = m_ast.get(static_cast<expr_id_t>(j)).span;
-                    if (other.file == span.file && other.end == dot && other.begin < span.begin) {
-                        outer = static_cast<expr_id_t>(j);
-                    }
-                }
-
-                found = outer;
-            }
+        if (!found) {
+            found = receiver_before(m_query, dot);
         }
 
         if (!found) {

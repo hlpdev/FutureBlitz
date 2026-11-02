@@ -106,6 +106,11 @@ client_t::client_t(options_t options)
         capabilities["workspace"]["semanticTokens"] = { { "refreshSupport", true } };
     }
 
+    if (options.hints_refresh) {
+        capabilities["workspace"]["inlayHint"] = { { "refreshSupport", true } };
+        capabilities["workspace"]["codeLens"] = { { "refreshSupport", true } };
+    }
+
     m_answers = options.answers;
 
     m_initialized =
@@ -371,6 +376,11 @@ std::vector<json_t> client_t::notifications() const {
     }
 
     return found;
+}
+
+std::vector<json_t> client_t::received() const {
+    const std::scoped_lock lock(m_mutex);
+    return m_received;
 }
 
 json_t client_t::position(const std::uint32_t line, const std::uint32_t character) {

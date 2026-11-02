@@ -165,6 +165,10 @@ public:
     /// which this waits for; another file that no check has yet is checked now. nullopt when it
     /// can't be checked.
     [[nodiscard]] std::optional<checked_t> checked(const std::filesystem::path& path);
+    /// An open document's check of `version`, which this waits for, or nullopt once the document
+    /// has moved past it, as a version changed before its check is done never has one.
+    [[nodiscard]] std::optional<checked_t> checked(const std::filesystem::path& path,
+                                                   std::int64_t version);
 
     /// An open document's check of its current text, if one's done, without waiting for it.
     [[nodiscard]] std::optional<checked_t> checked_now(const std::filesystem::path& path) const;
@@ -315,6 +319,11 @@ private:
                     const std::vector<const diagnostic_t*>& diagnostics);
     /// Runs `job` with the lock unlocked, and takes in what it found. `foreground` checks are of
     /// edited documents.
+    /// An open document's check, of `version` or else of whichever version it's at, waited for
+    /// under `lock`; nullopt once it's closed, or has moved past `version`.
+    std::optional<checked_t> wait_for_check(std::unique_lock<std::mutex>& lock,
+                                            const std::string& key,
+                                            std::optional<std::int64_t> version);
     std::shared_ptr<const compilation_t> run_job(std::unique_lock<std::mutex>& lock,
                                                  const job_t& job);
     /// The index in `m_units` of the unit `path` is in, adding one when none has it.

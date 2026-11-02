@@ -949,19 +949,43 @@ std::optional<call_at_t> call_at(const query_t& query, const std::uint32_t offse
     };
 }
 
-json_t signature_help_before(const query_t& query, const std::uint32_t callee_end,
-                             const std::uint32_t active, const positions_t& positions) {
-    // The outermost expression that ends there, and what it names.
-    std::optional<expr_id_t> callee;
+std::optional<expr_id_t> receiver_before(const query_t& query, const std::uint32_t end) {
+    // Those that end there, the innermost first: each that has one has the one before.
+    std::vector<expr_id_t> ending;
     for (std::size_t i = 0; i < query.ast().expr_count(); ++i) {
         const auto id = static_cast<expr_id_t>(i);
         const span_t span = query.ast().get(id).span;
-        if (span.file == query.file() && span.end == callee_end && !span.empty() &&
-            (!callee || span.begin < query.ast().get(*callee).span.begin)) {
-            callee = id;
+        if (span.file == query.file() && span.end == end && !span.empty()) {
+            ending.push_back(id);
         }
     }
 
+    std::ranges::sort(ending, std::greater{},
+                      [&](const expr_id_t id) { return query.ast().get(id).span.begin; });
+    if (ending.empty()) {
+        return std::nullopt;
+    }
+
+    expr_id_t found = ending.front();
+    for (std::size_t i = 1; i < ending.size(); ++i) {
+        const expr_node_t& node = query.ast().get(ending[i]).node;
+        if (!std::holds_alternative<member_expr_t>(node) &&
+            !std::holds_alternative<call_expr_t>(node) &&
+            !std::holds_alternative<index_expr_t>(node) &&
+            !std::holds_alternative<slice_expr_t>(node)) {
+            break;
+        }
+
+        found = ending[i];
+    }
+
+    return found;
+}
+
+json_t signature_help_before(const query_t& query, const std::uint32_t callee_end,
+                             const std::uint32_t active, const positions_t& positions) {
+    // What it goes after, and what that names.
+    const std::optional<expr_id_t> callee = receiver_before(query, callee_end);
     const std::optional<symbol_id_t> named =
         callee ? query.analysis().expr(*callee).symbol : std::nullopt;
     if (!named) {
