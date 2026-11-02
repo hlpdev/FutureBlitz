@@ -34,6 +34,8 @@ gh variable set NAME -R hlpdev/FutureBlitz --body value
 | `R2_ACCESS_KEY_ID` | secret | publish.yml | R2 |
 | `R2_SECRET_ACCESS_KEY` | secret | publish.yml | R2 |
 | `R2_BUCKET` | variable | publish.yml | the bucket dl.futureblitz.dev serves |
+| `DISCORD_RELEASES_WEBHOOK` | secret | publish.yml | the Discord releases channel's webhook |
+| `DISCORD_RELEASES_ROLE` | variable | publish.yml | the role the post pings, 🔔 Releases |
 
 A dispatch's Windows files are never signed, so a run by hand spends none of Azure's signing
 quota; a tag's sign every executable and DLL the release installs. Without REPO_SIGNING_KEY, a
@@ -234,7 +236,8 @@ The release skill, .claude/skills/release/SKILL.md, is these steps with their co
    the same: `gh workflow run release.yml --ref v1.0.0`.
 2. Check the draft, then publish it.
 3. `gh workflow run publish.yml -f version=1.0.0 -f winget=true -f homebrew=true -f linux=true -f
-   vscode=true`, or only some of them.
+   vscode=true -f discord=true`, or only some of them; discord posts last, once the others
+   are out.
 4. futureblitz.dev at the version: futureblitz-web's `production` branch is what production
    serves, the docs of the newest release, while master, which staging serves, follows
    FutureBlitz's master. A patch release sets packages/ui/src/facts.js's version on both and

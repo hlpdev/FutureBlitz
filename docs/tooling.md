@@ -201,7 +201,7 @@ other people can install and use every day in an editor. Step 0 settled what was
 
 .github/workflows/publish.yml sends a **published** release to each package manager ticked in
 its dispatch, never on its own: `gh workflow run publish.yml -f version=1.0.0 -f winget=true -f
-homebrew=true -f linux=true -f vscode=true`. Each job takes the release's files from its GitHub
+homebrew=true -f linux=true -f vscode=true -f discord=true`. Each job takes the release's files from its GitHub
 Release, checked against SHA256SUMS. docs/release-setup.md has the accounts, keys, and secrets,
 made once, and its launch checklist, whose tools/release/launch_check.py checks a published
 release has every file, signed installers, winget's manifest, and the tap's formula at its
@@ -262,6 +262,9 @@ version.
     either.
 - **The VS Code extension**: the job publishes the release's .vsix to the Marketplace with vsce
   (editors/vscode's own, pinned) and VSCE_PAT, and to Open VSX with ovsx and OVSX_PAT.
+- **Discord**: last, once every other ticked job has gone out, a post in the server's releases
+  channel through DISCORD_RELEASES_WEBHOOK, pinging only DISCORD_RELEASES_ROLE, with the notes'
+  first paragraph and links to the release and the download page.
 - **Tests**: tests/tools/release_tests.py (in ctest) checks the manifests, the formula, and the
   ProductCode, the one sentence and the Maintainer, and builds the apt repository from fake
   .debs with a key made for the test, which gpgv checks as apt does, that a changed Release

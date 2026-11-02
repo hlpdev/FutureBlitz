@@ -13,6 +13,9 @@
 #   dl.futureblitz.dev serves, under apt/ and rpm/, with R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, and
 #   R2_SECRET_ACCESS_KEY.
 # - vscode: the .vsix, to the VS Code Marketplace with VSCE_PAT, and Open VSX with OVSX_PAT.
+# - discord: a post in the Discord server's releases channel, through the webhook
+#   DISCORD_RELEASES_WEBHOOK, pinging the role DISCORD_RELEASES_ROLE, after every other ticked
+#   channel has gone out.
 #
 # Each takes the release's files from its GitHub Release, checked against its SHA256SUMS.
 # docs/release-setup.md says where each secret and variable comes from.
@@ -39,6 +42,10 @@ on:
         default: false
       vscode:
         description: Publish the extension to the Marketplace and Open VSX
+        type: boolean
+        default: false
+      discord:
+        description: Post the release in the Discord server's releases channel
         type: boolean
         default: false
 
@@ -293,3 +300,29 @@ jobs:
             exit 1
           fi
           npx --yes "ovsx@$OVSX_VERSION" publish "release/futureblitz-$VERSION.vsix"
+
+  # Last, once every ticked channel has the release: the notes' first paragraph, without its
+  # install sentence, which the post's own link replaces. Only the release role is pinged.
+  discord:
+    name: discord
+    needs: [check, winget, homebrew, linux, vscode]
+    if: ${{ !cancelled() && inputs.discord && needs.check.result == 'success' && !contains(needs.*.result, 'failure') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Post it
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_RELEASES_WEBHOOK }}
+          ROLE: ${{ vars.DISCORD_RELEASES_ROLE }}
+        run: |
+          set -eu
+          if [ -z "$WEBHOOK" ] || [ -z "$ROLE" ]; then
+            echo "::error::DISCORD_RELEASES_WEBHOOK or DISCORD_RELEASES_ROLE isn't set (docs/release-setup.md)"
+            exit 1
+          fi
+          summary="$(gh release view "v$VERSION" -R "$GITHUB_REPOSITORY" --json body -q .body \
+            | awk 'NF { print; next } { exit }' | sed 's/ To install or update, see .*//' | head -c 1200)"
+          content="$(printf '<@&%s> **FutureBlitz %s** is out.\n\n%s\n\nRelease notes: <https://github.com/%s/releases/tag/v%s>\nInstall or update: <https://futureblitz.dev/download/>' \
+            "$ROLE" "$VERSION" "$summary" "$GITHUB_REPOSITORY" "$VERSION")"
+          jq -n --arg content "$content" --arg role "$ROLE" \
+            '{ content: $content, allowed_mentions: { parse: [], roles: [$role] } }' \
+            | curl -fsS -H 'Content-Type: application/json' -d @- "$WEBHOOK"
