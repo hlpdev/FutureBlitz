@@ -1,6 +1,7 @@
 // activate() with a stand-in for the vscode module, where each property and call gives another
 // stand-in: it loads none of vscode-languageclient, which takes longer to load than the rest of
-// the extension, and starts the server once the extension is active.
+// the extension, and starts the server once the extension is active, but not once it's
+// deactivated.
 
 import assert from "node:assert/strict";
 import Module from "node:module";
@@ -41,13 +42,15 @@ const { activate } = require("../../extension") as typeof import("../../extensio
 
 const languageClient = () => Object.keys(require.cache).filter((file) => file.includes("vscode-languageclient"));
 
-test("activating loads none of vscode-languageclient, and the server starts after", async () => {
-    const context = {
-        subscriptions: [],
+const contextOf = (subscriptions: { dispose(): unknown }[]) =>
+    ({
+        subscriptions,
         extension: { packageJSON: { version: "1.0.0" } },
         asAbsolutePath: (file: string) => file,
-    } as unknown as Parameters<typeof activate>[0];
-    const api = activate(context);
+    }) as unknown as Parameters<typeof activate>[0];
+
+test("activating loads none of vscode-languageclient, and the server starts after", async () => {
+    const api = activate(contextOf([]));
     assert.deepEqual(languageClient(), []);
     assert.equal(api.server.detail, "");
 
@@ -55,4 +58,15 @@ test("activating loads none of vscode-languageclient, and the server starts afte
     assert.equal(api.server.state, "disabled");
     assert.equal(api.server.detail, "turned off by futureblitz.lsp.enabled");
     assert.deepEqual(languageClient(), []);
+});
+
+test("an extension deactivated before its server starts doesn't start it", async () => {
+    const subscriptions: { dispose(): unknown }[] = [];
+    const api = activate(contextOf(subscriptions));
+    for (const subscription of subscriptions) {
+        subscription.dispose();
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(api.server.detail, "");
 });
