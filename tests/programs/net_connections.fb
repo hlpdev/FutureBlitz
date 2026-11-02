@@ -1,6 +1,9 @@
 // Many connections, one after another and at once, over TCP and IPC, and many datagrams: each
 // socket goes with its object, so none is left over, and the leak report says nothing. A
-// socket's file descriptor left open would run past macOS's 256 long before the end. The IPC
+// socket's file descriptor left open would run past macOS's 256 long before the end. The server's
+// end of each TCP connection closes first, so it's the one that waits out TIME_WAIT, on the
+// listener's port, and the client's port is free again at once: ten runs at once, each of more
+// than a thousand connections, would otherwise run macOS out of ports to connect from. The IPC
 // name is the run's own, with a random Uuid in it, since another run at once would have a name
 // of its own.
 
@@ -22,6 +25,8 @@ Function OneByOne(listener: TcpListener): Int Throws NetError, TimeoutError, IOE
         Local server = Try listener.Accept()
         Try ReadExact(server, into)
         total += (into[0] As Int) + into[1] + into[2] + into[3]
+        server.Close()
+        client.Close()
     End For
     Return total
 End Function
@@ -34,6 +39,7 @@ Async Function Answer(listener: TcpListener, count: Int): Int Throws NetError, T
         Local into = Buffer<UInt8>(1)
         Try Await ReadExactAsync(connection, into)
         Try Await connection.WriteAsync(into)
+        connection.Close()
         answered += 1
     End For
     Return answered

@@ -30,10 +30,12 @@ using json_t = nlohmann::json;
 using namespace std::chrono_literals;
 
 /// A client of a server in this process, as stdio would carry their lines: it sends a line, and
-/// takes the answers as they come.
+/// takes the answers as they come. Its calls' deadline is minutes, as a debug build that reads
+/// std's reference while CI runs other tests beside it takes longer than a user's 30 seconds.
 class client_t {
 public:
-    explicit client_t(const std::filesystem::path& root, const fb::mcp_options_t options = {})
+    explicit client_t(const std::filesystem::path& root,
+                      const fb::mcp_options_t options = { .deadline = 4min })
         : m_server(
               root,
               [this](const std::string& line) {
@@ -51,7 +53,7 @@ public:
     }
 
     /// The next answer, as JSON, which has to come within `timeout`.
-    json_t next(const std::chrono::milliseconds timeout = 2min) {
+    json_t next(const std::chrono::milliseconds timeout = 5min) {
         std::unique_lock lock(m_mutex);
         REQUIRE(m_arrived.wait_for(lock, timeout, [this] { return !m_answers.empty(); }));
         const std::string line = std::move(m_answers.front());
@@ -112,6 +114,8 @@ called_t call(client_t& client, const std::string_view tool, const json_t& argum
     REQUIRE(result.at("content").size() == 1);
     CHECK(result.at("content")[0].at("type") == "text");
     std::string text = result.at("content")[0].at("text").get<std::string>();
+    // Shown with the check after it, if it fails.
+    UNSCOPED_INFO(tool << " answered: " << text);
     return { .text = std::move(text), .error = result.at("isError").get<bool>() };
 }
 
@@ -207,7 +211,7 @@ TEST_CASE("fb mcp answers MCP's lifecycle and JSON-RPC's errors", "[mcp]") {
     CHECK(result.at("protocolVersion") == "2025-06-18");
     CHECK(result.at("capabilities").at("tools").is_object());
     CHECK(result.at("serverInfo").at("name") == "fb");
-    CHECK(result.at("instructions") == fb::agents_primer());
+    CHECK(result.at("instructions").get<std::string>() == fb::agents_primer());
 
     // An older version it speaks is the client's, and one it doesn't is its newest.
     CHECK(initialize(server, "2024-11-05").at("result").at("protocolVersion") == "2024-11-05");
