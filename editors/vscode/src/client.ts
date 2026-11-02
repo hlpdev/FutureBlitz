@@ -2,21 +2,23 @@
 // and the rest of the extension, the grammar, tasks, and debugging, goes on without it.
 
 import * as vscode from "vscode";
-import {
-    CloseAction,
-    ErrorAction,
-    LanguageClient,
-    LanguageClientOptions,
-    RevealOutputChannelOn,
-    ServerOptions,
-    State,
-    TransportKind,
-} from "vscode-languageclient/node";
+import type { CloseAction, LanguageClient, LanguageClientOptions, ServerOptions } from "vscode-languageclient/node";
 
 import { MANIFEST_SERVER, isManifest, serverAtLeast } from "./fb";
 import { Found } from "./paths";
 
 export type ServerState = "disabled" | "missing" | "starting" | "running" | "failed";
+
+type ClientModule = typeof import("vscode-languageclient/node");
+let loaded: ClientModule | undefined;
+
+// vscode-languageclient, which takes longer to load than the rest of the extension, loaded when a
+// server starts, so that activating the extension doesn't wait for it.
+export function clientModule(): ClientModule {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    loaded ??= require("vscode-languageclient/node") as ClientModule;
+    return loaded;
+}
 
 // The inlay hints fb-lsp gives, as futureblitz.inlayHints says.
 export function inlayHints(settings: vscode.WorkspaceConfiguration): { types: boolean; parameterNames: boolean } {
@@ -108,10 +110,11 @@ export class ServerClient implements vscode.Disposable {
         }
 
         const { command, args } = server;
+        const node = clientModule();
         this.m_output.appendLine(`Starting the language server: ${[command, ...args].join(" ")}`);
         const serverOptions: ServerOptions = {
-            run: { command, args, transport: TransportKind.stdio },
-            debug: { command, args, transport: TransportKind.stdio },
+            run: { command, args, transport: node.TransportKind.stdio },
+            debug: { command, args, transport: node.TransportKind.stdio },
         };
         const clientOptions: LanguageClientOptions = {
             documentSelector: [
@@ -146,18 +149,18 @@ export class ServerClient implements vscode.Disposable {
                     this.serves(document.uri) ? next(document, range, context, token) : undefined,
             },
             outputChannel: this.m_output,
-            revealOutputChannelOn: RevealOutputChannelOn.Never,
+            revealOutputChannelOn: node.RevealOutputChannelOn.Never,
             initializationFailedHandler: (error) => {
                 this.m_output.appendLine(`The language server failed to initialize: ${String(error)}`);
                 return false;
             },
             errorHandler: {
-                error: () => ({ action: ErrorAction.Continue, handled: true }),
+                error: () => ({ action: node.ErrorAction.Continue, handled: true }),
                 closed: () => this.closed(command),
             },
         };
 
-        const client = new LanguageClient("futureblitz", "FutureBlitz", serverOptions, clientOptions);
+        const client = new node.LanguageClient("futureblitz", "FutureBlitz", serverOptions, clientOptions);
         this.m_client = client;
         this.m_made.fire(client);
         this.setState("starting", command);
@@ -174,7 +177,7 @@ export class ServerClient implements vscode.Disposable {
                 () => undefined,
             );
             await Promise.race([started, timeout]);
-            if (generation === this.m_generation && client.state === State.Running) {
+            if (generation === this.m_generation && client.state === clientModule().State.Running) {
                 this.setState("running", command);
                 this.warnIfOld(client);
             }
@@ -246,7 +249,7 @@ export class ServerClient implements vscode.Disposable {
         await this.stopClient(client);
         if (!settled && started !== undefined) {
             void started.then(async () => {
-                if (client.state === State.Running) {
+                if (client.state === clientModule().State.Running) {
                     await this.stopClient(client);
                 }
             });
@@ -270,7 +273,7 @@ export class ServerClient implements vscode.Disposable {
     // The connection closed: start it again, unless it stopped too often or never started.
     private closed(server: string): { action: CloseAction; handled: boolean } {
         if (this.m_state !== "running") {
-            return { action: CloseAction.DoNotRestart, handled: true };
+            return { action: clientModule().CloseAction.DoNotRestart, handled: true };
         }
 
         const now = Date.now();
@@ -278,12 +281,12 @@ export class ServerClient implements vscode.Disposable {
         if (this.m_restarts.length < MAX_RESTARTS) {
             this.m_restarts.push(now);
             this.m_output.appendLine("The language server stopped; starting it again.");
-            return { action: CloseAction.Restart, handled: true };
+            return { action: clientModule().CloseAction.Restart, handled: true };
         }
 
         // The client stays, stopped, for the next start or stop to dispose of.
         this.reportFailed(server, `it stopped ${MAX_RESTARTS + 1} times in 3 minutes`);
-        return { action: CloseAction.DoNotRestart, handled: true };
+        return { action: clientModule().CloseAction.DoNotRestart, handled: true };
     }
 
     private reportMissing(found: Found): void {

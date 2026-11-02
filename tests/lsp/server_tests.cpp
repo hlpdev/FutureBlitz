@@ -2,14 +2,30 @@
 #include "fb/lsp/protocol.hpp"
 #include "fb/lsp/server.hpp"
 
+#include <atomic>
 #include <catch2/catch_test_macros.hpp>
+#include <filesystem>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <system_error>
+#include <thread>
 #include <vector>
 
 using fb::lsp::json_t;
 using fb::lsp::test::client_t;
+
+namespace {
+
+/// Makes `link` a symlink to the folder `target`. False where the system doesn't let the tests,
+/// as Windows without the privilege. A junction wouldn't do: a file's key doesn't follow one.
+bool make_link(const std::filesystem::path& target, const std::filesystem::path& link) {
+    std::error_code error;
+    std::filesystem::create_directory_symlink(target, link, error);
+    return !error;
+}
+
+} // namespace
 
 TEST_CASE("the server says what it can do and shuts down", "[lsp]") {
     std::optional<int> code;
@@ -96,4 +112,60 @@ TEST_CASE("URIs name files", "[lsp]") {
     CHECK(fb::lsp::uri_of("/home/a b/x#1.fb") == "file:///home/a%20b/x%231.fb");
 #endif
     CHECK(fb::lsp::path_of("untitled:Untitled-1") == std::nullopt);
+}
+
+TEST_CASE("a file's key is kept until the disk may have changed", "[lsp]") {
+    const fb::lsp::test::folder_t folder({ { "one/x.fb", "" }, { "two/x.fb", "" } });
+    const std::filesystem::path link = folder.root() / "link";
+    if (!make_link(folder.path("one"), link)) {
+        SKIP("this system doesn't let the tests make a link");
+    }
+
+    const std::string one = fb::lsp::file_key(link / "x.fb");
+    CHECK(one == fb::lsp::file_key(folder.path("one/x.fb")));
+
+    // The link leads elsewhere now, which the key says once it's forgotten.
+    std::filesystem::remove(link);
+    REQUIRE(make_link(folder.path("two"), link));
+    CHECK(fb::lsp::file_key(link / "x.fb") == one);
+    fb::lsp::forget_file_keys();
+    CHECK(fb::lsp::file_key(link / "x.fb") == fb::lsp::file_key(folder.path("two/x.fb")));
+    std::filesystem::remove(link);
+}
+
+TEST_CASE("a file's key another thread works out while the keys are forgotten isn't kept",
+          "[lsp]") {
+    // One thread asks for the key through a link while the link changes and the keys are
+    // forgotten; each key asked for after the forget follows the link.
+    const fb::lsp::test::folder_t folder({ { "one/x.fb", "" }, { "two/x.fb", "" } });
+    const std::filesystem::path link = folder.root() / "link";
+    if (!make_link(folder.path("one"), link)) {
+        SKIP("this system doesn't let the tests make a link");
+    }
+
+    const std::string one = fb::lsp::file_key(folder.path("one/x.fb"));
+    const std::string two = fb::lsp::file_key(folder.path("two/x.fb"));
+    std::atomic<bool> done = false;
+    std::thread asker([&] {
+        while (!done) {
+            static_cast<void>(fb::lsp::file_key(link / "x.fb"));
+        }
+    });
+    for (int round = 0; round < 200; ++round) {
+        const bool to_two = round % 2 == 0;
+        std::filesystem::remove(link);
+        const bool made = make_link(folder.path(to_two ? "two" : "one"), link);
+        CHECK(made);
+        if (!made) {
+            break;
+        }
+
+        fb::lsp::forget_file_keys();
+        INFO(round);
+        CHECK(fb::lsp::file_key(link / "x.fb") == (to_two ? two : one));
+    }
+
+    done = true;
+    asker.join();
+    std::filesystem::remove(link);
 }

@@ -154,6 +154,11 @@ public:
         return m_files.size();
     }
 
+    /// Drops the files after the first `count`, as a front end that loads its files again does.
+    void truncate(const std::size_t count) {
+        m_files.resize(count);
+    }
+
 private:
     std::vector<std::unique_ptr<source_file_t>> m_files;
 };

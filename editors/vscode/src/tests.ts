@@ -7,8 +7,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { LanguageClient, State } from "vscode-languageclient/node";
+import type { LanguageClient } from "vscode-languageclient/node";
 
+import { clientModule } from "./client";
 import {
     TestOutcome,
     findPackageRoot,
@@ -79,7 +80,7 @@ export class FbTestController implements vscode.Disposable {
         client.onNotification("fb/tests", (file: FileTests) => this.update(file));
         this.m_disposables.push(
             client.onDidChangeState((change) => {
-                if (change.newState === State.Running && this.m_client === client) {
+                if (change.newState === clientModule().State.Running && this.m_client === client) {
                     void this.refresh();
                 }
             }),
@@ -89,7 +90,7 @@ export class FbTestController implements vscode.Disposable {
     // Asks fb-lsp for every file's tests.
     async refresh(): Promise<void> {
         const client = this.m_client;
-        if (client === undefined || client.state !== State.Running) {
+        if (client === undefined || client.state !== clientModule().State.Running) {
             return;
         }
 

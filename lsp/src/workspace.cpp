@@ -971,18 +971,36 @@ std::vector<check_record_t> workspace_t::history() const {
     return m_history;
 }
 
+bool workspace_t::free_replaced(std::unique_lock<std::mutex>& lock) {
+    if (m_replaced.empty()) {
+        return false;
+    }
+
+    std::vector<std::shared_ptr<const compilation_t>> replaced = std::exchange(m_replaced, {});
+    lock.unlock();
+    replaced.clear();
+    lock.lock();
+    return true;
+}
+
 void workspace_t::run_foreground() {
     std::unique_lock lock(m_mutex);
     while (!m_stopping) {
         if (m_edited.empty()) {
-            m_work.wait(lock);
+            if (!free_replaced(lock)) {
+                m_work.wait(lock);
+            }
+
             continue;
         }
 
         const auto next =
             std::ranges::min_element(m_edited, {}, [](const auto& entry) { return entry.second; });
         if (next->second > steady_t::now()) {
-            m_work.wait_until(lock, next->second);
+            if (!free_replaced(lock)) {
+                m_work.wait_until(lock, next->second);
+            }
+
             continue;
         }
 
@@ -1024,6 +1042,8 @@ void workspace_t::run_background() {
                 .roots = whole.files,
                 .main = whole.kind == unit_t::kind_t::PACKAGE ? main_of(whole) : std::nullopt,
             });
+        } else if (free_replaced(lock)) {
+            continue;
         } else {
             m_done.notify_all();
             if (next != m_dependents.end()) {
@@ -1220,6 +1240,10 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
         if (document != m_documents.end()) {
             latest_t& latest = m_latest[key];
             if (generation >= latest.generation) {
+                if (latest.checked) {
+                    m_replaced.push_back(latest.checked->compilation);
+                }
+
                 latest = {
                     .checked = file && compilation ? std::optional<checked_t>(checked_t{
                                                          .compilation = compilation,
@@ -1253,6 +1277,10 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
         }
 
         if (document != m_documents.end()) {
+            if (const auto shown = m_shown.find(key); shown != m_shown.end()) {
+                m_replaced.push_back(shown->second.compilation);
+            }
+
             note_shown(key, texts.at(key), compilation, diagnostics.diagnostics);
         }
 

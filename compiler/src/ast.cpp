@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <string_view>
 #include <type_traits>
@@ -88,39 +89,59 @@ std::string_view spelling(const visibility_t visibility) {
 }
 
 expr_id_t ast_t::add(expr_t expr) {
-    const auto id = static_cast<expr_id_t>(m_exprs.size());
+    const auto id = static_cast<expr_id_t>(m_base_exprs + m_exprs.size());
     m_exprs.push_back(std::move(expr));
     return id;
 }
 
 stmt_id_t ast_t::add(stmt_t stmt) {
-    const auto id = static_cast<stmt_id_t>(m_stmts.size());
+    const auto id = static_cast<stmt_id_t>(m_base_stmts + m_stmts.size());
     m_stmts.push_back(std::move(stmt));
     return id;
 }
 
 type_expr_id_t ast_t::add(type_expr_t type) {
-    const auto id = static_cast<type_expr_id_t>(m_types.size());
+    const auto id = static_cast<type_expr_id_t>(m_base_types + m_types.size());
     m_types.push_back(std::move(type));
     return id;
 }
 
 const expr_t& ast_t::get(const expr_id_t id) const {
     const auto index = std::to_underlying(id);
-    assert(index < m_exprs.size());
-    return m_exprs[index];
+    if (index < m_base_exprs) {
+        return m_base->m_exprs[index];
+    }
+
+    assert(index - m_base_exprs < m_exprs.size());
+    return m_exprs[index - m_base_exprs];
 }
 
 const stmt_t& ast_t::get(const stmt_id_t id) const {
     const auto index = std::to_underlying(id);
-    assert(index < m_stmts.size());
-    return m_stmts[index];
+    if (index < m_base_stmts) {
+        return m_base->m_stmts[index];
+    }
+
+    assert(index - m_base_stmts < m_stmts.size());
+    return m_stmts[index - m_base_stmts];
 }
 
 const type_expr_t& ast_t::get(const type_expr_id_t id) const {
     const auto index = std::to_underlying(id);
-    assert(index < m_types.size());
-    return m_types[index];
+    if (index < m_base_types) {
+        return m_base->m_types[index];
+    }
+
+    assert(index - m_base_types < m_types.size());
+    return m_types[index - m_base_types];
+}
+
+void ast_t::set_base(std::shared_ptr<const ast_t> base) {
+    assert(m_exprs.empty() && m_stmts.empty() && m_types.empty() && base->m_base == nullptr);
+    m_base_exprs = base->m_exprs.size();
+    m_base_stmts = base->m_stmts.size();
+    m_base_types = base->m_types.size();
+    m_base = std::move(base);
 }
 
 std::optional<name_t> declared_name(const stmt_node_t& node) {
@@ -155,8 +176,11 @@ void ast_t::set_doc(const span_t name, doc_comment_t doc) {
 }
 
 const doc_comment_t* ast_t::doc(const span_t name) const {
-    const auto found = m_docs.find(doc_key(name));
-    return found != m_docs.end() ? &found->second : nullptr;
+    if (const auto found = m_docs.find(doc_key(name)); found != m_docs.end()) {
+        return &found->second;
+    }
+
+    return m_base != nullptr ? m_base->doc(name) : nullptr;
 }
 
 const doc_comment_t* ast_t::doc(const stmt_id_t id) const {
@@ -169,7 +193,8 @@ const doc_comment_t* ast_t::doc(const stmt_id_t id) const {
 }
 
 std::vector<const doc_comment_t*> ast_t::docs_in(const file_id_t file) const {
-    std::vector<const doc_comment_t*> found;
+    std::vector<const doc_comment_t*> found =
+        m_base != nullptr ? m_base->docs_in(file) : std::vector<const doc_comment_t*>();
     for (const auto& [key, doc] : m_docs) {
         if (key >> 32U == std::to_underlying(file)) {
             found.push_back(&doc);
@@ -184,8 +209,11 @@ void ast_t::set_module_doc(const file_id_t file, doc_comment_t doc) {
 }
 
 const doc_comment_t* ast_t::module_doc(const file_id_t file) const {
-    const auto found = m_module_docs.find(file);
-    return found != m_module_docs.end() ? &found->second : nullptr;
+    if (const auto found = m_module_docs.find(file); found != m_module_docs.end()) {
+        return &found->second;
+    }
+
+    return m_base != nullptr ? m_base->module_doc(file) : nullptr;
 }
 
 void ast_t::sort_items() {

@@ -3,6 +3,50 @@
 What each milestone and step added, by name, and each review's fixes, as CLAUDE.md kept
 them while each was built. Newest first.
 
+## 1.2.2
+
+Performance (2026-11-01), measured on the user's test project, one file that imports std.core,
+std.math.random, std.data.json, std.time, std.text.string, and std.net.http, 111 modules with what
+they import, on a release build with the client watching files:
+
+- **A check of a file did sema twice.** A worker in a check of some files' bodies made it check
+  every body again, and std's Shared Classes' Destroy()s are workers, so any file that imported
+  std.net.http had both. sema.cpp now checks, and goes on to every body for, only the workers in
+  the checked files; one elsewhere is its own file's, whose check reports it.
+- **Checks of the same file keep the parse of what it imports.** `ast_t::set_base` starts an AST
+  from another's nodes, which keep their ids, and their doc comments; the driver's loader keeps
+  the parse of the files a check loaded besides its own, in `std_names_cache_t::parsed`, with their
+  texts, which the names are views of, when it's the second check of the same files in a row and
+  none of them has a mistake, and the next check of them takes each file while it's the next of
+  them, with the same text, the same id, and as prebuilt as it was, or loads them all again
+  without it (`source_manager_t::truncate`). The checks of what imports an edited file never keep
+  one, and the cache keeps four.
+- **fb-lsp's work around a check**: a file's key is kept until `forget_file_keys()`, as each
+  check asked again for each module's and each of its imports', and the checks a new one takes
+  the place of are freed after its diagnostics are sent, without the workspace's lock.
+- **The VS Code extension** loads vscode-languageclient when the server starts, and starts it
+  once the extension is active.
+- **A crash with an fb.lock of another format** (on master too): GCC 15.2's -O2 and -O3 for
+  MinGW compiled `m_lockfile = read_lockfile(...)`, an `optional<expected<lockfile_t,
+  std::string>>` taking the error, as moving the string into the optional's and then freeing the
+  temporary's through the pointer from before the move, so the error's buffer was freed while
+  package_loader_t had it, and again when it was destroyed: heap corruption in fb-lsp's checks
+  and check_files(), for a package with an fb.lock of another format, which workspace_tests'
+  "a package's library or fb.lock changed on disk" wrote. The loader keeps the lockfile and
+  why it can't be read apart, and copies the error. Test: driver_tests' package with such an
+  fb.lock checked five times, and a registry dependency's error that it can't be read.
+
+The benchmark's new workload is a small program like it, whose warm checks have a budget of 50
+ms, enforced: 37 ms at the 50th percentile and 52 at the 95th. An edit's diagnostics went from
+208 ms to 41 to 47, and the first diagnostics from about 400 ms to 270; an edit's check is about
+34 ms, of which loading takes 9, 26 with the parse done again, and sema and the lints 25. The
+extension's modules load in 9 ms, from 70. Tests: driver_tests' check that keeps a parse, of a file whose
+imported file changes, whose Imports change, after a check of other files, and with a mistake,
+each the same as a check without the cache; a check of a file with a std Shared Class that
+checks only its bodies; server_tests' file key through a link that changes; the benchmark's own
+check of the small program; and the extension's activate.test.ts, that activating loads none of
+vscode-languageclient.
+
 ## 1.2.1
 
 (2026-11-01.) 1.2.0 was tagged but never released: its macOS build failed, as fb-lsp's code lens

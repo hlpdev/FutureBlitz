@@ -10,11 +10,13 @@
 #include <filesystem>
 #include <format>
 #include <istream>
+#include <mutex>
 #include <optional>
 #include <ostream>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <unordered_map>
 #include <utility>
 
 namespace fb::lsp {
@@ -161,10 +163,21 @@ disk_cache_t& key_answers() {
     return answers;
 }
 
-} // namespace
+/// The keys file_key() gave, by the absolute paths it was given, until forget_file_keys(), and
+/// how many times that was, as a key worked out before it isn't kept.
+struct known_keys_t {
+    std::mutex mutex;
+    std::unordered_map<std::filesystem::path::string_type, std::string> keys;
+    std::uint64_t forgotten = 0;
+};
 
-std::string file_key(const std::filesystem::path& path) {
-    // Working it out asks the disk, slowly on Windows, and the LSP asks for a file's key often.
+known_keys_t& known_keys() {
+    static known_keys_t known;
+    return known;
+}
+
+/// A file's key, as the disk says where it is.
+std::string key_from_disk(const std::filesystem::path& path) {
     const disk_scope_t scope(&key_answers());
     std::error_code error;
     const std::filesystem::path absolute = std::filesystem::absolute(path, error);
@@ -181,8 +194,41 @@ std::string file_key(const std::filesystem::path& path) {
 #endif
 }
 
+} // namespace
+
+std::string file_key(const std::filesystem::path& path) {
+    // Working it out asks the disk, slowly on Windows, and the LSP asks for a file's key often,
+    // each module's and its imports' after each check.
+    known_keys_t& known = known_keys();
+    std::uint64_t asked_at = 0;
+    if (path.is_absolute()) {
+        const std::scoped_lock lock(known.mutex);
+        if (const auto found = known.keys.find(path.native()); found != known.keys.end()) {
+            return found->second;
+        }
+
+        asked_at = known.forgotten;
+    }
+
+    std::string key = key_from_disk(path);
+    if (path.is_absolute()) {
+        const std::scoped_lock lock(known.mutex);
+        if (known.forgotten == asked_at) {
+            known.keys.try_emplace(path.native(), key);
+        }
+    }
+
+    return key;
+}
+
 void forget_file_keys() {
+    // The disk's answers first: a key worked out from them before the keys are forgotten isn't
+    // kept, and one worked out after is from new ones.
     key_answers().clear();
+    known_keys_t& known = known_keys();
+    const std::scoped_lock lock(known.mutex);
+    known.keys.clear();
+    ++known.forgotten;
 }
 
 json_t positions_t::position(const source_file_t& file, const std::uint32_t offset) const {

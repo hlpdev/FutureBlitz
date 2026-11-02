@@ -126,7 +126,10 @@ export function activate(context: vscode.ExtensionContext): Api {
         }),
     );
 
-    void server.start();
+    // Once the extension is active, as the server's client takes longer to load than the rest,
+    // unless it's deactivated first.
+    const starting = setTimeout(() => void server.start(), 0);
+    context.subscriptions.push({ dispose: () => clearTimeout(starting) });
     // After the language server, which nothing an assistant's offer does can stop.
     try {
         context.subscriptions.push(...registerAssistant(locateFb, String(context.extension.packageJSON.version), output));

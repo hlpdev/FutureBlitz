@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -934,12 +935,17 @@ public:
 
     /// Ids run from 0 up to the count, so analysis can keep tables indexed by them.
     [[nodiscard]] std::size_t expr_count() const {
-        return m_exprs.size();
+        return m_base_exprs + m_exprs.size();
     }
 
     [[nodiscard]] std::size_t stmt_count() const {
-        return m_stmts.size();
+        return m_base_stmts + m_stmts.size();
     }
+
+    /// Starts this empty AST from `base`, another one's parse of some files, which checks of
+    /// them share: its nodes keep their ids, the first, and their doc comments are this one's.
+    /// Their items aren't, as the driver adds the items of the files it takes.
+    void set_base(std::shared_ptr<const ast_t> base);
 
     [[nodiscard]] const block_t& items() const {
         return m_items;
@@ -989,6 +995,11 @@ public:
     [[nodiscard]] const doc_comment_t* module_doc(file_id_t file) const;
 
 private:
+    /// The nodes and doc comments the AST starts from, if any, which has none of its own.
+    std::shared_ptr<const ast_t> m_base;
+    std::size_t m_base_exprs = 0;
+    std::size_t m_base_stmts = 0;
+    std::size_t m_base_types = 0;
     std::vector<expr_t> m_exprs;
     std::vector<stmt_t> m_stmts;
     std::vector<type_expr_t> m_types;
