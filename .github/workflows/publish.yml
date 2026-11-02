@@ -87,7 +87,7 @@ jobs:
     env:
       FORK: ${{ vars.WINGET_FORK || 'hlpdev/winget-pkgs' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: The manifests
         run: |
@@ -131,7 +131,7 @@ jobs:
     env:
       TAP: ${{ vars.HOMEBREW_TAP || 'hlpdev/homebrew-tap' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: The formula
         env:
@@ -146,7 +146,7 @@ jobs:
           ruby -c futureblitz.rb
           cat futureblitz.rb
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: ${{ env.TAP }}
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
@@ -186,7 +186,7 @@ jobs:
       R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
       BUCKET: ${{ vars.R2_BUCKET }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check the secrets
         env:
@@ -265,9 +265,9 @@ jobs:
     if: inputs.vscode
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
