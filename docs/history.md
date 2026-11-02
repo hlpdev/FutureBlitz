@@ -26,6 +26,15 @@ they import, on a release build with the client watching files:
   the place of are freed after its diagnostics are sent, without the workspace's lock.
 - **The VS Code extension** loads vscode-languageclient when the server starts, and starts it
   once the extension is active.
+- **A crash with an fb.lock of another format** (on master too): GCC 15.2's -O2 and -O3 for
+  MinGW compiled `m_lockfile = read_lockfile(...)`, an `optional<expected<lockfile_t,
+  std::string>>` taking the error, as moving the string into the optional's and then freeing the
+  temporary's through the pointer from before the move, so the error's buffer was freed while
+  package_loader_t had it, and again when it was destroyed: heap corruption in fb-lsp's checks
+  and check_files(), for a package with an fb.lock of another format, which workspace_tests'
+  "a package's library or fb.lock changed on disk" wrote. The loader keeps the lockfile and
+  why it can't be read apart, and copies the error. Test: driver_tests' package with such an
+  fb.lock checked five times, and a registry dependency's error that it can't be read.
 
 The benchmark's new workload is a small program like it, whose warm checks have a budget of 50
 ms, enforced: 37 ms at the 50th percentile and 52 at the 95th. An edit's diagnostics went from
