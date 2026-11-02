@@ -14,6 +14,17 @@ Ask the user once for the release ("Tag and publish vX.Y.Z?") and go on only on 
 this conversation. Pushing the version bump to master needs no more than CLAUDE.md's verified
 step.
 
+**Review first.** The project's community reads what a release posts, so before that question
+the user reviews, word for word, everything the release will say (the user, 2026-11-01):
+- the GitHub release's notes, as they'll be published;
+- docs/history.md's entry;
+- the Discord post, exactly as publish.yml's discord job will write it (its first paragraph is
+  the notes');
+- anything else that goes out with it: the winget pull request's text, a site page or post.
+
+Show them in one message, as files the user can open, and change them as the user says. A yes
+to the release covers only the text the user saw; if it changes after, show it again.
+
 `V` below is the version, like `1.0.1`.
 
 ## 1. The version
