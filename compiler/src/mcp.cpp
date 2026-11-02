@@ -548,8 +548,11 @@ struct mcp_server_t::core_t : std::enable_shared_from_this<core_t> {
     }
 
     void start_docs() {
-        std::call_once(docs_started,
-                       [this] { loading = std::async(std::launch::async, load_docs).share(); });
+        std::call_once(docs_started, [this] {
+            std::shared_future<docs_t> started = std::async(std::launch::async, load_docs).share();
+            const std::scoped_lock lock(mutex);
+            loading = std::move(started);
+        });
     }
 
     /// The docs, which an initialize starts reading on a thread of their own, as reading std
@@ -1121,15 +1124,22 @@ mcp_server_t::mcp_server_t(const std::filesystem::path& root, send_t send, mcp_o
 }
 
 mcp_server_t::~mcp_server_t() {
+    std::shared_future<docs_t> loading;
     {
         std::unique_lock lock(m_core->mutex);
         m_core->closed = true;
         m_core->calls.clear();
         m_core->changed.notify_all();
         m_core->changed.wait(lock, [this] { return m_core->replying == 0; });
+        loading = m_core->loading;
     }
 
     m_core->deadlines.join();
+    // The docs' thread reads std with the compiler's statics, so it's done before the server is,
+    // and never runs on as the program exits, whose statics it would read as they're destroyed.
+    if (loading.valid()) {
+        loading.wait();
+    }
 }
 
 void mcp_server_t::receive(const std::string_view line) {
