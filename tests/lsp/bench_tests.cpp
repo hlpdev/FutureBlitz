@@ -53,10 +53,11 @@ struct metric_t {
     std::vector<double> samples;
 };
 
-/// The metrics, in the report's order, with docs/tooling.md's budgets.
-std::vector<metric_t> metrics() {
+/// The metrics, in the report's order, with docs/tooling.md's budgets, and for a small program,
+/// its check's.
+std::vector<metric_t> metrics(const bool small) {
     using std::chrono::milliseconds;
-    return {
+    std::vector<metric_t> measured{
         {
             .name = "syntax_error",
             .what = "a syntax error shown, from the keystroke",
@@ -148,6 +149,16 @@ std::vector<metric_t> metrics() {
             .enforced = true,
         },
     };
+    if (small) {
+        measured.push_back({
+            .name = "small_check",
+            .what = "a small program's check after an edit",
+            .budget = milliseconds(50),
+            .enforced = true,
+        });
+    }
+
+    return measured;
 }
 
 /// The value at the `fraction` percentile of `samples`, by nearest rank.
@@ -188,6 +199,8 @@ struct workload_t {
     /// The file whose code lenses are resolved: the edited one, or for std, collections/map.fb,
     /// whose declarations the most of std uses.
     std::filesystem::path lenses;
+    /// Whether it's a small program, whose checks after an edit have a budget of their own.
+    bool small = false;
     /// How many .fb files the folder has, and their lines.
     std::size_t files = 0;
     std::size_t lines = 0;
@@ -366,6 +379,64 @@ workload_t program_workload(const folder_t& folder, const shape_t& shape) {
     };
 }
 
+/// A small program, a file that imports some of std's modules, as a game's first file does.
+std::vector<std::pair<std::string, std::string>> small_program() {
+    return {
+        { "project.toml", "[project]\nname = \"small\"\nversion = \"0.1.0\"\n" },
+        {
+            "main.fb",
+            R"(//! A small program that imports some of std's modules, which fb-lsp's benchmark edits.
+
+Import std.core
+Import std.math.random
+Import std.data.json
+Import std.time
+Import std.text.string
+Import std.net.http
+
+/// How many words a game picks from.
+Const POOL_SIZE = 1000
+
+/// A word of `length` letters from the words the service lists, or "" when it has none.
+Function Pick(client: HttpClient, length: Int): String Throws NetError, TimeoutError, ParseError
+    Local pattern = "?".Repeated(length)
+    Local reader = JsonReader((Try client.Get("https://api.datamuse.com/words?sp={pattern}&max={POOL_SIZE}")).Bytes)
+    Local skipped = RandInt(POOL_SIZE)
+    Local word = ""
+    Try reader.Skip()
+    For i = 0 Until skipped
+        While Try reader.Next() != JsonToken.END_OBJECT
+        End While
+    End For
+
+    Return word
+End Function
+
+Local client = HttpClient()
+client.Timeout = 10.Seconds
+client.DefaultHeaders.Set("Accept", "application/json")
+Local length: UInt8 = UInt8.Parse(Input(prompt: "Word length (5): ") ?? "5") ?? 5
+Print(Try Pick(client, length))
+)",
+        },
+    };
+}
+
+/// The workload of the small program, editing its Function.
+workload_t small_workload(const folder_t& folder) {
+    return {
+        .name = "a small program",
+        .root = folder.root(),
+        .file = folder.path("main.fb"),
+        .line = "    Return word\n",
+        .indent = "    ",
+        .local = "pattern",
+        .function = "Pick",
+        .symbol = "Pick",
+        .small = true,
+    };
+}
+
 /// The workload of std's own folder, editing std.text.fuzzy.
 workload_t std_workload() {
     const std::filesystem::path root = fb::path_from_utf8(fb::build_config::std_directory);
@@ -439,7 +510,7 @@ double timed(Ask&& ask) {
 void measure(workload_t& workload, const std::size_t samples, const std::chrono::milliseconds delay,
              const std::chrono::milliseconds dependents_delay) {
     std::tie(workload.files, workload.lines) = size_of(workload.root);
-    workload.metrics = metrics();
+    workload.metrics = metrics(workload.small);
     const auto metric = [&](const std::string_view name) -> metric_t& {
         return *std::ranges::find(workload.metrics, name, &metric_t::name);
     };
@@ -635,6 +706,16 @@ void measure(workload_t& workload, const std::size_t samples, const std::chrono:
             workload.modules = check.modules;
         }
     }
+
+    // A small program's checks once it's warm: after the first, and the next, which keeps the
+    // parse of what it imports for the rest.
+    if (workload.small) {
+        metric("small_check")
+            .samples.assign(
+                workload.checks.begin() +
+                    static_cast<std::ptrdiff_t>(std::min<std::size_t>(workload.checks.size(), 2)),
+                workload.checks.end());
+    }
 }
 
 /// The report, in Markdown.
@@ -716,7 +797,12 @@ TEST_CASE("fb-lsp's benchmark, against M11's budgets", "[.][bench]") {
     const std::size_t samples = std::stoul(environment("FB_LSP_BENCH_SAMPLES").value_or("20"));
     const shape_t shape;
     const folder_t folder(program(shape));
-    std::vector<workload_t> workloads{ program_workload(folder, shape), std_workload() };
+    const folder_t small(small_program());
+    std::vector<workload_t> workloads{
+        program_workload(folder, shape),
+        std_workload(),
+        small_workload(small),
+    };
     for (workload_t& workload : workloads) {
         measure(workload, samples, std::chrono::milliseconds(150), std::chrono::milliseconds(400));
     }
@@ -773,4 +859,20 @@ TEST_CASE("the benchmark measures each request, on a small program", "[lsp]") {
     CHECK(!met({ .budget = std::chrono::milliseconds(10), .samples = { 1, 1, 16 } }));
     CHECK(percentile({ 4, 1, 3, 2 }, 0.95) == 4);
     CHECK(percentile({}, 0.95) == 0);
+}
+
+TEST_CASE("the benchmark times a small program's checks once it's warm", "[lsp]") {
+    const folder_t folder(small_program());
+    workload_t workload = small_workload(folder);
+    measure(workload, 1, std::chrono::milliseconds(0), std::chrono::milliseconds(0));
+    for (const metric_t& metric : workload.metrics) {
+        INFO(metric.name);
+        CHECK(!metric.samples.empty());
+    }
+
+    // Each check but the first two, which import std's modules.
+    const metric_t& check = *std::ranges::find(workload.metrics, "small_check", &metric_t::name);
+    CHECK(check.samples.size() + 2 == workload.checks.size());
+    CHECK(workload.modules > 20);
+    CHECK(markdown({ workload }).contains("| a small program's check after an edit |"));
 }

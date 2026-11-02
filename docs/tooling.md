@@ -659,6 +659,7 @@ a half times it:
 | Every code lens of a file resolved, as the editor asks once it's shown | 1,000 ms |
 | The quick fixes at a position | 100 ms |
 | A rename or find references across the package | 1 s |
+| A small program's check after an edit: a file that imports some of std's modules, as a game's first file does | 50 ms |
 
 **Steps**:
 
@@ -724,17 +725,21 @@ each as it's typed:
 build, `fb_lsp_tests "[bench]"` runs it on a generated program of 300 modules in 10 layers, each
 importing three of the layer below's, editing one in the middle layer, and on std's own folder,
 editing std.text.fuzzy, with the editor's own delays (150 ms, and 400 ms for what imports the
-edited file). An edit is timed from its didChange: to the publication of its diagnostics, for a
+edited file), and on a small program, one file that imports std.core, std.math.random,
+std.data.json, std.time, std.text.string, and std.net.http, editing its Function. An edit is
+timed from its didChange: to the publication of its diagnostics, for a
 syntax error and a type error; to the response, for completion after `.`, on a word, on a
 word's first letter, and on `S`, which has names to import too, and signature help after `(`. Hover, the quick fixes at an error, references, and a rename are timed
 with every check done. Each is timed 20 times (`FB_LSP_BENCH_SAMPLES`), and the report,
 lsp-bench.md and lsp-bench.json in the folder `FB_LSP_BENCH_REPORT` names, has each one's 50th
 and 95th percentiles against its budget, and how long the edited file's own checks took, with how
-many modules they had. Each metric has an `enforced` flag, which the step that meets its budget
+many modules they had, and for the small program, how long each check of the file took once it
+was warm: all but the first two, the one that opens it and the one that keeps the parse of what
+it imports. Each metric has an `enforced` flag, which the step that meets its budget
 turns on; then a miss fails the benchmark, with `FB_LSP_BENCH_ENFORCE` set, and a run without it
 only reports, as a PC busy with builds misses some. CI's LSP benchmark job sets it, runs it on
 Linux, puts the report in the run's summary, and keeps it as the lsp-bench artifact. ctest runs a small one, of 2
-layers of 2 modules, which checks that each measurement works.
+layers of 2 modules, which checks that each measurement works, and the small program once.
 
 **Where the time goes** (2026-10-31: the first reports, from a release build on the user's PC,
 with other builds running, so the 95th percentiles are noisy; the 50th held across three runs):
