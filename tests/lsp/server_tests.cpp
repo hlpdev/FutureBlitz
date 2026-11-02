@@ -3,9 +3,11 @@
 #include "fb/lsp/server.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <filesystem>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <system_error>
 #include <vector>
 
 using fb::lsp::json_t;
@@ -96,4 +98,25 @@ TEST_CASE("URIs name files", "[lsp]") {
     CHECK(fb::lsp::uri_of("/home/a b/x#1.fb") == "file:///home/a%20b/x%231.fb");
 #endif
     CHECK(fb::lsp::path_of("untitled:Untitled-1") == std::nullopt);
+}
+
+TEST_CASE("a file's key is kept until the disk may have changed", "[lsp]") {
+    const fb::lsp::test::folder_t folder({ { "one/x.fb", "" }, { "two/x.fb", "" } });
+    const std::filesystem::path link = folder.root() / "link";
+    std::error_code error;
+    std::filesystem::create_directory_symlink(folder.path("one"), link, error);
+    if (error) {
+        SKIP("this system doesn't let the tests make a link: " << error.message());
+    }
+
+    const std::string one = fb::lsp::file_key(link / "x.fb");
+    CHECK(one == fb::lsp::file_key(folder.path("one/x.fb")));
+
+    // The link leads elsewhere now, which the key says once it's forgotten.
+    std::filesystem::remove(link);
+    std::filesystem::create_directory_symlink(folder.path("two"), link);
+    CHECK(fb::lsp::file_key(link / "x.fb") == one);
+    fb::lsp::forget_file_keys();
+    CHECK(fb::lsp::file_key(link / "x.fb") == fb::lsp::file_key(folder.path("two/x.fb")));
+    std::filesystem::remove(link);
 }

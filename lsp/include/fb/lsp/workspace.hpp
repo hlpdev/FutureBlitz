@@ -268,6 +268,8 @@ private:
 
     /// By the open documents' keys.
     std::map<std::string, shown_t> m_shown;
+    /// The checks newer ones took the place of, which a worker frees before it waits.
+    std::vector<std::shared_ptr<const compilation_t>> m_replaced;
     /// The Public names each module declares, by its path in the program, by the unit whose
     /// checks found them.
     std::map<std::size_t, std::map<std::string, std::vector<export_t>>> m_exports;
@@ -308,6 +310,9 @@ private:
     /// edited documents.
     std::shared_ptr<const compilation_t> run_job(std::unique_lock<std::mutex>& lock,
                                                  const job_t& job);
+    /// Frees m_replaced with the lock unlocked, as freeing a check with std's modules takes a
+    /// few milliseconds. Whether there were any, as the work to do may have changed meanwhile.
+    bool free_replaced(std::unique_lock<std::mutex>& lock);
     /// The index in `m_units` of the unit `path` is in, adding one when none has it.
     std::size_t unit_index(const std::filesystem::path& path);
     /// The job that checks the file at `path` on its own.
