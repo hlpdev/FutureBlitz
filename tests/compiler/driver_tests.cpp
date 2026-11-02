@@ -5,6 +5,7 @@
 #include "fb/driver.hpp"
 #include "fb/interface.hpp"
 #include "fb/lint.hpp"
+#include "fb/lockfile.hpp"
 #include "fb/lower.hpp"
 #include "fb/process.hpp"
 #include "fb/utf8.hpp"
@@ -5151,6 +5152,40 @@ TEST_CASE("checks that share a cache take the parse of what the last check of th
     same_as_alone(check());
     same_as_alone(check());
     CHECK(cache.parsed.empty());
+    packages.remove();
+}
+
+TEST_CASE("a package whose fb.lock is of another format is checked again and again",
+          "[driver][packages]") {
+    // Why fb.lock couldn't be read was freed twice, which crashed the check, or the next.
+    const packages_t packages;
+    packages.write("calc/project.toml", "[project]\nname = \"calc\"\nversion = \"0.1.0\"\n");
+    packages.write("calc/calc.fb", "Public Function Add(): Int => 1\n");
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n"
+                                       "[dependencies]\ncalc = { path = \"../calc\" }\n");
+    packages.write("app/main.fb", "Import std.core\nImport calc\nPrint(Add())\n");
+    packages.write("app/fb.lock", "# fb.lock\n");
+    for (int i = 0; i < 5; ++i) {
+        const std::expected<fb::compilation_t, std::string> checked = fb::check_files({
+            .files = { packages / "app/main.fb" },
+            .main = packages / "app/main.fb",
+        });
+        REQUIRE(checked);
+        CHECK(packages.messages(*checked).empty());
+    }
+
+    // A registry's package, which needs it, says why it can't be read.
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n"
+                                       "[dependencies]\nshapes = \"1.0\"\n");
+    packages.write("app/main.fb", "Import std.core\nPrint(1)\n");
+    const std::expected<fb::compilation_t, std::string> checked = fb::check_files({
+        .files = { packages / "app/main.fb" },
+        .main = packages / "app/main.fb",
+    });
+    REQUIRE(checked);
+    const std::vector<std::string> messages = packages.messages(*checked);
+    REQUIRE(messages.size() == 1);
+    CHECK(messages.front().contains("fb.lock can't be read: fb.lock is of another format"));
     packages.remove();
 }
 

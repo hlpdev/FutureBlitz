@@ -2493,13 +2493,21 @@ public:
         // The program's registry packages are where fb.lock beside its project.toml says.
         const std::filesystem::path& lock_folder = locked.value_or(folder);
         if (const std::optional<std::string> text = bytes_of(lock_folder / "fb.lock")) {
-            m_lockfile = read_lockfile(*text, lock_folder);
+            // Why it can't be read is copied: GCC 15.2's -O2 and -O3 for MinGW moved the string
+            // out of the expected into an optional's and then freed its buffer through the
+            // pointer from before the move, which the loader freed again.
+            std::expected<lockfile_t, std::string> read = read_lockfile(*text, lock_folder);
+            if (read) {
+                m_lockfile = std::move(*read);
+            } else {
+                m_lock_error = read.error();
+            }
         }
 
         // A registry's package in the cache is the one fb.lock has, from its registry.
         const locked_package_t* cached = nullptr;
-        if (locked && m_lockfile && *m_lockfile) {
-            for (const locked_package_t& package : m_lockfile->value().packages) {
+        if (locked && m_lockfile) {
+            for (const locked_package_t& package : m_lockfile->packages) {
                 std::error_code ignored;
                 if (std::filesystem::equivalent(
                         package_cache_folder(package.source, package.name, package.version), folder,
@@ -2552,9 +2560,10 @@ private:
     /// The dynamic libraries' names beside the executable so far, with the package and the
     /// [native] name of each.
     std::vector<std::array<std::string, 3>> m_beside;
-    /// fb.lock beside the main package's project.toml, or why it can't be read. Nullopt when
-    /// there's none.
-    std::optional<std::expected<lockfile_t, std::string>> m_lockfile;
+    /// fb.lock beside the main package's project.toml, or why it can't be read. Both nullopt
+    /// when there's none.
+    std::optional<lockfile_t> m_lockfile;
+    std::optional<std::string> m_lock_error;
     bool m_failed = false;
 
     template <typename... Args>
@@ -2573,6 +2582,11 @@ private:
                   const std::filesystem::path& root, const bool cached,
                   const version_range_t& range) {
         const std::string wanted = std::format("{} = \"{}\"", dependency.name, range.text);
+        if (m_lock_error) {
+            fail(dependency.range_span, "fb.lock can't be read: {}", *m_lock_error);
+            return std::nullopt;
+        }
+
         if (!m_lockfile) {
             fail(dependency.range_span,
                  "{} is from a registry, but there's no fb.lock yet; fb build, fb check, or fb "
@@ -2581,12 +2595,7 @@ private:
             return std::nullopt;
         }
 
-        if (!*m_lockfile) {
-            fail(dependency.range_span, "fb.lock can't be read: {}", m_lockfile->error());
-            return std::nullopt;
-        }
-
-        const locked_package_t* locked = m_lockfile->value().find(dependency.name);
+        const locked_package_t* locked = m_lockfile->find(dependency.name);
         const std::optional<std::string> source =
             registry_index(dependency.registry, registries, root);
         const std::expected<version_t, std::string> version =
