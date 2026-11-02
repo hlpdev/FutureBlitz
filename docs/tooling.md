@@ -665,7 +665,13 @@ a half times it:
 | Every code lens of a file resolved, as the editor asks once it's shown | 1,000 ms |
 | The quick fixes at a position | 100 ms |
 | A rename or find references across the package | 1 s |
-| A small program's check after an edit: a file that imports some of std's modules, as a game's first file does | 50 ms |
+| A small program's check after an edit: a file that imports some of std's modules, as a game's first file does, on CI's runner* | 80 ms |
+
+\* CI's Linux runner checks about one and a half times as slowly as the user's PC, where the others
+were set: at the 50th percentile, the 300-module program's edited file in 19 ms to 13, std's in 10
+to 7, and the small program in 58 to 36 (2026-11-02: CI's report of master, and the same checks on
+the PC, where master's and 1.2.2's branch took 33 to 36 ms, back to back). The small program's
+check is under 50 ms on the PC, which is 80 ms on the runner.
 
 **Steps**:
 

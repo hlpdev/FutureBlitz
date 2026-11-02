@@ -173,11 +173,12 @@ std::vector<metric_t> metrics(const bool small) {
             .enforced = true,
         },
     };
+    // CI's runner checks about one and a half times as slowly as the PC the others were set on.
     if (small) {
         measured.push_back({
             .name = "small_check",
             .what = "a small program's check after an edit",
-            .budget = milliseconds(50),
+            .budget = milliseconds(80),
             .enforced = true,
         });
     }
