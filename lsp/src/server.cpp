@@ -417,7 +417,12 @@ void server_t::answer_request(const json_t& id, const std::string& method, const
         }
 
         if (std::optional<json_t> result = answer(method, params)) {
-            respond(id, std::move(*result));
+            // A worker's request the client cancelled while it was answered.
+            if (m_answering != nullptr && m_answering->id == id && m_answering->cancelled->load()) {
+                fail(id, error_code_t::REQUEST_CANCELLED, "the client cancelled it");
+            } else {
+                respond(id, std::move(*result));
+            }
         } else {
             fail(id, error_code_t::METHOD_NOT_FOUND, "the server doesn't do " + method);
         }
@@ -606,6 +611,11 @@ void server_t::worker_t::push(request_job_t job) {
 
 bool server_t::worker_t::cancel(const json_t& id) {
     const std::scoped_lock lock(m_mutex);
+    if (m_current != nullptr && m_current->id == id) {
+        m_current->cancelled->store(true);
+        return false;
+    }
+
     return std::erase_if(m_jobs, [&](const request_job_t& job) { return job.id == id; }) > 0;
 }
 
@@ -639,12 +649,14 @@ void server_t::worker_t::run() {
             job = std::move(m_jobs.front());
             m_jobs.pop_front();
             m_busy = true;
+            m_current = &job;
         }
 
         m_answer(job);
         {
             const std::scoped_lock lock(m_mutex);
             m_busy = false;
+            m_current = nullptr;
         }
 
         m_idle.notify_all();

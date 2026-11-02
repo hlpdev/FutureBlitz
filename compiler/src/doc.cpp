@@ -786,6 +786,12 @@ struct found_t {
     bool builtin = false;
 };
 
+/// The path of a declaration that has none. Made as the program starts, not as a Function's
+/// static on its first call: on Windows one made on another thread as the program exits, as fb
+/// mcp's thread that reads std's reference can be, waits for exit's lock to say it's destroyed,
+/// which exit, joining that thread, never gives back.
+const std::string no_path;
+
 /// Each declaration of a program, by name, with its path, for fb doc's items and links.
 class api_index_t {
 public:
@@ -816,9 +822,8 @@ public:
     }
 
     [[nodiscard]] const std::string& path(const stmt_id_t id) const {
-        static const std::string none;
         const auto found = m_paths.find(id);
-        return found != m_paths.end() ? found->second : none;
+        return found != m_paths.end() ? found->second : no_path;
     }
 
     [[nodiscard]] std::optional<scope_t> scope(const stmt_id_t id) const {

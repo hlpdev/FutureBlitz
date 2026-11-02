@@ -47,7 +47,9 @@ add_dependencies(fb_compiler_tests ${FB_RUNTIME_ARCHIVES} fb_vecmath fb_dyncalc 
 fb_set_warnings(fb_compiler_tests)
 fb_set_stack(fb_compiler_tests)
 fb_copy_llvm(fb_compiler_tests)
-catch_discover_tests(fb_compiler_tests DISCOVERY_MODE PRE_TEST DL_PATHS ${FB_TEST_DLL_PATHS})
+# A test that hangs fails at its timeout, not the CI job's.
+catch_discover_tests(fb_compiler_tests DISCOVERY_MODE PRE_TEST DL_PATHS ${FB_TEST_DLL_PATHS}
+  PROPERTIES TIMEOUT 1200)
 # The test programs, over a thousand, are built and run in shards that ctest runs side by side:
 # shard i of n checks every n-th program from the i-th.
 set(FB_PROGRAM_SHARDS 32)
