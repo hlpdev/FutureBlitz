@@ -12,3 +12,6 @@ contact_links:
   - name: The docs
     url: https://futureblitz.dev/docs/
     about: Learn, the language reference, and std's reference.
+  - name: A question
+    url: https://discord.gg/4qSGuBnRe6
+    about: Ask in the Discord server's help forum.
