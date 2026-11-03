@@ -2406,6 +2406,82 @@ TEST_CASE("a build step's inputs are read before it runs, without build/ or hidd
     packages.remove();
 }
 
+TEST_CASE("a copy of a project runs its build step again, though nothing it read is in the copy",
+          "[driver]") {
+    // The step's program is a dependency's and what it read is outside the project, so only the
+    // project's folder differs, which the step's told of as FB_BUILD_FOLDER.
+    const packages_t packages;
+    packages.write("tools/project.toml", "[project]\nname = \"tools\"\nversion = \"1.0.0\"\ntype = "
+                                         "\"library\"\n");
+    packages.write("shared.txt", "shared\n");
+    packages.write(
+        "tools/generate.fb",
+        std::format("Import std.core\n"
+                    "Import std.io\n"
+                    "Import std.os\n"
+                    "Local folder = Path(Env.Get(\"FB_BUILD_FOLDER\") ?? \"\")\n"
+                    "Local out = Path(Env.Get(\"FB_BUILD_OUT\") ?? \"\")\n"
+                    "Try File.AppendText(folder / \"../runs.txt\", \"run\\n\")\n"
+                    "Try File.WriteText(out / \"made.fb\", \"Public Const COUNT = 1\\n\")\n"
+                    "Print(\"fb:rerun-if-changed={}\")\n",
+                    (packages / "shared.txt").generic_string()));
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\n\n"
+                                       "[dependencies]\ntools = { path = \"../tools\" }\n\n"
+                                       "[build]\nprogram = \"generate.fb\"\npackage = \"tools\"\n");
+    packages.write("app/main.fb", "Import std.core\nImport app.made\nPrint(\"{COUNT}\")\n");
+    REQUIRE(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 1);
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 1);
+
+    std::filesystem::copy(packages / "app", packages / "copy",
+                          std::filesystem::copy_options::recursive);
+    CHECK(build_and_run(packages, "copy") == "1\n");
+    CHECK(runs(packages) == 2);
+    CHECK(build_and_run(packages, "copy") == "1\n");
+    CHECK(runs(packages) == 2);
+    packages.remove();
+}
+
+TEST_CASE("a build step runs again for a link to a folder in a folder it read, and what's in it",
+          "[driver]") {
+    const packages_t packages;
+    counting_app(packages, counting_program("", "data"));
+    packages.write("app/data/kept.txt", "kept\n");
+    packages.write("elsewhere/art.txt", "first\n");
+    REQUIRE(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 1);
+    const std::filesystem::path link = packages / "app/data/linked";
+    if (!make_link(packages / "elsewhere", link)) {
+        packages.remove();
+        SKIP("this system doesn't let the tests make a link");
+    }
+
+    // The link's coming, and what changes in what it leads to.
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 2);
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 2);
+    packages.write("elsewhere/art.txt", "second\n");
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 3);
+
+    // A link to a folder the walk has been in is walked once, and its coming is a change.
+    const std::filesystem::path back = packages / "app/data/back";
+    REQUIRE(make_link(packages / "app/data", back));
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 4);
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 4);
+
+    // Its going is too.
+    std::filesystem::remove(link);
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 5);
+    std::filesystem::remove(back);
+    packages.remove();
+}
+
 TEST_CASE("while code is typed, a failed build step's error stays until what it read changes, "
           "and the rest is checked",
           "[driver]") {

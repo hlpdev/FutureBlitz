@@ -306,12 +306,13 @@ program = "cook.fb"
   takes out itself the ones it no longer makes.
 - A line it prints `fb:rerun-if-changed=<path>` names a file or folder it read, from its
   package's folder or whole, a folder's files without the package's build/ folder or hidden
-  files and folders; `fb:warning=<text>` is a warning at its `[build]` line. Its other output is
+  files and folders, through the links to folders in it, each folder once; `fb:warning=<text>` is a warning at its `[build]` line. Its other output is
   shown only when it fails, a line of the error's notes each.
 - It runs again when what it read changes, or its program does: a file or folder
   `fb:rerun-if-changed` named, or without one, any of its package's files, as its archive has
   them; its program's files and the files they embed; the build's fb.lock, as `fb update` changes
-  it; and fb, its version or the commit it's built from. A file of 1 MB or less changes when its
+  it; where the project being built is, so a copy runs it again; and fb, its version or the
+  commit it's built from. A file of 1 MB or less changes when its
   bytes do, and a bigger one when its size or time does. What it read is read before it runs, so
   a file saved while it runs makes it run again next time. Otherwise its last run's files are
   the build's.

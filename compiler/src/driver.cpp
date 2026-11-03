@@ -3606,6 +3606,11 @@ std::string fnv1a(const std::string_view bytes) {
 std::string file_stamp(const std::filesystem::path& path) {
     constexpr std::uintmax_t hashed = 1'000'000;
     std::error_code error;
+    if (std::filesystem::is_directory(path, error)) {
+        const std::optional<std::filesystem::path> real = disk::real_path(path);
+        return "folder " + (real ? to_utf8(*real) : std::string());
+    }
+
     const std::uintmax_t size = std::filesystem::file_size(path, error);
     if (error) {
         return "missing";
@@ -3643,11 +3648,12 @@ bool in_package_files(const std::filesystem::path& root, const std::filesystem::
 /// The lines a stamp has for what a build step read, as `inputs` names it, from the package's
 /// folder `root`: each input, then each file under it, with file_stamp()'s. "*" is the package's
 /// own files, as its archives have them; a folder's are without the package's build/ and hidden
-/// files and folders, as there too. A file that `before`, the lines read before the step ran,
-/// has keeps its line from then, and one written since `started` is "changed", so a file saved
-/// while the step ran makes it run again. So does a file that one of the folders `before` walked
-/// lost or gained meanwhile: one it had keeps its line though it's gone, and one it didn't have
-/// is "changed", whatever its time, as a file moved in keeps the time it had.
+/// files and folders, as there too, and each link to a folder has a line, where it leads, and
+/// what's in it, unless the walk's been there. A file that `before`, the lines read before the
+/// step ran, has keeps its line from then, and one written since `started` is "changed", so a file
+/// saved while the step ran makes it run again. So does a file that one of the folders `before`
+/// walked lost or gained meanwhile: one it had keeps its line though it's gone, and one it didn't
+/// have is "changed", whatever its time, as a file moved in keeps the time it had.
 std::vector<std::string> input_lines(const std::filesystem::path& root,
                                      const std::vector<std::string>& inputs,
                                      const std::vector<std::string>& before = {},
@@ -3694,13 +3700,29 @@ std::vector<std::string> input_lines(const std::filesystem::path& root,
                 }
             }
         } else if (std::filesystem::is_directory(path, error)) {
-            for (auto entry = std::filesystem::recursive_directory_iterator(path, error);
+            std::set<std::filesystem::path> folders;
+            if (const std::optional<std::filesystem::path> real = disk::real_path(path)) {
+                folders.insert(*real);
+            }
+
+            for (auto entry = std::filesystem::recursive_directory_iterator(
+                     path, std::filesystem::directory_options::follow_directory_symlink, error);
                  !error && entry != std::filesystem::recursive_directory_iterator();
                  entry.increment(error)) {
                 std::error_code ignored;
                 if (to_utf8(entry->path().filename()).starts_with('.') ||
                     entry->path().lexically_normal() == built) {
                     entry.disable_recursion_pending();
+                } else if (entry->is_directory(ignored)) {
+                    const std::optional<std::filesystem::path> real =
+                        disk::real_path(entry->path());
+                    if (real && !folders.insert(*real).second) {
+                        entry.disable_recursion_pending();
+                    }
+
+                    if (is_link(entry->path())) {
+                        found.push_back(entry->path());
+                    }
                 } else if (entry->is_regular_file(ignored)) {
                     found.push_back(entry->path());
                 }
@@ -3774,7 +3796,8 @@ std::optional<step_stamp_t> read_stamp(const std::filesystem::path& path) {
         } else if (line.starts_with("input ") || line.starts_with("file ")) {
             stamp.inputs.push_back(line);
         } else if (line.starts_with("fb ") || line.starts_with("program ") ||
-                   line.starts_with("lock ") || line.starts_with("source ")) {
+                   line.starts_with("lock ") || line.starts_with("root ") ||
+                   line.starts_with("source ")) {
             stamp.program.push_back(line);
         } else {
             return std::nullopt;
@@ -3845,6 +3868,8 @@ std::vector<std::string> program_heading(const std::filesystem::path& program,
                     build_config::toolchain_target),
         "program " + to_utf8(program),
         lock ? "lock " + fnv1a(*lock) : std::string("lock none"),
+        // A step's told where its project is, so a copy with a stamp from here runs it again.
+        "root " + to_utf8(root),
     };
 }
 
