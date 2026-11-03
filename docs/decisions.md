@@ -1111,6 +1111,7 @@ Planned 2026-10-20 with the user; the design is in [stdlib.md](stdlib.md#m6s-des
 | fbengine has Font.BuiltIn() (Default is a keyword), a small Latin subset of Noto Sans embedded in fbengine_native, under the OFL (2026-11-02). | A console and a debug UI need a font on every machine, alike; Font.SystemUI differs per machine, and Blitz had a built-in font. |
 | fbengine's folder mount hides dot-names as a pak leaves them out, and the cooker refuses a glTF naming a hidden image (2026-11-02). | What works in development works in release. |
 | fbengine_video bounds a sound's silence by max(5, min(duration, 600)) seconds past what's decoded (2026-11-02). | A file can't force more than about 211 MB of silence, and a short sound late in a long film stays where it belongs. |
+| fbengine's UNLIT and VERTEX work in encoded values, with only the final color linear; VERTEX's light is `min(range / distance, 1)` from the first 8 shown lights; a Texture's alpha flag drives AUTO blending (2026-11-02). This narrows 2026-11-01's every-model falloff to PIXEL and PBR. | Those two models are the fixed-function look a port needs; linear math gave 71 where the look wants 100 for ambient 50 × 2. PBR stays linear. |
 
 ## Tooling and process
 
