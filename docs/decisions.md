@@ -1113,6 +1113,7 @@ Planned 2026-10-20 with the user; the design is in [stdlib.md](stdlib.md#m6s-des
 | fbengine's folder mount hides dot-names as a pak leaves them out, and the cooker refuses a glTF naming a hidden image (2026-11-02). | What works in development works in release. |
 | fbengine_video bounds a sound's silence by max(5, min(duration, 600)) seconds past what's decoded (2026-11-02). | A file can't force more than about 211 MB of silence, and a short sound late in a long film stays where it belongs. |
 | fbengine's UNLIT and VERTEX work in encoded values, with only the final color linear; VERTEX's light is `min(range / distance, 1)` from the first 8 shown lights; a Texture's alpha flag drives AUTO blending (2026-11-02). This narrows 2026-11-01's every-model falloff to PIXEL and PBR. | Those two models are the fixed-function look a port needs; linear math gave 71 where the look wants 100 for ambient 50 × 2. PBR stays linear. |
+| fbengine's collisions keep their recorded differences from Blitz's (targets where they are now, 8 iterations by default, using them up settles the mover, step height for edges); proofs pin each, and the remake tunes on them (2026-11-03). SetBlocksSight blocks by the pick shape; a Texture has its Path. A cook's default is UASTC, which transcodes everywhere. | A clean engine over a line-for-line copy; a game can still reach 10 iterations. Files that load on one GPU load on all. |
 
 ## Tooling and process
 
