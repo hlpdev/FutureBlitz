@@ -818,8 +818,11 @@ void start_watching(uv_loop_t* loop, void* context) {
         // Linux leaves the flag out, so each folder there is watched apart.
         const unsigned flags =
             watcher.recursive ? static_cast<unsigned>(UV_FS_EVENT_RECURSIVE) : 0U;
+        // By its long names, as on Windows libuv cuts what happens in a folder down to a name by
+        // the length of the path it was given, from a path with long names, and compares a file's
+        // with the long one Windows tells of.
         error = uv_fs_event_start(&watcher.handle, watcher_t::on_event,
-                                  fb::runtime::os_path(watcher.path).c_str(), flags);
+                                  fb::runtime::os_long_path(watcher.path).c_str(), flags);
 #ifdef __linux__
         if (error == UV_ENOSPC) {
             error =

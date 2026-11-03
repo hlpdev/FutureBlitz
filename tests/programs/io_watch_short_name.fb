@@ -1,0 +1,86 @@
+// FileWatcher through Windows' 8.3 short names, as when TEMP names its folder by one: a folder, a
+// recursive one, and a file, each named by a short name, tell of what happens as they do by their
+// long ones, at the paths the program gave. Elsewhere, and where the disk makes no short names,
+// the short name is the long one, and the same goes.
+Import std.core
+Import std.ffi
+Import std.io
+Import std.text
+Import std.time
+
+#If PLATFORM_WINDOWS
+Extern "C"
+    Function GetShortPathNameA(path: CString, short: Ptr<UInt8>, size: UInt32): UInt32
+End Extern
+
+Function ShortOf(path: Path): Path
+    Local long = CString.From(path.Text)
+    Local memory = Buffer<UInt8>(1024)
+    Unsafe
+        Local written = GetShortPathNameA(long, memory.Pointer(), 1024)
+        long.Free()
+        If written == 0 || written >= 1024 Then Return path
+        Return Path(String.FromUtf8(memory.Slice(0, written As Int).ToArray()) ?? path.Text)
+    End Unsafe
+End Function
+#Else
+Function ShortOf(path: Path): Path => path
+#End If
+
+// Whether `kind` comes for the file at `path` within ten seconds, writing to `poked`, if any, now
+// and then, as the OS is slow to start telling of some.
+Async Function Saw(watcher: FileWatcher, kind: FileEventKind, path: Path,
+                   poked: Path? = Null): Bool
+    For tries = 1 To 1000
+        Loop
+            Local event = watcher.TryNext()
+            If event == Null Then Break
+            If event.Kind == kind && event.Path.Text == path.Text Then Return True
+        End Loop
+
+        If poked != Null && tries % 20 == 0 Then Try? File.WriteText(poked, "poke {tries}")
+        Await RealWait(10.Milliseconds)
+    End For
+
+    Return False
+End Function
+
+Local temp = Try TempDir("fb-watch-short-")
+// The last name is long enough to have a short one.
+Local long = temp.Path / "a-folder-with-a-long-name"
+Try Dir.CreateAll(long / "inside-a-long-named-folder")
+Local short = ShortOf(long)
+
+// A folder, by its short name.
+Local watcher = Try FileWatcher(short)
+Local made = short / "made-with-a-long-name.txt"
+Try File.WriteText(made, "made")
+Print("folder created {Await Saw(watcher, FileEventKind.CREATED, made)}")
+Try File.WriteText(made, "changed")
+Print("folder changed {Await Saw(watcher, FileEventKind.CHANGED, made, made)}")
+Try File.Delete(made)
+Print("folder removed {Await Saw(watcher, FileEventKind.REMOVED, made)}")
+watcher.Close()
+
+// A recursive one, of a file in a folder in it.
+watcher = Try FileWatcher(short, recursive: True)
+Local below = short / "inside-a-long-named-folder" / "below.txt"
+Try File.WriteText(below, "made")
+Print("recursive created {Await Saw(watcher, FileEventKind.CREATED, below)}")
+watcher.Close()
+
+// A file, by its own short name, and one by a short name of its folder.
+Local file = long / "a-file-with-a-long-name.txt"
+Try File.WriteText(file, "made")
+Local shortFile = ShortOf(file)
+watcher = Try FileWatcher(shortFile)
+Try File.WriteText(file, "changed")
+Print("file changed {Await Saw(watcher, FileEventKind.CHANGED, shortFile, file)}")
+watcher.Close()
+
+Local inShort = short / "a-file-with-a-long-name.txt"
+watcher = Try FileWatcher(inShort)
+Try File.WriteText(file, "changed again")
+Print("file in a short folder changed {Await Saw(watcher, FileEventKind.CHANGED, inShort, file)}")
+watcher.Close()
+Try temp.Close()

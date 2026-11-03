@@ -18,6 +18,10 @@ namespace fb::runtime {
 /// A path the OS gave back for one os_path() made, without what that put before it.
 [[nodiscard]] std::string plain_path(std::string path);
 
+/// os_path() of what's at `path`, on Windows with each 8.3 short name in it as its long name, or
+/// as it is when nothing's there to ask about.
+[[nodiscard]] std::string os_long_path(std::string_view path);
+
 /// The error a recursive FileWatcher gives on Linux for a tree with more folders than inotify
 /// watches, whose message names the setting that says how many.
 constexpr std::int64_t too_many_watches = -5001;

@@ -1459,6 +1459,22 @@ std::string plain_path(std::string path) {
     return path;
 }
 
+std::string os_long_path(const std::string_view path) {
+    std::string at = os_path(path);
+#ifdef _WIN32
+    const std::wstring wide = wide_of(at);
+    const DWORD needed = GetLongPathNameW(wide.c_str(), nullptr, 0);
+    std::wstring found(needed, L'\0');
+    const DWORD written =
+        needed != 0 ? GetLongPathNameW(wide.c_str(), found.data(), needed) : DWORD{ 0 };
+    if (written != 0 && written < needed) {
+        found.resize(written);
+        at = utf8_of(found);
+    }
+#endif
+    return at;
+}
+
 atomic_file_t::~atomic_file_t() {
     discard();
 }
