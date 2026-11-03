@@ -434,7 +434,9 @@ file or URL in the default app.
   `Split`, `SplitN`, `SplitLines`, `SplitWhitespace`, `Join`; `Replace`, `ReplaceFirst`, `Trim`,
   `TrimStart`, `TrimEnd`, `TrimPrefix`, `TrimSuffix`, `ToUpper`, `ToLower` (full Unicode),
   `Repeated` (`Repeat` is a keyword), `PadLeft`, `PadRight`, `Center`; `Compare`,
-  `EqualsIgnoreCase`, `NaturalCompare`; `Lines`, `Graphemes`; `String.FromUtf8(bytes)`.
+  `EqualsIgnoreCase`, `NaturalCompare`; `Lines`, `Graphemes`; `String.FromUtf8(bytes)`, Null unless they're well-formed, and
+  `String.FromUtf8Lossy(bytes)`, with U+FFFD for each byte that doesn't start well-formed UTF-8, as
+  `File.ReadText` reads a file's.
 - `StringBuilder`: `Append`, `AppendLine`, `Insert`, `Remove`, `Replace`, `Clear`, `Length`,
   `Reserve`, `ToString`, and `[]`; it's a `Writer`. A `Scanner` reads text with `Line` and
   `Column`.

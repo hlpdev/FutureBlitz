@@ -184,6 +184,9 @@ For c In s.Chars ... End For    // Unicode code points
 For b In s.Bytes ... End For    // raw bytes
 ```
 
+- `String.FromUtf8(bytes)` makes a String of UTF-8 bytes, or Null when they aren't well-formed,
+  and `String.FromUtf8Lossy(bytes)` always does, with U+FFFD for each byte that doesn't start
+  well-formed UTF-8.
 - `s.Chars` is a new `Char[]` of the String's code points, and `s.Bytes` a new `Byte[]` of its
   UTF-8 bytes. A `Char`'s Methods, like `IsLetter()` and `ToUpper()`, are std.text's too.
 

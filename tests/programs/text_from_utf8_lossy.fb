@@ -1,0 +1,34 @@
+// String.FromUtf8Lossy: well-formed UTF-8 is as it is, U+FFFD itself among it, and each byte that
+// doesn't start well-formed UTF-8 is U+FFFD, the same as File.ReadText reads from a file.
+Import std.core
+Import std.io
+Import std.text
+
+Function Show(bytes: UInt8[]): String
+    Return String.FromUtf8Lossy(bytes).Replace("\u{FFFD}", "?")
+End Function
+
+Print(String.FromUtf8Lossy([]) == "")
+Print(String.FromUtf8Lossy("héllo \u{1F600}".Bytes) == "héllo \u{1F600}")
+Print(String.FromUtf8Lossy("\u{FFFD}".Bytes) == "\u{FFFD}")
+Print(String.FromUtf8("\u{FFFD}".Bytes) == "\u{FFFD}")
+
+// A stray continuation byte, a byte no UTF-8 has, and a lead byte without all its continuations,
+// which leaves what follows it as it is.
+Print(Show([0x61, 0x80, 0x62]))
+Print(Show([0x61, 0xFF, 0x62]))
+Print(Show([0xE2, 0x82, 0x61]))
+Print(Show([0x61, 0xF0, 0x9F]))
+// An overlong form, a surrogate, and one past U+10FFFF, each byte of them.
+Print(Show([0xC0, 0xAF]))
+Print(Show([0xED, 0xA0, 0x80]))
+Print(Show([0xF4, 0x90, 0x80, 0x80]))
+// FromUtf8 says Null for the same.
+Print(String.FromUtf8([0x61, 0xFF, 0x62]) == Null)
+
+Local temp = Try TempDir("fb-lossy-")
+Local path = temp.Path / "bytes.txt"
+Local bytes: UInt8[] = [0x61, 0xFF, 0xE2, 0x82, 0xC3, 0xA9, 0xF0, 0x9F, 0x98, 0x80, 0x80]
+Try File.WriteBytes(path, bytes)
+Print((Try File.ReadText(path)) == String.FromUtf8Lossy(bytes))
+Try temp.Close()
