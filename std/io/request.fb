@@ -65,6 +65,8 @@ Function IOKindOf(number: Int32): IOErrorKind
             Return IOErrorKind.NO_SPACE
         Case 10
             Return IOErrorKind.INVALID_PATH
+        Case 11
+            Return IOErrorKind.TOO_MANY_LINKS
         Default
             Return IOErrorKind.OTHER
     End Select

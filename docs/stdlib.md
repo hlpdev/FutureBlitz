@@ -340,7 +340,7 @@ file or URL in the default app.
   `ArgumentError` (`MISSING`, `UNKNOWN`, `INVALID`, `OTHER`, and `Name: String?`), `IOError`
   (`NOT_FOUND`, `PERMISSION_DENIED`, `ALREADY_EXISTS`, `UNEXPECTED_END`, `INVALID_DATA`,
   `INTERRUPTED`, `NOT_A_DIRECTORY`, `IS_A_DIRECTORY`, `NOT_EMPTY`, `BUSY`, `NO_SPACE`,
-  `INVALID_PATH`, `OTHER`, and `Path: String?`), `ParseError` (`SYNTAX`, `UNEXPECTED_END`,
+  `INVALID_PATH`, `TOO_MANY_LINKS`, `OTHER`, and `Path: String?`), `ParseError` (`SYNTAX`, `UNEXPECTED_END`,
   `WRONG_TYPE`, `OUT_OF_RANGE`, `MISSING`, `OTHER`, and `Line`, `Column`, and for Load's,
   `Path: String?`, where in the Value it is), `FormatError` (`BAD_TEMPLATE`, `MISSING_VALUE`,
   `BAD_VALUE`, `OTHER`), `TimeoutError` and `CancelledError` (no Kind), `NetError`

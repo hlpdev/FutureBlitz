@@ -133,6 +133,8 @@ Public Enum IOErrorKind
     NO_SPACE
     /// A path no file can have, like one with a NUL in it, or one that's too long.
     INVALID_PATH
+    /// A path that goes through more links than the OS follows, as links that lead to each other.
+    TOO_MANY_LINKS
     /// Something else.
     OTHER
 End Enum

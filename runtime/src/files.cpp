@@ -1680,6 +1680,8 @@ std::int32_t fb_io_error_kind(const std::int64_t error) {
     case UV_EINVAL:
     case UV_ENAMETOOLONG:
         return 10;
+    case UV_ELOOP:
+        return 11;
     default:
         return 0;
     }
