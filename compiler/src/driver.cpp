@@ -2722,8 +2722,17 @@ private:
         }
 
         note_disk_path(m_compilation, *file, manifest_path);
-        std::optional<manifest_t> manifest =
-            read_manifest(m_compilation.sources.get(*file), m_compilation.diagnostics);
+        // A path dependency's project.toml's warnings go with its code's, but for an editor's
+        // check, which shows each open project.toml's.
+        diagnostic_bag_t read;
+        std::optional<manifest_t> manifest = read_manifest(m_compilation.sources.get(*file), read);
+        for (const diagnostic_t& diagnostic : read.diagnostics()) {
+            if (named == nullptr || m_lint_dependencies || m_read ||
+                diagnostic.severity != severity_t::WARNING) {
+                m_compilation.diagnostics.report(diagnostic);
+            }
+        }
+
         if (!manifest) {
             m_failed = true;
             m_broken.push_back(root);
@@ -3700,13 +3709,21 @@ std::vector<std::string> input_lines(const std::filesystem::path& root,
                 }
             }
         } else if (std::filesystem::is_directory(path, error)) {
+            // A link can reach the build/ folder too, which the step's own runs change.
             std::set<std::filesystem::path> folders;
             if (const std::optional<std::filesystem::path> real = disk::real_path(path)) {
                 folders.insert(*real);
             }
 
+            if (const std::optional<std::filesystem::path> real = disk::real_path(built)) {
+                folders.insert(*real);
+            }
+
             for (auto entry = std::filesystem::recursive_directory_iterator(
-                     path, std::filesystem::directory_options::follow_directory_symlink, error);
+                     path,
+                     std::filesystem::directory_options::follow_directory_symlink |
+                         std::filesystem::directory_options::skip_permission_denied,
+                     error);
                  !error && entry != std::filesystem::recursive_directory_iterator();
                  entry.increment(error)) {
                 std::error_code ignored;
@@ -3866,10 +3883,12 @@ std::vector<std::string> program_heading(const std::filesystem::path& program,
     return {
         std::format("fb {} ({}, {})", build_config::version, build_commit,
                     build_config::toolchain_target),
-        "program " + to_utf8(program),
+        // Where they really are, as another spelling, in other letter cases or 8.3 short names,
+        // is the same project.
+        "program " + to_utf8(disk::real_path(program).value_or(program)),
         lock ? "lock " + fnv1a(*lock) : std::string("lock none"),
         // A step's told where its project is, so a copy with a stamp from here runs it again.
-        "root " + to_utf8(root),
+        "root " + to_utf8(disk::real_path(root).value_or(root)),
     };
 }
 
@@ -4074,7 +4093,9 @@ bool run_build_step(compilation_t& compilation, package_t& package, const build_
     const std::filesystem::path stamp_path = folder / "stamp";
     const std::filesystem::path program =
         std::filesystem::absolute(from.root / path_from_utf8(step.program), error);
-    const std::filesystem::path package_root = std::filesystem::absolute(package.root, error);
+    // Where it really is, as a stamp's lines name its files, however this build spells it.
+    const std::filesystem::path package_root =
+        disk::real_path(package.root).value_or(std::filesystem::absolute(package.root, error));
     const bool kept = build.steps == build_steps_t::KEPT;
     const bool typing = build.steps == build_steps_t::MISSING || kept;
     const auto report = [&](const std::string& message, const std::vector<std::string>& notes) {

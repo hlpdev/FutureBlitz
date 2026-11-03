@@ -747,7 +747,8 @@ std::int32_t fb_tar_writer_finish(void* writer, fb_array_t* output, const std::i
     state.bytes.resize(state.bytes.size() + (2 * block), 0);
     output_t out(output, limit);
     const bool fits = out.add(state.bytes);
-    state.bytes.clear();
+    // The memory goes too, as a program that catches the error goes on.
+    std::vector<std::uint8_t>().swap(state.bytes);
     return fits ? RESULT_DONE : RESULT_TOO_LARGE;
 }
 

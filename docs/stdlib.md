@@ -182,7 +182,7 @@ So far, std/ holds:
 | std/net/game/channel.fb | `ChannelKind`, and each channel's sending and receiving sides |
 | std/net/game/link.fb | `GameLink`, which a UdpSocket is, through `GameHost.Bind`, or a test's own link |
 | std/net/game/packet.fb | The wire's packets: CONNECT, ACCEPT, REFUSE, DATA, and DISCONNECT |
-| std/text/string.fb | std.text: a String's `Length`, `CharCount`, and `GraphemeCount`, and its Methods by byte position: `IsEmpty`, `IsBlank`, `Contains`, `StartsWith`, `EndsWith`, `Find`, `FindLast`, `FindAll`, `Count`, `Slice`, `Before`, `After`, `SplitOnce`, `Split`, `SplitN`, `SplitLines`, `SplitWhitespace`, `Join`, `Replace`, `ReplaceFirst`, `Trim`, `TrimStart`, `TrimEnd`, `TrimPrefix`, `TrimSuffix`, `ToUpper`, `ToLower`, `Repeated`, `PadLeft`, `PadRight`, `Center`, `Compare`, `EqualsIgnoreCase`, `NaturalCompare`, `Lines`, and `Graphemes`, with `LineIterator` and `GraphemeIterator`; `String.FromUtf8`; over the runtime's `fb_text_` functions, and its `fb_unicode_` ones for case and grapheme clusters |
+| std/text/string.fb | std.text: a String's `Length`, `CharCount`, and `GraphemeCount`, and its Methods by byte position: `IsEmpty`, `IsBlank`, `Contains`, `StartsWith`, `EndsWith`, `Find`, `FindLast`, `FindAll`, `Count`, `Slice`, `Before`, `After`, `SplitOnce`, `Split`, `SplitN`, `SplitLines`, `SplitWhitespace`, `Join`, `Replace`, `ReplaceFirst`, `Trim`, `TrimStart`, `TrimEnd`, `TrimPrefix`, `TrimSuffix`, `ToUpper`, `ToLower`, `Repeated`, `PadLeft`, `PadRight`, `Center`, `Compare`, `EqualsIgnoreCase`, `NaturalCompare`, `Lines`, and `Graphemes`, with `LineIterator` and `GraphemeIterator`; `String.FromUtf8` and `String.FromUtf8Lossy`; over the runtime's `fb_text_` functions, and its `fb_unicode_` ones for case and grapheme clusters |
 | std/text/char.fb | A Char's `Code`, `Utf8Length`, `IsLetter`, `IsDigit`, `IsNumber`, `IsLetterOrDigit`, `IsUpper`, `IsLower`, `IsPunctuation`, `IsSymbol`, `IsControl`, `IsWhitespace`, `IsAscii`, `ToUpper`, and `ToLower`, and `Char.From` |
 | std/text/builder.fb, scanner.fb | `StringBuilder` and `Scanner` |
 | std/text/unicode.fb | std.text.unicode: `UnicodeCategory` and `Category`, `NormalForm`, `Normalize`, and `IsNormalized`, `CaseFold`, and `DisplayWidth`, over utf8proc through `fb_unicode_` |
@@ -1330,7 +1330,7 @@ std.io's bytes through a codec. `Import std.compress` brings in all of std/compr
   know is a file, as POSIX says, and GNU's 'D', an incremental tar's, a folder; GNU's sparse files,
   old and in pax, are listed, and their reads are IOErrors. `Tar.Read` decompresses a .tar.gz,
   .tar.zst, .tar.xz, or .tar.lz4 first, after skippable frames too, and a TarWriter's tar compresses
-  to one, as `Gzip.Compress(writer.Finish())` does. A TarWriter writes ustar, with a pax header for
+  to one, as `Gzip.Compress(Try writer.Finish())` does. A TarWriter writes ustar, with a pax header for
   a name ustar can't hold or that isn't ASCII, or a time, which pax's has to the nanosecond, before
   1970 or past 2242, owned by root, and at 1970's start unless it's told otherwise. 7z, read over
   liblzma: its coders stored, LZMA, with or without its end marker, LZMA2, Delta, and the branch

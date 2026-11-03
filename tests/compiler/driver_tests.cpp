@@ -1477,6 +1477,24 @@ TEST_CASE("each package's [lints] give its own code's warnings their levels", "[
                          "warning Lib: unused_private",
                          "error unused: unused_local",
                      });
+
+    // A dependency's project.toml's warnings go with its code's, when they're asked for too.
+    packages.write("lib/project.toml",
+                   std::format("{}\n[lints]\nno_such_lint = \"off\"\nunused_local = \"off\"\n"
+                               "shadowed = \"off\"\n",
+                               lib_toml));
+    const auto toml_warnings = [&] {
+        const std::expected<fb::compilation_t, std::string> compiled =
+            fb::compile_file(packages / "app");
+        REQUIRE(compiled);
+        return std::ranges::count_if(
+            compiled->diagnostics.diagnostics(), [](const fb::diagnostic_t& diagnostic) {
+                return diagnostic.message == "there's no lint 'no_such_lint'";
+            });
+    };
+    CHECK(toml_warnings() == 0);
+    packages.write("app/project.toml", std::format("{}\n[lints]\ndependencies = true\n", app_toml));
+    CHECK(toml_warnings() == 1);
     packages.write("app/project.toml", std::format("{}\n[lints]\ndependencies = 1\n", app_toml));
     const std::expected<fb::compilation_t, std::string> wrong = fb::compile_file(packages / "app");
     REQUIRE(wrong);
@@ -2481,6 +2499,92 @@ TEST_CASE("a build step runs again for a link to a folder in a folder it read, a
     std::filesystem::remove(back);
     packages.remove();
 }
+
+TEST_CASE("a link in a folder a build step read that reaches build/ doesn't run it every build",
+          "[driver]") {
+    const packages_t packages;
+    counting_app(packages, counting_program("", "data"));
+    packages.write("app/data/kept.txt", "kept\n");
+    REQUIRE(build_and_run(packages, "app") == "1\n");
+    REQUIRE(std::filesystem::exists(packages / "app/build"));
+    if (!make_link(packages / "app", packages / "app/data/up")) {
+        packages.remove();
+        SKIP("this system doesn't let the tests make a link");
+    }
+
+    REQUIRE(make_link(packages / "app/build", packages / "app/data/b"));
+    CHECK(build_and_run(packages, "app") == "1\n");
+    const std::size_t after_links = runs(packages);
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == after_links);
+    std::filesystem::remove(packages / "app/data/up");
+    std::filesystem::remove(packages / "app/data/b");
+    packages.remove();
+}
+
+TEST_CASE("a folder a build step read goes on past one it can't read", "[driver]") {
+    const packages_t packages;
+    counting_app(packages, counting_program("", "data"));
+    packages.write("app/data/a-locked/secret.txt", "secret\n");
+    packages.write("app/data/z.txt", "first\n");
+    const std::filesystem::path locked = packages / "app/data/a-locked";
+    std::filesystem::permissions(locked, std::filesystem::perms::none);
+    std::error_code unreadable;
+    const bool can_read = std::filesystem::directory_iterator(locked, unreadable) !=
+                              std::filesystem::directory_iterator() ||
+                          !unreadable;
+    if (can_read) {
+        std::filesystem::permissions(locked, std::filesystem::perms::owner_all);
+        packages.remove();
+        SKIP("this system lets the tests read a folder without permission");
+    }
+
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 1);
+    // What's after it counts.
+    packages.write("app/data/z.txt", "second\n");
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 2);
+    std::filesystem::permissions(locked, std::filesystem::perms::owner_all);
+    packages.remove();
+}
+
+#ifdef _WIN32
+// windows.h's own, whose macros would clash with this file's names.
+// NOLINTNEXTLINE(readability-identifier-naming)
+extern "C" __declspec(dllimport) unsigned long __stdcall GetShortPathNameW(const wchar_t* path,
+                                                                           wchar_t* result,
+                                                                           unsigned long size);
+
+TEST_CASE("another spelling of a project's path doesn't run its build step again", "[driver]") {
+    const packages_t packages;
+    counting_app(packages, counting_program());
+    packages.write("a-folder-with-a-long-name/placeholder.txt", "");
+    REQUIRE(build_and_run(packages, "app") == "1\n");
+    REQUIRE(runs(packages) == 1);
+
+    // In other letter cases, as an editor or a shell can spell it.
+    std::string upper = fb::to_utf8(packages / "app");
+    std::ranges::transform(upper, upper.begin(), [](const char c) {
+        return static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    });
+    CHECK(fb::compile_file(fb::path_from_utf8(upper)).has_value());
+    CHECK(runs(packages) == 1);
+
+    // By its 8.3 short name, where the disk makes them.
+    std::filesystem::rename(packages / "app", packages / "a-folder-with-a-long-name/app");
+    const std::filesystem::path moved = packages / "a-folder-with-a-long-name/app";
+    CHECK(fb::compile_file(moved).has_value());
+    const std::size_t moved_runs = runs(packages);
+    std::wstring shorter(1024, L'\0');
+    const unsigned long written = GetShortPathNameW(moved.c_str(), shorter.data(), 1024);
+    REQUIRE(written != 0);
+    shorter.resize(written);
+    CHECK(fb::compile_file(std::filesystem::path(shorter)).has_value());
+    CHECK(runs(packages) == moved_runs);
+    packages.remove();
+}
+#endif
 
 TEST_CASE("while code is typed, a failed build step's error stays until what it read changes, "
           "and the rest is checked",

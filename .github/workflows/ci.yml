@@ -101,6 +101,30 @@ jobs:
       - name: Release builds and repeated concurrent programs
         run: python tools/verify.py --build build --no-build --no-tests --no-format --no-tidy
 
+  # The VS Code extension's unit tests, of the bundle that ships among them, which only a release
+  # ran before.
+  vscode:
+    name: VS Code extension
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: editors/vscode
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Build and test
+        run: |
+          npm ci
+          npm run compile
+          npm run test:unit
+
   # fb-lsp's benchmark on a release build (docs/tooling.md's M11): its report is the job's
   # artifact, and a budget a step of M11 has met fails the job when it's missed.
   lsp-bench:

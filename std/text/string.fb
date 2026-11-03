@@ -19,7 +19,7 @@ Extern "runtime"
     Function fb_text_matches_at(text: String, part: String, at: Int64): Int32
     Function fb_text_char_count(text: String, start: Int64, finish: Int64): Int64
     Function fb_text_from_utf8(bytes: UInt8[], start: Int64, count: Int64): String?
-    Function fb_string_from_array(bytes: UInt8[]): String
+    Function fb_text_from_utf8_lossy(bytes: UInt8[], limit: Int64): String?
     Function fb_text_join(parts: String[], separator: String): String?
     Function fb_text_repeat(text: String, count: Int64): String
     Function fb_unicode_to_upper(text: String): String?
@@ -62,8 +62,8 @@ Extend String
     End Method
 
     /// A String of the UTF-8 in `bytes`, with U+FFFD for each byte that doesn't start well-formed
-    /// UTF-8, as File.ReadText reads a file's. Panics past the most a String holds, which U+FFFD's
-    /// 3 bytes can come to from fewer.
+    /// UTF-8, as File.ReadText reads a file's. Panics past the most a String holds, 2147483647
+    /// bytes, which U+FFFD's 3 bytes can come to from fewer.
     ///
     /// # Examples
     ///
@@ -72,7 +72,15 @@ Extend String
     /// Expect(String.FromUtf8Lossy([0x61, 0xFF, 0x62]) == "a\u{FFFD}b")
     /// ```
     @PanicsAtCaller
-    Public Static Method FromUtf8Lossy(bytes: UInt8[]): String => fb_string_from_array(bytes)
+    Public Static Method FromUtf8Lossy(bytes: UInt8[]): String => LossyWithin(bytes, 2147483647)
+
+    /// What FromUtf8Lossy gives, but panicking past `limit` bytes.
+    @PanicsAtCaller
+    Package Static Method LossyWithin(bytes: UInt8[], limit: Int): String
+        Local text = fb_text_from_utf8_lossy(bytes, limit)
+        If text == Null Then Panic("a String holds at most {limit} bytes")
+        Return text
+    End Method
 
     /// Whether it has no characters.
     Public Method IsEmpty(): Bool => fb_text_length(Self) == 0

@@ -170,8 +170,10 @@ layout = { path = "../layout", version = "0.4" }    # its folder here, 0.4 once 
   another level an error. The standard library's code, a registry's packages', in the cache or
   through fb.lock, a prebuilt library's, and the files a build step or a .proto makes get none
   of these warnings, as they aren't the program's to fix. A path dependency's code gets only what
-  its own `[lints]` makes an error, as its warnings are for its own build, unless the project
-  being built says `dependencies = true` in its `[lints]`. The lints, by their names:
+  its own `[lints]` makes an error, as its warnings are for its own build, and the same goes for
+  the warnings about its project.toml, unless the project being built says
+  `dependencies = true` in its `[lints]`. What a build step prints as `fb:warning` is shown
+  whoever's step it is. The lints, by their names:
 
   | Lint | Warns about |
   |---|---|

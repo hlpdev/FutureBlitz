@@ -32,10 +32,10 @@ void fb_io_request_free(void* request);
 /// The bytes a read gave, into `output`, a UInt8[], or as a String, with U+FFFD for each byte
 /// that doesn't start well-formed UTF-8.
 void fb_io_request_bytes(const void* request, fb_array_t* output);
-fb_string_t* fb_io_request_text(const void* request);
+fb_string_t* fb_io_request_text(const void* request, std::int64_t limit);
 /// The lines of what a read gave, split at "\n" and "\r\n", added to `output`, a String[]. A last
 /// line with no line break after it is one too.
-void fb_io_request_lines(const void* request, fb_array_t* output);
+std::int32_t fb_io_request_lines(const void* request, fb_array_t* output, std::int64_t limit);
 /// The entries a folder's listing gave: how many, and each one's path from the folder, with '/'
 /// between names, and its kind.
 std::int64_t fb_io_request_count(const void* request);
@@ -54,7 +54,8 @@ void* fb_io_request_lock(void* request);
 
 /// What std.io's IOErrorKind an error is: 0 OTHER, 1 NOT_FOUND, 2 PERMISSION_DENIED,
 /// 3 ALREADY_EXISTS, 4 INTERRUPTED, 5 NOT_A_DIRECTORY, 6 IS_A_DIRECTORY, 7 NOT_EMPTY, 8 BUSY,
-/// 9 NO_SPACE, or 10 INVALID_PATH; and what it says, like "no such file or directory".
+/// 9 NO_SPACE, 10 INVALID_PATH, or 11 TOO_MANY_LINKS; and what it says, like "no such file or
+/// directory".
 std::int32_t fb_io_error_kind(std::int64_t error);
 fb_string_t* fb_io_error_message(std::int64_t error);
 

@@ -2,6 +2,7 @@
 #include "fb/text_format.hpp"
 #include "internal.hpp"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <charconv>
@@ -255,23 +256,13 @@ fb_string_t* fb_string_from_cstring(const char* text) {
 }
 
 fb_string_t* fb_string_from_bytes(const char* text, const std::int64_t length) {
-    // A String holds UTF-8, so each byte that doesn't start a well-formed code point, like a
-    // code page's 'é', becomes U+FFFD.
-    const std::string_view bytes(text, static_cast<std::size_t>(length));
-    std::string valid;
-    valid.reserve(bytes.size());
-    for (std::size_t i = 0; i < bytes.size();) {
-        const decoded_t decoded = decode(bytes, i);
-        if (decoded.point == replacement && decoded.length == 1) {
-            valid += "\xEF\xBF\xBD";
-        } else {
-            valid += bytes.substr(i, decoded.length);
-        }
-
-        i += decoded.length;
+    fb_string_t* string = fb::runtime::lossy_string(
+        std::string_view(text, static_cast<std::size_t>(length)), max_length);
+    if (string == nullptr) {
+        fb_panic("a String holds at most 2147483647 bytes", nullptr);
     }
 
-    return make(valid);
+    return string;
 }
 
 fb_string_t* fb_string_from_array(const fb_array_t* bytes) {
@@ -407,3 +398,31 @@ fb_string_t* fb_string_from_char(const std::uint32_t value) {
     return make(encode(value));
 }
 }
+
+namespace fb::runtime {
+
+fb_string_t* lossy_string(const std::string_view bytes, const std::size_t limit) {
+    // A String holds UTF-8, so each byte that doesn't start a well-formed code point, like a
+    // code page's 'é', becomes U+FFFD, whose 3 bytes can take it past the limit from under it.
+    const std::size_t most = std::min(limit, max_length);
+    std::string valid;
+    valid.reserve(std::min(bytes.size(), most));
+    for (std::size_t i = 0; i < bytes.size();) {
+        const decoded_t decoded = decode(bytes, i);
+        if (decoded.point == replacement && decoded.length == 1) {
+            valid += "\xEF\xBF\xBD";
+        } else {
+            valid += bytes.substr(i, decoded.length);
+        }
+
+        if (valid.size() > most) {
+            return nullptr;
+        }
+
+        i += decoded.length;
+    }
+
+    return make(valid);
+}
+
+} // namespace fb::runtime

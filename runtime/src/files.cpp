@@ -1469,7 +1469,8 @@ std::string os_long_path(const std::string_view path) {
         needed != 0 ? GetLongPathNameW(wide.c_str(), found.data(), needed) : DWORD{ 0 };
     if (written != 0 && written < needed) {
         found.resize(written);
-        at = utf8_of(found);
+        // Its long names can pass what the OS takes as it is, which the short ones didn't.
+        at = os_path(utf8_of(found));
     }
 #endif
     return at;
@@ -1589,11 +1590,13 @@ void fb_io_request_bytes(const void* request, fb_array_t* output) {
     }
 }
 
-fb_string_t* fb_io_request_text(const void* request) {
-    return string_of(static_cast<const request_t*>(request)->bytes.view());
+fb_string_t* fb_io_request_text(const void* request, const std::int64_t limit) {
+    return fb::runtime::lossy_string(static_cast<const request_t*>(request)->bytes.view(),
+                                     static_cast<std::size_t>(limit));
 }
 
-void fb_io_request_lines(const void* request, fb_array_t* output) {
+std::int32_t fb_io_request_lines(const void* request, fb_array_t* output,
+                                 const std::int64_t limit) {
     std::string_view rest = static_cast<const request_t*>(request)->bytes.view();
     while (!rest.empty()) {
         const std::size_t end = rest.find('\n');
@@ -1603,9 +1606,15 @@ void fb_io_request_lines(const void* request, fb_array_t* output) {
             line.remove_suffix(1);
         }
 
-        *static_cast<fb_string_t**>(fb_array_push(output, sizeof(fb_string_t*), nullptr)) =
-            string_of(line);
+        fb_string_t* text = fb::runtime::lossy_string(line, static_cast<std::size_t>(limit));
+        if (text == nullptr) {
+            return 0;
+        }
+
+        *static_cast<fb_string_t**>(fb_array_push(output, sizeof(fb_string_t*), nullptr)) = text;
     }
+
+    return 1;
 }
 
 std::int64_t fb_io_request_count(const void* request) {

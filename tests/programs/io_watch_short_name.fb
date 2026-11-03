@@ -23,8 +23,10 @@ Function ShortOf(path: Path): Path
         Return Path(String.FromUtf8(memory.Slice(0, written As Int).ToArray()) ?? path.Text)
     End Unsafe
 End Function
+Const SEPARATOR = "\\"
 #Else
 Function ShortOf(path: Path): Path => path
+Const SEPARATOR = "/"
 #End If
 
 // Whether `kind` comes for the file at `path` within ten seconds, writing to `poked`, if any, now
@@ -82,5 +84,41 @@ Local inShort = short / "a-file-with-a-long-name.txt"
 watcher = Try FileWatcher(inShort)
 Try File.WriteText(file, "changed again")
 Print("file in a short folder changed {Await Saw(watcher, FileEventKind.CHANGED, inShort, file)}")
+watcher.Close()
+
+// Removed through a short name, which Windows tells of by it, it's what the program named.
+watcher = Try FileWatcher(short)
+Local gone = short / "a-file-with-a-long-name.txt"
+Try File.Delete(ShortOf(file))
+Print("removed by its short name {Await Saw(watcher, FileEventKind.REMOVED, gone)}")
+watcher.Close()
+
+// A path with a separator at its end names what's in the folder as one without does.
+Local separated = Path(long.Text + SEPARATOR)
+watcher = Try FileWatcher(separated)
+Local after = long / "after-a-separator.txt"
+Try File.WriteText(after, "made")
+Print("separated created {Await Saw(watcher, FileEventKind.CREATED, after)}")
+Try File.WriteText(after, "changed")
+Print("separated changed {Await Saw(watcher, FileEventKind.CHANGED, after, after)}")
+Try File.Delete(after)
+Print("separated removed {Await Saw(watcher, FileEventKind.REMOVED, after)}")
+watcher.Close()
+
+// A short form under Windows' limit for paths, whose long form is past it.
+Local deepLong = long
+Local deepShort = short
+For i = 1 To 9
+    Local part = "folder-number-{i}-with-a-rather-long-name"
+    Try Dir.Create(deepShort / part)
+    deepLong = deepLong / part
+    deepShort = ShortOf(deepShort / part)
+End For
+
+Print("deep {deepLong.Text.Bytes.Count > 300}")
+watcher = Try FileWatcher(deepShort)
+Local deepFile = deepShort / "deep-with-a-long-name.txt"
+Try File.WriteText(deepFile, "made")
+Print("deep created {Await Saw(watcher, FileEventKind.CREATED, deepFile)}")
 watcher.Close()
 Try temp.Close()

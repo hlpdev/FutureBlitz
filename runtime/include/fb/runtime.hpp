@@ -412,6 +412,9 @@ std::int32_t fb_text_matches_at(const fb_string_t* text, const fb_string_t* part
 std::int64_t fb_text_char_count(const fb_string_t* text, std::int64_t start, std::int64_t finish);
 /// A new String of `count` bytes of a UInt8[] from `start`, or null unless they're UTF-8.
 fb_string_t* fb_text_from_utf8(const fb_array_t* bytes, std::int64_t start, std::int64_t count);
+/// A String of a UInt8[]'s bytes, with U+FFFD for each that doesn't start well-formed UTF-8, or
+/// null past `limit` bytes.
+fb_string_t* fb_text_from_utf8_lossy(const fb_array_t* bytes, std::int64_t limit);
 /// Adds `text`'s bytes to `into`, a UInt8[].
 void fb_text_append(fb_array_t* into, const fb_string_t* text);
 /// A new String of `parts`, a String[], with `separator` between each two, or null past the

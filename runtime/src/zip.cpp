@@ -869,6 +869,8 @@ std::int32_t fb_zip_writer_finish(void* writer, fb_array_t* output, const std::i
     output_t out(output, limit);
     const bool fits = out.add(state.bytes);
     stop(state);
+    // The memory goes too, as a program that catches the error goes on.
+    std::vector<std::uint8_t>().swap(state.bytes);
     start(state);
     return fits ? RESULT_DONE : RESULT_TOO_LARGE;
 }
