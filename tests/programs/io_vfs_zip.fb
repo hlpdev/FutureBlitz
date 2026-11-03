@@ -63,9 +63,9 @@ Function Failure(vfs: Vfs, path: String): String
 End Function
 
 Local pak = Try Zipped([("readme.txt", "first"), ("data/levels/one.txt", "level one"),
-                    ("./data/./two.txt", "level two"), ("data/../top.txt", "top"),
-                    ("../outside.txt", "outside"), ("readme.txt", "last")],
-                   ["empty", "data/levels"])
+                        ("./data/./two.txt", "level two"), ("data/../top.txt", "top"),
+                        ("../outside.txt", "outside"), ("readme.txt", "last")],
+                       ["empty", "data/levels"])
 Local vfs = Vfs()
 Try vfs.MountZip("game", pak)
 Print(Try Listed(vfs, ""))
