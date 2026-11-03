@@ -5863,6 +5863,42 @@ std::filesystem::path temporary_path(const std::filesystem::path& stem,
     return folder / name;
 }
 
+namespace {
+
+/// The file in a folder hold_temporary() made, which its process keeps locked.
+constexpr std::string_view temporary_lock = ".fb-holds";
+
+} // namespace
+
+std::optional<file_lock_t> hold_temporary(const std::filesystem::path& folder) {
+    std::error_code ignored;
+    std::filesystem::create_directories(folder, ignored);
+    return file_lock_t::try_take(folder / temporary_lock);
+}
+
+void sweep_temporary() {
+    // A lock file this young may be one its process hasn't locked yet, for a moment.
+    constexpr auto settled = std::chrono::seconds(2);
+    std::error_code error;
+    const std::filesystem::path folders = temporary_path("sweep", "").parent_path();
+    const auto now = std::filesystem::file_time_type::clock::now();
+    std::vector<std::filesystem::path> gone;
+    for (const std::filesystem::directory_entry& entry :
+         std::filesystem::directory_iterator(folders, error)) {
+        const std::filesystem::path lock = entry.path() / temporary_lock;
+        std::error_code looking;
+        const std::filesystem::file_time_type written =
+            std::filesystem::last_write_time(lock, looking);
+        if (!looking && now - written >= settled && file_lock_t::try_take(lock)) {
+            gone.push_back(entry.path());
+        }
+    }
+
+    for (const std::filesystem::path& folder : gone) {
+        std::filesystem::remove_all(folder, error);
+    }
+}
+
 bool remove_temporary(const std::filesystem::path& path) {
     constexpr int tries = 40;
     constexpr auto pause = std::chrono::milliseconds(50);

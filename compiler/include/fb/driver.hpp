@@ -9,6 +9,7 @@
 #include "fb/link.hpp"
 #include "fb/lower.hpp"
 #include "fb/mir.hpp"
+#include "fb/process.hpp"
 #include "fb/registry.hpp"
 #include "fb/sema.hpp"
 #include "fb/source.hpp"
@@ -445,5 +446,13 @@ struct link_errors_t {
 /// or a scanner that read the new executable, lets go of them, so a removal that fails is tried
 /// again for up to two seconds.
 bool remove_temporary(const std::filesystem::path& path);
+
+/// Makes `folder`, that temporary_path() named, and holds it for this process, for as long as the
+/// lock lives, so sweep_temporary() leaves it. Release the lock before removing the folder.
+[[nodiscard]] std::optional<file_lock_t> hold_temporary(const std::filesystem::path& folder);
+
+/// Removes the folders hold_temporary() made whose process has gone without removing them, as one
+/// that's killed does, which nothing else can do for it.
+void sweep_temporary();
 
 } // namespace fb

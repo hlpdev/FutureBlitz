@@ -1540,6 +1540,152 @@ TEST_CASE("a program fb starts gets SIGPIPE at its default, though fb ignores it
 #endif
 }
 
+TEST_CASE("fb run's program ends when fb does, however fb ends, and its folder goes", "[cli]") {
+    // The program says it started, then writes a marker a moment later, unless it's ended first.
+    // It's named for this process, so copies of this test that run at once look for their own.
+#ifdef _WIN32
+    const auto own = static_cast<unsigned long>(GetCurrentProcessId());
+#else
+    const auto own = static_cast<unsigned long>(getpid());
+#endif
+    const std::string name = std::format("tied_run_{}", own);
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "tied_run";
+    std::filesystem::remove_all(folder);
+    std::filesystem::create_directories(folder);
+    const std::filesystem::path started = folder / "started.txt";
+    const std::filesystem::path marker = folder / "marker.txt";
+    const std::filesystem::path source = write_source(
+        std::format("tied_run/{}.fb", name),
+        std::format("Import std.core\nImport std.io\nImport std.time\n"
+                    "Try File.WriteText(Path(\"{}\"), \"up\")\n"
+                    "Sleep(2.Seconds)\n"
+                    "Try File.WriteText(Path(\"{}\"), \"not ended\")\n",
+                    started.generic_string(), marker.generic_string()));
+    const std::filesystem::path temporary = fb::temporary_path("probe", ".none").parent_path();
+    const auto folders = [&] {
+        std::vector<std::filesystem::path> found;
+        std::error_code ignored;
+        for (const std::filesystem::directory_entry& entry :
+             std::filesystem::directory_iterator(temporary, ignored)) {
+            if (fb::to_utf8(entry.path().filename()).starts_with(name + "-")) {
+                found.push_back(entry.path());
+            }
+        }
+
+        return found;
+    };
+
+    // Left to run, it writes the marker, and fb removes its folder.
+    const fb::process_result_t whole = fb_run({ "run", fb::to_utf8(source), "--color", "never" });
+    INFO(whole.output);
+    REQUIRE(whole.exit_code == 0);
+    REQUIRE(std::filesystem::exists(marker));
+    CHECK(folders().empty());
+    const std::string fb_program = FB_CLI;
+    const std::string source_path = fb::to_utf8(source);
+#ifdef _WIN32
+    const std::vector<int> ends{ 0 };
+#else
+    const std::vector<int> ends{ SIGKILL, SIGTERM, SIGHUP };
+#endif
+    for (const int end : ends) {
+        CAPTURE(end);
+        std::filesystem::remove(started);
+        std::filesystem::remove(marker);
+#ifdef _WIN32
+        std::wstring command = std::format(L"\"{}\" run \"{}\"",
+                                           fb::path_from_utf8(fb_program).wstring(),
+                                           source.wstring());
+        STARTUPINFOW startup{};
+        startup.cb = sizeof(startup);
+        PROCESS_INFORMATION process{};
+        REQUIRE(CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
+                               nullptr, nullptr, &startup, &process) != 0);
+#else
+        posix_spawn_file_actions_t actions;
+        posix_spawn_file_actions_init(&actions);
+        posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
+        posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
+        std::string program = fb_program;
+        std::string run = "run";
+        std::string argument = source_path;
+        std::array<char*, 4> argv{ program.data(), run.data(), argument.data(), nullptr };
+        pid_t pid = 0;
+        REQUIRE(posix_spawn(&pid, program.c_str(), &actions, nullptr, argv.data(), environ) == 0);
+        posix_spawn_file_actions_destroy(&actions);
+#endif
+        for (int tries = 0; tries < 6000 && !std::filesystem::exists(started); ++tries) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+
+        REQUIRE(std::filesystem::exists(started));
+#ifdef _WIN32
+        TerminateProcess(process.hProcess, 1);
+        WaitForSingleObject(process.hProcess, INFINITE);
+        CloseHandle(process.hProcess);
+        CloseHandle(process.hThread);
+        constexpr bool cleans_up = false;
+#else
+        kill(pid, end);
+        int status = 0;
+        waitpid(pid, &status, 0);
+        // A signal fb can see goes on to the program, and fb cleans up and gives its exit code.
+        const bool cleans_up = end != SIGKILL;
+        if (cleans_up) {
+            CHECK((WIFEXITED(status) && WEXITSTATUS(status) == 128 + end));
+        }
+#endif
+        if (cleans_up) {
+            CHECK(folders().empty());
+        }
+
+        // Long enough that the program would have written the marker.
+        std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+        CHECK_FALSE(std::filesystem::exists(marker));
+
+        // Nothing could clean up after a kill then, so the next run does.
+        std::filesystem::remove(started);
+        const fb::process_result_t next =
+            fb_run({ "run", source_path, "--color", "never" });
+        CHECK(next.exit_code == 0);
+        CHECK(folders().empty());
+    }
+}
+
+TEST_CASE("what a program started and left running stays after fb run ends", "[cli]") {
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "left_running";
+    std::filesystem::remove_all(folder);
+    std::filesystem::create_directories(folder);
+    const std::filesystem::path marker = folder / "marker.txt";
+    const std::filesystem::path stays = write_source(
+        "left_running/stays.fb",
+        std::format("Import std.io\nImport std.time\n"
+                    "Sleep(1.Seconds)\n"
+                    "Try File.WriteText(Path(\"{}\"), \"stayed\")\n",
+                    marker.generic_string()));
+    std::filesystem::path built = folder / "stays";
+    built += fb::executable_extension;
+    const fb::process_result_t building = fb_run(
+        { "build", fb::to_utf8(stays), "-o", fb::to_utf8(built), "--color", "never" });
+    INFO(building.output);
+    REQUIRE(building.exit_code == 0);
+    const std::filesystem::path starter = write_source(
+        "left_running/starter.fb",
+        std::format("Import std.core\nImport std.os\n"
+                    "Local child = Try Command(\"{}\").Stdout(Stdio.NONE).Stderr(Stdio.NONE).Spawn()\n"
+                    "Print(\"started\")\n",
+                    built.generic_string()));
+    const fb::process_result_t ran = fb_run({ "run", fb::to_utf8(starter), "--color", "never" });
+    INFO(ran.output);
+    REQUIRE(ran.exit_code == 0);
+    REQUIRE(ran.output.contains("started"));
+    for (int tries = 0; tries < 1000 && !std::filesystem::exists(marker); ++tries) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    CHECK(std::filesystem::exists(marker));
+}
+
 TEST_CASE("a program started while another runs doesn't keep the other's pipes", "[cli]") {
 #ifdef _WIN32
     SKIP("this checks the descriptors posix_spawn passes on");

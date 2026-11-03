@@ -5,6 +5,8 @@ them while each was built. Newest first.
 
 ## 1.2.3
 
+- **`fb run` ties the program to fb**: killing fb left the program running and its temp folder behind. `run_attached` now has it in a job on Windows, which ends it and what it starts, and on POSIX a small watcher process ends it, as it stays in the terminal's process group, and macOS has no PDEATHSIG. SIGTERM and SIGHUP go on to the program, and fb cleans up and gives its exit code. What a program started and left running when it ended by itself stays. A kill can't clean up, so each folder `fb run` and `fb test` make holds a lock, and the next one removes a folder whose lock nothing holds. Tests: fb run's program ends when fb does; what a program started and left running stays.
+
 - **A debug form of a big graph is bounded**: it cut only what it was already showing, so a graph with links across it, as a parent's children that each hold the others, was shown by every simple path through it: 10 children came to 2.1 GB in 53 s, and 11 to "a String holds at most 2147483647 bytes", as a failing Expect on a Widget did. An object past 1,000 deep, or once the form has about 4 MiB of objects' own text, now shows as `Node { … }`. Test: tests/programs/debug_graph_bounded.
 
 - **Toml.Write's long arrays, and a Float32's Value** (for fbengine's scene files): an Array of more than one element whose line would pass 100 bytes has an element a line, so one change is one line of a diff; `Value.FromFloat32` is the Double a Float32's shortest text reads as, which Save had and a program had to go through text for; it isn't a New of its own, since a decimal literal tries Float first and `Value(1.23456789012345)` would lose its digits. Tests: tests/programs/data_toml_long_arrays, data_value_float32.

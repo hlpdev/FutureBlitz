@@ -159,11 +159,12 @@ BOOL WINAPI ignore_interrupt(const DWORD event) {
     return event == CTRL_C_EVENT || event == CTRL_BREAK_EVENT ? TRUE : FALSE;
 }
 
-/// A job whose programs end when its last handle closes, as this process's do when it ends.
-HANDLE tying_job() {
+/// A job whose programs end when its last handle closes, as this process's do when it ends, with
+/// `also`'s limits too.
+HANDLE tying_job(const DWORD also = 0) {
     HANDLE job = CreateJobObjectW(nullptr, nullptr);
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
-    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | also;
     if (job != nullptr && SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits,
                                                   sizeof(limits)) == 0) {
         CloseHandle(job);
@@ -358,6 +359,23 @@ std::expected<file_lock_t, std::string> file_lock_t::take(const std::filesystem:
     return file_lock_t(std::bit_cast<std::intptr_t>(file));
 }
 
+std::optional<file_lock_t> file_lock_t::try_take(const std::filesystem::path& path) {
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                              OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        return std::nullopt;
+    }
+
+    OVERLAPPED at{};
+    if (LockFileEx(file, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &at) == 0) {
+        CloseHandle(file);
+        return std::nullopt;
+    }
+
+    return file_lock_t(std::bit_cast<std::intptr_t>(file));
+}
+
 file_lock_t::~file_lock_t() {
     if (m_handle != -1) {
         CloseHandle(std::bit_cast<HANDLE>(m_handle));
@@ -402,14 +420,35 @@ std::expected<int, std::string> run_attached(const std::filesystem::path& progra
     // program, and this process waits for that and gives its exit code, as a shell does.
     std::fflush(nullptr);
     SetConsoleCtrlHandler(ignore_interrupt, TRUE);
+    // It's in a job, from before it can start anything, that ends it and what it starts if this
+    // process ends first. Without one it runs all the same, and a program can still ask to leave.
+    HANDLE job = tying_job(JOB_OBJECT_LIMIT_BREAKAWAY_OK);
     PROCESS_INFORMATION process{};
-    if (CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE, 0, nullptr, nullptr,
-                       &startup, &process) == 0) {
+    if (CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE,
+                       job != nullptr ? CREATE_SUSPENDED : 0, nullptr, nullptr, &startup,
+                       &process) == 0) {
+        const std::string why = last_error();
+        if (job != nullptr) {
+            CloseHandle(job);
+        }
+
         SetConsoleCtrlHandler(ignore_interrupt, FALSE);
-        return std::unexpected(std::format("couldn't run {}: {}", program.string(), last_error()));
+        return std::unexpected(std::format("couldn't run {}: {}", program.string(), why));
+    }
+
+    if (job != nullptr) {
+        AssignProcessToJobObject(job, process.hProcess);
+        ResumeThread(process.hThread);
     }
 
     WaitForSingleObject(process.hProcess, INFINITE);
+    // It ended by itself, so what it left running stays, as it would from a shell.
+    if (job != nullptr) {
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION none{};
+        SetInformationJobObject(job, JobObjectExtendedLimitInformation, &none, sizeof(none));
+        CloseHandle(job);
+    }
+
     SetConsoleCtrlHandler(ignore_interrupt, FALSE);
     DWORD exit_code = 0;
     GetExitCodeProcess(process.hProcess, &exit_code);
@@ -707,6 +746,74 @@ int wait_for(const pid_t pid) {
     return WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
 }
 
+/// The program run_attached() is waiting for, which a signal handler reads.
+std::atomic<pid_t> attached{ 0 };
+
+/// SIGTERM's and SIGHUP's handler while a program runs in this terminal: it gets them, and ends
+/// as it chooses, and this process then cleans up, as it does after Ctrl+C.
+void pass_on(const int number) {
+    if (const pid_t program = attached.load(); program > 0) {
+        kill(program, number);
+    }
+}
+
+/// What ends a program in this terminal if this process ends first, however it ends, SIGKILL too.
+/// It stays in this terminal's process group, to get Ctrl+C and read the terminal, so it can't
+/// be tied as run_process() ties one, and macOS has no PDEATHSIG.
+struct attached_watcher_t {
+    pid_t pid = 0;
+    int pipe_end = -1;
+};
+
+/// Forks a process that waits on a pipe only this process writes to, which closes when it ends,
+/// and then ends `program`. Between the fork and its end, the child does only what's safe in a
+/// process with threads. Without one, which fails only when the system's out of processes, the
+/// program runs all the same.
+attached_watcher_t start_watcher(const pid_t program) {
+    std::array<int, 2> ends{};
+    if (!open_pipe(ends)) {
+        return {};
+    }
+
+    const pid_t pid = fork();
+    if (pid == 0) {
+        struct sigaction ignore{};
+        ignore.sa_handler = SIG_IGN;
+        sigemptyset(&ignore.sa_mask);
+        for (const int number : tying_signals) {
+            sigaction(number, &ignore, nullptr);
+        }
+
+        // It keeps nothing of this process's open, such as a pipe its stdout goes to.
+        for (const int end : { STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO, ends[1] }) {
+            close(end);
+        }
+
+        char byte = 0;
+        while (read(ends[0], &byte, 1) < 0 && errno == EINTR) {}
+
+        kill(program, SIGKILL);
+        _exit(0);
+    }
+
+    close(ends[0]);
+    if (pid < 0) {
+        close(ends[1]);
+        return {};
+    }
+
+    return { .pid = pid, .pipe_end = ends[1] };
+}
+
+/// Ends the watcher, as the program ended first.
+void stop_watcher(const attached_watcher_t& watcher) {
+    if (watcher.pid > 0) {
+        kill(watcher.pid, SIGKILL);
+        close(watcher.pipe_end);
+        waitpid(watcher.pid, nullptr, 0);
+    }
+}
+
 } // namespace
 
 std::expected<process_result_t, std::string>
@@ -869,6 +976,21 @@ std::expected<file_lock_t, std::string> file_lock_t::take(const std::filesystem:
     return file_lock_t(file);
 }
 
+std::optional<file_lock_t> file_lock_t::try_take(const std::filesystem::path& path) {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg): open's mode is its third argument
+    const int file = open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0644);
+    if (file < 0) {
+        return std::nullopt;
+    }
+
+    if (flock(file, LOCK_EX | LOCK_NB) != 0) {
+        close(file);
+        return std::nullopt;
+    }
+
+    return file_lock_t(file);
+}
+
 file_lock_t::~file_lock_t() {
     if (m_handle != -1) {
         close(static_cast<int>(m_handle));
@@ -906,8 +1028,35 @@ std::expected<int, std::string> run_attached(const std::filesystem::path& progra
     sigaction(SIGQUIT, &ignore, &quit);
     std::unique_lock lock(spawning);
     const std::expected<pid_t, std::string> pid = spawn(program, arguments, nullptr);
+    const attached_watcher_t watcher = pid ? start_watcher(*pid) : attached_watcher_t{};
     lock.unlock();
+    attached = pid.value_or(0);
+    // A signal this process ignores stays ignored, as nohup has it.
+    struct sigaction passing{};
+    passing.sa_handler = pass_on;
+    passing.sa_flags = SA_RESTART;
+    sigemptyset(&passing.sa_mask);
+    struct sigaction terminate{};
+    struct sigaction hang_up{};
+    sigaction(SIGTERM, nullptr, &terminate);
+    sigaction(SIGHUP, nullptr, &hang_up);
+    const auto ignored = [](const struct sigaction& action) {
+        return (static_cast<unsigned>(action.sa_flags) & static_cast<unsigned>(SA_SIGINFO)) == 0 &&
+               action.sa_handler == SIG_IGN;
+    };
+    if (!ignored(terminate)) {
+        sigaction(SIGTERM, &passing, nullptr);
+    }
+
+    if (!ignored(hang_up)) {
+        sigaction(SIGHUP, &passing, nullptr);
+    }
+
     std::expected<int, std::string> result = pid.transform(wait_for);
+    sigaction(SIGTERM, &terminate, nullptr);
+    sigaction(SIGHUP, &hang_up, nullptr);
+    attached = 0;
+    stop_watcher(watcher);
     sigaction(SIGINT, &interrupt, nullptr);
     sigaction(SIGQUIT, &quit, nullptr);
     return result;
