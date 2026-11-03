@@ -1421,24 +1421,68 @@ TEST_CASE("each package's [lints] give its own code's warnings their levels", "[
                                   "End Function\n"
                                   "Local unused = 1\n"
                                   "Print(F() + Shadow())\n");
-    const std::expected<fb::compilation_t, std::string> compiled =
-        fb::compile_file(packages / "app");
-    REQUIRE(compiled);
-    std::vector<std::string> found;
-    for (const fb::diagnostic_t& diagnostic : compiled->diagnostics.diagnostics()) {
-        const fb::source_file_t& file = compiled->sources.get(diagnostic.span.file);
-        found.push_back(std::format(
-            "{} {}: {}", diagnostic.severity == fb::severity_t::ERROR ? "error" : "warning",
-            file.slice(diagnostic.span), diagnostic.code));
-    }
+    const auto found = [&] {
+        const std::expected<fb::compilation_t, std::string> compiled =
+            fb::compile_file(packages / "app");
+        REQUIRE(compiled);
+        std::vector<std::string> each;
+        for (const fb::diagnostic_t& diagnostic : compiled->diagnostics.diagnostics()) {
+            const fb::source_file_t& file = compiled->sources.get(diagnostic.span.file);
+            each.push_back(std::format(
+                "{} {}: {}", diagnostic.severity == fb::severity_t::ERROR ? "error" : "warning",
+                file.slice(diagnostic.span), diagnostic.code));
+        }
+
+        return each;
+    };
 
     // The app's Global that its Local hides, whose warning is off, and its unused Local, an
-    // error; and lib's shadowed Global, while its unused Locals' are off.
-    CHECK(found == std::vector<std::string>{
-                       "warning Lib: unused_private",
-                       "error unused: unused_local",
-                       "warning shadow: shadowed",
-                   });
+    // error; but none of lib's, a path dependency's, whose warnings are for its own build.
+    CHECK(found() == std::vector<std::string>{
+                         "warning Lib: unused_private",
+                         "error unused: unused_local",
+                     });
+
+    // What lib makes an error still is one.
+    packages.write(
+        "lib/project.toml",
+        std::format("{}\n[lints]\nunused_local = \"off\"\nshadowed = \"error\"\n", lib_toml));
+    CHECK(found() == std::vector<std::string>{
+                         "warning Lib: unused_private",
+                         "error unused: unused_local",
+                         "error shadow: shadowed",
+                     });
+
+    // And when the app asks, lib's warnings come, by lib's levels.
+    packages.write("lib/project.toml",
+                   std::format("{}\n[lints]\nunused_local = \"off\"\n", lib_toml));
+    packages.write("app/project.toml",
+                   std::format("{}\n[lints]\ndependencies = true\nunused_local = \"error\"\n"
+                               "shadowed = \"off\"\n",
+                               app_toml));
+    CHECK(found() == std::vector<std::string>{
+                         "warning Lib: unused_private",
+                         "error unused: unused_local",
+                         "warning shadow: shadowed",
+                     });
+
+    // A dependency's asking doesn't count, and neither does anything but true or false.
+    packages.write(
+        "app/project.toml",
+        std::format("{}\n[lints]\nunused_local = \"error\"\nshadowed = \"off\"\n", app_toml));
+    packages.write(
+        "lib/project.toml",
+        std::format("{}\n[lints]\ndependencies = true\nunused_local = \"off\"\n", lib_toml));
+    CHECK(found() == std::vector<std::string>{
+                         "warning Lib: unused_private",
+                         "error unused: unused_local",
+                     });
+    packages.write("app/project.toml", std::format("{}\n[lints]\ndependencies = 1\n", app_toml));
+    const std::expected<fb::compilation_t, std::string> wrong = fb::compile_file(packages / "app");
+    REQUIRE(wrong);
+    REQUIRE(!wrong->diagnostics.diagnostics().empty());
+    CHECK(wrong->diagnostics.diagnostics().front().message ==
+          "[lints]'s dependencies is true or false");
     packages.remove();
 }
 

@@ -5,6 +5,7 @@ them while each was built. Newest first.
 
 ## 1.2.3
 
+- **A path dependency's warnings**: every build of a game printed its path dependencies' unused_import, redundant_as, and shadowed warnings. Only the project being built warns now, unless its `[lints]` says `dependencies = true`; what a dependency's own `[lints]` makes an error stays one. Test: driver_tests' each package's `[lints]`.
 - **`IOErrorKind.TOO_MANY_LINKS`**: what libuv's ELOOP is, which was OTHER: a path through more links than the OS follows. Test: tests/programs/io_too_many_links, by a symbolic link to itself, and on Windows a junction.
 - **The VS Code extension is bundled**: esbuild makes dist/extension.js, with vscode external and vscode-languageclient inside, its code still run only when a server starts; `.vscodeignore` leaves out src, out, node_modules, the tests, and maps, so a .vsix has 11 files of its own, from 251, 192 of them JavaScript, with the file icons. release.yml checks what `vsce ls` lists. Test: activate.test.ts runs against the bundle; the other unit tests are of out/'s modules, which the bundle doesn't export.
 - **`String.FromUtf8Lossy`**: std's public lossy UTF-8 decode, the one File.ReadText has inside, for what reads bytes itself, as an Async ReadText does. Test: tests/programs/text_from_utf8_lossy, against File.ReadText of the same bytes.

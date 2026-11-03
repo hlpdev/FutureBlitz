@@ -123,6 +123,8 @@ struct manifest_t {
     std::optional<std::uint32_t> format_width;
     /// [lints]: each lint's level in its code, a warning unless it says otherwise.
     lints_t lints;
+    /// [lints]'s dependencies: whether a program's build gives its path dependencies' warnings too.
+    bool lint_dependencies = false;
     /// [build], its build step, if it has one.
     std::optional<build_step_t> build;
     /// What a registry shows of it, which `fb publish` needs some of: a line about it, its

@@ -2564,6 +2564,8 @@ private:
     /// when there's none.
     std::optional<lockfile_t> m_lockfile;
     std::optional<std::string> m_lock_error;
+    /// Whether the main package's project.toml asks for its path dependencies' warnings.
+    bool m_lint_dependencies = false;
     bool m_failed = false;
 
     template <typename... Args>
@@ -2791,6 +2793,17 @@ private:
         // nor one in the cache, opened on its own.
         if (locked == nullptr && package.interface.empty() && !in_cache(root)) {
             package.lints = manifest->lints;
+            // A path dependency's warnings are its own project's to look at, in its own build,
+            // unless the program's project.toml asks, and what it makes errors stay.
+            if (named == nullptr) {
+                m_lint_dependencies = manifest->lint_dependencies;
+            } else if (!m_lint_dependencies) {
+                for (lint_level_t& level : package.lints->levels) {
+                    if (level == lint_level_t::WARNING) {
+                        level = lint_level_t::OFF;
+                    }
+                }
+            }
         }
 
         // Only a program's own package builds an executable; the ones it uses are libraries.

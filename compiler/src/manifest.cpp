@@ -401,7 +401,8 @@ private:
     }
 
     /// [lints]: a level for each lint it names, "off", "warning", or "error", which its code's
-    /// warnings about that have.
+    /// warnings about that have, and `dependencies`, whether its path dependencies' warnings are
+    /// given too.
     void read_lints(const toml::key& key, const toml::node& node, manifest_t& manifest) {
         const toml::table* table = node.as_table();
         if (table == nullptr) {
@@ -413,6 +414,17 @@ private:
 
         for (const auto& [key_of_field, node_of_field] : in_order(*table)) {
             const toml::key& field = *key_of_field;
+            if (field.str() == "dependencies") {
+                if (const std::optional<bool> given = node_of_field->value_exact<bool>()) {
+                    manifest.lint_dependencies = *given;
+                } else {
+                    fail(span_of(node_of_field->source()),
+                         "[lints]'s dependencies is true or false");
+                }
+
+                continue;
+            }
+
             const std::optional<lint_t> lint = lint_named(field.str());
             if (!lint) {
                 std::string names;

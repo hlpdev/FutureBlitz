@@ -1043,7 +1043,8 @@ fb/lint.hpp), whose name `diagnostic_t::code` is, as `fb check` shows it, `warni
 and which project.toml's `[lints]` turns off or makes an error for the package's own code (the
 spec's [packages](spec/11-modules.md#packages) lists them). Each module has its package's
 `lints_t`, or none for std's code, a registry's package's, a prebuilt library's, and generated
-files', and the driver gives each warning its level after sema (`apply_lints`), leaving an
+files', a path dependency's with its warnings off unless the program's `[lints]` says
+`dependencies = true`, and the driver gives each warning its level after sema (`apply_lints`), leaving an
 inspection's out of a file with errors and giving what code checked more than once found once.
 The inspections, which `lints_t::inspect` says look, are on for every check of files on disk and
 fb-lsp's, and off for `compile()` in memory, as the compiler's unit tests have it, unless it's

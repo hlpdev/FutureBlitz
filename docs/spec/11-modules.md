@@ -169,7 +169,9 @@ layout = { path = "../layout", version = "0.4" }    # its folder here, 0.4 once 
   never read an error. Each is a warning without it. A name that isn't a lint is a warning, and
   another level an error. The standard library's code, a registry's packages', in the cache or
   through fb.lock, a prebuilt library's, and the files a build step or a .proto makes get none
-  of these warnings, as they aren't the program's to fix. The lints, by their names:
+  of these warnings, as they aren't the program's to fix. A path dependency's code gets only what
+  its own `[lints]` makes an error, as its warnings are for its own build, unless the project
+  being built says `dependencies = true` in its `[lints]`. The lints, by their names:
 
   | Lint | Warns about |
   |---|---|
