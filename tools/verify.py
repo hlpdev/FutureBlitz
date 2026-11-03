@@ -80,7 +80,10 @@ def step(title: str) -> None:
 
 def fail(message: str) -> None:
     failures.append(message)
-    print(f"FAIL {message}", flush=True)
+    # What a program printed can be what the console's own encoding has no character for.
+    encoding = sys.stdout.encoding or "utf-8"
+    shown = f"FAIL {message}".encode(encoding, "replace").decode(encoding)
+    print(shown, flush=True)
 
 
 def run(command: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[bytes]:

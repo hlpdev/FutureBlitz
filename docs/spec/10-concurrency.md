@@ -125,7 +125,7 @@ End Function
   parameter, like a tuple's next element or the next type argument; in a Func type's or a
   lambda's parameters, a `,` always goes on to the next parameter.
 - Its error type can be a type parameter that a constraint says is an error, `E: Error` (see
-  [07](07-generics.md#class-and-error)), which each call or instance has its own of: `Async
+  [07](07-generics.md#class-enum-and-error)), which each call or instance has its own of: `Async
   Function WhenAll<T, E: Error>(tasks: (Task<T> Throws E)[]): T[] Throws E` passes the Tasks'
   errors on, and a generic Class's Async Method can throw its own E.
 - A Task that throws converts to one of the same result that throws what covers its errors, as

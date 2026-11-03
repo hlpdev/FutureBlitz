@@ -6988,9 +6988,7 @@ private:
                 return;
             }
 
-            runtime_call(runtime_function_t::DEBUG_BEGIN, {}, type_id_t::INT32);
-            operand_t text = debug_of(value, type, indent);
-            runtime_call(runtime_function_t::DEBUG_END, {}, type_id_t::INT32);
+            operand_t text = whole_debug_form(value, type, indent);
             if (spec->width > 0) {
                 text = runtime_call(runtime_function_t::FORMAT_TEXT,
                                     { text, make_bool(false), spec_text }, type_id_t::STRING, true);
@@ -7070,6 +7068,21 @@ private:
     /// is in quotes, an Enum is its member, an object shows its own Class's form, a Weak<T> what
     /// reading it gives, and what has no parts of its own to show, like a Task or a function
     /// value, its type's name.
+    /// debug_of() of a value that's a whole form, not a part of one: what objects it shows have a
+    /// limit together. A number's, Bool's, String's, Char's, or Enum's has none.
+    operand_t whole_debug_form(const operand_t& value, const type_id_t type,
+                               const operand_t& indent) {
+        if (is_integer(type) || is_float(type) || type == type_id_t::BOOL ||
+            type == type_id_t::STRING || type == type_id_t::CHAR || is_enum(type)) {
+            return debug_of(value, type, indent);
+        }
+
+        runtime_call(runtime_function_t::DEBUG_BEGIN, {}, type_id_t::INT32);
+        operand_t text = debug_of(value, type, indent);
+        runtime_call(runtime_function_t::DEBUG_END, {}, type_id_t::INT32);
+        return text;
+    }
+
     operand_t debug_of(const operand_t& value, const type_id_t type, const operand_t& indent) {
         m_debug_used = true;
         if (is_numeric(type) || type == type_id_t::BOOL) {
@@ -9674,9 +9687,7 @@ private:
             };
             for (std::size_t i = 0; i < sides.size(); ++i) {
                 parts.emplace_back(make_string(i == 0 ? "\n  left: " : "\n  right: "));
-                runtime_call(runtime_function_t::DEBUG_BEGIN, {}, type_id_t::INT32);
-                parts.push_back(debug_of(sides[i].first, sides[i].second, indent));
-                runtime_call(runtime_function_t::DEBUG_END, {}, type_id_t::INT32);
+                parts.push_back(whole_debug_form(sides[i].first, sides[i].second, indent));
             }
 
             if (message) {
@@ -11313,14 +11324,14 @@ private:
         // The same number in the integer it came from, which a wider one, or one of another sign,
         // may not be.
         const type_id_t source = type_of(value);
-        operand_t same = make_bool(true);
+        std::optional<operand_t> same;
         if (source != integer && is_integer(source)) {
             same = compare(binary_op_t::EQUAL, convert(number, source, span), value, span);
             if (is_signed(source) != is_signed(integer)) {
                 const operand_t whole = is_signed(source) ? value : number;
                 const operand_t positive =
                     compare(binary_op_t::GREATER_EQUAL, whole, zero(type_of(whole)), span);
-                same = compare(binary_op_t::AND, same, positive, span);
+                same = compare(binary_op_t::AND, *same, positive, span);
             }
         }
 
@@ -11357,9 +11368,10 @@ private:
 
         const block_id_t fail = new_block();
         const block_id_t ok = new_block();
-        terminate(branch_t{ .condition = compare(binary_op_t::AND, same, valid, span),
-                            .if_true = ok,
-                            .if_false = fail });
+        terminate(
+            branch_t{ .condition = same ? compare(binary_op_t::AND, *same, valid, span) : valid,
+                      .if_true = ok,
+                      .if_false = fail });
         start(fail);
         if (message.empty()) {
             message = std::format("the value isn't one of {}'s", types().name(type));

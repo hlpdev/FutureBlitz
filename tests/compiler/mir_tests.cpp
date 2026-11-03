@@ -3832,8 +3832,12 @@ TEST_CASE("a debug form is a function made for its type, and an object shows its
     CHECK(mir.starts_with("class A, debug: A.Debug(Int32)\n"
                           "array Int32[], debug: Int32[].Debug(Int32)\n"));
     // One line is an indent below 0, and '#' starts from 0. An object's form is its Class's.
-    CHECK(mir.contains("    _8 = call (Int32, A?).Debug(Int32)(_7, -1)\n"
-                       "    _9 = debug_object(_4, 0)\n"));
+    CHECK(mir.contains("    _8 = debug_begin()\n"
+                       "    _9 = call (Int32, A?).Debug(Int32)(_7, -1)\n"
+                       "    _10 = debug_end()\n"
+                       "    _11 = debug_begin()\n"
+                       "    _12 = debug_object(_4, 0)\n"
+                       "    _13 = debug_end()\n"));
     CHECK(mir.contains("function A?.Debug(Int32) -> String\n"
                        "    _0 Self: A?\n"
                        "    _1 indent: Int32\n"
