@@ -2684,10 +2684,10 @@ private:
         return interfaces;
     }
 
-    /// An Interface in a constraint, or "Class", which says the type argument is a Class. Only a
-    /// constraint names the keyword, as a type named "Class".
+    /// An Interface in a constraint, or "Class" or "Enum", which says the type argument is one.
+    /// Only a constraint names those keywords, as a type named so.
     type_expr_id_t parse_constraint_part() {
-        if (at(token_kind_t::KW_CLASS)) {
+        if (at(token_kind_t::KW_CLASS) || at(token_kind_t::KW_ENUM)) {
             const token_t& keyword = advance();
             return add_type(keyword.span, named_type_t{ .name = text(keyword) });
         }
@@ -2908,7 +2908,9 @@ private:
 
         if (at(token_kind_t::KW_FIELD) || at(token_kind_t::KW_METHOD) ||
             at(token_kind_t::KW_PROPERTY) ||
-            (at(token_kind_t::KW_STATIC) && peek(1).kind == token_kind_t::KW_FIELD)) {
+            (at(token_kind_t::KW_STATIC) && peek(1).kind == token_kind_t::KW_FIELD) ||
+            (at(token_kind_t::IDENTIFIER) && text(peek()) == "Member" &&
+             peek(1).kind == token_kind_t::IDENTIFIER)) {
             counts();
             return parse_for_member(label, start, keyword);
         }
@@ -2994,13 +2996,20 @@ private:
             kind = member_kind_t::METHOD;
         } else if (at(token_kind_t::KW_PROPERTY)) {
             kind = member_kind_t::PROPERTY;
+        } else if (at(token_kind_t::IDENTIFIER)) {
+            kind = member_kind_t::MEMBER;
         }
 
-        advance(); // Field, Method, or Property
+        advance(); // Field, Method, Property, or Member
         const name_t variable = expect_name();
         std::optional<name_t> type_name;
         if (accept(token_kind_t::COLON)) {
             type_name = expect_name();
+            if (kind == member_kind_t::MEMBER) {
+                error(type_name->span,
+                      "an Enum's members have no type of their own; '{}.Value' is of the Enum",
+                      variable.text);
+            }
         }
 
         expect(token_kind_t::KW_IN);
@@ -3009,6 +3018,11 @@ private:
         std::vector<constraint_t> constraints;
         std::vector<std::vector<expr_id_t>> picks;
         parse_member_where_lines(variable, constraints, picks);
+        if (kind == member_kind_t::MEMBER && (!constraints.empty() || !picks.empty())) {
+            error(variable.span, "a For Member loop takes no Where lines, as a member has no type "
+                                 "or attributes of its own");
+        }
+
         block_t body = parse_body(keyword);
         return add_stmt(span_from(begin_of(label, keyword)),
                         for_member_stmt_t{

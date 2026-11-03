@@ -205,6 +205,8 @@ private:
 struct reflected_t {
     std::string name;
     std::uint32_t index = 0;
+    /// An Enum's member's value, in the Enum's integer type.
+    std::uint64_t bits = 0;
     /// The member's symbol. A tuple's elements have none.
     std::optional<symbol_id_t> symbol;
     /// The type it's a member of.
@@ -4539,6 +4541,10 @@ private:
                 member.symbol = method.symbol;
                 copy(std::move(member), method.type, method.arguments);
             }
+        } else if (node.kind == member_kind_t::MEMBER) {
+            for (const enum_value_t& value : types().get(type).values) {
+                copy({ .name = value.name, .bits = value.bits }, type_id_t::INVALID);
+            }
         } else if (node.kind == member_kind_t::PROPERTY ||
                    node.kind == member_kind_t::STATIC_FIELD) {
             for (const symbol_id_t found : reflected_members(type, node.kind, span.file)) {
@@ -5838,6 +5844,15 @@ private:
             if (node.member.text == "Index") {
                 const auto position = static_cast<std::int64_t>(member.index);
                 return const_value_t{ .type = type_id_t::INT32, .data = position };
+            }
+
+            if (node.member.text == "Value") {
+                if (is_signed(types().get(member.owner).inner)) {
+                    return const_value_t{ .type = member.owner,
+                                          .data = static_cast<std::int64_t>(member.bits) };
+                }
+
+                return const_value_t{ .type = member.owner, .data = member.bits };
             }
 
             return const_value_t{ .type = type_id_t::STRING, .data = member.name };

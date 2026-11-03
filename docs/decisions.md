@@ -395,6 +395,7 @@ section.
 | `Attribute Name(params)` declares an attribute, a Struct of its parameters, whose values are known at compile time; `f.Attribute(Name)` gives a `Name?` | reflection reads attributes as ordinary values, and their parameters work like a call's, with defaults and names |
 | Reflection is `For Field f: F In T` and `For Method m In T`, which lowering unrolls into a copy of the body for each member | it's code generation without a second language: the body is ordinary code, checked once |
 | A For Field's body is checked once, with `F` a type parameter that its Where lines constrain; over a function's own `T`, they're constraints on T's fields that each call checks | errors show up where the loop is written or where it's called, never inside a copy |
+| `For Member m In E` goes over an Enum's declared members, with `m.Name` and `m.Value`, and `Where E: Enum` is a constraint like `Class`, which gives Equatable, Hashable, Printable, Sendable, and `As` to and from integers | a generic can't otherwise ask an Enum's members: fbengine's editor probed Load<E> by number, which stops at the first gap and gives nonsense for @Flags. A loop over a type parameter needs the constraint, so a call with a type that isn't an Enum is an error, not a loop over nothing; Member is contextual, so nothing that's named it breaks |
 | For Method goes over Methods that take nothing and give nothing, which `m.Call(value)` calls | they can all be called the same way; Methods with parameters need a way to pass them, which comes later |
 
 ## Collections

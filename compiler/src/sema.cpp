@@ -1735,6 +1735,8 @@ private:
         const type_id_t iterator = find("Iterator");
         const type_id_t equatable = find("Equatable");
         const type_id_t any_class = declare_any_class(equatable);
+        const type_id_t any_enum =
+            declare_any_enum({ equatable, find("Hashable"), find("Printable"), find("Sendable") });
         m_analysis.interfaces = {
             .equatable = equatable,
             .comparable = find("Comparable"),
@@ -1751,6 +1753,7 @@ private:
             .iterable = find("Iterable"),
             .sendable = find("Sendable"),
             .any_class = any_class,
+            .any_enum = any_enum,
             .any_error = declare_any_error(any_class),
             // Declared with the built-ins, so any type can name it.
             .object = m_analysis.interfaces.object,
@@ -1803,6 +1806,26 @@ private:
             .constraint_only = true,
         });
         m_constraint_only[type] = "says that a type is a Class";
+        m_analysis.constraint_only.push_back(type);
+        return type;
+    }
+
+    /// The "Enum" that `Where E: Enum` names, as declare_any_class() does "Class", which extends
+    /// the Interfaces every Enum has.
+    type_id_t declare_any_enum(const std::vector<type_id_t>& has) {
+        const type_id_t type = m_analysis.types.add_interface("Enum");
+        std::vector<type_id_t> found;
+        std::ranges::copy_if(has, std::back_inserter(found),
+                             [](const type_id_t each) { return each != type_id_t::INVALID; });
+        m_analysis.types.set_interfaces(type, found);
+        m_declared_types[type] = add_symbol({
+            .kind = symbol_kind_t::TYPE,
+            .name = "Enum",
+            .type = type,
+            .modifiers = { .visibility = visibility_t::PUBLIC },
+            .constraint_only = true,
+        });
+        m_constraint_only[type] = "says that a type is an Enum";
         m_analysis.constraint_only.push_back(type);
         return type;
     }
@@ -2513,13 +2536,17 @@ private:
         return type_id_t::INVALID;
     }
 
-    /// An Interface in a constraint, or "Class", which the Classes meet, or std's Error, which
-    /// the Classes extending it meet.
+    /// An Interface in a constraint, or "Class" or "Enum", which the Classes or Enums meet, or
+    /// std's Error, which the Classes extending it meet.
     type_id_t constraint_interface(const type_expr_id_t id) {
         const auto* named = std::get_if<named_type_t>(&m_ast.get(id).node);
         // Only a constraint names the Class keyword, which no other name can be.
         if (named != nullptr && named->name == "Class" && !named->qualifier) {
             return m_analysis.interfaces.any_class;
+        }
+
+        if (named != nullptr && named->name == "Enum" && !named->qualifier) {
+            return m_analysis.interfaces.any_enum;
         }
 
         if (named != nullptr && m_analysis.interfaces.any_error != type_id_t::INVALID &&
@@ -10547,10 +10574,11 @@ private:
     /// another type in the code being checked.
     [[nodiscard]] std::string name_among(const type_id_t shown,
                                          const std::span<const type_id_t> others) const {
-        // Error in "Where E: Error", and Class, are only constraints, written so, and belong
+        // Error in "Where E: Error", Class, and Enum are only constraints, written so, and belong
         // to no module.
-        if (shown != type_id_t::INVALID && (shown == m_analysis.interfaces.any_error ||
-                                            shown == m_analysis.interfaces.any_class)) {
+        if (shown != type_id_t::INVALID &&
+            (shown == m_analysis.interfaces.any_error || shown == m_analysis.interfaces.any_class ||
+             shown == m_analysis.interfaces.any_enum)) {
             return std::string(name_of(shown));
         }
 
@@ -10804,6 +10832,12 @@ private:
                (is_parameter(type) && implements(type, m_analysis.interfaces.any_class));
     }
 
+    /// An Enum, or a type parameter whose constraints say it's one, like the E of `Where E: Enum`.
+    [[nodiscard]] bool is_any_enum(const type_id_t type) const {
+        return is_enum(type) ||
+               (is_parameter(type) && implements(type, m_analysis.interfaces.any_enum));
+    }
+
     /// For an error about a type parameter where a Class is needed: how to say it's one. An
     /// Interface's Self takes no constraint, so it gets none.
     [[nodiscard]] std::string class_hint(const type_id_t type) const {
@@ -11033,6 +11067,10 @@ private:
 
         if (interface == m_analysis.interfaces.any_class) {
             return is_class(type);
+        }
+
+        if (interface == m_analysis.interfaces.any_enum) {
+            return is_enum(type);
         }
 
         if (interface == m_analysis.interfaces.any_error) {
@@ -11583,6 +11621,14 @@ private:
                               ? "; an Interface's value can be an array too"
                               : "");
                 }
+            } else if (interface == m_analysis.interfaces.any_enum) {
+                if (!implements(argument, interface)) {
+                    error(span, "{} isn't an Enum, which {} needs{}",
+                          name_of(argument, bound.parameter), what,
+                          is_parameter(bound.parameter)
+                              ? std::format(" for {}", name_of(bound.parameter, argument))
+                              : std::string());
+                }
             } else if (interface == m_analysis.interfaces.any_error) {
                 if (!implements(argument, interface)) {
                     error(span, "{} isn't a Class that extends {}, which {} needs{}",
@@ -11722,8 +11768,8 @@ private:
 
     /// "fields", "Properties", or "Static Fields".
     [[nodiscard]] static std::string_view members_text(const member_kind_t kind) {
-        constexpr auto names =
-            std::to_array<std::string_view>({ "fields", "Methods", "Properties", "Static Fields" });
+        constexpr auto names = std::to_array<std::string_view>(
+            { "fields", "Methods", "Properties", "Static Fields", "members" });
         return names[std::to_underlying(kind)];
     }
 
@@ -11747,8 +11793,8 @@ private:
 
     /// "field", "Method", "Property", or "Static Field".
     [[nodiscard]] static std::string_view member_text(const member_kind_t kind) {
-        constexpr auto names =
-            std::to_array<std::string_view>({ "field", "Method", "Property", "Static Field" });
+        constexpr auto names = std::to_array<std::string_view>(
+            { "field", "Method", "Property", "Static Field", "member" });
         return names[std::to_underlying(kind)];
     }
 
@@ -19834,6 +19880,21 @@ private:
                   shown_name(type), shown_name(type));
         }
 
+        // An Enum's members need an Enum, so a generic one's own call says when it isn't.
+        if (node.kind == member_kind_t::MEMBER && type != type_id_t::INVALID &&
+            !is_any_enum(type)) {
+            if (is_parameter(type)) {
+                error(m_ast.get(node.type).span,
+                      "For Member goes over an Enum's members; say that {} is one, with 'Where "
+                      "{}: Enum'",
+                      shown_name(type), shown_name(type));
+            } else {
+                error(m_ast.get(node.type).span,
+                      "For Member goes over an Enum's members, and {} isn't an Enum",
+                      shown_name(type));
+            }
+        }
+
         type_id_t field = type_id_t::INVALID;
         type_id_t signature = type_id_t::INVALID;
         std::vector<bound_t> bounds;
@@ -19864,8 +19925,8 @@ private:
         }
 
         if (!methods && !node.picks.empty() && !picks_set(node)) {
-            constexpr auto loops =
-                std::to_array<std::string_view>({ "Field", "Method", "Property", "Static Field" });
+            constexpr auto loops = std::to_array<std::string_view>(
+                { "Field", "Method", "Property", "Static Field", "Member" });
             error(span_of(node.picks.front().front()),
                   "a For {} loop's Where line picks only the ones its code can set, with "
                   "'Where {} Has Set'; its body tests '{}.Has(A)' for an Attribute",
@@ -20278,8 +20339,8 @@ private:
         return found;
     }
 
-    /// "f.Name" or "f.Index" on a For Field's variable, or "m.Name" on a For Method's: known in
-    /// each copy of the loop's body.
+    /// "f.Name" or "f.Index" on a For Field's variable, "m.Name" on a For Method's, or "m.Name" or
+    /// "m.Value" on a For Member's: known in each copy of the loop's body.
     type_id_t check_member_variable(const expr_id_t id, const member_expr_t& node,
                                     const symbol_id_t variable) {
         info(id).symbol = variable;
@@ -20289,6 +20350,10 @@ private:
 
         if (node.member.text == "Index" && member_kind_of(variable) == member_kind_t::FIELD) {
             return type_id_t::INT32;
+        }
+
+        if (node.member.text == "Value" && member_kind_of(variable) == member_kind_t::MEMBER) {
+            return symbol(variable).owner;
         }
 
         error(node.member.span, "{}", member_variable_help(variable));
@@ -20311,6 +20376,9 @@ private:
             return std::format("'{}' is a Static Field of {}; it has Name, Get(), Set(x), Has(A), "
                                "and Attribute(A)",
                                found.name, shown_name(found.owner));
+        case member_kind_t::MEMBER:
+            return std::format("'{}' is a member of {}; it has Name and Value", found.name,
+                               shown_name(found.owner));
         case member_kind_t::FIELD:
             break;
         }
@@ -20331,6 +20399,12 @@ private:
         const member_kind_t kind = member_kind_of(variable);
         const bool method = kind == member_kind_t::METHOD;
         const std::vector<argument_t>& arguments = node.arguments;
+        if (kind == member_kind_t::MEMBER) {
+            error(span_of(node.callee), "{}", member_variable_help(variable));
+            check_alone(arguments);
+            return type_id_t::INVALID;
+        }
+
         const auto takes = [&](const std::size_t count) {
             const bool named = std::ranges::any_of(
                 arguments, [](const argument_t& argument) { return argument.name.has_value(); });
@@ -30199,8 +30273,8 @@ private:
     /// integer, its code, an Enum to and from integers, an object to a related Class, and
     /// anything to what it converts to without 'As', like a T to a T?.
     [[nodiscard]] bool as_converts(const type_id_t source, const type_id_t target) {
-        const bool enums =
-            (is_enum(source) && is_integer(target)) || (is_integer(source) && is_enum(target));
+        const bool enums = (is_any_enum(source) && is_integer(target)) ||
+                           (is_integer(source) && is_any_enum(target));
         return converts(source, target) || objects_cast(source, target) || enums ||
                (is_numeric(source) && is_numeric(target)) ||
                (source == type_id_t::BOOL && is_integer(target)) || char_cast(source, target);
@@ -30280,7 +30354,7 @@ private:
                 info(id).value = convert_value(*value, target);
             } else if (is_enum(target) && source != target) {
                 fold_to_enum(id, *value, target);
-            } else if (!classes) {
+            } else if (!classes && !is_parameter(target)) {
                 fold(id, fold_cast(as_integer(*value), target));
             }
         }
@@ -30446,6 +30520,10 @@ public:
 
         if (interface == m_analysis.interfaces.any_class) {
             return info.kind == type_kind_t::CLASS;
+        }
+
+        if (interface == m_analysis.interfaces.any_enum) {
+            return info.kind == type_kind_t::ENUM;
         }
 
         if (interface == m_analysis.interfaces.any_error) {

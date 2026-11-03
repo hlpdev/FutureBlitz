@@ -10140,6 +10140,40 @@ TEST_CASE("loops over Properties, Static Fields, and Methods of a Func type", "[
                                 "End For",
                                 player))
               .empty());
+    constexpr std::string_view tier = "Enum Tier\n    LOW = 0\n    HIGH = 10\nEnd Enum\n";
+    CHECK(errors_of(std::format("{}For Member m In Tier\n"
+                                "    Local value: Tier = m.Value\n"
+                                "    Local name: String = m.Name\n"
+                                "End For",
+                                tier))
+              .empty());
+    CHECK(errors_of(std::format("{}For Member m In Tier\n    Local i = m.Index\nEnd For", tier)) ==
+          errors_t{ "Index: 'm' is a member of Tier; it has Name and Value" });
+    CHECK(errors_of(std::format("{}For Member m In Tier\n    m.Get()\nEnd For", tier)) ==
+          errors_t{ "m.Get: 'm' is a member of Tier; it has Name and Value" });
+    CHECK(errors_of("For Member m In Int\nEnd For") ==
+          errors_t{ "Int: For Member goes over an Enum's members, and Int32 isn't an Enum" });
+    CHECK(errors_of(std::format("{}For Member m In Tier?\nEnd For", tier)) ==
+          errors_t{ "Tier?: For Member goes over an Enum's members, and Tier? isn't an Enum" });
+    CHECK(errors_of("Function F<E>()\n    For Member m In E\n    End For\nEnd Function") ==
+          errors_t{ "E: For Member goes over an Enum's members; say that E is one, with 'Where E: "
+                    "Enum'" });
+    CHECK(errors_of(std::format("{}Function F<E: Enum>()\n"
+                                "    For Member m In E\n"
+                                "    End For\n"
+                                "End Function\n"
+                                "F<Tier>()\n",
+                                tier))
+              .empty());
+    CHECK(errors_of("Function F<E: Enum>()\nEnd Function\nF<Int>()") ==
+          errors_t{ "F<Int>: Int32 isn't an Enum, which 'F' needs for E" });
+    CHECK(errors_of("Function F<T>(x: T): Int => x As Int") ==
+          errors_t{ "x As Int: 'As' can't convert T to Int32" });
+    CHECK(errors_of("Function F<E: Enum>(x: E): Int => x As Int").empty());
+    CHECK(errors_of("Function F<E: Enum>(): E => 3 As E").empty());
+    CHECK(errors_of("Function F<E: Enum>(x: E): E => x + x") ==
+          errors_t{ "x + x: '+' can't be used on E" });
+    CHECK(errors_of("Local x: Enum") != errors_t{});
     CHECK(errors_of(std::format("{}For Method m: M In Player\n"
                                 "    Where M: Func(Int): Int\n"
                                 "    Local after = m.Call(Player(), \"five\")\n"

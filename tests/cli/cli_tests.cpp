@@ -1554,13 +1554,13 @@ TEST_CASE("fb run's program ends when fb does, however fb ends, and its folder g
     std::filesystem::create_directories(folder);
     const std::filesystem::path started = folder / "started.txt";
     const std::filesystem::path marker = folder / "marker.txt";
-    const std::filesystem::path source = write_source(
-        std::format("tied_run/{}.fb", name),
-        std::format("Import std.core\nImport std.io\nImport std.time\n"
-                    "Try File.WriteText(Path(\"{}\"), \"up\")\n"
-                    "Sleep(2.Seconds)\n"
-                    "Try File.WriteText(Path(\"{}\"), \"not ended\")\n",
-                    started.generic_string(), marker.generic_string()));
+    const std::filesystem::path source =
+        write_source(std::format("tied_run/{}.fb", name),
+                     std::format("Import std.core\nImport std.io\nImport std.time\n"
+                                 "Try File.WriteText(Path(\"{}\"), \"up\")\n"
+                                 "Sleep(2.Seconds)\n"
+                                 "Try File.WriteText(Path(\"{}\"), \"not ended\")\n",
+                                 started.generic_string(), marker.generic_string()));
     const std::filesystem::path temporary = fb::temporary_path("probe", ".none").parent_path();
     const auto folders = [&] {
         std::vector<std::filesystem::path> found;
@@ -1593,9 +1593,8 @@ TEST_CASE("fb run's program ends when fb does, however fb ends, and its folder g
         std::filesystem::remove(started);
         std::filesystem::remove(marker);
 #ifdef _WIN32
-        std::wstring command = std::format(L"\"{}\" run \"{}\"",
-                                           fb::path_from_utf8(fb_program).wstring(),
-                                           source.wstring());
+        std::wstring command = std::format(
+            L"\"{}\" run \"{}\"", fb::path_from_utf8(fb_program).wstring(), source.wstring());
         STARTUPINFOW startup{};
         startup.cb = sizeof(startup);
         PROCESS_INFORMATION process{};
@@ -1645,8 +1644,7 @@ TEST_CASE("fb run's program ends when fb does, however fb ends, and its folder g
 
         // Nothing could clean up after a kill then, so the next run does.
         std::filesystem::remove(started);
-        const fb::process_result_t next =
-            fb_run({ "run", source_path, "--color", "never" });
+        const fb::process_result_t next = fb_run({ "run", source_path, "--color", "never" });
         CHECK(next.exit_code == 0);
         CHECK(folders().empty());
     }
@@ -1658,23 +1656,23 @@ TEST_CASE("what a program started and left running stays after fb run ends", "[c
     std::filesystem::create_directories(folder);
     const std::filesystem::path marker = folder / "marker.txt";
     const std::filesystem::path stays = write_source(
-        "left_running/stays.fb",
-        std::format("Import std.io\nImport std.time\n"
-                    "Sleep(1.Seconds)\n"
-                    "Try File.WriteText(Path(\"{}\"), \"stayed\")\n",
-                    marker.generic_string()));
+        "left_running/stays.fb", std::format("Import std.io\nImport std.time\n"
+                                             "Sleep(1.Seconds)\n"
+                                             "Try File.WriteText(Path(\"{}\"), \"stayed\")\n",
+                                             marker.generic_string()));
     std::filesystem::path built = folder / "stays";
     built += fb::executable_extension;
-    const fb::process_result_t building = fb_run(
-        { "build", fb::to_utf8(stays), "-o", fb::to_utf8(built), "--color", "never" });
+    const fb::process_result_t building =
+        fb_run({ "build", fb::to_utf8(stays), "-o", fb::to_utf8(built), "--color", "never" });
     INFO(building.output);
     REQUIRE(building.exit_code == 0);
     const std::filesystem::path starter = write_source(
         "left_running/starter.fb",
-        std::format("Import std.core\nImport std.os\n"
-                    "Local child = Try Command(\"{}\").Stdout(Stdio.NONE).Stderr(Stdio.NONE).Spawn()\n"
-                    "Print(\"started\")\n",
-                    built.generic_string()));
+        std::format(
+            "Import std.core\nImport std.os\n"
+            "Local child = Try Command(\"{}\").Stdout(Stdio.NONE).Stderr(Stdio.NONE).Spawn()\n"
+            "Print(\"started\")\n",
+            built.generic_string()));
     const fb::process_result_t ran = fb_run({ "run", fb::to_utf8(starter), "--color", "never" });
     INFO(ran.output);
     REQUIRE(ran.exit_code == 0);

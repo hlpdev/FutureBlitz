@@ -1468,6 +1468,17 @@ TEST_CASE("For Field and For Method go over a type's members", "[parser]") {
           std::vector<std::string>{
               "10-11: expected 'As' and a name for the Mutex's value, found newline" });
     CHECK(parse_text("For Static Field s In T\nEnd For").dump == "(for-static-field s T (block))");
+    CHECK(parse_text("For Member m In E\nEnd For").dump == "(for-member m E (block))");
+    // It's only a word there, so a variable can still have the name.
+    CHECK(parse_text("For Member In all\nEnd For").errors.empty());
+    CHECK(parse_text("For Member = 1 To 3\nEnd For").errors.empty());
+    CHECK(parse_text("For Member m: M In E\nEnd For").errors ==
+          std::vector<std::string>{
+              "14-15: an Enum's members have no type of their own; 'm.Value' is of the Enum" });
+    CHECK(parse_text("For Member m In E\n    Where m Has Set\nEnd For").errors ==
+          std::vector<std::string>{ "11-12: a For Member loop takes no Where lines, as a member "
+                                    "has no type or attributes of its own" });
+    CHECK(parse_text("Function F<E: Enum>()\nEnd Function").errors.empty());
 }
 
 TEST_CASE("Const type parameters take values as their type arguments", "[parser]") {

@@ -221,6 +221,13 @@ End Function
   goes by its own attributes. Over a type parameter, another loop says its Where lines are met
   only when it picks the same way. `Has` and `Or` are words only there. The other loops pick
   only the members they can set, with `Where f Has Set`; their bodies test `f.Has(A)`.
+- `For Member m In E` goes over an Enum's members, in the order they're declared, whatever their
+  values: `m.Name` is the member's name, a String, and `m.Value` is the member, an `E`. A @Flags
+  Enum's copies are its named flags, not their combinations, and an @Open Enum's its named values.
+  `E` is an Enum, or a type parameter with `Where E: Enum` (see
+  [07](07-generics.md#class-enum-and-error)), so a generic one's call says when its type argument
+  isn't. A member has no type or attributes of its own, so the loop takes no `: M` and no Where
+  lines. `Member` is a word only there, so `For Member In all` is still a loop over `all`.
 - `For Property p: P In T` goes over a Struct's or Class's Properties (inherited ones first),
   with `p.Name`, `p.Get(value)`, `p.Set(ByRef value, x)`, `p.Has(A)`, and `p.Attribute(A)`, and
   `For Static Field s: S In T` over its own Static Fields, with `s.Get()` and `s.Set(x)`. Where

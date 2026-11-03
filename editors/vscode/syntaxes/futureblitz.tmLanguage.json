@@ -1063,7 +1063,7 @@
     "keywords": {
       "patterns": [
         {
-          "match": "\\b(For)\\s+(?:(Static)\\s+)?(Method|Field|Property)\\s+([A-Za-z_]\\w*)(?:(:)\\s*([A-Za-z_]\\w*))?",
+          "match": "\\b(For)\\s+(?:(Static)\\s+)?(Method|Field|Property|Member(?=\\s+(?!In\\b)))\\s+([A-Za-z_]\\w*)(?:(:)\\s*([A-Za-z_]\\w*))?",
           "captures": {
             "1": {
               "name": "keyword.control.loop.futureblitz"
