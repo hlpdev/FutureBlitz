@@ -183,6 +183,26 @@ std::string joined(std::string folder, const std::string_view key) {
     return folder;
 }
 
+/// A folder's path without the separators at its end, but for a root's, as libuv's names of
+/// what's in it, on Windows, go by its length.
+std::string without_end_separators(std::string path) {
+    while (path.size() > 1) {
+#ifdef _WIN32
+        const bool separated = path.back() == '/' || path.back() == '\\';
+        if (!separated || path[path.size() - 2] == ':') {
+            break;
+        }
+#else
+        if (path.back() != '/') {
+            break;
+        }
+#endif
+        path.pop_back();
+    }
+
+    return path;
+}
+
 /// The key of `name` in the folder at `parent`, a key itself, "" for the watched folder.
 std::string key_of(const std::string_view parent, const std::string_view name) {
     std::string key(parent);
@@ -738,6 +758,15 @@ void watcher_t::on_event(uv_fs_event_t* handle, const char* name, const int even
         return;
     }
 #endif
+#ifdef _WIN32
+    // Windows names what's removed as it was removed, which can be its 8.3 short name, so a name
+    // that's neither known nor there may be one that went: a new listing finds out.
+    if (const std::string key = key_for(watcher, name);
+        watcher.folder && !watcher.known.contains(key) && !exists(real_in(watcher, key))) {
+        relist(watcher, handle->loop);
+        return;
+    }
+#endif
     told(watcher, handle->loop, key_for(watcher, name), events);
 }
 
@@ -818,8 +847,11 @@ void start_watching(uv_loop_t* loop, void* context) {
         // Linux leaves the flag out, so each folder there is watched apart.
         const unsigned flags =
             watcher.recursive ? static_cast<unsigned>(UV_FS_EVENT_RECURSIVE) : 0U;
+        // By its long names, as on Windows libuv cuts what happens in a folder down to a name by
+        // the length of the path it was given, from a path with long names, and compares a file's
+        // with the long one Windows tells of.
         error = uv_fs_event_start(&watcher.handle, watcher_t::on_event,
-                                  fb::runtime::os_path(watcher.path).c_str(), flags);
+                                  fb::runtime::os_long_path(watcher.path).c_str(), flags);
 #ifdef __linux__
         if (error == UV_ENOSPC) {
             error =
@@ -897,6 +929,10 @@ void* fb_io_watcher_new(const fb_string_t* path, const std::int32_t recursive) {
     }
 
     uv_fs_req_cleanup(&call);
+    if (watcher->folder) {
+        watcher->path = without_end_separators(std::move(watcher->path));
+    }
+
     watcher->recursive = watcher->folder && recursive != 0;
     watcher->real = watcher->path;
     if (uv_fs_realpath(nullptr, &call, at.c_str(), nullptr) == 0) {

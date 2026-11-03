@@ -165,7 +165,8 @@ TEST_CASE("a ConcurrentMap's keys spread over its parts", "[programs]") {
     CHECK(result->exit_code == 0);
 }
 
-TEST_CASE("an archive writer's Finish panics at its caller for an archive past its limit",
+TEST_CASE("an archive writer's Finish throws an IOError for an archive past its limit, and "
+          "starts again",
           "[programs]") {
     // Finish's limit is the most a UInt8[] holds, which a test can't fill, so a smaller one
     // stands for it.
@@ -174,12 +175,22 @@ TEST_CASE("an archive writer's Finish panics at its caller for an archive past i
                                "Public Function Tar(limit: Int)\n"
                                "    Local writer = TarWriter()\n"
                                "    writer.Add(\"a.txt\", \"hello\".Bytes)\n"
-                               "    Print(writer.FinishedWithin(limit).Count)\n"
+                               "    Try\n"
+                               "        Print((Try writer.FinishedWithin(limit)).Count)\n"
+                               "    Catch problem As IOError\n"
+                               "        Print(problem.Message)\n"
+                               "    End Try\n"
+                               "    Print((Try? writer.Finish())?.Count ?? -1)\n"
                                "End Function\n"
                                "Public Function Zip(limit: Int)\n"
                                "    Local writer = ZipWriter()\n"
                                "    writer.Add(\"a.txt\", \"hello\".Bytes)\n"
-                               "    Print(writer.FinishedWithin(limit).Count)\n"
+                               "    Try\n"
+                               "        Print((Try writer.FinishedWithin(limit)).Count)\n"
+                               "    Catch problem As IOError\n"
+                               "        Print(problem.Message)\n"
+                               "    End Try\n"
+                               "    Print((Try? writer.Finish())?.Count ?? -1)\n"
                                "End Function\n";
     const std::expected<fb::process_result_t, std::string> fits =
         run_with_std_module("archive_fits", "Import std.extra.checks\nTar(2048)\nZip(200)", module);
@@ -192,17 +203,62 @@ TEST_CASE("an archive writer's Finish panics at its caller for an archive past i
         run_with_std_module("archive_tar_past", "Import std.extra.checks\nTar(2047)", module);
     INFO((tar ? tar->output : tar.error()));
     REQUIRE(tar);
-    CHECK(tar->output.starts_with("panic: the tar's bytes are more than a UInt8[] holds at "));
-    CHECK(tar->output.contains("checks.fb:6:"));
-    CHECK(tar->exit_code == 101);
+    // And it's empty after: a tar of nothing is its end's two blocks, and a zip's is its directory.
+    CHECK(tar->output == "the tar's bytes are more than a UInt8[] holds\n1024\n");
+    CHECK(tar->exit_code == 0);
 
     const std::expected<fb::process_result_t, std::string> zip =
         run_with_std_module("archive_zip_past", "Import std.extra.checks\nZip(20)", module);
     INFO((zip ? zip->output : zip.error()));
     REQUIRE(zip);
-    CHECK(zip->output.starts_with("panic: the zip's bytes are more than a UInt8[] holds at "));
-    CHECK(zip->output.contains("checks.fb:11:"));
-    CHECK(zip->exit_code == 101);
+    CHECK(zip->output == "the zip's bytes are more than a UInt8[] holds\n22\n");
+    CHECK(zip->exit_code == 0);
+}
+
+TEST_CASE(
+    "text past the most a String holds panics in FromUtf8Lossy, and is an IOError from a file",
+    "[programs]") {
+    // A smaller limit stands for the most, which a test can't fill.
+    const std::string module = "Import std.core\n"
+                               "Import std.io\n"
+                               "Import std.text\n"
+                               "Public Function Lossy(limit: Int)\n"
+                               "    Print(String.LossyWithin([0x61, 0xFF, 0x62], limit))\n"
+                               "End Function\n"
+                               "Public Function Read(limit: Int) Throws IOError\n"
+                               "    Local temp = Try TempDir(\"fb-text-\")\n"
+                               "    Local path = temp.Path / \"text.txt\"\n"
+                               "    Try File.WriteText(path, \"hello\\nworld\\n\")\n"
+                               "    Try\n"
+                               "        Print((Try File.TextWithin(path, limit)).Length)\n"
+                               "    Catch problem As IOError\n"
+                               "        Print(problem.Kind)\n"
+                               "    End Try\n"
+                               "    Try\n"
+                               "        Print((Try File.LinesWithin(path, limit)).Count)\n"
+                               "    Catch problem As IOError\n"
+                               "        Print(problem.Kind)\n"
+                               "    End Try\n"
+                               "    Try temp.Close()\n"
+                               "End Function\n";
+    const auto ran = [&](const std::string& name, const std::string& code) {
+        const std::expected<fb::process_result_t, std::string> result =
+            run_with_std_module(name, "Import std.extra.checks\n" + code, module);
+        INFO((result ? result->output : result.error()));
+        REQUIRE(result);
+        return *result;
+    };
+    // Its U+FFFD takes 3 bytes from 1: 5 in all.
+    CHECK(ran("lossy_fits", "Lossy(5)").exit_code == 0);
+    const fb::process_result_t past = ran("lossy_past", "Lossy(4)");
+    CHECK(past.output.starts_with("panic: a String holds at most 4 bytes at "));
+    CHECK(past.output.contains("checks.fb:5:"));
+    CHECK(past.exit_code == 101);
+
+    CHECK(ran("read_fits", "Try Read(12)").output == "12\n2\n");
+    // A line fits where the whole text doesn't, and neither does at less.
+    CHECK(ran("read_lines", "Try Read(5)").output == "OTHER\n2\n");
+    CHECK(ran("read_past", "Try Read(4)").output == "OTHER\nOTHER\n");
 }
 
 TEST_CASE("Html.Unescape takes time that grows with its text alone", "[programs]") {

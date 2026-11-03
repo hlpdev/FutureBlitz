@@ -779,9 +779,9 @@ TEST_CASE("std.compress's formats link the C libraries they're over, with their 
     CHECK(bundled("Print(Lz4Compressor().Finish().Count)") == names_t{ "LZ4" });
     CHECK(bundled("Print((Try XZ.Decompress(none)).Count)") == names_t{ "liblzma" });
     CHECK(bundled("Print((Try SevenZip.Read(none)).Count)") == names_t{ "liblzma" });
-    CHECK(bundled("Print(ZipWriter().Finish().Count)") == names_t{ "minizip-ng" });
+    CHECK(bundled("Print((Try ZipWriter().Finish()).Count)") == names_t{ "minizip-ng" });
     // A tar needs no library, but reading one decompresses it first, when it's compressed.
-    CHECK(bundled("Print(TarWriter().Finish().Count)").empty());
+    CHECK(bundled("Print((Try TarWriter().Finish()).Count)").empty());
     CHECK(bundled("Print((Try Tar.Read(none)).Count)") ==
           names_t{ "zlib-ng", "zstd", "LZ4", "liblzma" });
 
@@ -1421,24 +1421,86 @@ TEST_CASE("each package's [lints] give its own code's warnings their levels", "[
                                   "End Function\n"
                                   "Local unused = 1\n"
                                   "Print(F() + Shadow())\n");
-    const std::expected<fb::compilation_t, std::string> compiled =
-        fb::compile_file(packages / "app");
-    REQUIRE(compiled);
-    std::vector<std::string> found;
-    for (const fb::diagnostic_t& diagnostic : compiled->diagnostics.diagnostics()) {
-        const fb::source_file_t& file = compiled->sources.get(diagnostic.span.file);
-        found.push_back(std::format(
-            "{} {}: {}", diagnostic.severity == fb::severity_t::ERROR ? "error" : "warning",
-            file.slice(diagnostic.span), diagnostic.code));
-    }
+    const auto found = [&] {
+        const std::expected<fb::compilation_t, std::string> compiled =
+            fb::compile_file(packages / "app");
+        REQUIRE(compiled);
+        std::vector<std::string> each;
+        for (const fb::diagnostic_t& diagnostic : compiled->diagnostics.diagnostics()) {
+            const fb::source_file_t& file = compiled->sources.get(diagnostic.span.file);
+            each.push_back(std::format(
+                "{} {}: {}", diagnostic.severity == fb::severity_t::ERROR ? "error" : "warning",
+                file.slice(diagnostic.span), diagnostic.code));
+        }
+
+        return each;
+    };
 
     // The app's Global that its Local hides, whose warning is off, and its unused Local, an
-    // error; and lib's shadowed Global, while its unused Locals' are off.
-    CHECK(found == std::vector<std::string>{
-                       "warning Lib: unused_private",
-                       "error unused: unused_local",
-                       "warning shadow: shadowed",
-                   });
+    // error; but none of lib's, a path dependency's, whose warnings are for its own build.
+    CHECK(found() == std::vector<std::string>{
+                         "warning Lib: unused_private",
+                         "error unused: unused_local",
+                     });
+
+    // What lib makes an error still is one.
+    packages.write(
+        "lib/project.toml",
+        std::format("{}\n[lints]\nunused_local = \"off\"\nshadowed = \"error\"\n", lib_toml));
+    CHECK(found() == std::vector<std::string>{
+                         "warning Lib: unused_private",
+                         "error unused: unused_local",
+                         "error shadow: shadowed",
+                     });
+
+    // And when the app asks, lib's warnings come, by lib's levels.
+    packages.write("lib/project.toml",
+                   std::format("{}\n[lints]\nunused_local = \"off\"\n", lib_toml));
+    packages.write("app/project.toml",
+                   std::format("{}\n[lints]\ndependencies = true\nunused_local = \"error\"\n"
+                               "shadowed = \"off\"\n",
+                               app_toml));
+    CHECK(found() == std::vector<std::string>{
+                         "warning Lib: unused_private",
+                         "error unused: unused_local",
+                         "warning shadow: shadowed",
+                     });
+
+    // A dependency's asking doesn't count, and neither does anything but true or false.
+    packages.write(
+        "app/project.toml",
+        std::format("{}\n[lints]\nunused_local = \"error\"\nshadowed = \"off\"\n", app_toml));
+    packages.write(
+        "lib/project.toml",
+        std::format("{}\n[lints]\ndependencies = true\nunused_local = \"off\"\n", lib_toml));
+    CHECK(found() == std::vector<std::string>{
+                         "warning Lib: unused_private",
+                         "error unused: unused_local",
+                     });
+
+    // A dependency's project.toml's warnings go with its code's, when they're asked for too.
+    packages.write("lib/project.toml",
+                   std::format("{}\n[lints]\nno_such_lint = \"off\"\nunused_local = \"off\"\n"
+                               "shadowed = \"off\"\n",
+                               lib_toml));
+    const auto toml_warnings = [&] {
+        const std::expected<fb::compilation_t, std::string> compiled =
+            fb::compile_file(packages / "app");
+        REQUIRE(compiled);
+        return std::ranges::count_if(
+            compiled->diagnostics.diagnostics(), [](const fb::diagnostic_t& diagnostic) {
+                return diagnostic.message == "there's no lint 'no_such_lint'";
+            });
+    };
+    CHECK(toml_warnings() == 0);
+    packages.write("app/project.toml", std::format("{}\n[lints]\ndependencies = true\n", app_toml));
+    CHECK(toml_warnings() == 1);
+    packages.write("app/project.toml", std::format("{}\n[lints]\ndependencies = 1\n", app_toml));
+    const std::expected<fb::compilation_t, std::string> wrong = fb::compile_file(packages / "app");
+    REQUIRE(wrong);
+    REQUIRE(!wrong->diagnostics.diagnostics().empty());
+    CHECK(wrong->diagnostics.diagnostics().front().message ==
+          "[lints]'s dependencies is true or false");
     packages.remove();
 }
 
@@ -2361,6 +2423,168 @@ TEST_CASE("a build step's inputs are read before it runs, without build/ or hidd
     CHECK(runs(packages) == ran);
     packages.remove();
 }
+
+TEST_CASE("a copy of a project runs its build step again, though nothing it read is in the copy",
+          "[driver]") {
+    // The step's program is a dependency's and what it read is outside the project, so only the
+    // project's folder differs, which the step's told of as FB_BUILD_FOLDER.
+    const packages_t packages;
+    packages.write("tools/project.toml", "[project]\nname = \"tools\"\nversion = \"1.0.0\"\ntype = "
+                                         "\"library\"\n");
+    packages.write("shared.txt", "shared\n");
+    packages.write(
+        "tools/generate.fb",
+        std::format("Import std.core\n"
+                    "Import std.io\n"
+                    "Import std.os\n"
+                    "Local folder = Path(Env.Get(\"FB_BUILD_FOLDER\") ?? \"\")\n"
+                    "Local out = Path(Env.Get(\"FB_BUILD_OUT\") ?? \"\")\n"
+                    "Try File.AppendText(folder / \"../runs.txt\", \"run\\n\")\n"
+                    "Try File.WriteText(out / \"made.fb\", \"Public Const COUNT = 1\\n\")\n"
+                    "Print(\"fb:rerun-if-changed={}\")\n",
+                    (packages / "shared.txt").generic_string()));
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\n\n"
+                                       "[dependencies]\ntools = { path = \"../tools\" }\n\n"
+                                       "[build]\nprogram = \"generate.fb\"\npackage = \"tools\"\n");
+    packages.write("app/main.fb", "Import std.core\nImport app.made\nPrint(\"{COUNT}\")\n");
+    REQUIRE(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 1);
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 1);
+
+    std::filesystem::copy(packages / "app", packages / "copy",
+                          std::filesystem::copy_options::recursive);
+    CHECK(build_and_run(packages, "copy") == "1\n");
+    CHECK(runs(packages) == 2);
+    CHECK(build_and_run(packages, "copy") == "1\n");
+    CHECK(runs(packages) == 2);
+    packages.remove();
+}
+
+TEST_CASE("a build step runs again for a link to a folder in a folder it read, and what's in it",
+          "[driver]") {
+    const packages_t packages;
+    counting_app(packages, counting_program("", "data"));
+    packages.write("app/data/kept.txt", "kept\n");
+    packages.write("elsewhere/art.txt", "first\n");
+    REQUIRE(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 1);
+    const std::filesystem::path link = packages / "app/data/linked";
+    if (!make_link(packages / "elsewhere", link)) {
+        packages.remove();
+        SKIP("this system doesn't let the tests make a link");
+    }
+
+    // The link's coming, and what changes in what it leads to.
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 2);
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 2);
+    packages.write("elsewhere/art.txt", "second\n");
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 3);
+
+    // A link to a folder the walk has been in is walked once, and its coming is a change.
+    const std::filesystem::path back = packages / "app/data/back";
+    REQUIRE(make_link(packages / "app/data", back));
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 4);
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 4);
+
+    // Its going is too.
+    std::filesystem::remove(link);
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 5);
+    std::filesystem::remove(back);
+    packages.remove();
+}
+
+TEST_CASE("a link in a folder a build step read that reaches build/ doesn't run it every build",
+          "[driver]") {
+    const packages_t packages;
+    counting_app(packages, counting_program("", "data"));
+    packages.write("app/data/kept.txt", "kept\n");
+    REQUIRE(build_and_run(packages, "app") == "1\n");
+    REQUIRE(std::filesystem::exists(packages / "app/build"));
+    if (!make_link(packages / "app", packages / "app/data/up")) {
+        packages.remove();
+        SKIP("this system doesn't let the tests make a link");
+    }
+
+    REQUIRE(make_link(packages / "app/build", packages / "app/data/b"));
+    CHECK(build_and_run(packages, "app") == "1\n");
+    const std::size_t after_links = runs(packages);
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == after_links);
+    std::filesystem::remove(packages / "app/data/up");
+    std::filesystem::remove(packages / "app/data/b");
+    packages.remove();
+}
+
+TEST_CASE("a folder a build step read goes on past one it can't read", "[driver]") {
+    const packages_t packages;
+    counting_app(packages, counting_program("", "data"));
+    packages.write("app/data/a-locked/secret.txt", "secret\n");
+    packages.write("app/data/z.txt", "first\n");
+    const std::filesystem::path locked = packages / "app/data/a-locked";
+    std::filesystem::permissions(locked, std::filesystem::perms::none);
+    std::error_code unreadable;
+    const bool can_read = std::filesystem::directory_iterator(locked, unreadable) !=
+                              std::filesystem::directory_iterator() ||
+                          !unreadable;
+    if (can_read) {
+        std::filesystem::permissions(locked, std::filesystem::perms::owner_all);
+        packages.remove();
+        SKIP("this system lets the tests read a folder without permission");
+    }
+
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 1);
+    // What's after it counts.
+    packages.write("app/data/z.txt", "second\n");
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 2);
+    std::filesystem::permissions(locked, std::filesystem::perms::owner_all);
+    packages.remove();
+}
+
+#ifdef _WIN32
+// windows.h's own, whose macros would clash with this file's names.
+// NOLINTNEXTLINE(readability-identifier-naming)
+extern "C" __declspec(dllimport) unsigned long __stdcall GetShortPathNameW(const wchar_t* path,
+                                                                           wchar_t* result,
+                                                                           unsigned long size);
+
+TEST_CASE("another spelling of a project's path doesn't run its build step again", "[driver]") {
+    const packages_t packages;
+    counting_app(packages, counting_program());
+    packages.write("a-folder-with-a-long-name/placeholder.txt", "");
+    REQUIRE(build_and_run(packages, "app") == "1\n");
+    REQUIRE(runs(packages) == 1);
+
+    // In other letter cases, as an editor or a shell can spell it.
+    std::string upper = fb::to_utf8(packages / "app");
+    std::ranges::transform(upper, upper.begin(), [](const char c) {
+        return static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    });
+    CHECK(fb::compile_file(fb::path_from_utf8(upper)).has_value());
+    CHECK(runs(packages) == 1);
+
+    // By its 8.3 short name, where the disk makes them.
+    std::filesystem::rename(packages / "app", packages / "a-folder-with-a-long-name/app");
+    const std::filesystem::path moved = packages / "a-folder-with-a-long-name/app";
+    CHECK(fb::compile_file(moved).has_value());
+    const std::size_t moved_runs = runs(packages);
+    std::wstring shorter(1024, L'\0');
+    const unsigned long written = GetShortPathNameW(moved.c_str(), shorter.data(), 1024);
+    REQUIRE(written != 0);
+    shorter.resize(written);
+    CHECK(fb::compile_file(std::filesystem::path(shorter)).has_value());
+    CHECK(runs(packages) == moved_runs);
+    packages.remove();
+}
+#endif
 
 TEST_CASE("while code is typed, a failed build step's error stays until what it read changes, "
           "and the rest is checked",

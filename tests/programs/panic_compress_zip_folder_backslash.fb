@@ -5,5 +5,5 @@ Import std.compress
 
 Local zip = ZipWriter()
 zip.AddFolder("c/d/")
-Print(zip.Finish().Count > 0)
+Print((Try zip.Finish()).Count > 0)
 zip.AddFolder("c\\")

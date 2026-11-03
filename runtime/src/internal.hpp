@@ -141,6 +141,10 @@ struct decoded_t {
     std::size_t length;
 };
 
+/// A String of `bytes`, with U+FFFD for each that doesn't start well-formed UTF-8, or null past
+/// `limit` bytes or the most a String holds, stopping there.
+[[nodiscard]] fb_string_t* lossy_string(std::string_view bytes, std::size_t limit);
+
 /// The code point that starts at `at` in `text`, or U+FFFD and 1 for a byte that doesn't start a
 /// well-formed one.
 [[nodiscard]] decoded_t decode_utf8(std::string_view text, std::size_t at);

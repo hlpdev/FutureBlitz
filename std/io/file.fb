@@ -15,8 +15,8 @@ Import std.time.timestamp
 
 Extern "runtime"
     Function fb_io_request_bytes(request: Ptr<Void>, output: UInt8[])
-    Function fb_io_request_text(request: Ptr<Void>): String
-    Function fb_io_request_lines(request: Ptr<Void>, output: String[])
+    Function fb_io_request_text(request: Ptr<Void>, limit: Int64): String?
+    Function fb_io_request_lines(request: Ptr<Void>, output: String[], limit: Int64): Int32
     Function fb_io_request_stat(request: Ptr<Void>, output: Int64[])
     Function fb_io_file_read(request: Ptr<Void>, path: String, most: Int64): Int64
     Function fb_io_file_read_async(request: Ptr<Void>, path: String, most: Int64): Task<Int64>
@@ -50,6 +50,7 @@ Const APPEND: Int32 = 1
 Const ATOMIC: Int32 = 2
 /// The most bytes a read takes by default: an array's most for bytes, and all of them for text.
 Const ARRAY_MOST: Int64 = 2147483647
+Const MOST_TEXT: Int = 2147483647
 Const ALL: Int64 = 9223372036854775807
 
 /// What's at a path.
@@ -168,7 +169,43 @@ Public Class File
         CheckMost(most, ALL)
         Local request = Request()
         Try Checked(fb_io_file_read(request.Native, path.Text, most), "read", path)
-        Return fb_io_request_text(request.Native)
+        Return Try TextOf(request, path, MOST_TEXT)
+    End Method
+
+    /// The text a read has, or an IOError past `limit` bytes.
+    Package Static Method TextOf(request: Request, path: Path, limit: Int): String Throws IOError
+        Local text = fb_io_request_text(request.Native, limit)
+        If text == Null
+            Throw IOError(IOErrorKind.OTHER, "{path.Text} holds more text than a String does",
+                          path.Text)
+        End If
+
+        Return text
+    End Method
+
+    /// What ReadText gives, but with the IOError past `limit` bytes.
+    Package Static Method TextWithin(path: Path, limit: Int): String Throws IOError
+        Local request = Request()
+        Try Checked(fb_io_file_read(request.Native, path.Text, ALL), "read", path)
+        Return Try TextOf(request, path, limit)
+    End Method
+
+    /// What ReadLines gives, but with the IOError for a line past `limit` bytes.
+    Package Static Method LinesWithin(path: Path, limit: Int): String[] Throws IOError
+        Local request = Request()
+        Try Checked(fb_io_file_read(request.Native, path.Text, ALL), "read", path)
+        Return Try LinesOf(request, path, limit)
+    End Method
+
+    /// The lines a read has, or an IOError for one past `limit` bytes.
+    Package Static Method LinesOf(request: Request, path: Path, limit: Int): String[] Throws IOError
+        Local lines: String[] = []
+        If fb_io_request_lines(request.Native, lines, limit) == 0
+            Throw IOError(IOErrorKind.OTHER, "{path.Text} holds more text than a String does",
+                          path.Text)
+        End If
+
+        Return lines
     End Method
 
     /// What [ReadText] does, without blocking its thread: a call gives its Task.
@@ -177,7 +214,7 @@ Public Class File
         CheckMost(most, ALL)
         Local request = Request()
         Try Checked(Await fb_io_file_read_async(request.Native, path.Text, most), "read", path)
-        Return fb_io_request_text(request.Native)
+        Return Try TextOf(request, path, MOST_TEXT)
     End Method
 
     /// The file's text in lines, split at "\n" and at "\r\n", without them. A last line with no
@@ -188,9 +225,7 @@ Public Class File
         CheckMost(most, ALL)
         Local request = Request()
         Try Checked(fb_io_file_read(request.Native, path.Text, most), "read", path)
-        Local lines: String[] = []
-        fb_io_request_lines(request.Native, lines)
-        Return lines
+        Return Try LinesOf(request, path, MOST_TEXT)
     End Method
 
     /// What [ReadLines] does, without blocking its thread: a call gives its Task.
@@ -200,9 +235,7 @@ Public Class File
         CheckMost(most, ALL)
         Local request = Request()
         Try Checked(Await fb_io_file_read_async(request.Native, path.Text, most), "read", path)
-        Local lines: String[] = []
-        fb_io_request_lines(request.Native, lines)
-        Return lines
+        Return Try LinesOf(request, path, MOST_TEXT)
     End Method
 
     /// Makes the file hold the `bytes`, made when it isn't there, and replacing what it held when

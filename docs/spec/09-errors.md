@@ -26,7 +26,9 @@ End Function
   as `file:line:column`. A Place whose Line is 0 is no place: the error hasn't been thrown.
 - Each area of std has one Error, whose `Kind` Enum says what went wrong, with its details:
   `IOError` (`IOErrorKind`: `NOT_FOUND`, `PERMISSION_DENIED`, `ALREADY_EXISTS`,
-  `UNEXPECTED_END`, `INVALID_DATA`, `INTERRUPTED`, `OTHER`, and `Path`), `ArgumentError` (`Name`),
+  `UNEXPECTED_END`, `INVALID_DATA`, `INTERRUPTED`, `NOT_A_DIRECTORY`, `IS_A_DIRECTORY`,
+  `NOT_EMPTY`, `BUSY`, `NO_SPACE`, `INVALID_PATH`, `TOO_MANY_LINKS`, `OTHER`, and `Path`),
+  `ArgumentError` (`Name`),
   `ParseError` (`Line`, `Column`, and Load's `Path`), `FormatError`, `RegexError` (`Offset`),
   `NetError` (`Address`), and `DatabaseError`, and `TimeoutError`, which has one kind. Each takes
   its Kind first, then its message, its details, and a Cause:

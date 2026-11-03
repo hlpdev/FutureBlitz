@@ -10,7 +10,7 @@
 //! # Import std.compress
 //! Local writer = TarWriter()
 //! writer.Add("notes.txt", "hi".Bytes)
-//! Local entry = (Try Tar.Read(writer.Finish())).Entries[0]
+//! Local entry = (Try Tar.Read(Try writer.Finish())).Entries[0]
 //! Expect(entry.Name == "notes.txt" && entry.Kind == ArchiveEntryKind.FILE && entry.Size == 2)
 //! ```
 

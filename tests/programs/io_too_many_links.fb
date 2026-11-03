@@ -1,0 +1,39 @@
+// A path whose links lead to each other is an IOError of TOO_MANY_LINKS, as the OS says of it: a
+// symbolic link on Linux and macOS, and a junction on Windows, which needs no privilege.
+Import std.core
+Import std.io
+Import std.text
+
+#If PLATFORM_WINDOWS
+Extern "C"
+    Function system(command: CString): Int32
+End Extern
+
+Function MadeLoop(link: Path): Bool
+    Local at = link.Text.Replace("/", "\\")
+    Return system("mklink /J \"{at}\" \"{at}\" >nul 2>nul") == 0
+End Function
+#Else
+Extern "C"
+    Function symlink(target: CString, link: CString): Int32
+End Extern
+
+Function MadeLoop(link: Path): Bool => symlink(link.Text, link.Text) == 0
+#End If
+
+Local temp = Try TempDir("fb-links-")
+Local loop = temp.Path / "loop"
+Print("made {MadeLoop(loop)}")
+Try
+    Print(Try File.ReadText(loop / "file.txt"))
+Catch e As IOError
+    Print(e.Kind)
+End Try
+
+Try
+    Print(Try File.ReadText(loop))
+Catch e As IOError
+    Print(e.Kind)
+End Try
+
+Try temp.Close()

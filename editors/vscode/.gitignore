@@ -1,8 +1,11 @@
 node_modules/
 out/
+dist/
 .vscode-test/
 *.vsix
 # Copied from the repo by scripts/copy-assets.mjs.
 lldb/
 LICENSE
 images/
+# Made by scripts/bundle.mjs.
+THIRD-PARTY-NOTICES
