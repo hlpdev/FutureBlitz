@@ -1,0 +1,30 @@
+// Value.FromFloat32 holds the Double a Float32's shortest text reads as, without going through
+// text, as Save writes one; a Value of a Float32 widens it, and of a literal keeps its digits.
+Import std.core
+Import std.data
+
+Local tenth: Float32 = 0.1
+Local exact: Double = 0.1
+Print(Value.FromFloat32(tenth))
+Print(Value.FromFloat32(tenth).AsDouble() == exact)
+Print(Value.FromFloat32(tenth).Kind)
+Print(Value(tenth))
+Print(Value(1.23456789012345))
+Local big: Float32 = 3.4028235e38
+Print(Value.FromFloat32(big))
+Local small: Float32 = 1.5
+Print(Value.FromFloat32(small), Value.FromFloat32(-small))
+Local nothing: Float32 = 0.0
+Print(Value.FromFloat32(nothing))
+
+// Inf and NaN stay what they are.
+Local infinity: Float32 = 1.0 / nothing
+Print(Value.FromFloat32(infinity).AsDouble() == (infinity As Double))
+Local nan: Float32 = nothing / nothing
+Local read = Value.FromFloat32(nan).AsDouble() ?? 0.0
+Print(read != read)
+
+// In a document, it's as short.
+Local doc = Value.Object()
+doc["x"] = Value.FromFloat32(tenth)
+Print(Toml.Write(doc))

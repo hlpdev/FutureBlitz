@@ -15,7 +15,6 @@ Extern "runtime"
     Function fb_value_scalar(text: String, ByRef bits: UInt64, ByRef real: Double): Int32
     Function fb_value_enum(text: String, names: String[], values: UInt64[], flags: Int32,
                            ByRef bits: UInt64): Int32
-    Function fb_value_float(value: Float32): Double
 End Extern
 
 /// The key a Field has in a Value's Object, in place of its name.
@@ -467,7 +466,7 @@ Package Function SaveUnsigned(x: UInt64): Value => Value(x)
 Package Function SaveDouble(x: Double): Value => Value(x)
 
 /// A Float32 as the Double its shortest text reads as, so 0.1 is written as 0.1.
-Package Function SaveFloat(x: Float32): Value => Value(fb_value_float(x))
+Package Function SaveFloat(x: Float32): Value => Value.FromFloat32(x)
 
 Package Function SaveString(x: String): Value => Value(x)
 

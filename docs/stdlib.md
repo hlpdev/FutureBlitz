@@ -376,7 +376,8 @@ file or URL in the default app.
   built-ins `Load<T>` and `Save` turn into a T and back: Null, a Bool, an integer (an `INT`, an
   Int64, or past its largest a `UINT`, a UInt64, so JSON's integers stay exact), a Double, a String,
   bytes, an Array of Values, or an Object of Values by key, in the order they were added. A New
-  for each type makes one, `Value()` Null, and `Value.Array()` and `Value.Object()` empty ones;
+  for each type makes one, `Value.FromFloat32(x)` the Double a Float32's shortest text reads as,
+  so 0.1 is 0.1, where `Value(x)` widens it, `Value()` Null, and `Value.Array()` and `Value.Object()` empty ones;
   `Kind`, `IsNull` to `IsObject`, and `Count` say what it holds, and `AsBool()`, `AsInt()`,
   `AsInt64()`, `AsUInt64()`, `AsDouble()`, `AsString()`, `AsBytes()`, and `AsArray()` give it as
   each, or Null: AsBytes a copy, and AsArray a new array of the Value's own elements, so adding to
@@ -1172,7 +1173,9 @@ Bool, or Null where their text goes.
   0s at its end. Which tables a document can define, and where, follows TOML 1.0 as tomli reads
   it, and it passes toml-test's cases for TOML 1.0. `Toml.Write(value)` writes an Object's keys
   and values, then its tables under their headers, an Array of Objects as an array of tables and
-  an Object in an Array as an inline table, a key quoted where it must be; TOML has no null, so
+  an Object in an Array as an inline table, a key quoted where it must be, and an Array of more
+  than one element whose line would pass 100 bytes with an element a line, so a change to one
+  changes that line alone; TOML has no null, so
   it leaves out an Object's Nulls, and panics at a Null in an Array, and at a UINT, past TOML's
   integers. Arrays and inline tables nest 256 deep at most, a ParseError past that when read and
   a panic when written; tables nest however deep.
