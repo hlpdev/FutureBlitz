@@ -10173,7 +10173,7 @@ TEST_CASE("loops over Properties, Static Fields, and Methods of a Func type", "[
     CHECK(errors_of("Function F<E: Enum>(): E => 3 As E").empty());
     CHECK(errors_of("Function F<E: Enum>(x: E): E => x + x") ==
           errors_t{ "x + x: '+' can't be used on E" });
-    CHECK(errors_of("Local x: Enum") != errors_t{});
+    CHECK_FALSE(errors_of("Local x: Enum").empty());
     CHECK(errors_of(std::format("{}For Method m: M In Player\n"
                                 "    Where M: Func(Int): Int\n"
                                 "    Local after = m.Call(Player(), \"five\")\n"

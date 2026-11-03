@@ -5848,8 +5848,10 @@ private:
 
             if (node.member.text == "Value") {
                 if (is_signed(types().get(member.owner).inner)) {
-                    return const_value_t{ .type = member.owner,
-                                          .data = static_cast<std::int64_t>(member.bits) };
+                    return const_value_t{
+                        .type = member.owner,
+                        .data = static_cast<std::int64_t>(member.bits),
+                    };
                 }
 
                 return const_value_t{ .type = member.owner, .data = member.bits };

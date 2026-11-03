@@ -740,7 +740,8 @@ TEST_CASE("fb mcp serves MCP over stdio, a message a line", "[cli]") {
         answers[answer.at("id").get<int>()] = answer;
     }
 
-    CHECK(answers[1].at("result").at("serverInfo").at("version") == fb::build_config::version);
+    CHECK(answers[1].at("result").at("serverInfo").at("version") ==
+          std::string(fb::build_config::version));
     CHECK(answers[1].at("result").at("instructions") == read_file(folder / "AGENTS.md"));
     CHECK(answers[2].at("result").at("tools").size() == 4);
     CHECK(answers[3].at("result").at("content")[0].at("text") == "No errors or warnings.");
