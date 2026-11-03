@@ -888,6 +888,8 @@ jobs:
           npm run test:unit
           mkdir -p "$GITHUB_WORKSPACE/dist"
           npx vsce package --out "$GITHUB_WORKSPACE/dist/futureblitz-$VERSION.vsix"
+          npx vsce ls | grep -x dist/extension.js
+          ! npx vsce ls | grep -E '^(out|src|node_modules)/|\.map$'
           npx vsce ls | grep -x images/icon.png
           npx vsce ls | grep -x images/file-light.svg
           npx vsce ls | grep -x images/file-dark.svg

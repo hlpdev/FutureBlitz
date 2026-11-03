@@ -377,7 +377,11 @@ How it's built (2026-10-29):
 - Published to the VS Code Marketplace and Open VSX, under accounts the user makes.
 
 The extension is editors/vscode/, in TypeScript, with npm and a pinned package-lock.json; its
-README says how to build, test, and install it.
+README says how to build, test, and install it. `npm run compile` type-checks it with tsc into
+out/, for the tests, and bundles it with esbuild into dist/extension.js, the one script it ships,
+with vscode external and vscode-languageclient inside, whose code runs only when a server starts;
+.vscodeignore leaves out src, out, node_modules, the tests, and source maps, so a .vsix has about a
+dozen files.
 
 - **The grammar** is syntaxes/futureblitz.tmLanguage.json, scope `source.futureblitz`, standalone
   JSON with no build step, so M9's Shiki loads the same file. It has the keywords as the lexer
@@ -453,7 +457,7 @@ README says how to build, test, and install it.
   Class, Struct, Interface, Enum, Property, Operator, Try, Lock, Unsafe, Extern, Extend, @Test, #If,
   and From ... Import.
 - **Tests**, `npm test` in editors/vscode, which needs Node 22 and isn't in CMake or verify.py:
-  the unit tests under Node (the grammar's vscode-tmgrammar-test assertion files, whose excluded
+  the unit tests under Node (activating the bundle, the grammar's vscode-tmgrammar-test assertion files, whose excluded
   scopes exclude the scopes under them too, and snapshots of real std and tests/programs code,
   every .fb in the repo leaving nothing open and nothing invalid, every keyword in
   token_kinds.def, the indentation rules and the word pattern, each snippet read by `fb fmt` and

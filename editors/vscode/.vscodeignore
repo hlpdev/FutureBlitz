@@ -1,7 +1,8 @@
 src/**
 scripts/**
 test/**
-out/test/**
+out/**
+node_modules/**
 **/*.map
 **/*.ts
 tsconfig.json

@@ -43,7 +43,7 @@
   "extensionDependencies": [
     "vadimcn.vscode-lldb"
   ],
-  "main": "./out/extension.js",
+  "main": "./dist/extension.js",
   "activationEvents": [
     "workspaceContains:**/*.fb",
     "workspaceContains:**/project.toml",
@@ -608,7 +608,8 @@
     ]
   },
   "scripts": {
-    "compile": "node scripts/copy-assets.mjs && tsc -p ./",
+    "compile": "node scripts/copy-assets.mjs && tsc -p ./ && npm run bundle",
+    "bundle": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --minify --sourcemap --outfile=dist/extension.js",
     "watch": "tsc -watch -p ./",
     "test": "npm run compile && npm run test:unit && npm run test:extension",
     "test:unit": "node --test \"out/test/unit/*.test.js\"",
@@ -636,6 +637,7 @@
     "@types/vscode": "1.91.0",
     "@vscode/test-electron": "3.1.0",
     "@vscode/vsce": "4.1.0",
+    "esbuild": "0.28.2",
     "mocha": "12.0.3",
     "typescript": "7.0.2",
     "vscode-oniguruma": "2.0.1",
