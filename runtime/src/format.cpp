@@ -184,17 +184,40 @@ fb_string_t* fb_debug_object(const fb_object_t* object, const std::int32_t inden
         return make(type->name);
     }
 
-    // The objects this thread is showing, which a cycle comes back to: an array, whose Class is
-    // named like "Node[]", shows as one, and anything else as its Class.
-    thread_local std::vector<const fb_object_t*> showing;
-    if (std::ranges::contains(showing, object)) {
+    // The objects this thread is showing, each with the bytes of those shown inside it so far,
+    // and the bytes of the whole form so far, each object's own counted once. A cycle comes back
+    // to one that's being shown. Only those are cut for that, as an object two others hold shows
+    // twice, so a graph with links across it is shown by each path through it, of which it can
+    // have more than any String holds; the bytes and how deep it goes bound that. An array, whose
+    // Class is named like "Node[]", shows as one, and anything else as its Class.
+    struct showing_t {
+        const fb_object_t* object;
+        std::size_t inside = 0;
+    };
+
+    constexpr std::size_t most_bytes = std::size_t{ 4 } * 1024 * 1024;
+    constexpr std::size_t most_nested = 1000;
+    thread_local std::vector<showing_t> showing;
+    thread_local std::size_t shown = 0;
+    if (showing.empty()) {
+        shown = 0;
+    }
+
+    if (shown >= most_bytes || showing.size() >= most_nested ||
+        std::ranges::contains(showing, object, &showing_t::object)) {
         const std::string_view name = type->name;
         return make(name.ends_with("[]") ? "[ … ]" : std::string(name) + " { … }");
     }
 
-    showing.push_back(object);
+    showing.push_back({ .object = object });
     fb_string_t* text = type->debug(object, indent);
+    const std::size_t size = view(text).size();
+    shown += size - std::min(size, showing.back().inside);
     showing.pop_back();
+    if (!showing.empty()) {
+        showing.back().inside += size;
+    }
+
     return text;
 }
 

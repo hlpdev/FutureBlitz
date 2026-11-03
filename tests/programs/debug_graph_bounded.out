@@ -1,0 +1,7 @@
+True True
+True True
+True True
+Widget { Name: "leaf", Parent: Null, Next: Null, Children: [], Peers: [] }
+True True
+Widget { Name: "both", Parent: Null, Next: Null, Children: [Widget { Name: "shared", Parent: Null, Next: Null, Children: [], Peers: [] }, Widget { Name: "shared", Parent: Null, Next: Null, Children: [], Peers: [] }], Peers: [] }
+Widget { Name: "both", Parent: Null, Next: Null, Children: [Widget { Name: "shared", Parent: Widget { … }, Next: Null, Children: [], Peers: [] }, Widget { Name: "shared", Parent: Widget { … }, Next: Null, Children: [], Peers: [] }], Peers: [] }

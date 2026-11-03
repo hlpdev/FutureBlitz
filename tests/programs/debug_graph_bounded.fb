@@ -1,0 +1,75 @@
+// A debug form of a graph with links across it, which has more paths through it than a String
+// holds, and of a long chain: each is bounded, and cut as a cycle is. What's small and shared
+// shows in full each time.
+Import std.core
+Import std.text
+
+Class Widget
+    Public Field Name: String
+    Public Field Parent: Widget?
+    Public Field Next: Widget?
+    Public Field Children: Widget[] = []
+    Public Field Peers: Widget[] = []
+    Public New(name: String)
+        Name = name
+    End New
+End Class
+
+Local root = Widget("root")
+For i = 1 To 40
+    Local child = Widget("child")
+    child.Parent = root
+    root.Children.Add(child)
+End For
+
+For child In root.Children
+    child.Peers = root.Children.Clone()
+End For
+
+Local text = "{root:?}"
+Print(text.Bytes.Count > 1000000, text.Bytes.Count < 16000000)
+Print(text.StartsWith("Widget {{ Name: \"root\""), text.Contains("Widget {{ … }}"))
+Local dumped = Dump(root)
+Print(dumped.Bytes.Count > 1000000, dumped.Bytes.Count < 64000000)
+
+// The next form starts again.
+Local leaf = Widget("leaf")
+Print("{leaf:?}")
+
+For child In root.Children
+    child.Parent = Null
+    child.Peers = []
+End For
+
+// A chain longer than a form goes deep.
+Local head = Widget("head")
+Local at = head
+For i = 1 To 20000
+    Local next = Widget("link")
+    at.Next = next
+    at = next
+End For
+
+Local chain = "{head:?}"
+Print(chain.Contains("Widget {{ … }}"), chain.Bytes.Count < 16000000)
+
+// Unlinked from the end, as releasing it from its head would go as deep.
+Local links: Widget[] = []
+Local walking: Widget? = head
+While walking != Null
+    links.Add(walking)
+    walking = walking.Next
+End While
+
+For i = links.Count - 1 To 0 Step -1
+    links[i].Next = Null
+End For
+
+// An object two others hold shows in each, and a cycle is cut where it comes back.
+Local shared = Widget("shared")
+Local both = Widget("both")
+both.Children = [shared, shared]
+Print("{both:?}")
+shared.Parent = both
+Print("{both:?}")
+shared.Parent = Null

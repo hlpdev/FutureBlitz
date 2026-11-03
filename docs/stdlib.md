@@ -363,6 +363,8 @@ file or URL in the default app.
   nested. Printable stays the form for people. std's collections show their elements, or a
   Map's entries, through `@DebugElements` and `@DebugEntries`, but a Grid and a Grid3 their
   Fields, their cells and sizes.
+  A cycle is cut where it comes back, and an object past 1,000 deep, or once the form has about
+  4 MiB of objects' text, shows as `Node { … }`, so a graph with links across it stays bounded.
 - Iterator adapters on `Iterator<T>`, lazy: `Map`, `Filter`, `Take`, `Skip`, `TakeWhile`,
   `SkipWhile`, `Enumerate`, `Zip`, `Chain`, `Flatten`, `StepBy`, `Chunks`, `Windows`,
   `OrderBy`, `OrderByDescending`; consuming: `ToArray`, `Count`, `Any`, `All`, `Find`, `First`,
