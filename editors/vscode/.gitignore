@@ -7,3 +7,5 @@ dist/
 lldb/
 LICENSE
 images/
+# Made by scripts/bundle.mjs.
+THIRD-PARTY-NOTICES

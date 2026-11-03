@@ -120,9 +120,11 @@ npm run package          # futureblitz.vsix
 code --install-extension futureblitz.vsix
 ```
 
-`npm run compile` builds into out/ and copies tools/lldb/futureblitz.py and the license in. To
-work on the extension, open editors/vscode in VS Code and run it with F5's Extension Development
-Host, or `npm run watch`.
+`npm run compile` type-checks into out/, which the tests use, bundles the extension into
+dist/extension.js with esbuild, writes THIRD-PARTY-NOTICES from what's bundled, and copies
+tools/lldb/futureblitz.py and the license in. To work on the extension, open editors/vscode in VS
+Code and run it with F5's Extension Development Host, with `npm run watch` bundling each edit
+(`npm run watch:tests` type-checks them into out/).
 
 ## Tests
 

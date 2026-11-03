@@ -609,8 +609,9 @@
   },
   "scripts": {
     "compile": "node scripts/copy-assets.mjs && tsc -p ./ && npm run bundle",
-    "bundle": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --minify --sourcemap --outfile=dist/extension.js",
-    "watch": "tsc -watch -p ./",
+    "bundle": "node scripts/bundle.mjs",
+    "watch": "node scripts/bundle.mjs --watch",
+    "watch:tests": "tsc -watch -p ./",
     "test": "npm run compile && npm run test:unit && npm run test:extension",
     "test:unit": "node --test \"out/test/unit/*.test.js\"",
     "test:extension": "node out/test/run.js",

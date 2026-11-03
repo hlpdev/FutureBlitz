@@ -4,7 +4,9 @@
 // once the extension is active, but not once it's deactivated.
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import Module from "node:module";
+import path from "node:path";
 import { test } from "node:test";
 
 const handler: ProxyHandler<object> = {
@@ -105,6 +107,19 @@ test("the bundle has vscode-languageclient, which runs when a server starts", as
     // there, and runs now.
     await api.server.start({ command: "no-such-fb-lsp", args: [] }).catch(() => {});
     assert.equal(clientRan(), true);
+});
+
+test("the notices have the license of each package in the bundle", () => {
+    const notices = readFileSync(path.join(__dirname, "../../../THIRD-PARTY-NOTICES"), "utf8");
+    for (const name of [
+        "vscode-languageclient",
+        "vscode-jsonrpc",
+        "vscode-languageserver-protocol",
+        "vscode-languageserver-types",
+        "semver",
+    ]) {
+        assert.ok(notices.includes(`\n${name}\n`), name);
+    }
 });
 
 test("an extension deactivated before its server starts doesn't start it", async () => {
