@@ -44,7 +44,10 @@ Public Struct Toml
 
     /// `value`, an Object, as a TOML document: each table's keys and values, then its tables, each
     /// under its header, an Array of Objects as an array of tables, and an Object in an Array as an
-    /// inline table. TOML has no null, so an Object's Null is left out. Panics when `value` isn't
+    /// inline table. An Array of more than one element whose line would pass 100 bytes has an
+    /// element a line, so a change to one changes its line alone, and an Array among them the
+    /// same; an inline table stays on its line. TOML has no null, so an Object's Null is left
+    /// out. Panics when `value` isn't
     /// an Object, an Array holds a Null, it holds bytes or an integer past an Int64, or its arrays
     /// and inline tables nest more than 256 deep.
     @PanicsAtCaller
@@ -65,8 +68,9 @@ Public Struct Toml
             For key In table.Keys()
                 Local entry = EntryOf(table, key)
                 If entry.IsNull || entry.Kind == ValueKind.OBJECT || IsTableArray(entry) Then Continue
-                AddText(out, KeyText(key) + " = ")
-                WriteInline(out, entry, 0)
+                Local start = KeyText(key) + " = "
+                AddText(out, start)
+                WriteEntry(out, entry, 0, 0, start.Bytes.Count)
                 out.Add(10)
             End For
 
@@ -88,6 +92,42 @@ Public Struct Toml
             End For
         End While
         Return TextOf(out)
+    End Method
+
+    /// Writes value at `column` of a line indented by `indent`: as WriteInline does, but for an
+    /// Array of more than one element that would pass MOST_WIDTH, which has an element a line.
+    @PanicsAtCaller
+    Static Method WriteEntry(out: UInt8[], value: Value, depth: Int, indent: Int, column: Int)
+        If value.Kind != ValueKind.ARRAY
+            WriteInline(out, value, depth)
+            Return
+        End If
+
+        Local inline: UInt8[] = []
+        WriteInline(inline, value, depth)
+        If value.Count <= 1 || column + inline.Count <= MOST_WIDTH
+            out.AddAll(inline)
+            Return
+        End If
+
+        out.Add(91)
+        out.Add(10)
+        Local inside = indent + 4
+        For item In ElementsOf(value)
+            AddSpaces(out, inside)
+            WriteEntry(out, item, depth + 1, inside, inside)
+            out.Add(44)
+            out.Add(10)
+        End For
+
+        AddSpaces(out, indent)
+        out.Add(93)
+    End Method
+
+    Static Method AddSpaces(out: UInt8[], count: Int)
+        For i = 1 To count
+            out.Add(32)
+        End For
     End Method
 
     /// Writes value on the line it's on: an Array in brackets, and an Object as an inline table,
@@ -183,6 +223,9 @@ Public Struct Toml
 End Struct
 
 /// How deep arrays and inline tables nest, at most, as TOML is read and written.
+/// The most bytes a line of Write's has with an Array on it, unless the Array has one element.
+Const MOST_WIDTH = 100
+
 Const MOST_NESTED = 256
 
 @PanicsAtCaller

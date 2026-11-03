@@ -1,0 +1,21 @@
+True
+lines 103 103, differing 1
+vertices = [
+    [0.0, 1.5, 2.5],
+    [99.0, 1.5, 2.5],
+]
+True
+short = [1, 2, 3]
+one = ["xxxxxxxxxxxxxxxxxxxxxx... 210
+tables = [
+    { name = "yyyyyyyyyyyyyyyy... 274
+    1,
+]
+nested = [
+    [
+        "aaaaaaaaaaaaaaaaaaaaa... 71
+        "bbbbbbbbbbbbbbbbbbbbb... 71
+    ],
+    [1, 2],
+]
+

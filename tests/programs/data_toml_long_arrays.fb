@@ -1,0 +1,53 @@
+// Toml.Write's long arrays: past 100 bytes on a line, an element a line, which reads back the same,
+// so one element's change is one line. Short ones, one of one element, and inline tables stay on
+// their lines.
+Import std.core
+Import std.data
+Import std.text
+
+// A vertex a line: `count` of them, the one at `changed` moved.
+Function Mesh(count: Int, changed: Int): Value
+    Local vertices = Value.Array()
+    For i = 0 Until count
+        Local x: Double = i As Double
+        vertices.Add(Value([Value(i == changed ? x + 0.5 : x), Value(1.5), Value(2.5)]))
+    End For
+
+    Local mesh = Value.Object()
+    mesh["vertices"] = vertices
+    Return mesh
+End Function
+
+Local first = Toml.Write(Mesh(100, -1))
+Local second = Toml.Write(Mesh(100, 40))
+Print((Try Toml.Read(first)) == Mesh(100, -1))
+Local before = first.Split("\n")
+Local after = second.Split("\n")
+Local differing = 0
+For i = 0 Until before.Count
+    If before[i] != after[i] Then differing += 1
+End For
+
+Print("lines {before.Count} {after.Count}, differing {differing}")
+Print(before[0])
+Print(before[1])
+Print(before[100])
+Print(before[101])
+
+// Short, of one element, and with an inline table.
+Local shapes = Value.Object()
+shapes["short"] = Value([Value(1), Value(2), Value(3)])
+shapes["one"] = Value([Value("x".Repeated(200))])
+Local table = Value.Object()
+table["name"] = Value("y".Repeated(120))
+table["more"] = Value([Value(1), Value("z".Repeated(120))])
+shapes["tables"] = Value([table, Value(1)])
+Local both = Value.Array()
+both.Add(Value([Value("a".Repeated(60)), Value("b".Repeated(60))]))
+both.Add(Value([Value(1), Value(2)]))
+shapes["nested"] = both
+Local written = Toml.Write(shapes)
+Print((Try Toml.Read(written)) == shapes)
+For line In written.Split("\n")
+    Print(line.Length > 60 ? line.Slice(0, 30) + "... {line.Length}" : line)
+End For
