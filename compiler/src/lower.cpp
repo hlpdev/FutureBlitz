@@ -11368,10 +11368,11 @@ private:
 
         const block_id_t fail = new_block();
         const block_id_t ok = new_block();
-        terminate(
-            branch_t{ .condition = same ? compare(binary_op_t::AND, *same, valid, span) : valid,
-                      .if_true = ok,
-                      .if_false = fail });
+        terminate(branch_t{
+            .condition = same ? compare(binary_op_t::AND, *same, valid, span) : valid,
+            .if_true = ok,
+            .if_false = fail,
+        });
         start(fail);
         if (message.empty()) {
             message = std::format("the value isn't one of {}'s", types().name(type));

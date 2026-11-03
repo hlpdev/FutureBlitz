@@ -1623,7 +1623,7 @@ public:
     }
 
     /// Ends it the hardest way there is, as a crash or a task manager does.
-    void kill_it() {
+    void kill_it() const {
 #ifdef _WIN32
         TerminateProcess(m_process.hProcess, 1);
 #else
@@ -1822,7 +1822,7 @@ TEST_CASE("a folder that's held, or just made, isn't swept, and one that can't g
 #ifdef _WIN32
     // A file that can't go yet leaves the lock, so the next one tries again.
     {
-        std::ofstream open_file(folder / "inside" / "file.txt", std::ios::app);
+        const std::ofstream open_file(folder / "inside" / "file.txt", std::ios::app);
         REQUIRE(open_file.is_open());
         run_hello();
         CHECK(std::filesystem::exists(lock));

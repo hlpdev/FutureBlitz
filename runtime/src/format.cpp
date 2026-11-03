@@ -2,6 +2,7 @@
 #include "fb/text_format.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <charconv>
 #include <cmath>
 #include <cstddef>
@@ -102,6 +103,28 @@ bool read_whole(const fast_float::from_chars_result& result, const char* end, co
 
 } // namespace
 
+namespace {
+
+/// The debug form this thread is making: how many are inside each other, the bytes of its objects
+/// so far, each one's own counted once, and where on the stack it started.
+struct debug_form_t {
+    std::size_t nested = 0;
+    std::size_t shown = 0;
+    std::uintptr_t stack = 0;
+};
+
+/// About where this thread's stack is now.
+std::uintptr_t stack_here() {
+    return std::bit_cast<std::uintptr_t>(__builtin_frame_address(0));
+}
+
+debug_form_t& debug_form() {
+    thread_local debug_form_t form;
+    return form;
+}
+
+} // namespace
+
 extern "C" {
 
 fb_string_t* fb_format_int(const std::int64_t value, const fb_string_t* spec) {
@@ -177,29 +200,6 @@ fb_string_t* fb_string_debug(const fb_string_t* text) {
 fb_string_t* fb_char_debug(const std::uint32_t point) {
     return make(fb::debug_char(static_cast<char32_t>(point)));
 }
-
-namespace {
-
-/// The debug form this thread is making: how many are inside each other, the bytes of its objects
-/// so far, each one's own counted once, and where on the stack it started.
-struct debug_form_t {
-    std::size_t nested = 0;
-    std::size_t shown = 0;
-    std::uintptr_t stack = 0;
-};
-
-/// About where this thread's stack is now.
-std::uintptr_t stack_here() {
-    const char here = 0;
-    return std::bit_cast<std::uintptr_t>(&here);
-}
-
-debug_form_t& debug_form() {
-    thread_local debug_form_t form;
-    return form;
-}
-
-} // namespace
 
 std::int32_t fb_debug_begin() {
     debug_form_t& form = debug_form();
