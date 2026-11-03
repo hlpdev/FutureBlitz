@@ -18,4 +18,19 @@ nested = [
     ],
     [1, 2],
 ]
+meshes = [
+    [
+        "ccccccccccccccccccccc... 71
+        "ddddddddddddddddddddd... 71
+    ],
+]
 
+k 100 True
+a_long_key_name_of_some_length 100 True
+é 100 True
+ééééééééééééééééééééééééé 100 True
+True
+False
+99 99 False
+100 100 False
+101 5 True

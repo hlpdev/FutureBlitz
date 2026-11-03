@@ -24,6 +24,22 @@ Local nan: Float32 = nothing / nothing
 Local read = Value.FromFloat32(nan).AsDouble() ?? 0.0
 Print(read != read)
 
+// A subnormal, and -Inf, keep what they are; Save gives what FromFloat32 does.
+Local subnormal: Float32 = 1.0e-45
+Print(Value.FromFloat32(subnormal))
+Local negative: Float32 = -1.0 / nothing
+Print(Value.FromFloat32(negative).AsDouble() == (negative As Double))
+
+Struct Held
+    Public Field X: Float32
+End Struct
+
+For each In [tenth, subnormal, big, small, nothing]
+    Local held = Held(each)
+    Print(Save(held)["X"] == Value.FromFloat32(each),
+          Save(held)["X"] != Value(each) || each == small || each == nothing)
+End For
+
 // In a document, it's as short.
 Local doc = Value.Object()
 doc["x"] = Value.FromFloat32(tenth)

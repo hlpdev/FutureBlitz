@@ -8,5 +8,12 @@ DOUBLE
 0.0
 True
 True
+1e-45
+True
+True True
+True True
+True True
+True True
+True True
 x = 0.1
 

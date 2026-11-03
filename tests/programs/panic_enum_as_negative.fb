@@ -1,0 +1,11 @@
+// An integer As a closed Enum has to be one of its values, as the number it is.
+Import std.core
+
+Enum Tier: UInt8
+    LOW = 0
+    HIGH = 10
+    TOP = 255
+End Enum
+
+Local number = -1
+Print(number As Tier)

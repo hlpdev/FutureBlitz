@@ -44,11 +44,10 @@ Public Struct Toml
 
     /// `value`, an Object, as a TOML document: each table's keys and values, then its tables, each
     /// under its header, an Array of Objects as an array of tables, and an Object in an Array as an
-    /// inline table. An Array of more than one element whose line would pass 100 bytes has an
-    /// element a line, so a change to one changes its line alone, and an Array among them the
-    /// same; an inline table stays on its line. TOML has no null, so an Object's Null is left
-    /// out. Panics when `value` isn't
-    /// an Object, an Array holds a Null, it holds bytes or an integer past an Int64, or its arrays
+    /// inline table. An Array whose line would pass 100 bytes has an element a line, so a change to
+    /// one changes its line alone, and an Array among them the same, unless it has one element that
+    /// isn't an Array, which has nowhere to go; an inline table stays on its line. TOML has no
+    /// null, so an Object's Null is left out. Panics when `value` isn't an Object, an Array holds a Null, it holds bytes or an integer past an Int64, or its arrays
     /// and inline tables nest more than 256 deep.
     @PanicsAtCaller
     Public Static Method Write(value: Value): String
@@ -105,7 +104,9 @@ Public Struct Toml
 
         Local inline: UInt8[] = []
         WriteInline(inline, value, depth)
-        If value.Count <= 1 || column + inline.Count <= MOST_WIDTH
+        Local elements = ElementsOf(value)
+        If column + inline.Count <= MOST_WIDTH || elements.Count == 0 ||
+           (elements.Count == 1 && elements[0].Kind != ValueKind.ARRAY)
             out.AddAll(inline)
             Return
         End If
@@ -113,9 +114,10 @@ Public Struct Toml
         out.Add(91)
         out.Add(10)
         Local inside = indent + 4
-        For item In ElementsOf(value)
+        For item In elements
             AddSpaces(out, inside)
-            WriteEntry(out, item, depth + 1, inside, inside)
+            // What's on its line besides it: the indent, and the comma after it.
+            WriteEntry(out, item, depth + 1, inside, inside + 1)
             out.Add(44)
             out.Add(10)
         End For
@@ -222,10 +224,11 @@ Public Struct Toml
     End Method
 End Struct
 
-/// How deep arrays and inline tables nest, at most, as TOML is read and written.
-/// The most bytes a line of Write's has with an Array on it, unless the Array has one element.
+/// The most bytes of a line Write puts an Array on, indent and comma included, unless an element
+/// that can't be split makes it longer: a long String, an inline table, or an Array's only one.
 Const MOST_WIDTH = 100
 
+/// How deep arrays and inline tables nest, at most, as TOML is read and written.
 Const MOST_NESTED = 256
 
 @PanicsAtCaller

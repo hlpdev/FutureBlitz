@@ -549,6 +549,8 @@ private:
     function_ref_t m_char_debug;
     function_ref_t m_debug_object;
     function_ref_t m_debug_indent;
+    function_ref_t m_debug_begin;
+    function_ref_t m_debug_end;
     function_ref_t m_from_char;
     function_ref_t m_power_int;
     function_ref_t m_power_uint;
@@ -1400,6 +1402,8 @@ private:
         m_char_debug = declare("fb_char_debug", m_ptr, { m_i32 });
         m_debug_object = declare("fb_debug_object", m_ptr, { m_ptr, m_i32 });
         m_debug_indent = declare("fb_debug_indent", m_ptr, { m_i32 });
+        m_debug_begin = declare("fb_debug_begin", m_i32, {});
+        m_debug_end = declare("fb_debug_end", m_i32, {});
         m_from_char = declare("fb_string_from_char", m_ptr, { m_i32 });
         m_power_int = declare("fb_power_int", m_i64, { m_i64, m_i64, m_i32, m_i32, m_ptr });
         m_power_uint = declare("fb_power_uint", m_i64, { m_i64, m_i64, m_i32, m_i32, m_ptr });
@@ -5246,6 +5250,10 @@ private:
                         { value_of(node.arguments[0]), value_of(node.arguments[1]) });
         case runtime_function_t::DEBUG_INDENT:
             return call(m_debug_indent, { value_of(node.arguments[0]) });
+        case runtime_function_t::DEBUG_BEGIN:
+            return call(m_debug_begin, {});
+        case runtime_function_t::DEBUG_END:
+            return call(m_debug_end, {});
         case runtime_function_t::FORMAT_TEXT:
             return call(m_format_text,
                         {

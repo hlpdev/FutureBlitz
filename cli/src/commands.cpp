@@ -1026,8 +1026,8 @@ runs_t run_tests(const console_t& console, const std::filesystem::path& program,
             }
         }
 
-        // Ctrl+C stops the tests, as it does a program fb runs.
-        if (!finished && interrupted(*ran)) {
+        // Ctrl+C stops the tests, as it does a program fb runs, and so does what asks fb to end.
+        if (!finished && (interrupted(*ran) || attached_was_signalled())) {
             runs.interrupted = *ran;
             return runs;
         }

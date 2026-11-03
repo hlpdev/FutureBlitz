@@ -33,6 +33,13 @@ Enum Lone
     ONLY
 End Enum
 
+@Flags Enum Mode
+    NONE = 0
+    READ = 1
+    WRITE = 2
+    READ_WRITE = READ | WRITE
+End Enum
+
 Function MembersOf<E: Enum>(): (String, E)[]
     Local all: (String, E)[] = []
     For Member m In E
@@ -57,6 +64,7 @@ Show<Temperature>()
 Show<Access>()
 Show<Kind>()
 Show<Lone>()
+Show<Mode>()
 
 // Over a concrete Enum, in the code's own order, with Break and Continue as a For Field has.
 For Member m In Tier
@@ -123,3 +131,72 @@ Class Picker<E: Enum>
 End Class
 
 Print(Picker<Access>().Options)
+
+// A lambda in the body has its copy's member.
+Function Namers<E: Enum>(): (Func(): String)[]
+    Local namers: (Func(): String)[] = []
+    For Member m In E
+        namers.Add(Function() => "{m.Name} {m.Value}")
+    End For
+
+    Return namers
+End Function
+
+For namer In Namers<Medal>()
+    Print(namer())
+End For
+
+// A generic Struct's Method.
+Struct Table<E: Enum>
+    Public Method Count(): Int
+        Local count = 0
+        For Member m In E
+            count += 1
+        End For
+
+        Return count
+    End Method
+End Struct
+
+Print(Table<Mode>().Count())
+
+// A For Field's type, when it says it's an Enum.
+Struct Settings
+    Public Field Rank: Medal
+    Public Field Level: Tier
+End Struct
+
+For Field f: F In Settings
+    Where F: Enum
+    For Member m In F
+        Print(f.Name, m.Name, m.Value)
+    End For
+End For
+
+// At compile time: a size, signed and unsigned values, and As E.
+Const Function CountOf<E: Enum>(): Int
+    Local count = 0
+    For Member m In E
+        count += 1
+    End For
+
+    Return count
+End Function
+
+Const Function Lowest<E: Enum>(): Int64
+    Local lowest: Int64 = 9223372036854775807
+    For Member m In E
+        Local number = m.Value As Int64
+        If number < lowest Then lowest = number
+    End For
+
+    Return lowest
+End Function
+
+Const Function Named<E: Enum>(number: Int): E => number As E
+
+Const MEDALS = CountOf<Medal>()
+Const COLDEST = Lowest<Temperature>()
+Const WRAPPED = Lowest<Kind>()
+Const CHOSEN = Named<Tier>(10)
+Print(MEDALS, COLDEST, WRAPPED, CHOSEN)

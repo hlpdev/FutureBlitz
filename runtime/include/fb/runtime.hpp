@@ -272,6 +272,11 @@ fb_string_t* fb_char_debug(std::uint32_t point);
 fb_string_t* fb_debug_object(const fb_object_t* object, std::int32_t indent);
 /// A line break, then four spaces for each of `indent` levels, for an indented debug form.
 fb_string_t* fb_debug_indent(std::int32_t indent);
+/// A whole debug form starts on this thread, which a form inside it is part of. What its objects
+/// show together has a limit. Gives 0, as a runtime call lowering makes gives a value.
+std::int32_t fb_debug_begin();
+/// A whole debug form ends. Gives 0, as fb_debug_begin does.
+std::int32_t fb_debug_end();
 
 /// 1, with the integer `text` writes in `base` (2 to 36) in `value`, or 0 when it isn't one or
 /// doesn't fit: a sign, then digits, which the base's "0x", "0o", or "0b" can start.
@@ -738,10 +743,12 @@ void fb_io_input_async(fb_task_t* task, const fb_string_t* prompt);
 /// bytes: 4 or 6 for its family, then its 16 bytes, an IPv4 address's 4 first. Gives 0, or
 /// libuv's error, which fb_io_error_text says in English. It blocks, as fb_io_input does.
 std::int32_t fb_io_resolve(const fb_string_t* host, fb_array_t* output);
-/// The same, finishing `task`, a new Task<UInt8[]>, once the I/O thread has the addresses, with a
-/// new array of `like`'s Class: fb_io_resolve's result as 4 bytes, the least significant first,
-/// then the records. It reads only `like`'s Class, so the caller can let go of it whenever.
-void fb_io_resolve_async(fb_task_t* task, const fb_string_t* host, const fb_array_t* like);
+/// The same, finishing `task`, a new Task<UInt64>, once the I/O thread has the addresses, with an
+/// answer that fb_io_resolve_answer() takes on the thread that reads it.
+void fb_io_resolve_async(fb_task_t* task, const fb_string_t* host);
+/// Puts what fb_io_resolve_async's Task found in `output`, and gives its code, letting go of the
+/// answer.
+std::int32_t fb_io_resolve_answer(std::uint64_t answer, fb_array_t* output);
 /// What libuv's error `code` means.
 fb_string_t* fb_io_error_text(std::int32_t code);
 

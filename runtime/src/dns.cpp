@@ -8,10 +8,12 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <uv.h>
@@ -22,16 +24,16 @@ namespace {
 constexpr std::size_t record_size = 17;
 
 /// What waits for a lookup: a blocking caller, woken with its result and its records in
-/// `output`, its UInt8[], which it holds as it waits; or a Task<UInt8[]> to finish with a new
-/// array of `bytes`, UInt8[]'s Class. The I/O thread never touches an object of the caller's but
-/// a blocking one's `output`, as the coroutine awaiting a Task can be gone first, with what it
-/// held.
+/// `output`, its UInt8[], which it holds as it waits; or a Task<UInt64> to finish with an answer_t.
+/// The I/O thread never touches an object of the caller's but a blocking one's `output`, as the
+/// coroutine awaiting a Task can be gone first, with what it held. It makes none for a Task either:
+/// an array in its result would be let go of by whichever thread lets go of the Task last, which
+/// can be the I/O thread, while the coroutine has that array, whose count isn't atomic.
 struct lookup_t {
     uv_getaddrinfo_t request{};
     std::string host;
     std::vector<std::uint8_t> records;
     fb_array_t* output = nullptr;
-    fb_class_t* bytes = nullptr;
     fb_task_t* task = nullptr;
     std::mutex mutex;
     std::condition_variable answered;
@@ -40,6 +42,12 @@ struct lookup_t {
 
     /// libuv's callback, once getaddrinfo has the addresses or failed.
     static void on_resolved(uv_getaddrinfo_t* request, int status, addrinfo* found);
+};
+
+/// What a Task's lookup found, which fb_io_resolve_answer() takes.
+struct answer_t {
+    std::int32_t code = 0;
+    std::vector<std::uint8_t> records;
 };
 
 /// The records of each address `found` has, once, as getaddrinfo gives one for each kind of
@@ -101,18 +109,9 @@ void finish(lookup_t* lookup, std::int32_t result) {
         return;
     }
 
-    // The Task's result, the array, is right after its fb_task_t, and it's done once that's set:
-    // the code as 4 bytes, the least significant first, then the records.
-    fb_array_t* answer = fb_array_new(lookup->bytes, 1, 4 + size);
-    auto* bytes = static_cast<std::uint8_t*>(answer->data);
-    const auto code = static_cast<std::uint32_t>(result);
-    for (std::size_t i = 0; i < 4; ++i) {
-        bytes[i] = static_cast<std::uint8_t>(code >> (i * 8));
-    }
-    if (size > 0) {
-        std::memcpy(bytes + 4, lookup->records.data(), lookup->records.size());
-    }
-    *reinterpret_cast<fb_array_t**>(task + 1) = answer;
+    // The Task's result, the answer, is right after its fb_task_t, and it's done once that's set.
+    auto* answer = new answer_t{ .code = result, .records = std::move(lookup->records) };
+    *reinterpret_cast<std::uint64_t*>(task + 1) = std::bit_cast<std::uint64_t>(answer);
     delete lookup;
     fb_task_finish(task);
     fb::runtime::finish_request(task);
@@ -167,11 +166,23 @@ std::int32_t fb_io_resolve(const fb_string_t* host, fb_array_t* output) {
     return lookup.result;
 }
 
-void fb_io_resolve_async(fb_task_t* task, const fb_string_t* host, const fb_array_t* like) {
-    // The lookup holds the Task until it's done, and of `like`, only its Class.
+std::int32_t fb_io_resolve_answer(const std::uint64_t answer, fb_array_t* output) {
+    const std::unique_ptr<answer_t> taken(std::bit_cast<answer_t*>(answer));
+    output->count = 0;
+    if (!taken->records.empty()) {
+        const auto size = static_cast<std::int64_t>(taken->records.size());
+        fb_array_reserve(output, 1, size, nullptr);
+        std::memcpy(output->data, taken->records.data(), taken->records.size());
+        output->count = size;
+    }
+
+    return taken->code;
+}
+
+void fb_io_resolve_async(fb_task_t* task, const fb_string_t* host) {
+    // The lookup holds the Task until it's done.
     auto* lookup = new lookup_t;
     lookup->host = text_of(host);
-    lookup->bytes = like->header.type;
     lookup->task = task;
     fb_object_retain(&task->header);
     fb::runtime::start_request(task);

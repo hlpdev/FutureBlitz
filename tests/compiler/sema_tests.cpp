@@ -10174,6 +10174,51 @@ TEST_CASE("loops over Properties, Static Fields, and Methods of a Func type", "[
     CHECK(errors_of("Function F<E: Enum>(x: E): E => x + x") ==
           errors_t{ "x + x: '+' can't be used on E" });
     CHECK_FALSE(errors_of("Local x: Enum").empty());
+    // A call with nothing to infer E from doesn't suggest what isn't an Enum.
+    for (const std::string& error : errors_of("Function F<E: Enum>(): Int => 0\nLocal x = F()")) {
+        CHECK_FALSE(error.contains("F<Int>"));
+    }
+
+    // A narrowing doesn't outlive a change in a member loop inside another loop.
+    CHECK(errors_of(std::format("{}Local x: Int? = 1\n"
+                                "While True\n"
+                                "    Local y = x + 1\n"
+                                "    For Member m In Tier\n"
+                                "        x = Null\n"
+                                "    End For\n"
+                                "End While",
+                                tier)) ==
+          errors_t{ "x + 1: '+' can't be used on Int32?, which may be Null" });
+    CHECK(errors_of("Struct Point\n    Field A: Int\nEnd Struct\n"
+                    "Local x: Int? = 1\n"
+                    "While True\n"
+                    "    Local y = x + 1\n"
+                    "    For Field f In Point\n"
+                    "        x = Null\n"
+                    "    End For\n"
+                    "End While") ==
+          errors_t{ "x + 1: '+' can't be used on Int32?, which may be Null" });
+    // A closed Enum's value is the same number in what it came from.
+    CHECK(errors_of("Enum Low: UInt8\n    A = 0\nEnd Enum\nLocal x = 256 As Low") ==
+          errors_t{ "256 As Low: 256 isn't one of Low's values" });
+    CHECK(errors_of("@Open Enum Wide: UInt8\n    A = 0\nEnd Enum\nLocal x = 256 As Wide").empty());
+    // A For Field's F, once it says it's an Enum, has members, and only then.
+    CHECK(errors_of(std::format("{}Struct Holds\n    Field T: Tier\nEnd Struct\n"
+                                "For Field f: F In Holds\n"
+                                "    Where F: Enum\n"
+                                "    For Member m In F\n"
+                                "        Local v: F = m.Value\n"
+                                "    End For\n"
+                                "End For",
+                                tier))
+              .empty());
+    CHECK(errors_of("Struct Holds\n    Field T: Int\nEnd Struct\n"
+                    "For Field f: F In Holds\n"
+                    "    For Member m In F\n"
+                    "    End For\n"
+                    "End For") ==
+          errors_t{ "F: For Member goes over an Enum's members; say that F is one, with 'Where F: "
+                    "Enum'" });
     CHECK(errors_of(std::format("{}For Method m: M In Player\n"
                                 "    Where M: Func(Int): Int\n"
                                 "    Local after = m.Call(Player(), \"five\")\n"

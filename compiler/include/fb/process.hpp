@@ -86,10 +86,15 @@ private:
 /// Runs a program in this terminal, with this process's stdin, stdout, and stderr, and returns
 /// its exit code. It ends if this process ends first, however it ends: on Windows with what it
 /// started, from a job, and on POSIX by itself, from a process that watches for that. What it
-/// started and left running when it ended by itself stays. SIGTERM and SIGHUP to this process go
-/// on to it, and this process returns when it ends.
+/// started and left running when it ended by itself stays, as does what it starts on its own,
+/// outside the job, as std's Command.SpawnDetached and OpenDefault do. SIGTERM and SIGHUP to this
+/// process go on to it, and this process returns when it ends.
 [[nodiscard]] std::expected<int, std::string> run_attached(const std::filesystem::path& program,
                                                            std::span<const std::string> arguments);
+
+/// Whether SIGTERM or SIGHUP came while the last run_attached() waited, so this process was asked
+/// to end too. Never on Windows.
+[[nodiscard]] bool attached_was_signalled();
 
 /// Starts a program and doesn't wait for it, with none of this process's stdin, stdout, or
 /// stderr, as a browser is opened. Fails only when it can't be started.

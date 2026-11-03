@@ -363,8 +363,9 @@ file or URL in the default app.
   nested. Printable stays the form for people. std's collections show their elements, or a
   Map's entries, through `@DebugElements` and `@DebugEntries`, but a Grid and a Grid3 their
   Fields, their cells and sizes.
-  A cycle is cut where it comes back, and an object past 1,000 deep, or once the form has about
-  4 MiB of objects' text, shows as `Node { … }`, so a graph with links across it stays bounded.
+  A cycle is cut where it comes back, and an object past 200 deep, or once the whole form has
+  about 4 MiB of objects' text, shows as `Node { … }`, so a graph with links across it stays
+  bounded, whatever holds it.
 - Iterator adapters on `Iterator<T>`, lazy: `Map`, `Filter`, `Take`, `Skip`, `TakeWhile`,
   `SkipWhile`, `Enumerate`, `Zip`, `Chain`, `Flatten`, `StepBy`, `Chunks`, `Windows`,
   `OrderBy`, `OrderByDescending`; consuming: `ToArray`, `Count`, `Any`, `All`, `Find`, `First`,
@@ -934,7 +935,10 @@ std/io/.
   `ChildOutput` Readers); `Output()` gives a `ProcessOutput`, the child's stdout and stderr and
   its `ExitStatus`, and `Status()` the `ExitStatus`, each with an Async twin. No shell: a program
   and its arguments, the same on every OS. A name is found on PATH, never in a current folder,
-  and a child outlives its parent everywhere. On Windows, a .bat or .cmd file runs in cmd.exe with
+  and a child outlives its parent everywhere, but under `fb run` or `fb test` on Windows, where a
+  killed fb ends the program and what it started. `SpawnDetached()` starts one with none of the
+  program's streams, and nothing that ends the program ends it, which gives its process's number,
+  as OpenDefault's app is too. On Windows, a .bat or .cmd file runs in cmd.exe with
   its arguments escaped as Rust escapes them, so nothing in one runs, and one with a line break
   throws. Step 17 built them over libuv's processes, on a thread of the runtime's own.
 - Signals that every OS has: `Process.OnInterrupt(handler)`, for Ctrl+C, or Ctrl+Break on
@@ -1175,9 +1179,9 @@ Bool, or Null where their text goes.
   0s at its end. Which tables a document can define, and where, follows TOML 1.0 as tomli reads
   it, and it passes toml-test's cases for TOML 1.0. `Toml.Write(value)` writes an Object's keys
   and values, then its tables under their headers, an Array of Objects as an array of tables and
-  an Object in an Array as an inline table, a key quoted where it must be, and an Array of more
-  than one element whose line would pass 100 bytes with an element a line, so a change to one
-  changes that line alone; TOML has no null, so
+  an Object in an Array as an inline table, a key quoted where it must be, and an Array whose line
+  would pass 100 bytes with an element a line, so a change to one changes that line alone, but for
+  one element that isn't an Array; TOML has no null, so
   it leaves out an Object's Nulls, and panics at a Null in an Array, and at a UINT, past TOML's
   integers. Arrays and inline tables nest 256 deep at most, a ParseError past that when read and
   a panic when written; tables nest however deep.

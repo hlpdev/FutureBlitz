@@ -5868,6 +5868,30 @@ namespace {
 /// The file in a folder hold_temporary() made, which its process keeps locked.
 constexpr std::string_view temporary_lock = ".fb-holds";
 
+/// Removes what's in `folder` but its lock, then, if all of that went, the lock and the folder, so
+/// one that doesn't go at once still has its lock, and sweep_temporary() gets to it later.
+void remove_held_folder(const std::filesystem::path& folder) {
+    const std::filesystem::path lock = folder / temporary_lock;
+    bool removed = true;
+    std::error_code listing;
+    std::filesystem::directory_iterator at(folder, listing);
+    while (!listing && at != std::filesystem::directory_iterator()) {
+        if (at->path() != lock) {
+            std::error_code removing;
+            std::filesystem::remove_all(at->path(), removing);
+            removed = removed && !removing;
+        }
+
+        at.increment(listing);
+    }
+
+    if (removed && !listing) {
+        std::error_code removing;
+        std::filesystem::remove(lock, removing);
+        std::filesystem::remove(folder, removing);
+    }
+}
+
 } // namespace
 
 std::optional<file_lock_t> hold_temporary(const std::filesystem::path& folder) {
@@ -5883,19 +5907,21 @@ void sweep_temporary() {
     const std::filesystem::path folders = temporary_path("sweep", "").parent_path();
     const auto now = std::filesystem::file_time_type::clock::now();
     std::vector<std::filesystem::path> gone;
-    for (const std::filesystem::directory_entry& entry :
-         std::filesystem::directory_iterator(folders, error)) {
-        const std::filesystem::path lock = entry.path() / temporary_lock;
+    std::filesystem::directory_iterator at(folders, error);
+    while (!error && at != std::filesystem::directory_iterator()) {
+        const std::filesystem::path lock = at->path() / temporary_lock;
         std::error_code looking;
         const std::filesystem::file_time_type written =
             std::filesystem::last_write_time(lock, looking);
         if (!looking && now - written >= settled && file_lock_t::try_take(lock)) {
-            gone.push_back(entry.path());
+            gone.push_back(at->path());
         }
+
+        at.increment(error);
     }
 
     for (const std::filesystem::path& folder : gone) {
-        std::filesystem::remove_all(folder, error);
+        remove_held_folder(folder);
     }
 }
 
@@ -5904,7 +5930,15 @@ bool remove_temporary(const std::filesystem::path& path) {
     constexpr auto pause = std::chrono::milliseconds(50);
     for (int i = 0; i < tries; ++i) {
         std::error_code removing;
-        std::filesystem::remove_all(path, removing);
+        if (std::filesystem::is_directory(path, removing)) {
+            remove_held_folder(path);
+        }
+
+        // One without a lock, or a file, goes whatever's in it.
+        if (!std::filesystem::exists(path / temporary_lock, removing)) {
+            std::filesystem::remove_all(path, removing);
+        }
+
         std::error_code looking;
         if (!disk::exists(path, looking) && !looking) {
             return true;

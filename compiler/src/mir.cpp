@@ -42,6 +42,10 @@ std::string_view runtime_name(const runtime_function_t function) {
         return "debug_object";
     case runtime_function_t::DEBUG_INDENT:
         return "debug_indent";
+    case runtime_function_t::DEBUG_BEGIN:
+        return "debug_begin";
+    case runtime_function_t::DEBUG_END:
+        return "debug_end";
     case runtime_function_t::TO_TEXT:
         return "to_text";
     case runtime_function_t::CSTRING_NEW:

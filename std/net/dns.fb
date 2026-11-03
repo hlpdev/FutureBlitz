@@ -8,7 +8,8 @@ Import std.net.address
 
 Extern "runtime"
     Function fb_io_resolve(host: String, output: UInt8[]): Int32
-    Function fb_io_resolve_async(host: String, like: UInt8[]): Task<UInt8[]>
+    Function fb_io_resolve_async(host: String): Task<UInt64>
+    Function fb_io_resolve_answer(answer: UInt64, output: UInt8[]): Int32
     Function fb_io_error_text(code: Int32): String
 End Extern
 
@@ -43,15 +44,14 @@ Public Struct Dns
     End Method
 
     /// Resolve's Async twin: a Task of `host`'s addresses, which the I/O thread finishes while the
-    /// main thread goes on, with an array of its own, the code then the addresses.
+    /// main thread goes on, with an answer that this thread reads into an array of its own.
     Public Static Async Method ResolveAsync(host: String): IpAddress[] Throws NetError
         Try Named(host)
-        Local like: UInt8[] = []
-        Local answer = Await fb_io_resolve_async(host, like)
-        Local code = (answer[0] As Int32) | ((answer[1] As Int32) << 8) |
-                     ((answer[2] As Int32) << 16) | ((answer[3] As Int32) << 24)
+        Local answer = Await fb_io_resolve_async(host)
+        Local output: UInt8[] = []
+        Local code = fb_io_resolve_answer(answer, output)
         Try Check(host, code)
-        Return Addresses(answer, 4)
+        Return Addresses(output, 0)
     End Method
 End Struct
 

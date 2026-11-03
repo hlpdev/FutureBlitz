@@ -6988,7 +6988,9 @@ private:
                 return;
             }
 
+            runtime_call(runtime_function_t::DEBUG_BEGIN, {}, type_id_t::INT32);
             operand_t text = debug_of(value, type, indent);
+            runtime_call(runtime_function_t::DEBUG_END, {}, type_id_t::INT32);
             if (spec->width > 0) {
                 text = runtime_call(runtime_function_t::FORMAT_TEXT,
                                     { text, make_bool(false), spec_text }, type_id_t::STRING, true);
@@ -9672,7 +9674,9 @@ private:
             };
             for (std::size_t i = 0; i < sides.size(); ++i) {
                 parts.emplace_back(make_string(i == 0 ? "\n  left: " : "\n  right: "));
+                runtime_call(runtime_function_t::DEBUG_BEGIN, {}, type_id_t::INT32);
                 parts.push_back(debug_of(sides[i].first, sides[i].second, indent));
+                runtime_call(runtime_function_t::DEBUG_END, {}, type_id_t::INT32);
             }
 
             if (message) {
@@ -11306,6 +11310,20 @@ private:
                       std::string message = {}) {
         const type_id_t integer = types().get(type).inner;
         const operand_t number = convert(value, integer, span);
+        // The same number in the integer it came from, which a wider one, or one of another sign,
+        // may not be.
+        const type_id_t source = type_of(value);
+        operand_t same = make_bool(true);
+        if (source != integer && is_integer(source)) {
+            same = compare(binary_op_t::EQUAL, convert(number, source, span), value, span);
+            if (is_signed(source) != is_signed(integer)) {
+                const operand_t whole = is_signed(source) ? value : number;
+                const operand_t positive =
+                    compare(binary_op_t::GREATER_EQUAL, whole, zero(type_of(whole)), span);
+                same = compare(binary_op_t::AND, same, positive, span);
+            }
+        }
+
         std::vector<std::uint64_t> values;
         for (const enum_value_t& member : types().get(type).values) {
             values.push_back(member.bits);
@@ -11339,7 +11357,9 @@ private:
 
         const block_id_t fail = new_block();
         const block_id_t ok = new_block();
-        terminate(branch_t{ .condition = valid, .if_true = ok, .if_false = fail });
+        terminate(branch_t{ .condition = compare(binary_op_t::AND, same, valid, span),
+                            .if_true = ok,
+                            .if_false = fail });
         start(fail);
         if (message.empty()) {
             message = std::format("the value isn't one of {}'s", types().name(type));

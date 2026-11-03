@@ -457,6 +457,10 @@ std::expected<int, std::string> run_attached(const std::filesystem::path& progra
     return static_cast<int>(exit_code);
 }
 
+bool attached_was_signalled() {
+    return false;
+}
+
 std::expected<void, std::string> start_detached(const std::filesystem::path& program,
                                                 std::span<const std::string> arguments) {
     std::wstring command = command_line(program, arguments);
@@ -748,10 +752,22 @@ int wait_for(const pid_t pid) {
 
 /// The program run_attached() is waiting for, which a signal handler reads.
 std::atomic<pid_t> attached{ 0 };
+/// Whether SIGTERM or SIGHUP came while run_attached() last waited.
+std::atomic<bool> attached_signal{ false };
 
 /// SIGTERM's and SIGHUP's handler while a program runs in this terminal: it gets them, and ends
-/// as it chooses, and this process then cleans up, as it does after Ctrl+C.
-void pass_on(const int number) {
+/// as it chooses, and this process then cleans up, as it does after Ctrl+C. A closed terminal's
+/// SIGHUP, from the kernel, went to the program too. A kill of the whole process group, which
+/// looks like any other kill here, reaches it twice.
+void pass_on(const int number, siginfo_t* const info, void* const /*context*/) {
+    attached_signal = true;
+#ifdef SI_KERNEL
+    if (info->si_code == SI_KERNEL) {
+        return;
+    }
+#else
+    (void)info;
+#endif
     if (const pid_t program = attached.load(); program > 0) {
         kill(program, number);
     }
@@ -784,15 +800,24 @@ attached_watcher_t start_watcher(const pid_t program) {
             sigaction(number, &ignore, nullptr);
         }
 
-        // It keeps nothing of this process's open, such as a pipe its stdout goes to.
-        for (const int end : { STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO, ends[1] }) {
-            close(end);
+        // It keeps nothing of this process's open, such as a pipe its stdout goes to. The pipe's
+        // end is above those, as it's one of them when this process's stdio was closed.
+        const int end = fcntl(ends[0], F_DUPFD_CLOEXEC, STDERR_FILENO + 1);
+        for (const int other : { STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO, ends[0], ends[1] }) {
+            if (other != end) {
+                close(other);
+            }
         }
 
         char byte = 0;
-        while (read(ends[0], &byte, 1) < 0 && errno == EINTR) {}
+        ssize_t got = 0;
+        while ((got = read(end, &byte, 1)) < 0 && errno == EINTR) {}
 
-        kill(program, SIGKILL);
+        // Only the pipe's end says this process has gone.
+        if (got == 0) {
+            kill(program, SIGKILL);
+        }
+
         _exit(0);
     }
 
@@ -1030,11 +1055,12 @@ std::expected<int, std::string> run_attached(const std::filesystem::path& progra
     const std::expected<pid_t, std::string> pid = spawn(program, arguments, nullptr);
     const attached_watcher_t watcher = pid ? start_watcher(*pid) : attached_watcher_t{};
     lock.unlock();
+    attached_signal = false;
     attached = pid.value_or(0);
     // A signal this process ignores stays ignored, as nohup has it.
     struct sigaction passing{};
-    passing.sa_handler = pass_on;
-    passing.sa_flags = SA_RESTART;
+    passing.sa_sigaction = pass_on;
+    passing.sa_flags = SA_SIGINFO | SA_RESTART;
     sigemptyset(&passing.sa_mask);
     struct sigaction terminate{};
     struct sigaction hang_up{};
@@ -1060,6 +1086,10 @@ std::expected<int, std::string> run_attached(const std::filesystem::path& progra
     sigaction(SIGINT, &interrupt, nullptr);
     sigaction(SIGQUIT, &quit, nullptr);
     return result;
+}
+
+bool attached_was_signalled() {
+    return attached_signal;
 }
 
 std::expected<void, std::string> start_detached(const std::filesystem::path& program,

@@ -16061,6 +16061,8 @@ private:
             changed_in(lock->body, names);
         } else if (const auto* unsafe = std::get_if<unsafe_stmt_t>(&node)) {
             changed_in(unsafe->body, names);
+        } else if (const auto* members = std::get_if<for_member_stmt_t>(&node)) {
+            changed_in(members->body, names);
         }
     }
 
@@ -19871,13 +19873,22 @@ private:
         // parameters, its type's, or an Interface's Self.
         const std::vector<type_id_t> reflectable =
             m_function ? reflectable_parameters(*m_function) : std::vector<type_id_t>{};
+        // An outer loop's type parameter is known in each of its copies, so For Member goes over
+        // one that's an Enum.
         const bool own =
-            std::ranges::contains(reflectable, type) && (methods || m_loop_fields.contains(id));
-        if (type != type_id_t::INVALID && is_parameter(type) && !own) {
+            (std::ranges::contains(reflectable, type) && (methods || m_loop_fields.contains(id))) ||
+            (node.kind == member_kind_t::MEMBER && is_parameter(type) && is_any_enum(type));
+        if (type != type_id_t::INVALID && is_parameter(type) && !own &&
+            node.kind != member_kind_t::MEMBER) {
             error(m_ast.get(node.type).span,
                   "a loop over {}'s members goes in code that has {} as a type parameter, and a "
                   "lambda's isn't supported yet",
                   shown_name(type), shown_name(type));
+        }
+
+        // While types are declared, an Enum declared further down has its values declared now.
+        if (node.kind == member_kind_t::MEMBER && !m_declared && is_enum(type)) {
+            declare_early(type);
         }
 
         // An Enum's members need an Enum, so a generic one's own call says when it isn't.
@@ -22355,6 +22366,7 @@ private:
         }
 
         if (symbol(*found).kind == symbol_kind_t::MEMBER_VARIABLE) {
+            info(id).symbol = *found;
             error(span_of(id), "{}", member_variable_help(*found));
             return type_id_t::INVALID;
         }
@@ -26210,6 +26222,15 @@ private:
             return;
         }
 
+        // An Enum declared further down has its values declared now, which For Member and As go by.
+        if (!m_declared) {
+            for (const type_id_t type : type_arguments) {
+                if (is_enum(type)) {
+                    declare_early(type);
+                }
+            }
+        }
+
         // While types are declared, it runs only if its code needs none that aren't yet.
         const std::optional<std::expected<const_value_t, evaluation_error_t>> result =
             m_declared ? run_const(function, type_arguments, arguments)
@@ -27573,7 +27594,7 @@ private:
             return shown_name(m_analysis.error_class);
         }
 
-        if (bound_to(m_analysis.interfaces.any_class)) {
+        if (bound_to(m_analysis.interfaces.any_class) || bound_to(m_analysis.interfaces.any_enum)) {
             return std::nullopt;
         }
 
@@ -30388,10 +30409,19 @@ private:
             return;
         }
 
+        // A closed Enum's value is the same number in the integer it came from, which a wider one,
+        // or one of another sign, may not be; @Flags and @Open wrap, as an integer's As does.
+        const auto negative = [](const const_value_t& number) {
+            const auto* held = std::get_if<std::int64_t>(&number.data);
+            return held != nullptr && *held < 0;
+        };
+        const fold_result_t back = fold_cast(*integer, value.type);
+        const bool same = back && back->data == value.data && negative(*integer) == negative(value);
         const std::vector<enum_value_t>& values = m_analysis.types.get(type).values;
-        const bool member = std::ranges::contains(values, bits_of(*integer), &enum_value_t::bits);
+        const bool member =
+            same && std::ranges::contains(values, bits_of(*integer), &enum_value_t::bits);
         if (!is_flags(type) && !is_open(type) && !member) {
-            error(span_of(id), "{} isn't one of {}'s values", to_text(*integer), shown_name(type));
+            error(span_of(id), "{} isn't one of {}'s values", to_text(value), shown_name(type));
             return;
         }
 

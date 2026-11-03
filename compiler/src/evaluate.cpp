@@ -595,6 +595,10 @@ private:
             const auto spaces = static_cast<std::size_t>(std::max<std::int64_t>(levels, 0)) * 4;
             return value_t{ make_string("\n" + std::string(spaces, ' ')) };
         }
+        // Only objects count toward a form's limit, which the program has alone.
+        case runtime_function_t::DEBUG_BEGIN:
+        case runtime_function_t::DEBUG_END:
+            return value_t{ const_value_t{ .type = type_id_t::INT32, .data = std::int64_t{ 0 } } };
         case runtime_function_t::EQUAL:
             return value_t{ make_bool(text(0) == text(1)) };
         case runtime_function_t::COMPARE: {
