@@ -1310,7 +1310,8 @@ std.io's bytes through a codec. `Import std.compress` brings in all of std/compr
   `ZipMethod` (`STORE`, `DEFLATE`, `LZMA`, `XZ`, or `ZSTD`) at a level, and folders, and a
   `TarWriter` files and folders, each at a `modified` time and with a `mode`, from 0 to `0o7777`,
   which panics past them, or else a fixed one, and each one's `Finish()` gives the archive and
-  starts again, panicking for one of more bytes than a UInt8[] holds. Names are UTF-8: a zip's that don't say so, and aren't, are read as
+  starts again. Each makes it in memory, so `Finish()` throws an `IOError` for one of more bytes than
+  a UInt8[] holds, about 2 GB. Names are UTF-8: a zip's that don't say so, and aren't, are read as
   code page 437, and each byte of a tar's that isn't is U+FFFD. Every entry is checked against its
   CRC-32 where the archive has one.
 - Zip, over minizip-ng: Zip64 where sizes need it, and no encryption; what a ZipWriter makes was

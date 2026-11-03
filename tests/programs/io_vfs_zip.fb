@@ -30,7 +30,7 @@ Function LinkZip(): UInt8[]
     ]
 End Function
 
-Function Zipped(files: (String, String)[], folders: String[]): UInt8[]
+Function Zipped(files: (String, String)[], folders: String[]): UInt8[] Throws IOError
     Local writer = ZipWriter()
     For file In files
         writer.Add(file.0, file.1.Bytes)
@@ -40,7 +40,7 @@ Function Zipped(files: (String, String)[], folders: String[]): UInt8[]
         writer.AddFolder(folder)
     End For
 
-    Return writer.Finish()
+    Return Try writer.Finish()
 End Function
 
 Function Listed(vfs: Vfs, path: String): String Throws IOError
@@ -62,7 +62,7 @@ Function Failure(vfs: Vfs, path: String): String
     Return "read"
 End Function
 
-Local pak = Zipped([("readme.txt", "first"), ("data/levels/one.txt", "level one"),
+Local pak = Try Zipped([("readme.txt", "first"), ("data/levels/one.txt", "level one"),
                     ("./data/./two.txt", "level two"), ("data/../top.txt", "top"),
                     ("../outside.txt", "outside"), ("readme.txt", "last")],
                    ["empty", "data/levels"])
@@ -93,7 +93,7 @@ Print("{vfs.Unmount("game")} [{Try vfs.ReadText("game/readme.txt")}]")
 
 // A ZipSource of a ZipReader, mounted at the root.
 Local root = Vfs()
-root.Mount("", Try ZipSource(Try Zip.Read(Zipped([("a/b/c.txt", "deep")], []))))
+root.Mount("", Try ZipSource(Try Zip.Read(Try Zipped([("a/b/c.txt", "deep")], []))))
 Print("{Try Listed(root, "")} {Try Listed(root, "a")} [{Try root.ReadText("a/b/c.txt")}]")
 
 // A zip's link isn't in it, though the file it points to is.
@@ -104,13 +104,13 @@ Print(
 
 // A file and a folder at one place, and data that isn't a zip.
 Try
-    vfs.MountZip("bad", Zipped([("x", "file"), ("x/y", "under it")], []))
+    vfs.MountZip("bad", Try Zipped([("x", "file"), ("x/y", "under it")], []))
 Catch e As IOError
     Print("{e.Kind}: {e.Message}")
 End Try
 
 Try
-    vfs.MountZip("bad", Zipped([("x.txt", "file")], ["x.txt"]))
+    vfs.MountZip("bad", Try Zipped([("x.txt", "file")], ["x.txt"]))
 Catch e As IOError
     Print("{e.Kind}: {e.Message}")
 End Try

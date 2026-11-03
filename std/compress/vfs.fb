@@ -9,7 +9,7 @@
 //! # Import std.io
 //! Local zip = ZipWriter()
 //! zip.Add("docs/a.txt", "a".Bytes)
-//! Local source = Try ZipSource(Try Zip.Read(zip.Finish()))
+//! Local source = Try ZipSource(Try Zip.Read(Try zip.Finish()))
 //! Local a = Try source.Read("docs/a.txt")
 //! Expect(a == "a".Bytes)
 //! Expect((Try source.KindAt("docs")) == FileKind.DIRECTORY)
@@ -115,7 +115,7 @@ Extend Vfs
     /// Local zip = ZipWriter()
     /// zip.Add("levels/one.txt", "first".Bytes)
     /// Local files = Vfs()
-    /// Try files.MountZip(Path("data"), zip.Finish())
+    /// Try files.MountZip(Path("data"), (Try zip.Finish()))
     /// Expect(Try files.ReadText(Path("data/levels/one.txt")) == "first")
     /// Expect(files.DirExists(Path("data/levels")))
     /// ```

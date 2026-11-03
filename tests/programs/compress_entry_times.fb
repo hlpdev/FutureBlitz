@@ -37,7 +37,7 @@ End For
 
 zip.AddFolder("folder", modified: times[0], mode: 0o700)
 Print("zip:")
-Show((Try Zip.Read(zip.Finish())).Entries)
+Show((Try Zip.Read(Try zip.Finish())).Entries)
 
 Local tar = TarWriter()
 tar.Add("plain.txt", "a".Bytes)
@@ -55,19 +55,19 @@ Local again = ZipWriter()
 again.Add("plain.txt", "a".Bytes)
 Local before = ZipWriter()
 before.Add("plain.txt", "a".Bytes, modified: Null, mode: Null)
-Print(again.Finish() == before.Finish())
+Print((Try again.Finish()) == (Try before.Finish()))
 Local tars = [TarWriter(), TarWriter()]
 tars[0].Add("x", [1, 2], At("2026-10-26T12:34:57.5Z"), 0o600)
 tars[1].Add("x", [1, 2], At("2026-10-26T12:34:57.5Z"), 0o600)
-Print(tars[0].Finish() == tars[1].Finish())
+Print((Try tars[0].Finish()) == (Try tars[1].Finish()))
 
 // A GNU tar's time before 1970 is its header's base-256, negative: 0xff, then the rest of a
 // big-endian two's complement, as GNU's tar and Python's write one. -1000000000 is
 // 1938-04-24T22:13:20Z, all 0xff is a second before 1970, and one an Int64 can't hold is none.
-Function WithTime(field: UInt8[]): UInt8[]
+Function WithTime(field: UInt8[]): UInt8[] Throws IOError
     Local writer = TarWriter()
     writer.Add("a.txt", "a".Bytes)
-    Local bytes = writer.Finish()
+    Local bytes = Try writer.Finish()
     For i = 0 Until 12
         bytes[136 + i] = field[i]
     End For
@@ -93,7 +93,7 @@ Local fields: UInt8[][] = [[0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xc4
                            [0xff, 0xff, 0xff, 0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
                            [0x80, 0, 0, 0, 0, 0, 0, 0, 0x69, 0x55, 0xb9, 0x00]]
 For field In fields
-    Print("gnu:", (Try Tar.Read(WithTime(field))).Entries[0].Modified?.ToString() ?? "-")
+    Print("gnu:", (Try Tar.Read(Try WithTime(field))).Entries[0].Modified?.ToString() ?? "-")
 End For
 
 // Zips made by hand, each of one stored entry with an extra field, which says when it was last

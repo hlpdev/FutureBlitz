@@ -14,7 +14,7 @@
 //! Local writer = ZipWriter()
 //! writer.Add("small.txt", "x".Bytes, ZipMethod.STORE)
 //! writer.AddFolder("empty")
-//! Local reader = Try Zip.Read(writer.Finish())
+//! Local reader = Try Zip.Read(Try writer.Finish())
 //! Expect(reader.Count == 2 && reader.Entries[0].Size == 1)
 //! Local small = Try reader.ReadAt(0)
 //! Expect(small == "x".Bytes)
@@ -56,7 +56,7 @@ End Extern
 /// Local writer = ZipWriter()
 /// writer.Add("notes.txt", "a note, a note, a note".Bytes)
 /// writer.Add("raw.bin", "stored as it is".Bytes, ZipMethod.STORE)
-/// Local zip = Try Zip.Read(writer.Finish())
+/// Local zip = Try Zip.Read(Try writer.Finish())
 /// Expect(zip.Count == 2)
 /// Local raw = Try zip.Read("raw.bin")
 /// Expect(raw == "stored as it is".Bytes)
@@ -87,8 +87,8 @@ Public Enum ZipMethod
     ZSTD
 End Enum
 
-/// A new zip, an entry at a time: Add puts in a file, AddFolder a folder, and Finish gives the zip
-/// and starts again, empty.
+/// A new zip, an entry at a time, in memory: Add puts in a file, AddFolder a folder, and Finish
+/// gives the zip and starts again, empty.
 Public Class ZipWriter
     Field State: Ptr<Void>
 
@@ -138,17 +138,16 @@ Public Class ZipWriter
                           modified?.UnixSeconds ?? 0, (mode ?? -1) As Int32)
     End Method
 
-    /// The zip, of the entries added since it started, and then it starts again, empty. Panics
-    /// when it's more bytes than a UInt8[] holds.
-    @PanicsAtCaller
-    Public Method Finish(): UInt8[] => FinishedWithin(MOST_BYTES)
+    /// The zip, of the entries added since it started, and then it starts again, empty. It's made
+    /// in memory, so an IOError says when it's more bytes than a UInt8[] holds, about 2 GB, and
+    /// the writer starts again all the same.
+    Public Method Finish(): UInt8[] Throws IOError => Try FinishedWithin(MOST_BYTES)
 
-    /// The zip, as Finish gives it, but panicking when it's more than `limit` bytes.
-    @PanicsAtCaller
-    Package Method FinishedWithin(limit: Int): UInt8[]
+    /// The zip, as Finish gives it, but with the IOError when it's more than `limit` bytes.
+    Package Method FinishedWithin(limit: Int): UInt8[] Throws IOError
         Local output: UInt8[] = []
         If fb_zip_writer_finish(State, output, limit) != 0
-            Panic("the zip's bytes are more than a UInt8[] holds")
+            Throw IOError(IOErrorKind.OTHER, "the zip's bytes are more than a UInt8[] holds")
         End If
         Return output
     End Method

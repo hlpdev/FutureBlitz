@@ -875,7 +875,7 @@ TEST_CASE("a ZipWriter takes time in proportion to the zip's size", "[programs]"
                     "data.Resize(128 * 1024 * 1024, 7)\n"
                     "Local writer = ZipWriter()\n"
                     "writer.Add(\"big.bin\", data, ZipMethod.STORE)\n"
-                    "Print(writer.Finish().Count > data.Count)\n",
+                    "Print((Try writer.Finish()).Count > data.Count)\n",
                     fb::standard_library().value_or(std::vector<fb::library_file_t>{}));
     REQUIRE_FALSE(compilation.diagnostics.has_errors());
     std::filesystem::path program = std::filesystem::path(FB_TEST_OUTPUT) / "zip_large";

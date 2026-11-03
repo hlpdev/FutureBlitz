@@ -6,5 +6,5 @@ Import std.compress
 Local zip = ZipWriter()
 zip.Add("fine.txt", "fine".Bytes, ZipMethod.XZ, 1)
 zip.Add("deflate.txt", "stored".Bytes, ZipMethod.DEFLATE, 0)
-Print(zip.Finish().Count > 0)
+Print((Try zip.Finish()).Count > 0)
 zip.Add("stored.txt", "stored".Bytes, ZipMethod.XZ, 0)

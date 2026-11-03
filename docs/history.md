@@ -3,6 +3,11 @@
 What each milestone and step added, by name, and each review's fixes, as CLAUDE.md kept
 them while each was built. Newest first.
 
+## 1.2.3
+
+- **ZipWriter's and TarWriter's Finish throw**: past what a UInt8[] holds, Finish throws an `IOError` where it panicked, as a program can't tell how large an archive will come to before it's made, and starts again all the same; their docs say they make it in memory. A caller now needs `Try`. Test: std_tests' archive writers past a smaller limit, and empty after.
+- **FileWatcher through 8.3 short names**: on Windows, libuv cuts what happens in a folder down to a name by the length of the path it was given, out of a path with long names, so a folder named by a short name, as under a TEMP like `C:\Users\RUNNER~1`, told of garbage names, which the watcher dropped; and it compares a watched file's name with the long one Windows tells of, so a file named by its own short name told of nothing. The watcher gives libuv the long form (`os_long_path()`), and still tells of paths as the program gave them. Test: tests/programs/io_watch_short_name, a folder, a recursive one, a file, and a file in a short-named folder.
+
 ## 1.2.2
 
 - **fb mcp at exit** (the 2026-11-02 CI): a server waits for the thread reading std's docs, which a test's program could leave running as it exited, reading the compiler's statics as they were destroyed: a segfault on Linux.

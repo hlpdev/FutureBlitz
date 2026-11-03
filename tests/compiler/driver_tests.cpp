@@ -779,9 +779,9 @@ TEST_CASE("std.compress's formats link the C libraries they're over, with their 
     CHECK(bundled("Print(Lz4Compressor().Finish().Count)") == names_t{ "LZ4" });
     CHECK(bundled("Print((Try XZ.Decompress(none)).Count)") == names_t{ "liblzma" });
     CHECK(bundled("Print((Try SevenZip.Read(none)).Count)") == names_t{ "liblzma" });
-    CHECK(bundled("Print(ZipWriter().Finish().Count)") == names_t{ "minizip-ng" });
+    CHECK(bundled("Print((Try ZipWriter().Finish()).Count)") == names_t{ "minizip-ng" });
     // A tar needs no library, but reading one decompresses it first, when it's compressed.
-    CHECK(bundled("Print(TarWriter().Finish().Count)").empty());
+    CHECK(bundled("Print((Try TarWriter().Finish()).Count)").empty());
     CHECK(bundled("Print((Try Tar.Read(none)).Count)") ==
           names_t{ "zlib-ng", "zstd", "LZ4", "liblzma" });
 

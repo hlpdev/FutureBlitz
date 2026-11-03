@@ -119,7 +119,7 @@ zipped.Add("folder/empty.txt", [])
 zipped.Add("folder/ünïcode.txt", "Grüße\n".Bytes)
 zipped.Add(long, poem)
 zipped.Add("folder/stored.txt", "a later entry of the same name\n".Bytes)
-Local zip = Try Zip.Read(zipped.Finish())
+Local zip = Try Zip.Read(Try zipped.Finish())
 Print("zip: {zip.Count} entries")
 For i = 0 Until zip.Count
     Local entry = zip.Entries[i]
@@ -139,7 +139,7 @@ Print(later == "a later entry of the same name\n".Bytes,
 // frame, reads as its tar.
 Local skipped = TarWriter()
 skipped.Add("a.txt", "hello\n".Bytes)
-Local skippedTar = skipped.Finish()
+Local skippedTar = Try skipped.Finish()
 Local skippable: UInt8[] = [0x50, 0x2a, 0x4d, 0x18, 0x04, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04,
                             0x5f, 0x2a, 0x4d, 0x18, 0x00, 0x00, 0x00, 0x00]
 Local skippedZst = skippable.Clone()
@@ -154,14 +154,14 @@ Function UInt16At(data: UInt8[], at: Int): Int => (data[at] As Int) + (data[at +
 
 Local plainZip = ZipWriter()
 plainZip.Add("a.txt", "hello".Bytes, ZipMethod.STORE)
-Local plain64 = plainZip.Finish()
+Local plain64 = Try plainZip.Finish()
 Print("zip's local header:", UInt16At(plain64, 4), UInt16At(plain64, 18), UInt16At(plain64, 22),
       UInt16At(plain64, 28))
 
 // A ZipWriter starts again after Finish, and a zip of nothing has no entries.
 zipped.Add("again.txt", poem)
-Local again = Try Zip.Read(zipped.Finish())
-Print(again.Count, Describe(again.Entries[0]), ZipOutcome(zipped.Finish()))
+Local again = Try Zip.Read(Try zipped.Finish())
+Print(again.Count, Describe(again.Entries[0]), ZipOutcome(Try zipped.Finish()))
 
 // A tar of files, folders, a name pax has, one ustar splits, and one that isn't ASCII, read back
 // raw and through each compression.
@@ -174,7 +174,7 @@ tarred.Add("folder/ünïcode.txt", "Grüße\n".Bytes)
 tarred.Add(long, poem)
 tarred.Add(split, "split\n".Bytes)
 tarred.Add("folder/poem.txt", "a later entry of the same name\n".Bytes)
-Local tar = tarred.Finish()
+Local tar = Try tarred.Finish()
 Print("tar: {tar.Count % 512} bytes past its last block")
 For packed In [tar, Gzip.Compress(tar), Zstd.Compress(tar), XZ.Compress(tar), Lz4.Compress(tar)]
     Local reader = Try Tar.Read(packed)
@@ -197,7 +197,7 @@ For entry In reader.Entries
     Print("  {Describe(entry)}")
 End For
 
-Print(TarOutcome(tarred.Finish()), TarOutcome([]))
+Print(TarOutcome(Try tarred.Finish()), TarOutcome([]))
 
 // 7z's coders and files: a header that isn't encoded, a stored solid folder of substreams, BCJ
 // before LZMA2, Delta before LZMA, two folders, a link, an anti-item, which isn't an entry, and
@@ -252,7 +252,7 @@ Local notArchive = "this isn't an archive of any kind, though it's long enough t
 Local tiny = ZipWriter()
 tiny.Add("stored.txt", "AAAAAAAAAAAAAAAA".Bytes, ZipMethod.STORE)
 tiny.Add("deflate.txt", poem)
-Local tinyZip = tiny.Finish()
+Local tinyZip = Try tiny.Finish()
 Print("zip, not one:", ZipOutcome(notArchive))
 Print("zip, none:", ZipOutcome([]))
 Print("zip, cut:", ZipOutcome(tinyZip[0..tinyZip.Count / 2]))
@@ -260,7 +260,7 @@ Print("zip, stored byte flipped:", ZipOutcome(Flipped(tinyZip, Find(tinyZip, "AA
 
 Local tinyTar = TarWriter()
 tinyTar.Add("poem.txt", poem)
-Local smallTar = tinyTar.Finish()
+Local smallTar = Try tinyTar.Finish()
 Local garbage: UInt8[] = []
 garbage.Resize(512, 0x41)
 Print("tar, not one:", TarOutcome(garbage))
@@ -353,5 +353,5 @@ Local slashed = ZipWriter()
 slashed.AddFolder("ends/")
 Local slashedTar = TarWriter()
 slashedTar.AddFolder("ends/")
-Print((Try Zip.Read(slashed.Finish())).Entries[0].Name,
+Print((Try Zip.Read(Try slashed.Finish())).Entries[0].Name,
       (Try Tar.Read(slashedTar.Finish())).Entries[0].Name)

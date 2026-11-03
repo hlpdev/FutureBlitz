@@ -2,7 +2,7 @@
 //!
 //! Tar's archives: Tar.Read gives a TarReader of a tar's entries, and a TarWriter makes a new tar.
 //! A .tar.gz, .tar.zst, .tar.xz, or .tar.lz4 reads as its tar, which Tar.Read decompresses first,
-//! and a TarWriter's tar compresses to one, as Gzip.Compress(writer.Finish()) does. It reads
+//! and a TarWriter's tar compresses to one, as Gzip.Compress(Try writer.Finish()) does. It reads
 //! POSIX's ustar, with pax's extended headers, GNU's long names and large numbers, and old tars
 //! without a magic, and leaves out devices and FIFOs. Names are UTF-8, with U+FFFD for each byte of
 //! one that isn't. An entry's time is a pax header's, which can be before 1970 and has a fraction,
@@ -16,7 +16,7 @@
 //! Local writer = TarWriter()
 //! writer.Add("a.txt", "a".Bytes)
 //! writer.AddFolder("b")
-//! Local reader = Try Tar.Read(writer.Finish())
+//! Local reader = Try Tar.Read(Try writer.Finish())
 //! Expect(reader.Count == 2 && reader.Entries[1].Name == "b")
 //! Local a = Try reader.ReadAt(0)
 //! Expect(a == "a".Bytes)
@@ -61,7 +61,7 @@ End Extern
 /// Local writer = TarWriter()
 /// writer.AddFolder("docs")
 /// writer.Add("docs/readme.txt", "Read me.".Bytes)
-/// Local tar = Try Tar.Read(Gzip.Compress(writer.Finish()))
+/// Local tar = Try Tar.Read(Gzip.Compress(Try writer.Finish()))
 /// Expect(tar.Count == 2)
 /// Expect(tar.Find("docs/readme.txt")?.Size == 8)
 /// Local readme = Try tar.Read("docs/readme.txt")
@@ -117,17 +117,16 @@ Public Class TarWriter
                           (mode ?? -1) As Int32)
     End Method
 
-    /// The tar, of the entries added since it started, and then it starts again, empty. Panics
-    /// when it's more bytes than a UInt8[] holds.
-    @PanicsAtCaller
-    Public Method Finish(): UInt8[] => FinishedWithin(MOST_BYTES)
+    /// The tar, of the entries added since it started, and then it starts again, empty. It's made
+    /// in memory, so an IOError says when it's more bytes than a UInt8[] holds, about 2 GB, and
+    /// the writer starts again all the same.
+    Public Method Finish(): UInt8[] Throws IOError => Try FinishedWithin(MOST_BYTES)
 
-    /// The tar, as Finish gives it, but panicking when it's more than `limit` bytes.
-    @PanicsAtCaller
-    Package Method FinishedWithin(limit: Int): UInt8[]
+    /// The tar, as Finish gives it, but with the IOError when it's more than `limit` bytes.
+    Package Method FinishedWithin(limit: Int): UInt8[] Throws IOError
         Local output: UInt8[] = []
         If fb_tar_writer_finish(State, output, limit) != 0
-            Panic("the tar's bytes are more than a UInt8[] holds")
+            Throw IOError(IOErrorKind.OTHER, "the tar's bytes are more than a UInt8[] holds")
         End If
         Return output
     End Method
