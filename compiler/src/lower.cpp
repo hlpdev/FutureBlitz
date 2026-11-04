@@ -11360,9 +11360,9 @@ private:
             valid = compare(binary_op_t::AND, above, below, span);
         } else {
             for (const std::uint64_t bits : values) {
-                const operand_t same =
+                const operand_t matches =
                     compare(binary_op_t::EQUAL, number, enum_constant(type, bits, true), span);
-                valid = compare(binary_op_t::OR, valid, same, span);
+                valid = compare(binary_op_t::OR, valid, matches, span);
             }
         }
 

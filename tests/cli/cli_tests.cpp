@@ -1803,7 +1803,10 @@ TEST_CASE("a folder that's held, or just made, isn't swept, and one that can't g
     std::ofstream(folder / "inside" / "file.txt") << "text";
     std::ofstream(lock) << "";
 
-    // Just made: its process may not have locked it yet.
+    // Just made: its process may not have locked it yet. fb's build can outlast how long that is,
+    // so the lock's time is ahead of its sweep, whenever that comes.
+    std::filesystem::last_write_time(lock, std::filesystem::file_time_type::clock::now() +
+                                               std::chrono::minutes(10));
     run_hello();
     CHECK(std::filesystem::exists(lock));
 
@@ -1841,13 +1844,19 @@ TEST_CASE("a second fb run leaves the folder of one still running", "[cli]") {
     std::filesystem::create_directories(folder);
     const std::filesystem::path started = folder / "started.txt";
     const std::filesystem::path marker = folder / "marker.txt";
-    const std::filesystem::path source =
-        write_source(std::format("{}/{}.fb", name, name),
-                     std::format("Import std.io\nImport std.time\n"
-                                 "Try File.WriteText(Path(\"{}\"), \"up\")\n"
-                                 "Sleep(5.Seconds)\n"
-                                 "Try File.WriteText(Path(\"{}\"), \"done\")\n",
-                                 started.generic_string(), marker.generic_string()));
+    const std::filesystem::path finish = folder / "finish.txt";
+    // It goes until it's told to, since the second fb's build can take any time.
+    const std::filesystem::path source = write_source(
+        std::format("{}/{}.fb", name, name),
+        std::format("Import std.io\nImport std.time\n"
+                    "Try File.WriteText(Path(\"{}\"), \"up\")\n"
+                    "Local tries = 0\n"
+                    "While !File.Exists(Path(\"{}\")) && tries < 3000\n"
+                    "    Sleep(100.Milliseconds)\n"
+                    "    tries += 1\n"
+                    "End While\n"
+                    "Try File.WriteText(Path(\"{}\"), \"done\")\n",
+                    started.generic_string(), finish.generic_string(), marker.generic_string()));
     running_fb_t first({ "run", fb::to_utf8(source) });
     REQUIRE(appears(started));
     const std::vector<std::filesystem::path> held = temporary_folders(name);
@@ -1863,6 +1872,7 @@ TEST_CASE("a second fb run leaves the folder of one still running", "[cli]") {
     CHECK(ran.exit_code == 0);
     CHECK(std::filesystem::exists(held.front() / ".fb-holds"));
     CHECK(std::filesystem::exists(held.front() / "beside.txt"));
+    std::ofstream(finish) << "now";
     CHECK(first.wait() == 0);
     CHECK(std::filesystem::exists(marker));
     CHECK(temporary_folders(name).empty());
@@ -1939,12 +1949,12 @@ TEST_CASE("SIGTERM and SIGHUP stop fb test, which gives the code and cleans up",
         const std::filesystem::path marker = folder / "marker.txt";
         const std::filesystem::path source =
             write_source(std::format("{}/{}.fb", name, name),
-                         std::format("Import std.io\nImport std.time\n"
-                                     "@Test\nFunction Slow()\n"
+                         std::format("Import std.core\nImport std.io\nImport std.time\n"
+                                     "@Test\nFunction Slow() Throws IOError\n"
                                      "    Try File.WriteText(Path(\"{}\"), \"up\")\n"
                                      "    Sleep(30.Seconds)\n"
                                      "End Function\n"
-                                     "@Test\nFunction Later()\n"
+                                     "@Test\nFunction Later() Throws IOError\n"
                                      "    Sleep(2.Seconds)\n"
                                      "    Try File.WriteText(Path(\"{}\"), \"ran\")\n"
                                      "End Function\n",
@@ -1984,12 +1994,12 @@ TEST_CASE("a signal fb ignores, as nohup has it, leaves the program alone", "[cl
     std::filesystem::remove(marker);
     const std::filesystem::path tests =
         write_source(std::format("{}/{}_tests.fb", name, name),
-                     std::format("Import std.io\nImport std.time\n"
-                                 "@Test\nFunction Slow()\n"
+                     std::format("Import std.core\nImport std.io\nImport std.time\n"
+                                 "@Test\nFunction Slow() Throws IOError\n"
                                  "    Try File.WriteText(Path(\"{}\"), \"up\")\n"
                                  "    Sleep(2.Seconds)\n"
                                  "End Function\n"
-                                 "@Test\nFunction Later()\n"
+                                 "@Test\nFunction Later() Throws IOError\n"
                                  "    Sleep(2.Seconds)\n"
                                  "    Try File.WriteText(Path(\"{}\"), \"ran\")\n"
                                  "End Function\n",
