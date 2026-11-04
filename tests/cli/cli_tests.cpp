@@ -2082,9 +2082,12 @@ TEST_CASE("a program ends, with its code and output, however a DLL's detach woul
         std::string says;
     };
 
-    for (const end_t& end : { end_t{ .how = "panic", .code = 101, .says = "on purpose" },
-                              end_t{ .how = "exit", .code = 7, .says = "True" },
-                              end_t{ .how = "error", .code = 1, .says = "not caught" } }) {
+    const std::array ends{
+        end_t{ .how = "panic", .code = 101, .says = "on purpose" },
+        end_t{ .how = "exit", .code = 7, .says = "True" },
+        end_t{ .how = "error", .code = 1, .says = "not caught" },
+    };
+    for (const end_t& end : ends) {
         CAPTURE(end.how);
         const std::filesystem::path output = folder / (end.how + ".txt");
         SECURITY_ATTRIBUTES security{
