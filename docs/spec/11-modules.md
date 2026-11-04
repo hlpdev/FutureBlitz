@@ -312,7 +312,9 @@ program = "cook.fb"
   shown only when it fails, a line of the error's notes each.
 - It runs again when what it read changes, or its program does: a file or folder
   `fb:rerun-if-changed` named, or without one, any of its package's files, as its archive has
-  them; its program's files and the files they embed; the build's fb.lock, as `fb update` changes
+  them; its program's files and the files they embed; the native and prebuilt libraries its
+  program links or has beside it, as one rebuilt at the same version is another program; the
+  build's fb.lock, as `fb update` changes
   it; where the project being built is, so a copy runs it again; and fb, its version or the
   commit it's built from. A file of 1 MB or less changes when its
   bytes do, and a bigger one when its size or time does. What it read is read before it runs, so

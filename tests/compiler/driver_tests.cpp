@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <cctype>
 #include <chrono>
 #include <cstddef>
@@ -2991,6 +2992,126 @@ void write_calc(const packages_t& packages) {
 }
 
 } // namespace
+
+TEST_CASE(
+    "a build step runs again with the new file when a native library of its program's changes",
+    "[driver]") {
+    const packages_t packages;
+    write_calc(packages);
+    counting_app(packages, "Import calc\n" + counting_program("Local sum = Add(2, 3)\n"));
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\n\n"
+                                       "[build]\nprogram = \"generate.fb\"\n\n"
+                                       "[dependencies]\ncalc = { path = \"../calc\" }\n\n"
+                                       "[native]\nvecmath = \"libs/vecmath\"\n");
+    const std::filesystem::path archive(FB_TEST_VECMATH);
+    const std::filesystem::path own_archive = packages / "app/libs" / archive.filename();
+    std::filesystem::create_directories(own_archive.parent_path());
+    std::filesystem::copy_file(archive, own_archive);
+    const auto grow = [](const std::filesystem::path& file) {
+        std::ofstream(file, std::ios::app) << '\0';
+    };
+    const std::filesystem::path natives =
+        packages / ("calc/native/" + std::string(fb::build_target()));
+    const std::filesystem::path library = natives / fb::path_from_utf8(dyncalc_file);
+    const std::filesystem::path beside = app_step(packages) / fb::path_from_utf8(dyncalc_beside);
+    REQUIRE(build_and_run(packages, "app") == "1\n");
+    REQUIRE(runs(packages) == 1);
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 1);
+
+    // A library rebuilt at the same version goes beside the step's program, which runs again.
+    grow(library);
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 2);
+    CHECK(std::filesystem::file_size(beside) == std::filesystem::file_size(library));
+
+#ifdef _WIN32
+    // What the linker takes for it is a file of its own on Windows.
+    grow(natives / std::filesystem::path(FB_TEST_DYNCALC_LINKED).filename());
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 3);
+#endif
+    const std::size_t after_dynamic = runs(packages);
+
+    // An archive is in the step's program.
+    grow(own_archive);
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == after_dynamic + 1);
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == after_dynamic + 1);
+
+    // One that's gone for a while, as a build of it has it, is an error, and the new one is what
+    // runs once it's back.
+    const std::filesystem::path aside = packages / "library_aside";
+    std::filesystem::rename(library, aside);
+    CHECK(build_and_run(packages, "app") != "1\n");
+    CHECK(runs(packages) == after_dynamic + 1);
+    std::filesystem::rename(aside, library);
+    grow(library);
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == after_dynamic + 2);
+    CHECK(std::filesystem::file_size(beside) == std::filesystem::file_size(library));
+    packages.remove();
+}
+
+TEST_CASE("a build step runs again when a prebuilt library of its program's changes", "[driver]") {
+    // In its program, or beside it.
+    const std::string link = GENERATE(std::string(), std::string(", link = \"beside\""));
+    CAPTURE(link);
+    const packages_t packages;
+    const std::string manifest =
+        "[project]\nname = \"geo\"\nversion = \"0.1.0\"\ntype = \"library\"\n";
+    const std::string folder = std::format("geo-prebuilt/lib/{}/debug/", fb::build_target());
+    packages.write("geo-prebuilt/project.toml", manifest);
+    packages.write("geo/project.toml", manifest);
+    // The library's build, as its package has them in place of its .fb files.
+    const auto rebuild = [&](const int times, const std::string_view doc, const bool binary) {
+        packages.write(
+            "geo/shapes.fb",
+            std::format("/// {}.\nPublic Function Times(n: Int): Int => n * {}\n", doc, times));
+        const std::expected<fb::compilation_t, std::string> library =
+            fb::compile_file(packages / "geo");
+        REQUIRE(library);
+        fb::diagnostic_bag_t diagnostics;
+        const std::expected<fb::library_build_t, std::string> build =
+            fb::build_library(*library, fb::build_mode_t::DEBUG, diagnostics);
+        REQUIRE(build);
+        packages.write(folder + "geo.fbi", build->interface);
+        if (binary) {
+            packages.write(folder + "geo.fblib", build->binary);
+        }
+    };
+    rebuild(2, "Times", true);
+    counting_app(packages, "Import geo.shapes\n" + counting_program("Local twice = Times(2)\n"));
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\n\n"
+                                       "[build]\nprogram = \"generate.fb\"\n\n"
+                                       "[dependencies]\n"
+                                       "geo = { path = \"../geo-prebuilt\"" +
+                                           link + " }\n");
+    REQUIRE(build_and_run(packages, "app") == "1\n");
+    REQUIRE(runs(packages) == 1);
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 1);
+
+    rebuild(3, "Times", true);
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 2);
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 2);
+
+    // The interface file alone is a change, as a doc's words leave its build the same, and so is
+    // the binary alone, which this one is no build of, as fb says on building the step again.
+    rebuild(3, "Multiplies", false);
+    CHECK(build_and_run(packages, "app") == "1\n");
+    CHECK(runs(packages) == 3);
+    std::ofstream(packages / (folder + "geo.fblib"), std::ios::app) << '\0';
+    const std::string changed = build_and_run(packages, "app");
+    INFO(changed);
+    CHECK(changed.contains("app's build step"));
+    CHECK(changed.contains("isn't the build"));
+    CHECK(runs(packages) == 3);
+    packages.remove();
+}
 
 TEST_CASE("a package's dynamic library goes beside the program, which runs from there",
           "[driver]") {
