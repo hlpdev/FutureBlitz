@@ -3033,8 +3033,9 @@ TEST_CASE(
 #endif
     const std::size_t after_dynamic = runs(packages);
 
-    // An archive is in the step's program.
-    grow(own_archive);
+    // An archive is in the step's program. A member with nothing in it keeps it an archive.
+    std::ofstream(own_archive, std::ios::app)
+        << std::format("{:<16}{:<12}{:<6}{:<6}{:<8}{:<10}`\n", "empty.txt/", 0, 0, 0, 644, 0);
     CHECK(build_and_run(packages, "app") == "1\n");
     CHECK(runs(packages) == after_dynamic + 1);
     CHECK(build_and_run(packages, "app") == "1\n");
