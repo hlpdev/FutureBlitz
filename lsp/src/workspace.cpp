@@ -842,7 +842,8 @@ std::optional<checked_t> workspace_t::checked_last(const std::filesystem::path& 
     return latest->second.checked;
 }
 
-std::optional<checked_t> workspace_t::checked(const std::filesystem::path& path) {
+std::optional<checked_t> workspace_t::checked(const std::filesystem::path& path,
+                                              const std::chrono::steady_clock::time_point until) {
     std::unique_lock lock(m_mutex);
     const std::string key = file_key(path);
     if (!m_paths.contains(key)) {
@@ -850,7 +851,7 @@ std::optional<checked_t> workspace_t::checked(const std::filesystem::path& path)
     }
 
     if (m_documents.contains(key)) {
-        return wait_for_check(lock, key, std::nullopt);
+        return wait_for_check(lock, key, std::nullopt, until);
     }
 
     const std::shared_ptr<const compilation_t> compilation = run_job(lock, job_for(path));
@@ -868,19 +869,21 @@ std::optional<checked_t> workspace_t::checked(const std::filesystem::path& path)
 }
 
 std::optional<checked_t> workspace_t::checked(const std::filesystem::path& path,
-                                              const std::int64_t version) {
+                                              const std::int64_t version,
+                                              const std::chrono::steady_clock::time_point until) {
     std::unique_lock lock(m_mutex);
     const std::string key = file_key(path);
     if (!m_paths.contains(key)) {
         m_paths[key] = path;
     }
 
-    return wait_for_check(lock, key, version);
+    return wait_for_check(lock, key, version, until);
 }
 
-std::optional<checked_t> workspace_t::wait_for_check(std::unique_lock<std::mutex>& lock,
-                                                     const std::string& key,
-                                                     const std::optional<std::int64_t> version) {
+std::optional<checked_t>
+workspace_t::wait_for_check(std::unique_lock<std::mutex>& lock, const std::string& key,
+                            const std::optional<std::int64_t> version,
+                            const std::chrono::steady_clock::time_point until) {
     while (!m_stopping) {
         const auto document = m_documents.find(key);
         if (document == m_documents.end() || (version && document->second.version != *version)) {
@@ -902,7 +905,11 @@ std::optional<checked_t> workspace_t::wait_for_check(std::unique_lock<std::mutex
             m_work.notify_all();
         }
 
-        m_done.wait(lock);
+        if (until == steady_t::time_point::max()) {
+            m_done.wait(lock);
+        } else if (m_done.wait_until(lock, until) == std::cv_status::timeout) {
+            return std::nullopt;
+        }
     }
 
     return std::nullopt;

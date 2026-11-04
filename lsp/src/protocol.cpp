@@ -98,7 +98,10 @@ std::optional<std::string> read_message(std::istream& in) {
 }
 
 void write_message(std::ostream& out, const std::string_view body) {
-    out << "Content-Length: " << body.size() << "\r\n\r\n" << body;
+    // In one piece, the header with its body.
+    std::string frame = "Content-Length: " + std::to_string(body.size()) + "\r\n\r\n";
+    frame += body;
+    out.write(frame.data(), static_cast<std::streamsize>(frame.size()));
     out.flush();
 }
 

@@ -1267,6 +1267,20 @@ come, and a save's formatting and a hover behind VS Code's burst of requests aft
 (burst_formatting and burst_hover); a probe types without a pause for ten seconds with VS Code's
 requests after each keystroke, and checks every one is answered.
 
+**Staying up** (1.2.3): a thread of its own writes fb-lsp's messages (`outbox_t`), whole and in
+order, so a client slow to read keeps nothing waiting. It writes a message's header and body as one
+buffer, to a private descriptor of stdout that child processes don't inherit (`take_stdout`), a piece
+at a time until the pipe has it all, whether the pipe blocks or not (`fd_buffer_t`); stdout itself
+goes to stderr, so nothing else can land among the messages, and std::cin is tied to nothing, as
+reading it would flush std::cout on the reader's thread. A request the quick worker has
+that needs a check that isn't done goes on to the slow one, so what the last check answers never
+waits behind it, and one that waits for a check has 30 seconds from when it came, then it's answered
+RequestFailed. Formatting waits for no check. The extension asks `fb/ping` every 10 seconds, and an
+older fb-lsp's "no such method" is an answer too: 15 seconds without one, or at once when a message
+can't be read, as a reader that's lost its place in the stream never finds it again, it restarts the
+server and says so, and past three restarts in 3 minutes, it stops and says so. A save waits 2 seconds for its
+formatting, then goes on without it, and asks at once.
+
 ## Not in M8
 
 The package manager and the registry (M10); the website (M9); the IDE (the engine phase).

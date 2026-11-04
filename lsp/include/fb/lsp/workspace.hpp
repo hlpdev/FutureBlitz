@@ -163,12 +163,16 @@ public:
 
     /// The latest check of a file. For an open document, it's the one of its current text,
     /// which this waits for; another file that no check has yet is checked now. nullopt when it
-    /// can't be checked.
-    [[nodiscard]] std::optional<checked_t> checked(const std::filesystem::path& path);
+    /// can't be checked. For an open document, nullopt past `until` too.
+    [[nodiscard]] std::optional<checked_t> checked(
+        const std::filesystem::path& path,
+        std::chrono::steady_clock::time_point until = std::chrono::steady_clock::time_point::max());
     /// An open document's check of `version`, which this waits for, or nullopt once the document
-    /// has moved past it, as a version changed before its check is done never has one.
+    /// has moved past it, as a version changed before its check is done never has one, or past
+    /// `until`.
     [[nodiscard]] std::optional<checked_t> checked(const std::filesystem::path& path,
-                                                   std::int64_t version);
+                                                   std::int64_t version,
+                                                   std::chrono::steady_clock::time_point until);
 
     /// An open document's check of its current text, if one's done, without waiting for it.
     [[nodiscard]] std::optional<checked_t> checked_now(const std::filesystem::path& path) const;
@@ -322,10 +326,11 @@ private:
     /// Runs `job` with the lock unlocked, and takes in what it found. `foreground` checks are of
     /// edited documents.
     /// An open document's check, of `version` or else of whichever version it's at, waited for
-    /// under `lock`; nullopt once it's closed, or has moved past `version`.
+    /// under `lock`; nullopt once it's closed, has moved past `version`, or it's past `until`.
     std::optional<checked_t> wait_for_check(std::unique_lock<std::mutex>& lock,
                                             const std::string& key,
-                                            std::optional<std::int64_t> version);
+                                            std::optional<std::int64_t> version,
+                                            std::chrono::steady_clock::time_point until);
     std::shared_ptr<const compilation_t> run_job(std::unique_lock<std::mutex>& lock,
                                                  const job_t& job);
     /// Frees m_replaced with the lock unlocked, as freeing a check with std's modules takes a

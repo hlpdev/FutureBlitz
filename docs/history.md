@@ -15,6 +15,24 @@ From its review: a FileWatcher takes the `\\?\` form by its long names' length, 
 - **ZipWriter's and TarWriter's Finish throw**: past what a UInt8[] holds, Finish throws an `IOError` where it panicked, as a program can't tell how large an archive will come to before it's made, and starts again all the same; their docs say they make it in memory. A caller now needs `Try`. Test: std_tests' archive writers past a smaller limit, and empty after.
 - **FileWatcher through 8.3 short names**: on Windows, libuv cuts what happens in a folder down to a name by the length of the path it was given, out of a path with long names, so a folder named by a short name, as under a TEMP like `C:\Users\RUNNER~1`, told of garbage names, which the watcher dropped; and it compares a watched file's name with the long one Windows tells of, so a file named by its own short name told of nothing. The watcher gives libuv the long form (`os_long_path()`), and still tells of paths as the program gave them. Test: tests/programs/io_watch_short_name, a folder, a recursive one, a file, and a file in a short-named folder.
 
+## 1.2.3
+
+fb-lsp hung in VS Code on 1.2.2, its saves stuck on "Running 'FutureBlitz' Formatter". std::cin is
+tied to std::cout by default, so the reader thread's std::getline flushed std::cout, without the
+lock its senders took: two threads in its buffer wrote a message twice, in pieces, or with bytes
+gone, and VS Code's reader lost its place for good ("Content-Length: Content-Length: 37" in the
+user's logs). It's older than 1.2.2, whose workers sending from more threads made it common.
+`std::cin.tie(nullptr)`; `outbox_t`, a thread that alone writes the messages, as a publish wrote with
+the workspace's lock held, so a client that stopped reading stopped everything; `write_message`'s
+one write; and `take_stdout` and `fd_buffer_t`, a private descriptor written until it has it all.
+`request_job_t::deadline` and `quick`, `needs_check_t`, which moves what needs a check from the
+quick worker to the slow, and `past_deadline_t`, RequestFailed once a check isn't done in
+`server_options_t::request_deadline`; `workspace_t::checked`'s `until`; and `fb/ping`. The
+extension's `Watchdog` and `withinTime` (watchdog.ts), `ServerClient`'s `stuck`, from the watchdog
+and from the connection's first error, and formatting's middleware. Tests in outbox_tests, a burst
+over a real pipe to a slow reader, blocking and not, responsive_tests, and the extension's
+watchdog.test and suite, with fake-lsp's "stall" and "garble" modes.
+
 ## 1.2.2
 
 - **fb mcp at exit** (the 2026-11-02 CI): a server waits for the thread reading std's docs, which a test's program could leave running as it exited, reading the compiler's statics as they were destroyed: a segfault on Linux.

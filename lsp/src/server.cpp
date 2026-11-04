@@ -43,6 +43,18 @@ public:
     using std::runtime_error::runtime_error;
 };
 
+/// A request on the quick worker needs a check that isn't done, which the slow one waits for.
+class needs_check_t : public std::runtime_error {
+public:
+    needs_check_t() : std::runtime_error("it needs a check that isn't done") {}
+};
+
+/// The check a request waits for didn't finish by its deadline.
+class past_deadline_t : public std::runtime_error {
+public:
+    past_deadline_t() : std::runtime_error("the check it needs didn't finish in time") {}
+};
+
 /// The file a request's textDocument names. nullopt for a URI that isn't a file's.
 std::optional<std::filesystem::path> document_path(const json_t& params) {
     return path_of(params.at("textDocument").at("uri").get<std::string>());
@@ -136,7 +148,8 @@ void apply_change(std::string& text, const json_t& change, const positions_t& po
 
 } // namespace
 
-server_t::server_t(send_t send, const options_t options) : m_send(std::move(send)) {
+server_t::server_t(send_t send, const options_t& options)
+    : m_send(std::move(send)), m_request_deadline(options.request_deadline) {
     m_toml = std::make_unique<toml_features_t>(
         [this](const json_t& message) { this->send(message); }, m_positions, options.toml);
     m_workspace = std::make_unique<workspace_t>(
@@ -356,7 +369,13 @@ void server_t::handle(const json_t& message) {
     // What waits for a check goes to a worker, so the message thread answers what doesn't at
     // once, formatting a save among them, and reads on.
     if (worker_t* worker = worker_for(method, params)) {
-        request_job_t job{ .id = id, .method = method, .params = params };
+        request_job_t job{
+            .id = id,
+            .method = method,
+            .params = params,
+            .deadline = std::chrono::steady_clock::now() + m_request_deadline,
+            .quick = worker == &m_quick,
+        };
         const json_t document =
             params.is_object() ? params.value("textDocument", json_t()) : json_t();
         const json_t uri = document.is_object() ? document.value("uri", json_t()) : json_t();
@@ -384,6 +403,12 @@ void server_t::answer_job(const request_job_t& job) {
     m_answering = nullptr;
 }
 
+void server_t::check_deadline() {
+    if (m_answering != nullptr && std::chrono::steady_clock::now() >= m_answering->deadline) {
+        throw past_deadline_t();
+    }
+}
+
 std::optional<std::string> server_t::asked_text(const std::filesystem::path& path) const {
     if (m_answering != nullptr && m_answering->version && m_answering->key == file_key(path)) {
         return m_answering->text;
@@ -393,17 +418,39 @@ std::optional<std::string> server_t::asked_text(const std::filesystem::path& pat
 }
 
 std::optional<checked_t> server_t::asked_check(const std::filesystem::path& path) {
-    if (m_answering == nullptr || !m_answering->version || m_answering->key != file_key(path)) {
+    if (m_answering == nullptr) {
         return m_workspace->checked(path);
     }
 
-    std::optional<checked_t> checked = m_workspace->checked(path, *m_answering->version);
+    // The quick worker asks for what's done, which starts a check that's waiting for its delay.
+    const auto until =
+        m_answering->quick ? std::chrono::steady_clock::now() : m_answering->deadline;
+    if (!m_answering->version || m_answering->key != file_key(path)) {
+        std::optional<checked_t> checked = m_workspace->checked(path, until);
+        if (!checked) {
+            if (m_answering->quick) {
+                throw needs_check_t();
+            }
+
+            check_deadline();
+        }
+
+        return checked;
+    }
+
+    std::optional<checked_t> checked = m_workspace->checked(path, *m_answering->version, until);
     if (!checked) {
         const std::optional<std::pair<std::string, std::int64_t>> document =
             m_workspace->document(path);
         if (document && document->second != *m_answering->version) {
             throw content_modified_t("the document changed since it was asked about");
         }
+
+        if (m_answering->quick) {
+            throw needs_check_t();
+        }
+
+        check_deadline();
     }
 
     return checked;
@@ -415,6 +462,9 @@ void server_t::answer_request(const json_t& id, const std::string& method, const
             fail(id, error_code_t::REQUEST_CANCELLED, "the client cancelled it");
             return;
         }
+
+        // Those behind a stuck check, which their time ran out waiting for, go at once.
+        check_deadline();
 
         if (std::optional<json_t> result = answer(method, params)) {
             // A worker's request the client cancelled while it was answered.
@@ -428,6 +478,12 @@ void server_t::answer_request(const json_t& id, const std::string& method, const
         }
     } catch (const content_modified_t& error) {
         fail(id, error_code_t::CONTENT_MODIFIED, error.what());
+    } catch (const needs_check_t&) {
+        request_job_t job = *m_answering;
+        job.quick = false;
+        m_slow.push(std::move(job));
+    } catch (const past_deadline_t& error) {
+        fail(id, error_code_t::REQUEST_FAILED, error.what());
     } catch (const json_t::exception& error) {
         fail(id, error_code_t::INVALID_PARAMS, error.what());
     } catch (const std::invalid_argument& error) {
@@ -553,6 +609,11 @@ std::optional<json_t> server_t::answer(const std::string& method, const json_t& 
 
     if (method == "codeLens/resolve") {
         return resolve_code_lens(params);
+    }
+
+    // What the extension asks to see the server's still answering, which waits for nothing.
+    if (method == "fb/ping") {
+        return nullptr;
     }
 
     if (method == "fb/tests") {
@@ -700,6 +761,11 @@ server_t::dependents(const std::filesystem::path& file) {
     }
 
     if (known.valid()) {
+        if (m_answering != nullptr &&
+            known.wait_until(m_answering->deadline) != std::future_status::ready) {
+            throw past_deadline_t();
+        }
+
         // Without the client watching, a file that isn't open, but std's, may have changed on
         // disk since.
         std::vector<std::shared_ptr<const compilation_t>> compilations = known.get();

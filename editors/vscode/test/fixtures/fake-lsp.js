@@ -3,7 +3,8 @@
 // textDocument/willSaveWaitUntil when initializationOptions.formatOnSave is true, as fb-lsp does.
 //
 // node fake-lsp.js [mode] [log]: mode "exit" stops as it starts, as fb-lsp's placeholder did,
-// "crash" soon after, and "hang" never answers. With a log file, it writes "start <pid>" there.
+// "crash" soon after, "hang" never answers, "stall" answers initialize, then nothing, and "garble"
+// sends a header that can't be read soon after. With a log file, it writes "start <pid>" there.
 "use strict";
 
 const fs = require("fs");
@@ -33,7 +34,7 @@ function send(message) {
 
 function handle(message) {
     const { id, method, params } = message;
-    if (mode === "hang") {
+    if (mode === "hang" || (mode === "stall" && method !== "initialize")) {
         return;
     }
 
@@ -55,6 +56,9 @@ function handle(message) {
         case "initialized":
             if (mode === "crash") {
                 setTimeout(() => process.exit(3), 200);
+            }
+            if (mode === "garble") {
+                setTimeout(() => process.stdout.write("Content-Length: Content-Length: 37\r\n\r\n"), 200);
             }
             break;
         case "textDocument/formatting":
