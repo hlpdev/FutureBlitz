@@ -195,6 +195,18 @@ End Function
 
 Const Function Named<E: Enum>(number: Int): E => number As E
 
+// A negative member is the Enum's own value, compared at compile time.
+Const Function IsCold(): Bool
+    For Member m In Temperature
+        If m.Value == Temperature.COLD Then Return True
+    End For
+
+    Return False
+End Function
+
+Const COLD_FOUND = IsCold()
+Print(COLD_FOUND)
+
 Const MEDALS = CountOf<Medal>()
 Const COLDEST = Lowest<Temperature>()
 Const WRAPPED = Lowest<Kind>()

@@ -9,6 +9,7 @@ Import std.concurrent
 Import std.net
 Import std.net.http
 Import std.net.ws
+Import std.time
 
 Async Function Echo(request: HttpRequest): HttpResponse
     Try
@@ -25,27 +26,47 @@ Async Function Echo(request: HttpRequest): HttpResponse
     Return HttpResponse.Of(StatusCode.OK)
 End Function
 
+// How many times a new connection tries, 100 ms apart, as a machine running other programs like
+// this can be out of ports for it for a moment, which isn't what this is testing.
+Const tries = 300
+
 // A request through a client of its own to a route at `prefix`, which answers with its number.
 Async Function Fetched(prefix: String, n: Int): Bool
-    Try
-        Return (Try Await HttpClient().GetAsync("{prefix}/{n}")).Text == "{n}"
-    Catch e As Error
-        Return False
-    End Try
+    For i = 1 To tries
+        Try
+            Return (Try Await HttpClient().GetAsync("{prefix}/{n}")).Text == "{n}"
+        Catch e As NetError
+            Await Timer.After(100.Milliseconds)
+        Catch e As Error
+            Return False
+        End Try
+    End For
+
+    Return False
 End Function
 
 // A WebSocket that sends its number, gets it back, and closes.
 Async Function Talked(url: String, n: Int): Bool
-    Try
-        Local ws = Try Await WebSocket.ConnectAsync(url)
-        Try Await ws.SendAsync("{n}")
-        Local back = Try Await ws.ReceiveAsync()
-        Await ws.CloseAsync()
-        Local closed = Try Await ws.ReceiveAsync() == Null
-        Return back?.Text == "{n}" && closed
-    Catch e As Error
-        Return False
-    End Try
+    For i = 1 To tries
+        Try
+            Return Try Await TalkedOnce(url, n)
+        Catch e As NetError
+            Await Timer.After(100.Milliseconds)
+        Catch e As Error
+            Return False
+        End Try
+    End For
+
+    Return False
+End Function
+
+Async Function TalkedOnce(url: String, n: Int): Bool Throws NetError, TimeoutError
+    Local ws = Try Await WebSocket.ConnectAsync(url)
+    Try Await ws.SendAsync("{n}")
+    Local back = Try Await ws.ReceiveAsync()
+    Await ws.CloseAsync()
+    Local closed = Try Await ws.ReceiveAsync() == Null
+    Return back?.Text == "{n}" && closed
 End Function
 
 Function Count(results: Bool[]): Int

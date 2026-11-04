@@ -1852,6 +1852,8 @@ TEST_CASE("a second fb run leaves the folder of one still running", "[cli]") {
     REQUIRE(appears(started));
     const std::vector<std::filesystem::path> held = temporary_folders(name);
     REQUIRE(held.size() == 1);
+    // A file that nothing has open, which only the lock keeps a sweep from.
+    std::ofstream(held.front() / "beside.txt") << "text";
     // Past the time a lock that's just been made is left alone.
     std::this_thread::sleep_for(std::chrono::milliseconds(2500));
     const std::filesystem::path other =
@@ -1860,6 +1862,7 @@ TEST_CASE("a second fb run leaves the folder of one still running", "[cli]") {
     INFO(ran.output);
     CHECK(ran.exit_code == 0);
     CHECK(std::filesystem::exists(held.front() / ".fb-holds"));
+    CHECK(std::filesystem::exists(held.front() / "beside.txt"));
     CHECK(first.wait() == 0);
     CHECK(std::filesystem::exists(marker));
     CHECK(temporary_folders(name).empty());
@@ -1974,6 +1977,27 @@ TEST_CASE("a signal fb ignores, as nohup has it, leaves the program alone", "[cl
     REQUIRE(appears(started));
     running.send(SIGTERM);
     CHECK(running.wait() == 0);
+    CHECK(std::filesystem::exists(marker));
+
+    // fb test goes on too, to a test that a run after this one would run.
+    std::filesystem::remove(started);
+    std::filesystem::remove(marker);
+    const std::filesystem::path tests =
+        write_source(std::format("{}/{}_tests.fb", name, name),
+                     std::format("Import std.io\nImport std.time\n"
+                                 "@Test\nFunction Slow()\n"
+                                 "    Try File.WriteText(Path(\"{}\"), \"up\")\n"
+                                 "    Sleep(2.Seconds)\n"
+                                 "End Function\n"
+                                 "@Test\nFunction Later()\n"
+                                 "    Sleep(2.Seconds)\n"
+                                 "    Try File.WriteText(Path(\"{}\"), \"ran\")\n"
+                                 "End Function\n",
+                                 started.generic_string(), marker.generic_string()));
+    running_fb_t testing({ "test", fb::to_utf8(tests) }, { .ignoring = SIGTERM });
+    REQUIRE(appears(started));
+    testing.send(SIGTERM);
+    CHECK(testing.wait() == 0);
     CHECK(std::filesystem::exists(marker));
 }
 

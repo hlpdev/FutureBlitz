@@ -1,0 +1,11 @@
+// An integer As a closed Enum has to be one of its values, as the number it is, so an Int8's -1 isn't
+// a UInt64 Enum's top value, though it converts to that and back.
+Import std.core
+
+Enum Huge: UInt64
+    SMALL = 1
+    TOP = 18446744073709551615
+End Enum
+
+Local number: Int8 = -1
+Print(number As Huge)

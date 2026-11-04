@@ -1,0 +1,11 @@
+// An integer As a closed Enum has to be one of its values, as the number it is, so a UInt8's 200 isn't
+// an Int8 Enum's -56, though it converts to that and back.
+Import std.core
+
+Enum Low: Int8
+    NEGATIVE = -56
+    ZERO = 0
+End Enum
+
+Local number: UInt8 = 200
+Print(number As Low)
