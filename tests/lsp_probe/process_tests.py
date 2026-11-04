@@ -12,7 +12,8 @@ from urllib.request import pathname2url
 
 LSP = os.environ["FB_LSP"]
 LSP_SOURCES = pathlib.Path(__file__).resolve().parents[2] / "lsp" / "src"
-# A Const that takes minutes in a debug build, and long enough in a release one.
+# A check that takes minutes, in a release build too: each Const runs until compile-time code's limit
+# of steps, half a second there, and differs, as a call with the same arguments isn't run again.
 SLOW = """Import std.core
 Const Function Spin(n: Int): Int
     Local t = 0
@@ -21,10 +22,10 @@ Const Function Spin(n: Int): Int
     End For
     Return t
 End Function
-Const Slow = Spin(30000000)
 Function Twice(n: Int): Int => n * 2
-Print(Twice(Slow))
+""" + "".join(f"Const Slow{i} = Spin({1000000 + i})\n" for i in range(300)) + """Print(Twice(Slow0))
 """
+TWICE_LINE = 8
 QUICK = "Import std.core\nFunction Twice(n: Int): Int => n * 2\nPrint(Twice(1))\n"
 
 
@@ -73,7 +74,7 @@ class Client:
 
     def references(self, id):
         self.send({"id": id, "method": "textDocument/references", "params": {
-            "textDocument": {"uri": self.uri}, "position": {"line": 9, "character": 10},
+            "textDocument": {"uri": self.uri}, "position": {"line": TWICE_LINE, "character": 10},
             "context": {"includeDeclaration": True}}})
 
 
@@ -108,9 +109,10 @@ class ProcessTests(unittest.TestCase):
         self.client.process.stdin.close()
         self._ends_within(15)
 
-    def test_its_client_going_ends_it_with_a_check_running(self):
+    def test_its_client_going_ends_it_with_shutdown_waiting_on_a_check(self):
         self.client = Client(self.folder.name, SLOW)
         self.client.references(2)
+        self.client.send({"id": 3, "method": "shutdown"})
         self.client.process.stdin.close()
         self._ends_within(15)
 
@@ -123,11 +125,14 @@ class ProcessTests(unittest.TestCase):
         self.client.process.stdin.close()
         self._ends_within(15)
 
-    def test_ping_is_answered_with_the_server_busy(self):
+    def test_ping_is_answered_with_the_message_thread_held(self):
+        # Shutdown holds the message thread for as long as it waits on the references.
         self.client = Client(self.folder.name, SLOW)
         self.client.references(2)
-        self.client.send({"id": 3, "method": "fb/ping"})
-        self.assertIn("result", self.client.answer(3, 5) or {})
+        self.client.send({"id": 3, "method": "shutdown"})
+        self.client.send({"id": 4, "method": "fb/ping"})
+        self.assertIn("result", self.client.answer(4, 2) or {})
+        self.assertNotIn(3, self.client.answers)
 
     def test_nothing_but_the_outbox_writes_messages(self):
         for source in LSP_SOURCES.glob("*.cpp"):

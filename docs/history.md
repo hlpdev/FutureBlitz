@@ -55,7 +55,10 @@ notice (`tookTooLong`), the watchdog stopped with the client, and `isSourceActio
 off late no longer calls the server stuck. Tests in outbox_tests, responsive_tests,
 lsp_probe/process_tests.py and stdout_probe, and watchdog.test and the suite's "late" mode. Removing
 `std::cin.tie(nullptr)` no longer fails any test, and can't: nothing writes to std::cout now, which
-process_tests checks of lsp/src.
+process_tests checks of lsp/src. client.test drives `ServerClient` with a stand-in for the vscode module, for the
+watchdog stopping as `closed` gives up. process_tests' slow check is 300 Consts that differ, each
+to compile-time code's limit of steps, as a call with the same arguments isn't run again, and it fails
+on the code before these fixes.
 
 ## 1.2.2
 
