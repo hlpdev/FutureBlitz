@@ -2143,6 +2143,42 @@ TEST_CASE("a program ends, with its code and output, however a DLL's detach woul
 }
 #endif
 
+TEST_CASE("fb run and fb test tell their program, and a program run directly isn't told", "[cli]") {
+    const std::string name = own_name("told");
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / name;
+    std::filesystem::remove_all(folder);
+    std::filesystem::create_directories(folder);
+    const std::filesystem::path source =
+        write_source(std::format("{}/{}.fb", name, name),
+                     "Import std.core\nImport std.os\n"
+                     "Print(\"told: {Env.Get(\"FUTUREBLITZ_RUN\") ?? \"nothing\"}\")\n");
+    const fb::process_result_t run = fb_run({ "run", fb::to_utf8(source), "--color", "never" });
+    INFO(run.output);
+    CHECK(run.exit_code == 0);
+    CHECK(run.output.contains("told: 1"));
+
+    std::filesystem::path program = folder / "built";
+    program += fb::executable_extension;
+    const fb::process_result_t built =
+        fb_run({ "build", fb::to_utf8(source), "-o", fb::to_utf8(program), "--color", "never" });
+    INFO(built.output);
+    REQUIRE(built.exit_code == 0);
+    const std::expected<fb::process_result_t, std::string> direct = fb::run_process(program, {});
+    REQUIRE(direct);
+    CHECK(direct->output.contains("told: nothing"));
+
+    const std::filesystem::path tests =
+        write_source(std::format("{}/{}_tests.fb", name, name),
+                     "Import std.core\nImport std.os\nImport std.test\n"
+                     "@Test\nFunction Told()\n"
+                     "    Expect(Env.Get(\"FUTUREBLITZ_RUN\") == \"1\")\n"
+                     "End Function\n");
+    const fb::process_result_t tested = fb_run({ "test", fb::to_utf8(tests), "--color", "never" });
+    INFO(tested.output);
+    CHECK(tested.exit_code == 0);
+    CHECK(tested.output.contains("1 passed"));
+}
+
 TEST_CASE("what a program started and left running stays after fb run ends", "[cli]") {
     const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "left_running";
     std::filesystem::remove_all(folder);

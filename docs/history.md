@@ -5,6 +5,8 @@ them while each was built. Newest first.
 
 ## 1.2.3
 
+- **`FUTUREBLITZ_RUN=1`**: `fb run` and `fb test` set it for the program they start, through a new `environment` argument to `run_attached`, so fbengine's Assets.RunByFb stops guessing from fb's temporary folder's layout. Tests: `fb run` and `fb test` see it, and a built executable run directly doesn't.
+
 - **A build step sees a rebuilt library of its program's**: its stamp had only its program's source files, so a package's DLL rebuilt at the same version stayed stale in build/steps until the program itself changed, which fbengine's tools DLL did, with a game's shader compiled against an old scene.slang. The stamp now has its archives, its dynamic libraries and import libraries, and its prebuilt libraries' interface files and binaries. Tests: a step runs again for each, with the new file beside it, and for a library that was gone for a while.
 
 - **A program's end on Windows doesn't run DLLs' detach**: a panic with fbengine's GPU going hung on Windows CI, as `_Exit` goes through ExitProcess, which kills the threads and then runs each DLL's detach, which waited in the driver's DLL. `end_program` ends by TerminateProcess, after flushing and what `run_end` puts back: a panic, an uncaught error, `Process.Exit`, and a library that won't load. Test: a program ends, with its code and output, however a DLL's detach would hang.

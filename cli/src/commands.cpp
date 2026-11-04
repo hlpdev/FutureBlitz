@@ -21,6 +21,7 @@
 #include "fb/utf8.hpp"
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <chrono>
 #include <csignal>
@@ -605,6 +606,16 @@ std::string exited_with(const int code) {
     return std::format("exited with code {}", code);
 }
 
+/// Runs a program fb built for `fb run` or `fb test` in this terminal, which its environment tells
+/// it, so it needn't guess from where it is. See run_attached().
+std::expected<int, std::string> run_program(const std::filesystem::path& program,
+                                            const std::span<const std::string> arguments) {
+    const std::array<std::pair<std::string, std::string>, 1> environment{ {
+        { "FUTUREBLITZ_RUN", "1" },
+    } };
+    return run_attached(program, arguments, environment);
+}
+
 /// `fb run`: builds the program in a temporary folder, runs it in this terminal, and deletes the
 /// folder. Returns the program's exit code, or 1 when it can't be built or started.
 int run(const console_t& console, const options_t& options, const compilation_t& compilation,
@@ -633,7 +644,7 @@ int run(const console_t& console, const options_t& options, const compilation_t&
     report_built(console, options, compilation, report, start);
     console.status("Running", name);
     const std::expected<int, std::string> exit_code =
-        run_attached(program, options.program_arguments);
+        run_program(program, options.program_arguments);
 
     // Cleaning up is best effort. A folder left in temp isn't worth an error.
     held.reset();
@@ -970,7 +981,7 @@ runs_t run_tests(const console_t& console, const std::filesystem::path& program,
         std::ofstream(plan, std::ios::binary) << planned;
         std::error_code ignored;
         std::filesystem::remove(report, ignored);
-        const std::expected<int, std::string> ran = run_attached(program, {});
+        const std::expected<int, std::string> ran = run_program(program, {});
         if (!ran) {
             console.error(ran.error());
             for (const std::size_t index : remaining) {

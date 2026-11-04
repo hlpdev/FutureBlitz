@@ -402,8 +402,10 @@ std::filesystem::path current_executable() {
 }
 
 std::expected<int, std::string> run_attached(const std::filesystem::path& program,
-                                             std::span<const std::string> arguments) {
+                                             std::span<const std::string> arguments,
+                                             const environment_t environment) {
     std::wstring command = command_line(program, arguments);
+    std::wstring block = environment.empty() ? std::wstring() : environment_block(environment);
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
     startup.dwFlags = STARTF_USESTDHANDLES;
@@ -424,9 +426,11 @@ std::expected<int, std::string> run_attached(const std::filesystem::path& progra
     // process ends first. Without one it runs all the same, and a program can still ask to leave.
     HANDLE job = tying_job(JOB_OBJECT_LIMIT_BREAKAWAY_OK);
     PROCESS_INFORMATION process{};
-    if (CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE,
-                       job != nullptr ? CREATE_SUSPENDED : 0, nullptr, nullptr, &startup,
-                       &process) == 0) {
+    const DWORD flags = (environment.empty() ? 0 : CREATE_UNICODE_ENVIRONMENT) |
+                        (job != nullptr ? CREATE_SUSPENDED : 0);
+    if (CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE, flags,
+                       environment.empty() ? nullptr : static_cast<void*>(block.data()), nullptr,
+                       &startup, &process) == 0) {
         const std::string why = last_error();
         if (job != nullptr) {
             CloseHandle(job);
@@ -1040,7 +1044,8 @@ std::filesystem::path current_executable() {
 }
 
 std::expected<int, std::string> run_attached(const std::filesystem::path& program,
-                                             std::span<const std::string> arguments) {
+                                             std::span<const std::string> arguments,
+                                             const environment_t environment) {
     // What this process printed so far comes before the child's output. Ctrl+C ends the
     // program, and this process waits for that and gives its exit code, as a shell does.
     std::fflush(nullptr);
@@ -1052,7 +1057,7 @@ std::expected<int, std::string> run_attached(const std::filesystem::path& progra
     sigaction(SIGINT, &ignore, &interrupt);
     sigaction(SIGQUIT, &ignore, &quit);
     std::unique_lock lock(spawning);
-    const std::expected<pid_t, std::string> pid = spawn(program, arguments, nullptr);
+    const std::expected<pid_t, std::string> pid = spawn(program, arguments, nullptr, environment);
     const attached_watcher_t watcher = pid ? start_watcher(*pid) : attached_watcher_t{};
     lock.unlock();
     attached_signal = false;

@@ -251,6 +251,9 @@ layout = { path = "../layout", version = "0.4" }    # its folder here, 0.4 once 
   `fb test` builds a package's tests, from each of its `.fb` files, its tests/ folder's, and its
   doc comments' examples, and runs them (see [09](09-errors.md#tests)). `fb doc` writes a
   package's public API as JSON, to `<folder>/build/<name>.json` unless `-o` says where.
+  The program `fb run` or `fb test` starts has `FUTUREBLITZ_RUN=1` in its environment, which
+  what it starts inherits as usual, so it can tell it was started that way, as `Env.Get` reads it;
+  a built executable run any other way doesn't, unless what started it has the variable.
 - `[native]` names the package's C libraries, each by the name `Lib` gives it (see
   [12](12-ffi.md)): `zstd = "libs/zstd"`, or `zstd = { static = "libs/zstd" }`, is a static
   archive from the package's folder: the file itself, or without its `lib` prefix and its

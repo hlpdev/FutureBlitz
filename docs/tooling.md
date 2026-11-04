@@ -542,6 +542,9 @@ The style, std's own (settled with the user 2026-10-29), which `fb fmt` enforces
 - std.test: `Expect(a == b)` is built in, and on failure prints the expression and each side's
   value, and the test goes on; `ExpectThrows`, `Fail`, and `Skip`. A panic or an Assert in a test
   fails it.
+- `fb run` and `fb test` set `FUTUREBLITZ_RUN=1` for the program they start, and nothing else fb
+  starts: a program that has to know how it was started reads that, not where fb's temporary
+  folder is, which is fb's own. An executable run directly doesn't have it.
 - `fb test` runs the tests in parallel in one process, and starts it again after a test that
   panics, running the rest, and in a debug build the ones that finished in that run too, whose
   leaks it didn't check; filters by name, a summary, and leaks reported per test.
