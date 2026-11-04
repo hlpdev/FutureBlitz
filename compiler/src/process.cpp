@@ -426,9 +426,9 @@ std::expected<int, std::string> run_attached(const std::filesystem::path& progra
     // process ends first. Without one it runs all the same, and a program can still ask to leave.
     HANDLE job = tying_job(JOB_OBJECT_LIMIT_BREAKAWAY_OK);
     PROCESS_INFORMATION process{};
-    const DWORD flags = (environment.empty() ? 0 : CREATE_UNICODE_ENVIRONMENT) |
-                        (job != nullptr ? CREATE_SUSPENDED : 0);
-    if (CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE, flags,
+    const DWORD unicode = environment.empty() ? 0 : CREATE_UNICODE_ENVIRONMENT;
+    const DWORD suspended = job != nullptr ? CREATE_SUSPENDED : 0;
+    if (CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE, unicode | suspended,
                        environment.empty() ? nullptr : static_cast<void*>(block.data()), nullptr,
                        &startup, &process) == 0) {
         const std::string why = last_error();

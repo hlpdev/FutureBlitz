@@ -610,9 +610,7 @@ std::string exited_with(const int code) {
 /// it, so it needn't guess from where it is. See run_attached().
 std::expected<int, std::string> run_program(const std::filesystem::path& program,
                                             const std::span<const std::string> arguments) {
-    const std::array<std::pair<std::string, std::string>, 1> environment{ {
-        { "FUTUREBLITZ_RUN", "1" },
-    } };
+    const std::array environment{ std::pair<std::string, std::string>("FUTUREBLITZ_RUN", "1") };
     return run_attached(program, arguments, environment);
 }
 
