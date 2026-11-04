@@ -1273,13 +1273,21 @@ buffer, to a private descriptor of stdout that child processes don't inherit (`t
 at a time until the pipe has it all, whether the pipe blocks or not (`fd_buffer_t`); stdout itself
 goes to stderr, so nothing else can land among the messages, and std::cin is tied to nothing, as
 reading it would flush std::cout on the reader's thread. A request the quick worker has
-that needs a check that isn't done goes on to the slow one, so what the last check answers never
-waits behind it, and one that waits for a check has 30 seconds from when it came, then it's answered
-RequestFailed. Formatting waits for no check. The extension asks `fb/ping` every 10 seconds, and an
+that needs a check that isn't done goes on to a worker of its own, which never runs a whole package's
+checks, so neither what the last check answers nor it waits behind them. Whatever compiles for a
+request, a whole package's checks or a file that isn't open, does so on a thread of its own; every
+request a worker has gets 30 seconds from when it came, then it's answered RequestFailed, whether
+what it needs is still compiling or not, and that compile goes on, with no limit, for whoever asks
+next. shutdown waits 3 seconds for the requests before it, and exit, or stdin closing, ends the
+process within seconds whatever the message thread's doing. What waits to be written has a limit of
+256 MB, past which the client isn't reading and the process ends, and a document's newer diagnostics
+replace its older ones that haven't gone. Formatting waits for no check. The extension asks `fb/ping` every 10 seconds, which the reader thread answers, unless one message
+has held the message thread for a minute, so a busy server isn't called stuck, and an
 older fb-lsp's "no such method" is an answer too: 15 seconds without one, or at once when a message
 can't be read, as a reader that's lost its place in the stream never finds it again, it restarts the
 server and says so, and past three restarts in 3 minutes, it stops and says so. A save waits 2 seconds for its
-formatting, then goes on without it, and asks at once.
+formatting and source actions, then goes on without them, says so, and asks at once; a request can't
+tell an extension whether a save asked, so Format Document has the limit too.
 
 ## Not in M8
 

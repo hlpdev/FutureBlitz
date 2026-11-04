@@ -155,8 +155,10 @@ private:
         /// Takes a request it hasn't started on out of those waiting, and whether it was there;
         /// the one it's answering is answered as cancelled instead.
         bool cancel(const json_t& id);
-        /// Waits until it has answered every request it was given.
-        void wait_idle();
+        /// Waits until it has answered every request it was given, or `until`.
+        void wait_idle(std::chrono::steady_clock::time_point until);
+        /// Takes out those waiting, which it won't get to.
+        [[nodiscard]] std::vector<request_job_t> take_waiting();
         /// Ends its thread once the request it's answering is answered, leaving those waiting.
         void stop();
 
@@ -194,10 +196,37 @@ private:
     /// The workers, which answer the requests that need a check: a quick one for what the last
     /// check answers as code is typed, and a slow one for what waits for the check of the text, so
     /// a hover never waits behind a code action. One the quick one has that needs a check that
-    /// isn't done goes on to the slow one. After the workspace, so they stop before it goes, as
-    /// they read its checks.
+    /// isn't done goes on to `m_moved`, which waits for it, and never behind a whole package's
+    /// checks, as the slow one's are. After the workspace, so they stop before it goes, as they
+    /// read its checks.
     worker_t m_quick{ [this](const request_job_t& job) { answer_job(job); } };
+    worker_t m_moved{ [this](const request_job_t& job) { answer_job(job); } };
     worker_t m_slow{ [this](const request_job_t& job) { answer_job(job); } };
+    /// A thread that runs what a request needs compiled, which has no limit, while the worker that
+    /// has the request waits for it only until the request's deadline. Stops after the workers.
+    class background_t {
+    public:
+        background_t() = default;
+        background_t(const background_t&) = delete;
+        background_t& operator=(const background_t&) = delete;
+        ~background_t() {
+            stop();
+        }
+
+        void push(std::function<void()> task);
+        /// Ends its thread once the task it's running is done, leaving those waiting.
+        void stop();
+
+    private:
+        std::deque<std::function<void()>> m_tasks;
+        std::mutex m_mutex;
+        std::condition_variable m_ready;
+        bool m_stop = false;
+        std::thread m_thread;
+
+        void run();
+    };
+    background_t m_background;
     /// The request a worker's thread is answering, which asked_text() and asked_check() read,
     /// or nullptr on another thread.
     static thread_local const request_job_t* m_answering;
@@ -213,6 +242,8 @@ private:
     void answer_request(const json_t& id, const std::string& method, const json_t& params);
     /// Answers a worker's request, about the text it was asked about.
     void answer_job(const request_job_t& job);
+    /// The deadline of the worker's request being answered, or none on another thread.
+    [[nodiscard]] static std::chrono::steady_clock::time_point answering_until();
     /// Throws past_deadline_t when the worker's request being answered is past its deadline.
     static void check_deadline();
     /// The text of a file, as the request being answered sees it: an open document's as it was

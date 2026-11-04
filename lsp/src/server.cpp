@@ -37,13 +37,17 @@
 namespace fb::lsp {
 namespace {
 
+/// How long shutdown waits for the requests before it, which then go on answering, if they can,
+/// until the client says exit: the client's waiting for it, and it for them.
+constexpr std::chrono::seconds shutdown_wait(3);
+
 /// What a request is about changed since the client asked it, so it's the client's to ask again.
 class content_modified_t : public std::runtime_error {
 public:
     using std::runtime_error::runtime_error;
 };
 
-/// A request on the quick worker needs a check that isn't done, which the slow one waits for.
+/// A request on the quick worker needs a check that isn't done, which `m_moved` waits for.
 class needs_check_t : public std::runtime_error {
 public:
     needs_check_t() : std::runtime_error("it needs a check that isn't done") {}
@@ -54,6 +58,17 @@ class past_deadline_t : public std::runtime_error {
 public:
     past_deadline_t() : std::runtime_error("the check it needs didn't finish in time") {}
 };
+
+/// What `result` gives, once it's done, or past_deadline_t at `until`.
+template <typename Result>
+Result by_deadline(const std::shared_future<Result>& result,
+                   const std::chrono::steady_clock::time_point until) {
+    if (result.wait_until(until) != std::future_status::ready) {
+        throw past_deadline_t();
+    }
+
+    return result.get();
+}
 
 /// The file a request's textDocument names. nullopt for a URI that isn't a file's.
 std::optional<std::filesystem::path> document_path(const json_t& params) {
@@ -175,7 +190,9 @@ server_t::server_t(send_t send, const options_t& options)
 
 server_t::~server_t() {
     m_quick.stop();
+    m_moved.stop();
     m_slow.stop();
+    m_background.stop();
 }
 
 void server_t::register_watchers(const std::vector<std::filesystem::path>& folders) {
@@ -426,6 +443,25 @@ std::optional<checked_t> server_t::asked_check(const std::filesystem::path& path
     const auto until =
         m_answering->quick ? std::chrono::steady_clock::now() : m_answering->deadline;
     if (!m_answering->version || m_answering->key != file_key(path)) {
+        // A file that isn't open is compiled for it, which has no limit, and not on a worker.
+        if (!m_workspace->document(path)) {
+            if (m_answering->quick) {
+                throw needs_check_t();
+            }
+
+            const auto made = std::make_shared<std::promise<std::optional<checked_t>>>();
+            const std::shared_future<std::optional<checked_t>> result = made->get_future().share();
+            // NOLINTNEXTLINE(bugprone-exception-escape): what it throws goes in the promise
+            m_background.push([this, made, path] {
+                try {
+                    made->set_value(m_workspace->checked(path));
+                } catch (...) {
+                    made->set_exception(std::current_exception());
+                }
+            });
+            return by_deadline(result, until);
+        }
+
         std::optional<checked_t> checked = m_workspace->checked(path, until);
         if (!checked) {
             if (m_answering->quick) {
@@ -481,7 +517,7 @@ void server_t::answer_request(const json_t& id, const std::string& method, const
     } catch (const needs_check_t&) {
         request_job_t job = *m_answering;
         job.quick = false;
-        m_slow.push(std::move(job));
+        m_moved.push(std::move(job));
     } catch (const past_deadline_t& error) {
         fail(id, error_code_t::REQUEST_FAILED, error.what());
     } catch (const json_t::exception& error) {
@@ -507,8 +543,17 @@ std::optional<json_t> server_t::answer(const std::string& method, const json_t& 
 
     // The requests before it are answered first, those the workers have too.
     if (method == "shutdown") {
-        m_quick.wait_idle();
-        m_slow.wait_idle();
+        const auto until = std::chrono::steady_clock::now() + shutdown_wait;
+        m_quick.wait_idle(until);
+        m_moved.wait_idle(until);
+        m_slow.wait_idle(until);
+        // What's still waiting won't be got to, and the client's told.
+        for (worker_t* const worker : { &m_quick, &m_moved, &m_slow }) {
+            for (const request_job_t& job : worker->take_waiting()) {
+                fail(job.id, error_code_t::REQUEST_FAILED, "the server is shutting down");
+            }
+        }
+
         m_shut_down = true;
         return nullptr;
     }
@@ -680,9 +725,17 @@ bool server_t::worker_t::cancel(const json_t& id) {
     return std::erase_if(m_jobs, [&](const request_job_t& job) { return job.id == id; }) > 0;
 }
 
-void server_t::worker_t::wait_idle() {
+void server_t::worker_t::wait_idle(const std::chrono::steady_clock::time_point until) {
     std::unique_lock lock(m_mutex);
-    m_idle.wait(lock, [this] { return m_jobs.empty() && !m_busy; });
+    m_idle.wait_until(lock, until, [this] { return m_jobs.empty() && !m_busy; });
+}
+
+std::vector<server_t::request_job_t> server_t::worker_t::take_waiting() {
+    const std::scoped_lock lock(m_mutex);
+    std::vector<request_job_t> taken(std::make_move_iterator(m_jobs.begin()),
+                                     std::make_move_iterator(m_jobs.end()));
+    m_jobs.clear();
+    return taken;
 }
 
 void server_t::worker_t::stop() {
@@ -724,28 +777,92 @@ void server_t::worker_t::run() {
     }
 }
 
+void server_t::background_t::push(std::function<void()> task) {
+    {
+        const std::scoped_lock lock(m_mutex);
+        m_tasks.push_back(std::move(task));
+        if (!m_thread.joinable()) {
+            m_thread = std::thread([this] { run(); });
+        }
+    }
+
+    m_ready.notify_one();
+}
+
+void server_t::background_t::stop() {
+    {
+        const std::scoped_lock lock(m_mutex);
+        m_stop = true;
+    }
+
+    m_ready.notify_one();
+    if (m_thread.joinable()) {
+        m_thread.join();
+    }
+}
+
+void server_t::background_t::run() {
+    while (true) {
+        std::function<void()> task;
+        {
+            std::unique_lock lock(m_mutex);
+            m_ready.wait(lock, [this] { return m_stop || !m_tasks.empty(); });
+            if (m_stop) {
+                return;
+            }
+
+            task = std::move(m_tasks.front());
+            m_tasks.pop_front();
+        }
+
+        task();
+    }
+}
+
+std::chrono::steady_clock::time_point server_t::answering_until() {
+    return m_answering != nullptr ? m_answering->deadline
+                                  : std::chrono::steady_clock::time_point::max();
+}
+
 std::vector<std::shared_ptr<const compilation_t>>
 server_t::dependents(const std::filesystem::path& file) {
+    using compilations_t = std::vector<std::shared_ptr<const compilation_t>>;
+    const auto made = std::make_shared<std::promise<compilations_t>>();
     const std::optional<std::pair<std::string, std::int64_t>> document =
         m_workspace->document(file);
     if (!document) {
-        return m_workspace->with_dependents(file);
+        const std::shared_future<compilations_t> result = made->get_future().share();
+        // NOLINTNEXTLINE(bugprone-exception-escape): what it throws goes in the promise
+        m_background.push([this, made, file] {
+            try {
+                made->set_value(m_workspace->with_dependents(file));
+            } catch (...) {
+                made->set_exception(std::current_exception());
+            }
+        });
+        return by_deadline(result, answering_until());
     }
 
-    if (m_answering != nullptr && m_answering->version && m_answering->key == file_key(file) &&
-        *m_answering->version != document->second) {
-        throw content_modified_t("the document changed since it was asked about");
-    }
+    const auto moved_on = [&] {
+        if (m_answering == nullptr || !m_answering->version || m_answering->key != file_key(file)) {
+            return;
+        }
+
+        const std::optional<std::pair<std::string, std::int64_t>> now = m_workspace->document(file);
+        if (now && now->second != *m_answering->version) {
+            throw content_modified_t("the document changed since it was asked about");
+        }
+    };
+    moved_on();
 
     // The first to ask for a version makes its checks, which the rest wait for.
-    std::promise<std::vector<std::shared_ptr<const compilation_t>>> made;
-    std::shared_future<std::vector<std::shared_ptr<const compilation_t>>> known;
+    std::shared_future<compilations_t> known;
     std::filesystem::file_time_type checked;
     const std::filesystem::file_time_type now = std::filesystem::file_time_type::clock::now();
     const auto make = [&] {
         return dependents_t{
             .version = document->second,
-            .compilations = made.get_future().share(),
+            .compilations = made->get_future().share(),
             .checked = now,
         };
     };
@@ -761,14 +878,10 @@ server_t::dependents(const std::filesystem::path& file) {
     }
 
     if (known.valid()) {
-        if (m_answering != nullptr &&
-            known.wait_until(m_answering->deadline) != std::future_status::ready) {
-            throw past_deadline_t();
-        }
-
         // Without the client watching, a file that isn't open, but std's, may have changed on
         // disk since.
-        std::vector<std::shared_ptr<const compilation_t>> compilations = known.get();
+        compilations_t compilations = by_deadline(known, answering_until());
+        moved_on();
         const bool written = !m_workspace->watched() &&
                              std::ranges::any_of(compilations, [&](const auto& compilation) {
                                  return written_since(*compilation, checked);
@@ -781,15 +894,28 @@ server_t::dependents(const std::filesystem::path& file) {
         m_dependents[file_key(file)] = make();
     }
 
-    try {
-        std::vector<std::shared_ptr<const compilation_t>> compilations =
-            m_workspace->with_dependents(file);
-        made.set_value(compilations);
-        return compilations;
-    } catch (...) {
-        made.set_exception(std::current_exception());
-        throw;
+    // A version typed past by the time its turn comes has no one left to want it.
+    std::shared_future<compilations_t> result;
+    {
+        const std::scoped_lock lock(m_dependents_mutex);
+        result = m_dependents[file_key(file)].compilations;
     }
+
+    // NOLINTNEXTLINE(bugprone-exception-escape): what it throws goes in the promise
+    m_background.push([this, made, file, version = document->second] {
+        try {
+            const std::optional<std::pair<std::string, std::int64_t>> current =
+                m_workspace->document(file);
+            made->set_value(current && current->second != version
+                                ? compilations_t{}
+                                : m_workspace->with_dependents(file));
+        } catch (...) {
+            made->set_exception(std::current_exception());
+        }
+    });
+    compilations_t compilations = by_deadline(result, answering_until());
+    moved_on();
+    return compilations;
 }
 
 bool server_t::written_since(const compilation_t& compilation,
@@ -820,7 +946,7 @@ void server_t::notified(const std::string& method, const json_t& params) {
     // A request a worker hasn't started on is cancelled there.
     if (method == "$/cancelRequest") {
         const json_t id = params.is_object() ? params.value("id", json_t()) : json_t();
-        if (m_quick.cancel(id) || m_slow.cancel(id)) {
+        if (m_quick.cancel(id) || m_moved.cancel(id) || m_slow.cancel(id)) {
             fail(id, error_code_t::REQUEST_CANCELLED, "the client cancelled it");
         }
 

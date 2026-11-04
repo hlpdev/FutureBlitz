@@ -45,6 +45,18 @@ and from the connection's first error, and formatting's middleware. Tests in out
 over a real pipe to a slow reader, blocking and not, responsive_tests, and the extension's
 watchdog.test and suite, with fake-lsp's "stall" and "garble" modes.
 
+Its review's fixes: `m_moved`, a third worker for what needs a check, which never runs
+`with_dependents`; `background_t` and `by_deadline`, so whole-package checks and a file that isn't
+open compile off the workers, answered at the deadline; `shutdown_wait`, and the reader ending the
+process after exit or EOF; `outbox_t`'s limit and `replaces`; `fd_buffer_t::write_t`, WriteFile on
+Windows, and retrying only what can go on later; `take_stdout`'s checks, and the null device; the
+reader answering `fb/ping`, past `liveness_t`; and in the extension, source actions' limit, its
+notice (`tookTooLong`), the watchdog stopped with the client, and `isSourceAction`. A timer that goes
+off late no longer calls the server stuck. Tests in outbox_tests, responsive_tests,
+lsp_probe/process_tests.py and stdout_probe, and watchdog.test and the suite's "late" mode. Removing
+`std::cin.tie(nullptr)` no longer fails any test, and can't: nothing writes to std::cout now, which
+process_tests checks of lsp/src.
+
 ## 1.2.2
 
 - **fb mcp at exit** (the 2026-11-02 CI): a server waits for the thread reading std's docs, which a test's program could leave running as it exited, reading the compiler's statics as they were destroyed: a segfault on Linux.

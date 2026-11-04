@@ -1,5 +1,8 @@
+#include "fb/lsp/inbox.hpp"
 #include "fb/lsp/outbox.hpp"
 #include "fb/lsp/protocol.hpp"
+#include "fb/process.hpp"
+#include "fb/utf8.hpp"
 
 #include <array>
 #include <catch2/catch_test_macros.hpp>
@@ -8,7 +11,11 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstdio>
+#include <expected>
+#include <filesystem>
 #include <format>
+#include <fstream>
+#include <iterator>
 #include <mutex>
 #include <optional>
 #include <ostream>
@@ -220,4 +227,120 @@ TEST_CASE("every message is whole over a real pipe, to a slow reader, in a burst
     }
 
     CHECK_FALSE(fb::lsp::read_message(frames));
+}
+
+TEST_CASE("only a document's last diagnostics wait, and what waits has a limit", "[lsp]") {
+    held_buffer_t buffer;
+    std::ostream out(&buffer);
+    int full = 0;
+    {
+        fb::lsp::outbox_t outbox(out, 100, [&full] { ++full; });
+        // The first may be taken by the writer, which the held buffer stops.
+        outbox.push("first");
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        outbox.push("a1", "a");
+        outbox.push("b1", "b");
+        outbox.push("a2", "a");
+        outbox.push(std::string(50, 'x'));
+        outbox.push(std::string(50, 'y'));
+        CHECK(full == 1);
+        // A replacement fits, as what it replaces goes, where a new message of its size wouldn't.
+        outbox.push(std::string(47, 'c'));
+        CHECK(full == 2);
+        outbox.push("a3", "a");
+        CHECK(full == 2);
+        buffer.let_go();
+        CHECK(outbox.flush(std::chrono::seconds(30)));
+    }
+
+    std::istringstream written(buffer.str());
+    std::vector<std::string> bodies;
+    while (const std::optional<std::string> body = fb::lsp::read_message(written)) {
+        bodies.push_back(*body);
+    }
+
+    CHECK(bodies == std::vector<std::string>{ "first", "a3", "b1", std::string(50, 'x') });
+}
+
+TEST_CASE("a write is tried again only when the file can take it later", "[lsp]") {
+    int calls = 0;
+    std::string written;
+    fb::lsp::fd_buffer_t would_block([&](const char* text, const std::size_t size) {
+        if (++calls % 2 == 1) {
+            return fb::lsp::fd_buffer_t::wrote_t{ .again = true };
+        }
+
+        written.append(text, 1);
+        static_cast<void>(size);
+        return fb::lsp::fd_buffer_t::wrote_t{ .count = 1 };
+    });
+    CHECK(would_block.sputn("abc", 3) == 3);
+    CHECK(written == "abc");
+
+    // A full disk, or anything else, ends it, and a write of nothing that won't change does too.
+    calls = 0;
+    fb::lsp::fd_buffer_t failed([&](const char*, const std::size_t) {
+        ++calls;
+        return fb::lsp::fd_buffer_t::wrote_t{};
+    });
+    CHECK(failed.sputn("abc", 3) == 0);
+    CHECK(calls == 1);
+}
+
+namespace {
+
+std::string read_file(const std::filesystem::path& path) {
+    std::ifstream in(path, std::ios::binary);
+    return { std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>() };
+}
+
+} // namespace
+
+TEST_CASE("what writes to stdout doesn't reach the messages", "[lsp]") {
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / std::format("fb-stdout-probe-{}.txt", 1);
+    const std::vector<std::string> arguments{ "file", fb::to_utf8(file) };
+    const std::expected<fb::process_result_t, std::string> run =
+        fb::run_process(FB_LSP_STDOUT_PROBE, arguments);
+    REQUIRE(run);
+    CHECK(run->output == "message");
+    CHECK(read_file(file) == "stray");
+    std::filesystem::remove(file);
+}
+
+TEST_CASE("with no stderr, what writes to stdout goes nowhere", "[lsp]") {
+    const std::vector<std::string> arguments{ "closed" };
+    const std::expected<fb::process_result_t, std::string> run =
+        fb::run_process(FB_LSP_STDOUT_PROBE, arguments);
+    REQUIRE(run);
+    CHECK(run->exit_code == 0);
+    CHECK(run->output == "message");
+}
+
+TEST_CASE("a child doesn't inherit what the messages are written to", "[lsp]") {
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / "fb-stdout-probe-child.txt";
+    const std::vector<std::string> arguments{ "child", fb::to_utf8(file) };
+    const auto begun = std::chrono::steady_clock::now();
+    const std::expected<fb::process_result_t, std::string> run =
+        fb::run_process(FB_LSP_STDOUT_PROBE, arguments);
+    REQUIRE(run);
+    CHECK(run->output == "message");
+    // The child lives for 10 seconds, and the pipe would stay open with it.
+    CHECK(std::chrono::steady_clock::now() - begun < std::chrono::seconds(7));
+}
+
+TEST_CASE("the message thread is going on until one message holds it for too long", "[lsp]") {
+    fb::lsp::liveness_t liveness(std::chrono::milliseconds(50));
+    CHECK(liveness.going());
+    liveness.handling();
+    CHECK(liveness.going());
+    liveness.handled();
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    CHECK(liveness.going());
+    liveness.handling();
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    CHECK_FALSE(liveness.going());
+    liveness.handled();
+    CHECK(liveness.going());
 }

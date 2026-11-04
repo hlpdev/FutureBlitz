@@ -94,6 +94,16 @@ server's errors as you type and formatting on save, tasks for `fb build`, `fb ru
   dependency's description and newest version, and quick fixes to update a dependency or add
   what `fb publish` needs. Offline, the registries' answers are the cache's.
 
+## When the server stops answering
+
+A save never waits long on fb-lsp: formatting, and `source.*` actions such as
+`source.organizeImports` on save, have 2 seconds, then the save goes on without them and a
+notice says so. VS Code doesn't tell an extension whether a save asked for formatting, so Format
+Document has the same limit. The extension asks fb-lsp if it's answering every 10 seconds. With no
+answer for 15 seconds, or as soon as a message from it can't be read, it restarts the server and
+says so. After three restarts in 3 minutes it stops trying and says so, and
+FutureBlitz: Restart Language Server starts it again.
+
 ## Settings
 
 | Setting | |

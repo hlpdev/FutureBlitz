@@ -3,8 +3,9 @@
 // textDocument/willSaveWaitUntil when initializationOptions.formatOnSave is true, as fb-lsp does.
 //
 // node fake-lsp.js [mode] [log]: mode "exit" stops as it starts, as fb-lsp's placeholder did,
-// "crash" soon after, "hang" never answers, "stall" answers initialize, then nothing, and "garble"
-// sends a header that can't be read soon after. With a log file, it writes "start <pid>" there.
+// "crash" soon after, "hang" never answers, "stall" answers initialize, then nothing, "garble"
+// sends a header that can't be read soon after, and "late" answers formatting a second late, and
+// everything else, fb/ping too, on time. With a log file, it writes "start <pid>" there.
 "use strict";
 
 const fs = require("fs");
@@ -47,6 +48,7 @@ function handle(message) {
                     capabilities: {
                         textDocumentSync: { openClose: true, change: 1, willSaveWaitUntil: onSave },
                         documentFormattingProvider: true,
+                        codeActionProvider: { codeActionKinds: ["source.organizeImports"] },
                     },
                     serverInfo: { name: "fake-lsp" },
                 },
@@ -63,7 +65,11 @@ function handle(message) {
             break;
         case "textDocument/formatting":
         case "textDocument/willSaveWaitUntil":
-            send({ id, result: formatted });
+            if (mode === "late") {
+                setTimeout(() => send({ id, result: formatted }), 1000);
+            } else {
+                send({ id, result: formatted });
+            }
             break;
         case "shutdown":
             send({ id, result: null });

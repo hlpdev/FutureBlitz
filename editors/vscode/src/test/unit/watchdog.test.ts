@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { Watchdog, withinTime } from "../../watchdog";
+import { Watchdog, isSourceAction, withinTime } from "../../watchdog";
 
 function sleep(milliseconds: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -66,6 +66,29 @@ describe("Watchdog", () => {
         assert.equal(stuck, 1);
     });
 
+    test("this process stalling isn't the server being stuck", async () => {
+        let stuck = 0;
+        const watchdog = new Watchdog({
+            // The answer's there to read as soon as the stall's over, after the timers go off.
+            ping: () =>
+                new Promise((resolve) => {
+                    setImmediate(resolve);
+                    const until = Date.now() + 100;
+                    while (Date.now() < until) {
+                        // Blocked, as an extension host can be.
+                    }
+                }),
+            every: 100000,
+            patience: 20,
+            stalled: 40,
+            stuck: () => ++stuck,
+        });
+        watchdog.ask();
+        await sleep(60);
+        watchdog.stop();
+        assert.equal(stuck, 0);
+    });
+
     test("a client that can't send isn't a server that's stuck", async () => {
         let stuck = 0;
         const watchdog = new Watchdog({
@@ -79,6 +102,16 @@ describe("Watchdog", () => {
         await sleep(60);
         watchdog.stop();
         assert.equal(stuck, 0);
+    });
+});
+
+describe("isSourceAction", () => {
+    test("is what editor.codeActionsOnSave asks for", () => {
+        assert.ok(isSourceAction("source"));
+        assert.ok(isSourceAction("source.organizeImports"));
+        assert.ok(!isSourceAction("quickfix"));
+        assert.ok(!isSourceAction("sourcerer"));
+        assert.ok(!isSourceAction(undefined));
     });
 });
 

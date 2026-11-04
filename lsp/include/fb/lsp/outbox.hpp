@@ -4,11 +4,14 @@
 #include <condition_variable>
 #include <cstddef>
 #include <deque>
+#include <functional>
+#include <limits>
 #include <mutex>
 #include <ostream>
 #include <streambuf>
 #include <string>
 #include <thread>
+#include <utility>
 
 namespace fb::lsp {
 
@@ -17,15 +20,20 @@ namespace fb::lsp {
 /// that publishes with the workspace's lock held. It alone writes to `out`.
 class outbox_t {
 public:
-    explicit outbox_t(std::ostream& out);
+    /// `full` is told when more than `most` bytes wait, and a client that's stopped reading isn't
+    /// coming back: the message past it goes unsent.
+    explicit outbox_t(std::ostream& out, std::size_t most = std::numeric_limits<std::size_t>::max(),
+                      std::function<void()> full = {});
     outbox_t(const outbox_t&) = delete;
     outbox_t& operator=(const outbox_t&) = delete;
     /// Writes what's waiting, and stops: a write the client isn't reading keeps it waiting, so a
     /// process that has to end goes through flush() and ends without this.
     ~outbox_t();
 
-    /// Adds a message's body, which it frames, without waiting for it to be written.
-    void push(std::string body);
+    /// Adds a message's body, which it frames, without waiting for it to be written. One that says
+    /// what `replaces` says takes the place of the one waiting that does, as a document's newer
+    /// diagnostics do of its older ones.
+    void push(std::string body, std::string replaces = {});
 
     /// Waits for what's been pushed to be written, for at most `timeout`, and says whether it was.
     [[nodiscard]] bool flush(std::chrono::milliseconds timeout);
@@ -35,7 +43,14 @@ private:
     std::mutex m_mutex;
     std::condition_variable m_ready;
     std::condition_variable m_written;
-    std::deque<std::string> m_bodies;
+    struct waiting_t {
+        std::string body;
+        std::string replaces;
+    };
+    std::size_t m_most;
+    std::function<void()> m_full;
+    std::size_t m_bytes = 0;
+    std::deque<waiting_t> m_waiting;
     bool m_writing = false;
     bool m_stopping = false;
     // Last, so it starts with the rest ready.
@@ -49,19 +64,29 @@ private:
 /// full and doesn't block. It ends only when the file can't be written, as a client that's gone.
 class fd_buffer_t : public std::streambuf {
 public:
-    explicit fd_buffer_t(int fd) : m_fd(fd) {}
+    /// What a write did: how much it took, and, for none, whether it's worth trying again.
+    struct wrote_t {
+        std::size_t count = 0;
+        bool again = false;
+    };
+    using write_t = std::function<wrote_t(const char* text, std::size_t size)>;
+
+    explicit fd_buffer_t(int fd);
+    /// For the tests, what writes in place of a file.
+    explicit fd_buffer_t(write_t write) : m_write(std::move(write)) {}
 
 protected:
     std::streamsize xsputn(const char* text, std::streamsize count) override;
     int_type overflow(int_type c) override;
 
 private:
-    int m_fd;
+    write_t m_write;
 };
 
 /// Takes the process's stdout for the messages alone: a descriptor of it that child processes don't
 /// inherit, which writes bytes as they are, with stdout itself pointed at stderr, so nothing else
-/// that writes to it, a library or a child, lands among the messages.
+/// that writes to it, a library or a child, lands among the messages; at the null device, with no
+/// stderr to point it at. -1 with no stdout to take.
 [[nodiscard]] int take_stdout();
 
 } // namespace fb::lsp

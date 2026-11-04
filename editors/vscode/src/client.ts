@@ -1,12 +1,13 @@
 // The language server's client. The server may be missing, or stop: then the client says so, once,
 // and the rest of the extension, the grammar, tasks, and debugging, goes on without it.
 
+import * as path from "node:path";
 import * as vscode from "vscode";
 import type { CloseAction, LanguageClient, LanguageClientOptions, ServerOptions } from "vscode-languageclient/node";
 
 import { MANIFEST_SERVER, isManifest, serverAtLeast } from "./fb";
 import { Found } from "./paths";
-import { Watchdog, withinTime } from "./watchdog";
+import { Watchdog, isSourceAction, withinTime } from "./watchdog";
 
 export type ServerState = "disabled" | "missing" | "starting" | "running" | "failed";
 
@@ -67,6 +68,9 @@ export class ServerClient implements vscode.Disposable {
     pingEvery = 10 * 1000;
     pingPatience = 15 * 1000;
     formatPatience = 2 * 1000;
+
+    // What it last told the user of a request that took too long, for the tests.
+    lastNotice = "";
 
     constructor(
         private readonly m_context: vscode.ExtensionContext,
@@ -160,17 +164,22 @@ export class ServerClient implements vscode.Disposable {
                     this.serves(document.uri) ? next(document, position, context, token) : undefined,
                 provideHover: (document, position, token, next) =>
                     this.serves(document.uri) ? next(document, position, token) : undefined,
-                provideCodeActions: (document, range, context, token, next) =>
-                    this.serves(document.uri) ? next(document, range, context, token) : undefined,
-                // A save waits for this, so it goes on without a server that isn't answering.
+                // A save waits for these, so it goes on without a server that isn't answering. A
+                // request can't say whether a save asked: Format Document has the limit too.
+                provideCodeActions: (document, range, context, token, next) => {
+                    if (!this.serves(document.uri)) {
+                        return undefined;
+                    }
+
+                    const actions = next(document, range, context, token);
+                    return isSourceAction(context.only?.value)
+                        ? withinTime(actions, this.formatPatience, () => this.tookTooLong("source actions", document))
+                        : actions;
+                },
                 provideDocumentFormattingEdits: (document, options, token, next) =>
-                    withinTime(next(document, options, token), this.formatPatience, () => {
-                        this.m_output.appendLine(
-                            `The language server didn't format ${document.uri.fsPath} in ` +
-                                `${this.formatPatience} ms; going on without it.`,
-                        );
-                        this.m_watchdog?.ask();
-                    }),
+                    withinTime(next(document, options, token), this.formatPatience, () =>
+                        this.tookTooLong("formatting", document),
+                    ),
             },
             outputChannel: this.m_output,
             revealOutputChannelOn: node.RevealOutputChannelOn.Never,
@@ -326,8 +335,20 @@ export class ServerClient implements vscode.Disposable {
         }
 
         // The client stays, stopped, for the next start or stop to dispose of.
+        this.m_watchdog?.stop();
+        this.m_watchdog = undefined;
         this.reportFailed(server, `it stopped ${MAX_RESTARTS + 1} times in 3 minutes`);
         return { action: clientModule().CloseAction.DoNotRestart, handled: true };
+    }
+
+    // A request a save waits for took too long, so it goes on without it: says so, and asks now
+    // whether the server's answering.
+    private tookTooLong(what: string, document: vscode.TextDocument): void {
+        const seconds = this.formatPatience / 1000;
+        this.lastNotice = `FutureBlitz: fb-lsp's ${what} for ${path.basename(document.uri.fsPath)} took over ${seconds} s, so it went on without them.`;
+        this.m_output.appendLine(this.lastNotice);
+        void vscode.window.showWarningMessage(this.lastNotice);
+        this.m_watchdog?.ask();
     }
 
     // The server's running, and doesn't answer, or its messages can't be read: start it again and

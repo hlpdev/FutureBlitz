@@ -7,6 +7,7 @@
 #include "fb/lsp/server.hpp"
 
 #include <chrono>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
@@ -23,6 +24,13 @@
 #endif
 
 namespace {
+
+/// How many bytes wait for a client that isn't reading before it's taken to be gone.
+constexpr std::size_t most_waiting = std::size_t{ 256 } * 1024 * 1024;
+/// How long the message thread has to end the process, once the client's said exit or gone, before
+/// the reader does, and how long one message can hold it before fb/ping goes unanswered.
+constexpr std::chrono::seconds exit_wait(3);
+constexpr std::chrono::seconds busy_limit(60);
 
 /// Writes the messages sent so far, for a moment, as a client that's gone reads none of them, and
 /// ends the process with `code`, without waiting for a check that's running, which can take
@@ -41,16 +49,28 @@ void serve() {
     std::cin.tie(nullptr);
     fb::lsp::fd_buffer_t output(fb::lsp::take_stdout());
     std::ostream out(&output);
-    fb::lsp::outbox_t outbox(out);
+    fb::lsp::outbox_t outbox(out, most_waiting, [] {
+        std::fputs("fb-lsp: the client isn't reading what it's sent\n", stderr);
+        std::_Exit(1);
+    });
     const auto send = [&outbox](const fb::lsp::json_t& message) {
-        outbox.push(message.dump(-1, ' ', false, fb::lsp::json_t::error_handler_t::replace));
+        std::string replaces;
+        if (message.value("method", std::string()) == "textDocument/publishDiagnostics") {
+            replaces = message["params"].value("uri", std::string());
+        }
+
+        outbox.push(message.dump(-1, ' ', false, fb::lsp::json_t::error_handler_t::replace),
+                    std::move(replaces));
     };
     fb::lsp::server_t server(send);
     // A thread of its own reads, so what waits behind a request is there for the server to see,
-    // as a $/cancelRequest of it is.
+    // as a $/cancelRequest of it is, and the client's told the server's going on while the message
+    // thread's busy with one message, and that the client's gone whatever it's doing.
     fb::lsp::inbox_t inbox;
     server.set_inbox(&inbox);
+    fb::lsp::liveness_t liveness(busy_limit);
     std::thread reader([&] {
+        bool shutdown = false;
         while (const std::optional<std::string> body = fb::lsp::read_message(std::cin)) {
             fb::lsp::json_t message = fb::lsp::json_t::parse(*body, nullptr, false);
             if (message.is_discarded()) {
@@ -62,14 +82,35 @@ void serve() {
                 continue;
             }
 
+            const fb::lsp::json_t method = message.is_object()
+                                               ? message.value("method", fb::lsp::json_t())
+                                               : fb::lsp::json_t();
+            if (method == "fb/ping" && message.contains("id")) {
+                if (liveness.going()) {
+                    send({ { "jsonrpc", "2.0" }, { "id", message["id"] }, { "result", nullptr } });
+                }
+
+                continue;
+            }
+
+            shutdown = shutdown || method == "shutdown";
+            const bool exiting = method == "exit";
             inbox.push(std::move(message));
+            if (exiting) {
+                std::this_thread::sleep_for(exit_wait);
+                finish(outbox, shutdown ? 0 : 1);
+            }
         }
 
         inbox.close();
+        std::this_thread::sleep_for(exit_wait);
+        finish(outbox, 1);
     });
     reader.detach();
     while (const std::optional<fb::lsp::json_t> message = inbox.pop()) {
+        liveness.handling();
         server.handle(*message);
+        liveness.handled();
         if (const std::optional<int> code = server.exit_code()) {
             finish(outbox, *code);
         }
