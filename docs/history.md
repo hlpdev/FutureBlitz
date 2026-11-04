@@ -66,6 +66,12 @@ on the code before these fixes. The reader's end of the process waits for one me
 message thread for 6 seconds (`liveness_t::held_for`), not 3 from reading exit, which lost
 shutdown's answer when exit came right behind it, as process_tests has it.
 
+A cancelled request stops waiting. It sat out its check, up to its 30 second deadline, holding its
+worker, and past the deadline was answered as failed, not cancelled: CI's machines, whose check in
+"a request cancelled while a worker answers it" takes over 30 seconds, showed that on all three
+systems. $/cancelRequest now wakes what waits in `workspace_t::checked`, `by_deadline` looks at
+the request's flag, and anything a cancelled request ends in is answered as cancelled.
+
 ## 1.2.2
 
 - **fb mcp at exit** (the 2026-11-02 CI): a server waits for the thread reading std's docs, which a test's program could leave running as it exited, reading the compiler's statics as they were destroyed: a segfault on Linux.

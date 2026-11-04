@@ -59,12 +59,26 @@ public:
     past_deadline_t() : std::runtime_error("the check it needs didn't finish in time") {}
 };
 
-/// What `result` gives, once it's done, or past_deadline_t at `until`.
+/// The client cancelled the request that was waiting.
+class cancelled_t : public std::runtime_error {
+public:
+    cancelled_t() : std::runtime_error("the client cancelled it") {}
+};
+
+/// What `result` gives, once it's done, past_deadline_t at `until`, or cancelled_t soon after
+/// `cancelled`, if there's one, is set.
 template <typename Result>
 Result by_deadline(const std::shared_future<Result>& result,
-                   const std::chrono::steady_clock::time_point until) {
-    if (result.wait_until(until) != std::future_status::ready) {
-        throw past_deadline_t();
+                   const std::chrono::steady_clock::time_point until,
+                   const std::atomic<bool>* const cancelled) {
+    while (result.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
+        if (cancelled != nullptr && cancelled->load()) {
+            throw cancelled_t();
+        }
+
+        if (std::chrono::steady_clock::now() >= until) {
+            throw past_deadline_t();
+        }
     }
 
     return result.get();
@@ -421,9 +435,21 @@ void server_t::answer_job(const request_job_t& job) {
 }
 
 void server_t::check_deadline() {
-    if (m_answering != nullptr && std::chrono::steady_clock::now() >= m_answering->deadline) {
+    if (m_answering == nullptr) {
+        return;
+    }
+
+    if (m_answering->cancelled->load()) {
+        throw cancelled_t();
+    }
+
+    if (std::chrono::steady_clock::now() >= m_answering->deadline) {
         throw past_deadline_t();
     }
+}
+
+const std::atomic<bool>* server_t::answering_cancelled() {
+    return m_answering != nullptr ? m_answering->cancelled.get() : nullptr;
 }
 
 std::optional<std::string> server_t::asked_text(const std::filesystem::path& path) const {
@@ -459,10 +485,10 @@ std::optional<checked_t> server_t::asked_check(const std::filesystem::path& path
                     made->set_exception(std::current_exception());
                 }
             });
-            return by_deadline(result, until);
+            return by_deadline(result, until, answering_cancelled());
         }
 
-        std::optional<checked_t> checked = m_workspace->checked(path, until);
+        std::optional<checked_t> checked = m_workspace->checked(path, until, answering_cancelled());
         if (!checked) {
             if (m_answering->quick) {
                 throw needs_check_t();
@@ -474,7 +500,8 @@ std::optional<checked_t> server_t::asked_check(const std::filesystem::path& path
         return checked;
     }
 
-    std::optional<checked_t> checked = m_workspace->checked(path, *m_answering->version, until);
+    std::optional<checked_t> checked =
+        m_workspace->checked(path, *m_answering->version, until, answering_cancelled());
     if (!checked) {
         const std::optional<std::pair<std::string, std::int64_t>> document =
             m_workspace->document(path);
@@ -493,6 +520,18 @@ std::optional<checked_t> server_t::asked_check(const std::filesystem::path& path
 }
 
 void server_t::answer_request(const json_t& id, const std::string& method, const json_t& params) {
+    // A worker's request the client cancelled while it was answered is answered as that, whatever
+    // else became of it.
+    const auto cancelled = [&] {
+        return m_answering != nullptr && m_answering->id == id && m_answering->cancelled->load();
+    };
+    const auto refuse = [&](const error_code_t code, const std::string& why) {
+        if (cancelled()) {
+            fail(id, error_code_t::REQUEST_CANCELLED, "the client cancelled it");
+        } else {
+            fail(id, code, why);
+        }
+    };
     try {
         if (m_inbox != nullptr && m_inbox->take_cancel(id)) {
             fail(id, error_code_t::REQUEST_CANCELLED, "the client cancelled it");
@@ -503,8 +542,7 @@ void server_t::answer_request(const json_t& id, const std::string& method, const
         check_deadline();
 
         if (std::optional<json_t> result = answer(method, params)) {
-            // A worker's request the client cancelled while it was answered.
-            if (m_answering != nullptr && m_answering->id == id && m_answering->cancelled->load()) {
+            if (cancelled()) {
                 fail(id, error_code_t::REQUEST_CANCELLED, "the client cancelled it");
             } else {
                 respond(id, std::move(*result));
@@ -512,14 +550,16 @@ void server_t::answer_request(const json_t& id, const std::string& method, const
         } else {
             fail(id, error_code_t::METHOD_NOT_FOUND, "the server doesn't do " + method);
         }
+    } catch (const cancelled_t& error) {
+        fail(id, error_code_t::REQUEST_CANCELLED, error.what());
     } catch (const content_modified_t& error) {
-        fail(id, error_code_t::CONTENT_MODIFIED, error.what());
+        refuse(error_code_t::CONTENT_MODIFIED, error.what());
     } catch (const needs_check_t&) {
         request_job_t job = *m_answering;
         job.quick = false;
         m_moved.push(std::move(job));
     } catch (const past_deadline_t& error) {
-        fail(id, error_code_t::REQUEST_FAILED, error.what());
+        refuse(error_code_t::REQUEST_FAILED, error.what());
     } catch (const json_t::exception& error) {
         fail(id, error_code_t::INVALID_PARAMS, error.what());
     } catch (const std::invalid_argument& error) {
@@ -840,7 +880,7 @@ server_t::dependents(const std::filesystem::path& file) {
                 made->set_exception(std::current_exception());
             }
         });
-        return by_deadline(result, answering_until());
+        return by_deadline(result, answering_until(), answering_cancelled());
     }
 
     const auto moved_on = [&] {
@@ -880,7 +920,7 @@ server_t::dependents(const std::filesystem::path& file) {
     if (known.valid()) {
         // Without the client watching, a file that isn't open, but std's, may have changed on
         // disk since.
-        compilations_t compilations = by_deadline(known, answering_until());
+        compilations_t compilations = by_deadline(known, answering_until(), answering_cancelled());
         moved_on();
         const bool written = !m_workspace->watched() &&
                              std::ranges::any_of(compilations, [&](const auto& compilation) {
@@ -913,7 +953,7 @@ server_t::dependents(const std::filesystem::path& file) {
             made->set_exception(std::current_exception());
         }
     });
-    compilations_t compilations = by_deadline(result, answering_until());
+    compilations_t compilations = by_deadline(result, answering_until(), answering_cancelled());
     moved_on();
     return compilations;
 }
@@ -943,11 +983,13 @@ void server_t::forget_dependents() {
 }
 
 void server_t::notified(const std::string& method, const json_t& params) {
-    // A request a worker hasn't started on is cancelled there.
+    // A request a worker hasn't started on is cancelled there, and one waiting for a check stops.
     if (method == "$/cancelRequest") {
         const json_t id = params.is_object() ? params.value("id", json_t()) : json_t();
         if (m_quick.cancel(id) || m_moved.cancel(id) || m_slow.cancel(id)) {
             fail(id, error_code_t::REQUEST_CANCELLED, "the client cancelled it");
+        } else {
+            m_workspace->wake_waiting();
         }
 
         return;

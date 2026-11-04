@@ -246,6 +246,8 @@ private:
     [[nodiscard]] static std::chrono::steady_clock::time_point answering_until();
     /// Throws past_deadline_t when the worker's request being answered is past its deadline.
     static void check_deadline();
+    /// What says the client cancelled the request this thread's answering. Null when it's none.
+    [[nodiscard]] static const std::atomic<bool>* answering_cancelled();
     /// The text of a file, as the request being answered sees it: an open document's as it was
     /// when a worker's request about it came, or else as it is.
     [[nodiscard]] std::optional<std::string> asked_text(const std::filesystem::path& path) const;

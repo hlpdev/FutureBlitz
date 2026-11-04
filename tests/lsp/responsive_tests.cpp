@@ -220,18 +220,23 @@ TEST_CASE("a request cancelled while a worker answers it is answered as cancelle
     client.drain();
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     client.notify("$/cancelRequest", { { "id", hover } });
-    client.settle();
-    CHECK(client.response(hover)["error"]["code"] ==
+    const json_t cancelled = client.response(hover);
+    INFO(cancelled.dump());
+    CHECK(cancelled["error"]["code"] ==
           static_cast<std::int32_t>(fb::lsp::error_code_t::REQUEST_CANCELLED));
+    // It stopped waiting, however long the check takes.
+    CHECK_FALSE(client.server().workspace().checked_now(folder.path("cancelled.fb")));
 
-    // One not cancelled is answered.
+    // One not cancelled is answered, on a line the last check knows, as this check can outlast a
+    // request's deadline on a machine that's busy.
     CHECK(client
               .request("textDocument/hover",
                        {
                            { "textDocument", { { "uri", uri } } },
-                           { "position", client_t::position(12, 15) },
+                           { "position", client_t::position(1, 11) },
                        })
               .is_object());
+    client.settle();
 }
 
 TEST_CASE("shutdown is answered with requests waiting for a check that's in flight", "[lsp]") {
@@ -510,6 +515,57 @@ TEST_CASE("a request whose check is stuck is answered by its deadline, and nothi
     CHECK(client.response(behind)["error"]["code"] ==
           static_cast<std::int32_t>(fb::lsp::error_code_t::REQUEST_FAILED));
     client.settle();
+}
+
+TEST_CASE("a request cancelled while its check outlasts its deadline is answered as cancelled",
+          "[lsp]") {
+    // As on CI's machines: the check takes longer than the deadline, which the request sat out.
+    const folder_t folder({});
+    const std::string uri = folder.uri("outlasts.fb");
+    client_t client({ .request_deadline = std::chrono::seconds(5) });
+    client.open(uri, twice);
+    client.settle();
+
+    client.change(uri, spinning());
+    const json_t document{ { "uri", uri } };
+    const std::int64_t hover =
+        client.queue("textDocument/hover",
+                     { { "textDocument", document }, { "position", client_t::position(12, 15) } });
+    client.drain();
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    client.notify("$/cancelRequest", { { "id", hover } });
+    const json_t cancelled = client.response(hover);
+    INFO(cancelled.dump());
+    CHECK(cancelled["error"]["code"] ==
+          static_cast<std::int32_t>(fb::lsp::error_code_t::REQUEST_CANCELLED));
+    client.settle();
+}
+
+TEST_CASE("a request cancelled while a whole package's checks run stops waiting for them",
+          "[lsp]") {
+    const folder_t folder({});
+    const std::string uri = folder.uri("package.fb");
+    client_t client({});
+    client.open(uri, spinning());
+    client.settle();
+
+    // References compile the file again, for seconds, off the worker.
+    const std::int64_t references = client.queue(
+        "textDocument/references", {
+                                       { "textDocument", { { "uri", uri } } },
+                                       { "position", client_t::position(1, 11) },
+                                       { "context", { { "includeDeclaration", true } } },
+                                   });
+    client.drain();
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    const auto asked = std::chrono::steady_clock::now();
+    client.notify("$/cancelRequest", { { "id", references } });
+    const json_t cancelled = client.response(references);
+    INFO(cancelled.dump());
+    CHECK(cancelled["error"]["code"] ==
+          static_cast<std::int32_t>(fb::lsp::error_code_t::REQUEST_CANCELLED));
+    // Seconds less than the check takes.
+    CHECK(std::chrono::steady_clock::now() - asked < std::chrono::seconds(4));
 }
 
 TEST_CASE("a request moved for its check doesn't wait behind a whole package's", "[lsp]") {

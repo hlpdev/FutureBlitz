@@ -1251,7 +1251,7 @@ action. A request a worker answers is about the document's version and text as t
 it came, positions and all; one that waits for a check waits for that version's alone, and is
 answered ContentModified once the document has moved past it, as a version changed before its
 check is done never has one, so typing never keeps a worker waiting. A $/cancelRequest takes a
-waiting one out, and shutdown answers what's waiting first. What the text answers, formatting a save, folding, selection ranges, document and
+waiting one out, or ends its wait for a check, and shutdown answers what's waiting first. What the text answers, formatting a save, folding, selection ranges, document and
 workspace symbols, and code lenses, is answered at once. Semantic tokens are the check's when
 it's of the document's text, and else the lexer's at once, keywords, strings, numbers, and
 comments, with `workspace/semanticTokens/refresh` sent when the check's done, so coloring never
