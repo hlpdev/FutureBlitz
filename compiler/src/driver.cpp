@@ -2492,7 +2492,7 @@ public:
         std::vector<std::size_t> chain;
         // The program's registry packages are where fb.lock beside its project.toml says.
         const std::filesystem::path& lock_folder = locked.value_or(folder);
-        if (const std::optional<std::string> text = bytes_of(lock_folder / "fb.lock")) {
+        if (const std::optional<std::string> text = load_lockfile(lock_folder / "fb.lock")) {
             // Why it can't be read is copied: GCC 15.2's -O2 and -O3 for MinGW moved the string
             // out of the expected into an optional's and then freed its buffer through the
             // pointer from before the move, which the loader freed again.
@@ -3879,7 +3879,7 @@ bool write_stamp(const std::filesystem::path& path, const std::vector<std::strin
 /// program, and the build's fb.lock, whose packages it was built with, by its bytes' hash.
 std::vector<std::string> program_heading(const std::filesystem::path& program,
                                          const std::filesystem::path& root) {
-    const std::optional<std::string> lock = bytes_of(root / "fb.lock");
+    const std::optional<std::string> lock = load_lockfile(root / "fb.lock");
     return {
         std::format("fb {} ({}, {})", build_config::version, build_commit,
                     build_config::toolchain_target),

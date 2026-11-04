@@ -3,6 +3,10 @@
 What each milestone and step added, by name, and each review's fixes, as CLAUDE.md kept
 them while each was built. Newest first.
 
+## After 1.2.3
+
+- **fb.lock is replaced at once**: `sync_packages` wrote it through a truncating ofstream, so a second build in the same package could read part of it. `save_lockfile` writes a hidden temporary file beside it, which no walk of the package's files sees, keeps the old file's permissions, and renames it over, trying again while another build has hold of it. On Windows a file being replaced can't be opened for a moment, which a build took for no fb.lock and resolved anew, or a step's stamp for "lock none", so `load_lockfile` tries again too, in both the package manager and the driver. Tests: many writers and readers, where no reader sees part of it or fails to open it, a failed save says why and leaves no temporary file, and permissions are kept.
+
 ## 1.2.3
 
 - **`FUTUREBLITZ_RUN=1`**: `fb run` and `fb test` set it for the program they start, through a new `environment` argument to `run_attached`, so fbengine's Assets.RunByFb stops guessing from fb's temporary folder's layout. Tests: `fb run` and `fb test` see it, and a built executable run directly doesn't.
