@@ -72,6 +72,13 @@ worker, and past the deadline was answered as failed, not cancelled: CI's machin
 systems. $/cancelRequest now wakes what waits in `workspace_t::checked`, `by_deadline` looks at
 the request's flag, and anything a cancelled request ends in is answered as cancelled.
 
+A long queue doesn't keep fb-lsp from ending. Each request looked through what was waiting for its
+own $/cancelRequest, with the inbox locked, so 12,000 quick requests took 18 seconds here, and none
+of them held the message thread long enough for the reader to end the process: macOS's busy Debug
+runner failed process_tests' 3,000 at 15 seconds. `inbox_t` counts the $/cancelRequests waiting, and
+looks only when there's one, and an exit or a closed stdin without a shutdown before it drops what's
+waiting (`drop_waiting`), as nobody's left to read those answers.
+
 ## 1.2.2
 
 - **fb mcp at exit** (the 2026-11-02 CI): a server waits for the thread reading std's docs, which a test's program could leave running as it exited, reading the compiler's statics as they were destroyed: a segfault on Linux.

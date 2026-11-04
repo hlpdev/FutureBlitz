@@ -128,14 +128,34 @@ class ProcessTests(unittest.TestCase):
         self.client.process.stdin.close()
         self._ends_within(15)
 
-    def test_a_client_that_isnt_reading_doesnt_keep_it(self):
-        self.client = Client(self.folder.name, QUICK, read=False)
-        for id in range(10, 3000):
+    def _queue_requests(self):
+        for id in range(10, 12000):
             self.client.send({"id": id, "method": "textDocument/documentSymbol", "params": {
                 "textDocument": {"uri": self.client.uri}}})
+
+    def test_a_client_that_isnt_reading_doesnt_keep_it(self):
+        self.client = Client(self.folder.name, QUICK, read=False)
+        self._queue_requests()
         self.client.send({"method": "exit"})
         self.client.process.stdin.close()
         self._ends_within(15)
+
+    def test_a_queue_of_quick_requests_doesnt_keep_it_once_its_client_goes(self):
+        self.client = Client(self.folder.name, QUICK, read=False)
+        self._queue_requests()
+        self.client.process.stdin.close()
+        self._ends_within(15)
+
+    def test_a_queue_of_quick_requests_behind_shutdown_is_quick_to_answer(self):
+        # Each looks for its own $/cancelRequest in what's waiting, which took the queue's length
+        # squared.
+        self.client = Client(self.folder.name, QUICK, read=False)
+        self._queue_requests()
+        self.client.send({"id": 3, "method": "shutdown"})
+        self.client.send({"method": "exit"})
+        self.client.process.stdin.close()
+        code, _ = self._ends_within(15)
+        self.assertEqual(code, 0)
 
     def test_ping_is_answered_with_the_message_thread_held(self):
         # Shutdown holds the message thread for as long as it waits on the references.

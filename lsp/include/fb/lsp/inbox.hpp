@@ -5,6 +5,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstddef>
 #include <deque>
 #include <mutex>
 #include <optional>
@@ -39,6 +40,9 @@ class inbox_t {
 public:
     void push(json_t message);
 
+    /// Forgets the messages waiting, for a client that's said it wants no answers to them.
+    void drop_waiting();
+
     /// No more messages come, once the waiting ones are taken.
     void close();
 
@@ -55,9 +59,14 @@ public:
     [[nodiscard]] bool changes(std::string_view uri) const;
 
 private:
+    /// The first waiting message, under the lock; there's one.
+    [[nodiscard]] json_t take_first();
+
     mutable std::mutex m_mutex;
     std::condition_variable m_ready;
     std::deque<json_t> m_messages;
+    /// How many of them are $/cancelRequests.
+    std::size_t m_cancels = 0;
     bool m_closed = false;
 };
 

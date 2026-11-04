@@ -52,15 +52,26 @@ const json_t& object_in(const json_t& object, const char* key) {
     return found != object.end() && found->is_object() ? *found : none;
 }
 
+bool is_cancel(const json_t& message) {
+    return text_at(message, "method") == "$/cancelRequest";
+}
+
 } // namespace
 
 void inbox_t::push(json_t message) {
     {
         const std::scoped_lock lock(m_mutex);
+        m_cancels += is_cancel(message) ? 1 : 0;
         m_messages.push_back(std::move(message));
     }
 
     m_ready.notify_one();
+}
+
+void inbox_t::drop_waiting() {
+    const std::scoped_lock lock(m_mutex);
+    m_messages.clear();
+    m_cancels = 0;
 }
 
 void inbox_t::close() {
@@ -79,9 +90,7 @@ std::optional<json_t> inbox_t::pop() {
         return std::nullopt;
     }
 
-    json_t message = std::move(m_messages.front());
-    m_messages.pop_front();
-    return message;
+    return take_first();
 }
 
 std::optional<json_t> inbox_t::try_pop() {
@@ -90,23 +99,34 @@ std::optional<json_t> inbox_t::try_pop() {
         return std::nullopt;
     }
 
+    return take_first();
+}
+
+json_t inbox_t::take_first() {
     json_t message = std::move(m_messages.front());
     m_messages.pop_front();
+    m_cancels -= is_cancel(message) ? 1 : 0;
     return message;
 }
 
 bool inbox_t::take_cancel(const json_t& id) {
     const std::scoped_lock lock(m_mutex);
+    // Every request asks, so going through what's waiting only when there's one to find keeps a
+    // long queue of them from taking time by its length's square, with the reader kept out.
+    if (m_cancels == 0) {
+        return false;
+    }
+
     const auto found = std::ranges::find_if(m_messages, [&](const json_t& message) {
         const json_t& params = object_in(message, "params");
-        return text_at(message, "method") == "$/cancelRequest" && params.is_object() &&
-               params.value("id", json_t()) == id;
+        return is_cancel(message) && params.is_object() && params.value("id", json_t()) == id;
     });
     if (found == m_messages.end()) {
         return false;
     }
 
     m_messages.erase(found);
+    --m_cancels;
     return true;
 }
 

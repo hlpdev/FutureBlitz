@@ -568,6 +568,41 @@ TEST_CASE("a request cancelled while a whole package's checks run stops waiting 
     CHECK(std::chrono::steady_clock::now() - asked < std::chrono::seconds(4));
 }
 
+TEST_CASE("an inbox finds a waiting $/cancelRequest, however messages have left it", "[lsp]") {
+    const auto cancel = [](const int id) {
+        return json_t{
+            { "method", "$/cancelRequest" },
+            { "params", { { "id", id } } },
+        };
+    };
+    fb::lsp::inbox_t inbox;
+    CHECK_FALSE(inbox.take_cancel(1));
+
+    inbox.push(cancel(1));
+    inbox.push(cancel(2));
+    CHECK_FALSE(inbox.take_cancel(3));
+    CHECK(inbox.take_cancel(1));
+    CHECK_FALSE(inbox.take_cancel(1));
+
+    // One popped isn't there, and the next one pushed still is.
+    CHECK(inbox.pop().has_value());
+    CHECK_FALSE(inbox.take_cancel(2));
+    inbox.push(cancel(4));
+    CHECK(inbox.try_pop().has_value());
+    CHECK_FALSE(inbox.take_cancel(4));
+    inbox.push(cancel(5));
+    CHECK(inbox.take_cancel(5));
+
+    // Nor is one dropped, and what comes after is taken as ever.
+    inbox.push(cancel(6));
+    inbox.push({ { "method", "exit" } });
+    inbox.drop_waiting();
+    CHECK_FALSE(inbox.try_pop().has_value());
+    CHECK_FALSE(inbox.take_cancel(6));
+    inbox.push(cancel(7));
+    CHECK(inbox.take_cancel(7));
+}
+
 TEST_CASE("a request moved for its check doesn't wait behind a whole package's", "[lsp]") {
     const folder_t folder({});
     const std::string uri = folder.uri("moved.fb");

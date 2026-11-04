@@ -72,7 +72,9 @@ void serve() {
     fb::lsp::liveness_t liveness(busy_limit);
     std::thread reader([&] {
         // The message thread ends the process once it gets to the end of what's waiting, unless
-        // one message is holding it there.
+        // one message is holding it there. What's waiting is answered only for a client that said
+        // shutdown, which those before it are owed; one that exits or goes without it wants none,
+        // and a long queue of quick messages would keep it here with none of them holding it.
         const auto wait_for_it = [&] {
             while (!liveness.held_for(exit_wait)) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -103,11 +105,19 @@ void serve() {
 
             shutdown = shutdown || method == "shutdown";
             const bool exiting = method == "exit";
+            if (exiting && !shutdown) {
+                inbox.drop_waiting();
+            }
+
             inbox.push(std::move(message));
             if (exiting) {
                 wait_for_it();
                 finish(outbox, shutdown ? 0 : 1);
             }
+        }
+
+        if (!shutdown) {
+            inbox.drop_waiting();
         }
 
         inbox.close();
