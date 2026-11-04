@@ -2046,6 +2046,90 @@ TEST_CASE("a process group's SIGTERM reaches the program at most twice, and ends
 }
 #endif
 
+#ifdef FB_TEST_HANG_ON_DETACH
+TEST_CASE("a program ends, with its code and output, however a DLL's detach would hang", "[cli]") {
+    const std::string name = own_name("hang_on_detach");
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / name;
+    std::filesystem::remove_all(folder);
+    std::filesystem::create_directories(folder);
+    const std::filesystem::path source =
+        write_source(std::format("{}/ends.fb", name), "Import std.core\n"
+                                                      "Import std.ffi\n"
+                                                      "Import std.os\n"
+                                                      "Extern \"C\"\n"
+                                                      "    Function LoadLibraryA(name: CString): "
+                                                      "Ptr<Void>\n"
+                                                      "End Extern\n"
+                                                      "Local given = Process.Arguments()\n"
+                                                      "Unsafe\n"
+                                                      "    Print(LoadLibraryA(given[0]) != Null)\n"
+                                                      "End Unsafe\n"
+                                                      "If given[1] == \"exit\"\n"
+                                                      "    Process.Exit(7)\n"
+                                                      "ElseIf given[1] == \"panic\"\n"
+                                                      "    Panic(\"on purpose\")\n"
+                                                      "End If\n"
+                                                      "Throw Error(\"not caught\")\n");
+    std::filesystem::path program = folder / "ends";
+    program += fb::executable_extension;
+    const fb::process_result_t built =
+        fb_run({ "build", fb::to_utf8(source), "-o", fb::to_utf8(program), "--color", "never" });
+    INFO(built.output);
+    REQUIRE(built.exit_code == 0);
+    struct end_t {
+        std::string how;
+        DWORD code;
+        std::string says;
+    };
+
+    for (const end_t& end : { end_t{ .how = "panic", .code = 101, .says = "on purpose" },
+                              end_t{ .how = "exit", .code = 7, .says = "True" },
+                              end_t{ .how = "error", .code = 1, .says = "not caught" } }) {
+        CAPTURE(end.how);
+        const std::filesystem::path output = folder / (end.how + ".txt");
+        SECURITY_ATTRIBUTES security{
+            .nLength = sizeof(SECURITY_ATTRIBUTES),
+            .lpSecurityDescriptor = nullptr,
+            .bInheritHandle = TRUE,
+        };
+        HANDLE file = CreateFileW(output.c_str(), GENERIC_WRITE, FILE_SHARE_READ, &security,
+                                  CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        REQUIRE(file != INVALID_HANDLE_VALUE);
+        STARTUPINFOW startup{};
+        startup.cb = sizeof(startup);
+        startup.dwFlags = STARTF_USESTDHANDLES;
+        startup.hStdOutput = file;
+        startup.hStdError = file;
+        std::wstring command = std::format(L"\"{}\" \"{}\" {}", program.wstring(),
+                                           fb::path_from_utf8(FB_TEST_HANG_ON_DETACH).wstring(),
+                                           fb::path_from_utf8(end.how).wstring());
+        PROCESS_INFORMATION process{};
+        REQUIRE(CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW,
+                               nullptr, nullptr, &startup, &process) != 0);
+        CloseHandle(file);
+        const DWORD waited = WaitForSingleObject(process.hProcess, 30000);
+        CHECK(waited == WAIT_OBJECT_0);
+        if (waited != WAIT_OBJECT_0) {
+            TerminateProcess(process.hProcess, 1);
+            WaitForSingleObject(process.hProcess, INFINITE);
+        }
+
+        DWORD code = 0;
+        GetExitCodeProcess(process.hProcess, &code);
+        CloseHandle(process.hProcess);
+        CloseHandle(process.hThread);
+        const std::string written = read_file(output);
+        INFO(written);
+        if (waited == WAIT_OBJECT_0) {
+            CHECK(code == end.code);
+        }
+
+        CHECK(written.contains("True"));
+        CHECK(written.contains(end.says));
+    }
+}
+#endif
+
 TEST_CASE("what a program started and left running stays after fb run ends", "[cli]") {
     const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "left_running";
     std::filesystem::remove_all(folder);

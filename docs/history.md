@@ -5,6 +5,8 @@ them while each was built. Newest first.
 
 ## 1.2.3
 
+- **A program's end on Windows doesn't run DLLs' detach**: a panic with fbengine's GPU going hung on Windows CI, as `_Exit` goes through ExitProcess, which kills the threads and then runs each DLL's detach, which waited in the driver's DLL. `end_program` ends by TerminateProcess, after flushing and what `run_end` puts back: a panic, an uncaught error, `Process.Exit`, and a library that won't load. Test: a program ends, with its code and output, however a DLL's detach would hang.
+
 - **`Dns.ResolveAsync` no longer makes an array on the I/O thread**: its Task held the array, and the I/O thread can be the last to let go of the Task, which let go of the array, whose count isn't atomic, as the coroutine used it. A count that lost an update leaked it: http_server_tls's one `UInt8[]` of 21 bytes, a 4-byte code and 127.0.0.1's record, found by printing what was left. It could as well have been freed in use. 30,000 lookups, sixteen programs at once, leaked in 15 of 48 runs before. The Task now gives a native answer, which the coroutine reads into an array of its own. Test: concurrent_dns_many.
 
 - **`For Member m In E` and `Where E: Enum`** (for fbengine's editor, whose MembersOf probed Load<E> by number, so `{BRONZE = 1, SILVER = 2}` gave none and @Flags nonsense): one copy of the body per declared member, with `m.Name` and `m.Value`. The constraint gives what every Enum has, and `As` to and from integers, so a generic can combine flags. Tests: reflect_enum_members, and the parser's and sema's.

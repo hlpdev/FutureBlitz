@@ -292,6 +292,7 @@ section.
 | A parallel range hands out a few chunks per thread from a shared counter, and the calling thread takes chunks too | a thread that finishes early takes more, and a small range needs no other thread |
 | main waits for the pool's jobs before releasing the Globals | a job may still use a Global, like an Atomic |
 | A panic or an uncaught error ends the program with `_Exit`, after flushing, and a second thread's panic waits for the end | exiting normally would destroy what other threads still use, like the pool |
+| A panic, an uncaught error, `Process.Exit`, and a library that won't load end by TerminateProcess on Windows, after flushing | `_Exit` goes through ExitProcess, which kills the threads and runs each DLL's detach, and a GPU driver's waits for one of those threads for good. fb's own libraries link statically and nothing of std depends on detach; a DLL's own buffered output and destructors don't run, as a program's own don't. A program that reaches its end still exits normally, with its threads done |
 | `Sendable` is an Interface in std/core/interfaces.fb, which the compiler decides from a type's parts | generic code constrains on it like any Interface, and no type has to say it |
 | A Struct is Sendable only when its fields all are, so one holding a Class reference isn't (settled from open-questions.md) | a copy of the Struct shares the object, whose refcount isn't atomic |
 | A type can list Sendable, or an Interface that extends it, and the compiler checks it | a promise a type makes, which a later field can't break quietly |

@@ -38,6 +38,15 @@ if(MINGW)
   target_link_options(fb_dyncalc PRIVATE -mcrtdll=ucrt -static-libgcc)
 endif()
 
+# A DLL whose detach never returns, which a program loads to show its end doesn't run that.
+if(MINGW)
+  add_library(fb_hang_on_detach SHARED hang_on_detach/hang_on_detach.c)
+  set_target_properties(fb_hang_on_detach PROPERTIES OUTPUT_NAME hang_on_detach PREFIX ""
+                        C_STANDARD 11)
+  target_compile_options(fb_hang_on_detach PRIVATE -mcrtdll=ucrt)
+  target_link_options(fb_hang_on_detach PRIVATE -mcrtdll=ucrt -static-libgcc)
+endif()
+
 # The stand-in engine, a C++ library in a DLL of its own with a C API, as the real engine will be,
 # which tests/packages/engine wraps: engine.dll and libengine.dll.a on Windows, libengine.so on
 # Linux, and libengine.dylib, as @rpath/libengine.dylib, on macOS. Its C++ runtime is linked

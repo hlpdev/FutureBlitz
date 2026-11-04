@@ -195,11 +195,16 @@ std::array<std::atomic<void (*)()>, 8>& restorers() {
 
 /// Ends the program with `code` at once, with what it printed flushed, and what it changed that
 /// others share put back. Exiting normally would destroy what other threads may still be using,
-/// like the pool.
+/// like the pool. On Windows, _Exit still goes through ExitProcess, which kills the threads and
+/// then runs each DLL's detach, which can wait for one of them, as a GPU driver's does, for good.
+/// TerminateProcess runs none, so a DLL's own buffered output or destructors go with it.
 [[noreturn]] void end_program(const int code) {
     std::fflush(stdout);
     std::fflush(stderr);
     fb::runtime::run_end();
+#ifdef _WIN32
+    TerminateProcess(GetCurrentProcess(), static_cast<UINT>(code));
+#endif
     std::_Exit(code);
 }
 

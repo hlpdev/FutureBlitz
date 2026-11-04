@@ -102,6 +102,11 @@ target_compile_definitions(fb_cli_tests PRIVATE
   FB_TEST_ENGINE_LINKED="$<TARGET_LINKER_FILE:fb_engine>"
   FB_TEST_OUTPUT="${CMAKE_CURRENT_BINARY_DIR}/cli")
 add_dependencies(fb_cli_tests fb_cli fb_vecmath fb_dyncalc fb_engine)
+if(TARGET fb_hang_on_detach)
+  add_dependencies(fb_cli_tests fb_hang_on_detach)
+  target_compile_definitions(fb_cli_tests PRIVATE
+    FB_TEST_HANG_ON_DETACH="$<TARGET_FILE:fb_hang_on_detach>")
+endif()
 if(TARGET fb_console_probe)
   add_dependencies(fb_cli_tests fb_console_probe)
   target_compile_definitions(fb_cli_tests PRIVATE
