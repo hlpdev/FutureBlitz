@@ -6,20 +6,30 @@
 #include "fb/utf8.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <expected>
 #include <filesystem>
 #include <format>
+#include <fstream>
+#include <ios>
 #include <optional>
+#include <random>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <toml++/toml.hpp>
 #include <utility>
 #include <vector>
 
 namespace fb {
 namespace {
+
+/// How many times, a millisecond longer each, to try a file another build has hold of: about five
+/// seconds in all.
+constexpr int busy_tries = 100;
 
 /// How fb.lock writes a registry on disk: its folder, from the lock's.
 constexpr std::string_view path_source = "path+";
@@ -107,6 +117,68 @@ std::string written_source(const std::string& source, const std::filesystem::pat
 const locked_package_t* lockfile_t::find(const std::string_view name) const {
     const auto found = std::ranges::find(packages, name, &locked_package_t::name);
     return found != packages.end() ? &*found : nullptr;
+}
+
+std::optional<std::string> load_lockfile(const std::filesystem::path& path) {
+    for (int tries = 1; tries <= busy_tries; ++tries) {
+        const std::ifstream in(path, std::ios::binary);
+        if (in) {
+            std::ostringstream bytes;
+            bytes << in.rdbuf();
+            return std::move(bytes).str();
+        }
+
+        // On Windows, a file being replaced can't be opened for a moment.
+        std::error_code error;
+        if (std::filesystem::status(path, error).type() != std::filesystem::file_type::regular) {
+            return std::nullopt;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(tries));
+    }
+
+    return std::nullopt;
+}
+
+std::expected<void, std::string> save_lockfile(const std::filesystem::path& path,
+                                               const std::string_view text) {
+    std::random_device random;
+    const std::filesystem::path partial =
+        path.parent_path() / std::format(".fb.lock.partial-{:08x}", random());
+    std::error_code error;
+    {
+        std::ofstream out(partial, std::ios::binary);
+        out.write(text.data(), static_cast<std::streamsize>(text.size()));
+        out.close();
+        if (!out) {
+            std::filesystem::remove(partial, error);
+            return std::unexpected(std::format("couldn't write {}", to_utf8(path)));
+        }
+    }
+
+    const std::filesystem::file_status before = std::filesystem::status(path, error);
+    if (!error && std::filesystem::exists(before)) {
+        std::filesystem::permissions(partial, before.permissions(), error);
+    }
+
+    // A build reading the file on Windows holds it for a moment, as a virus scanner can.
+    for (int tries = 1; tries <= busy_tries; ++tries) {
+        std::filesystem::rename(partial, path, error);
+        if (!error) {
+            return {};
+        }
+
+        // Time doesn't make a folder in its place go away.
+        if (std::filesystem::is_directory(before)) {
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(tries));
+    }
+
+    const std::string reason = error.message();
+    std::filesystem::remove(partial, error);
+    return std::unexpected(std::format("couldn't write {}: {}", to_utf8(path), reason));
 }
 
 std::string write_lockfile(lockfile_t lockfile, const std::filesystem::path& root) {

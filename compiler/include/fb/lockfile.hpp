@@ -4,6 +4,7 @@
 #include <expected>
 #include <filesystem>
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -61,5 +62,16 @@ inline constexpr int lockfile_version = 1;
 /// another format's version. A registry on disk's folder is made a file:// URL again, from `root`.
 [[nodiscard]] std::expected<lockfile_t, std::string>
 read_lockfile(std::string_view text, const std::filesystem::path& root);
+
+/// The bytes of the fb.lock at `path`, or nullopt when it isn't there or can't be read. One that
+/// another build is replacing is read once it's replaced.
+[[nodiscard]] std::optional<std::string> load_lockfile(const std::filesystem::path& path);
+
+/// Replaces the fb.lock at `path` with `text` at once, with the same permissions when there's one
+/// already, so a build reading it has all of the old text or all of the new, whatever other builds
+/// of the package write. Its temporary file beside it is hidden, so no walk of the package's files
+/// sees it.
+[[nodiscard]] std::expected<void, std::string> save_lockfile(const std::filesystem::path& path,
+                                                             std::string_view text);
 
 } // namespace fb

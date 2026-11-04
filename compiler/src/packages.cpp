@@ -379,7 +379,7 @@ std::expected<sync_result_t, std::string> sync_packages(const std::filesystem::p
     }
 
     const std::filesystem::path lock_path = root / "fb.lock";
-    const std::optional<std::string> lock_text = read_text(lock_path);
+    const std::optional<std::string> lock_text = load_lockfile(lock_path);
     lockfile_t before;
     if (lock_text) {
         std::expected<lockfile_t, std::string> read = read_lockfile(*lock_text, root);
@@ -454,11 +454,8 @@ std::expected<sync_result_t, std::string> sync_packages(const std::filesystem::p
     report_changes(before, *locked, options.status);
     const std::string text = write_lockfile(*locked, root);
     if (lock_text != text) {
-        std::ofstream out(lock_path, std::ios::binary);
-        out << text;
-        out.close();
-        if (!out) {
-            return std::unexpected(std::format("couldn't write {}", to_utf8(lock_path)));
+        if (const std::expected<void, std::string> saved = save_lockfile(lock_path, text); !saved) {
+            return std::unexpected(saved.error());
         }
     }
 

@@ -2,12 +2,21 @@
 #include "fb/registry.hpp"
 #include "fb/utf8.hpp"
 
+#include <algorithm>
+#include <atomic>
 #include <catch2/catch_test_macros.hpp>
+#include <chrono>
+#include <cstddef>
 #include <expected>
 #include <filesystem>
 #include <format>
+#include <mutex>
+#include <optional>
+#include <set>
 #include <string>
 #include <string_view>
+#include <thread>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -31,7 +40,134 @@ std::string lock_error(const std::string_view text) {
     return read ? std::string() : read.error();
 }
 
+/// A folder of its own for fb.lock, empty.
+std::filesystem::path lock_folder(const std::string_view name) {
+    const std::filesystem::path folder = somewhere(name);
+    std::filesystem::remove_all(folder);
+    std::filesystem::create_directories(folder);
+    return folder;
+}
+
+/// The names in `folder`.
+std::set<std::string> names_in(const std::filesystem::path& folder) {
+    std::set<std::string> names;
+    for (const std::filesystem::directory_entry& entry :
+         std::filesystem::directory_iterator(folder)) {
+        names.insert(fb::to_utf8(entry.path().filename()));
+    }
+
+    return names;
+}
+
 } // namespace
+
+TEST_CASE("many builds writing fb.lock never let another read part of it", "[lockfile]") {
+    const std::filesystem::path folder = lock_folder("many-writers");
+    const std::filesystem::path path = folder / "fb.lock";
+
+    // Each writer's text is big enough that writing it in place takes time.
+    constexpr std::size_t writers = 4;
+    constexpr std::size_t readers = 4;
+    constexpr int writes = 50;
+    std::vector<std::string> whole;
+    whole.reserve(writers);
+    for (std::size_t writer = 0; writer < writers; ++writer) {
+        whole.emplace_back(std::size_t{ 64 } * 1024, static_cast<char>('a' + writer));
+    }
+
+    REQUIRE(fb::save_lockfile(path, whole[0]));
+
+    std::mutex wrong_mutex;
+    std::vector<std::string> wrong;
+    const auto report = [&](std::string what) {
+        const std::scoped_lock lock(wrong_mutex);
+        wrong.push_back(std::move(what));
+    };
+
+    std::atomic<int> reads = 0;
+    std::atomic<bool> done = false;
+    {
+        std::vector<std::jthread> reading;
+        reading.reserve(readers);
+        for (std::size_t reader = 0; reader < readers; ++reader) {
+            reading.emplace_back([&] {
+                while (!done) {
+                    const std::optional<std::string> read = fb::load_lockfile(path);
+                    if (!read) {
+                        report("a reader couldn't open it");
+                    } else if (!std::ranges::contains(whole, *read)) {
+                        report(std::format("a reader saw {} bytes", read->size()));
+                    }
+
+                    ++reads;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
+            });
+        }
+
+        std::vector<std::jthread> writing;
+        writing.reserve(writers);
+        for (std::size_t writer = 0; writer < writers; ++writer) {
+            writing.emplace_back([&, writer] {
+                for (int each = 0; each < writes; ++each) {
+                    if (const auto saved = fb::save_lockfile(path, whole[writer]); !saved) {
+                        report(saved.error());
+                    }
+                }
+            });
+        }
+
+        writing.clear();
+        done = true;
+    }
+
+    INFO((wrong.empty() ? std::string() : wrong.front()));
+    CHECK(wrong.empty());
+    CHECK(reads > 0);
+    // Nothing's left of any writer's temporary file.
+    CHECK(names_in(folder) == std::set<std::string>{ "fb.lock" });
+}
+
+TEST_CASE("fb.lock that can't be replaced says why, and leaves no temporary file", "[lockfile]") {
+    const std::filesystem::path folder = lock_folder("cant-replace");
+    // A folder in fb.lock's place, which no rename takes over.
+    std::filesystem::create_directories(folder / "fb.lock" / "inside");
+
+    const std::expected<void, std::string> saved = fb::save_lockfile(folder / "fb.lock", "text");
+    REQUIRE(!saved);
+    CHECK(saved.error().starts_with(std::format("couldn't write {}", fb::to_utf8(folder))));
+    CHECK(names_in(folder) == std::set<std::string>{ "fb.lock" });
+
+    // Nor is there anywhere to write its temporary file when its folder's gone.
+    const std::expected<void, std::string> nowhere =
+        fb::save_lockfile(folder / "gone" / "fb.lock", "text");
+    REQUIRE(!nowhere);
+    CHECK(nowhere.error().starts_with("couldn't write"));
+}
+
+TEST_CASE("fb.lock saved over another keeps its permissions", "[lockfile]") {
+    const std::filesystem::path folder = lock_folder("permissions");
+    const std::filesystem::path path = folder / "fb.lock";
+    REQUIRE(fb::save_lockfile(path, "one"));
+#ifndef _WIN32
+    // All Windows has is whether a file is read-only, and a read-only one can't be replaced.
+    std::filesystem::permissions(
+        path, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write |
+                  std::filesystem::perms::group_read | std::filesystem::perms::group_write);
+#endif
+    const std::filesystem::perms kept = std::filesystem::status(path).permissions();
+
+    REQUIRE(fb::save_lockfile(path, "two"));
+    CHECK(std::filesystem::status(path).permissions() == kept);
+    CHECK(fb::load_lockfile(path) == "two");
+}
+
+TEST_CASE("fb.lock that isn't there, or is a folder, loads as nothing at once", "[lockfile]") {
+    const std::filesystem::path folder = lock_folder("nothing");
+    CHECK(fb::load_lockfile(folder / "fb.lock") == std::nullopt);
+    std::filesystem::create_directories(folder / "fb.lock");
+    CHECK(fb::load_lockfile(folder / "fb.lock") == std::nullopt);
+}
 
 TEST_CASE("fb.lock writes each package, sorted, and reads back the same", "[lockfile]") {
     const std::filesystem::path root = somewhere("app");
