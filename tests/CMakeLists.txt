@@ -137,9 +137,23 @@ target_link_libraries(fb_lsp_tests PRIVATE fb_lsp_server Catch2::Catch2WithMain)
 if(WIN32)
   target_link_libraries(fb_lsp_tests PRIVATE ws2_32)
 endif()
+# What take_stdout() does to a process's stdout, in a process of its own.
+add_executable(fb_lsp_stdout_probe lsp_probe/stdout_probe.cpp)
+target_link_libraries(fb_lsp_stdout_probe PRIVATE fb_lsp_server)
+fb_set_warnings(fb_lsp_stdout_probe)
+fb_copy_llvm(fb_lsp_stdout_probe)
 target_compile_definitions(fb_lsp_tests PRIVATE FB_LSP="$<TARGET_FILE:fb_lsp>"
+  FB_LSP_STDOUT_PROBE="$<TARGET_FILE:fb_lsp_stdout_probe>"
   FB_TEST_PACKAGES="${CMAKE_CURRENT_SOURCE_DIR}/packages")
-add_dependencies(fb_lsp_tests fb_lsp)
+add_dependencies(fb_lsp_tests fb_lsp fb_lsp_stdout_probe)
+# fb-lsp as a process, over real pipes.
+if(Python3_FOUND)
+  add_test(NAME "fb-lsp ends when it's told to, or its client goes, whatever it's doing"
+    COMMAND Python3::Interpreter -m unittest -v process_tests
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/lsp_probe)
+  set_tests_properties("fb-lsp ends when it's told to, or its client goes, whatever it's doing"
+    PROPERTIES TIMEOUT 600 ENVIRONMENT "FB_LSP=$<TARGET_FILE:fb_lsp>;PYTHONDONTWRITEBYTECODE=1")
+endif()
 fb_set_warnings(fb_lsp_tests)
 fb_set_stack(fb_lsp_tests)
 fb_copy_llvm(fb_lsp_tests)

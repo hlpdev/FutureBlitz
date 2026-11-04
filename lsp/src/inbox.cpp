@@ -8,6 +8,25 @@
 
 namespace fb::lsp {
 
+void liveness_t::handling() {
+    m_since.store(std::chrono::steady_clock::now().time_since_epoch().count());
+}
+
+void liveness_t::handled() {
+    m_since.store(std::chrono::steady_clock::duration::max().count());
+}
+
+bool liveness_t::going() const {
+    return !held_for(m_limit);
+}
+
+bool liveness_t::held_for(const std::chrono::milliseconds time) const {
+    const auto since = m_since.load();
+    const auto now = std::chrono::steady_clock::now().time_since_epoch();
+    return since != std::chrono::steady_clock::duration::max().count() &&
+           now - std::chrono::steady_clock::duration(since) >= time;
+}
+
 namespace {
 
 /// An object's string at `key`, or "" when it has none, or something else there.

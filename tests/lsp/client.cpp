@@ -74,7 +74,8 @@ client_t::client_t(options_t options)
             .toml = { .delay = options.delay,
                       .offline = options.offline,
                       .http = options.http,
-                      .registry_life = options.registry_life, }, }) {
+                      .registry_life = options.registry_life, },
+            .request_deadline = options.request_deadline, }) {
     m_server.set_inbox(&m_inbox);
     json_t folders = json_t::array();
     for (const std::filesystem::path& folder : options.folders) {

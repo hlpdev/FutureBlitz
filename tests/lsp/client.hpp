@@ -76,6 +76,8 @@ public:
         bool tokens_refresh = false;
         /// Whether it asks for inlay hints and code lenses again when the server says to.
         bool hints_refresh = false;
+        /// How long a request a worker answers has.
+        std::chrono::milliseconds request_deadline{ 30'000 };
         /// What project.toml's registries are asked through, and how long what they say is kept.
         fb::http_client_t http = fb::send_http;
         std::chrono::seconds registry_life{ 60 };

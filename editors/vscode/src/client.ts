@@ -1,11 +1,13 @@
 // The language server's client. The server may be missing, or stop: then the client says so, once,
 // and the rest of the extension, the grammar, tasks, and debugging, goes on without it.
 
+import * as path from "node:path";
 import * as vscode from "vscode";
 import type { CloseAction, LanguageClient, LanguageClientOptions, ServerOptions } from "vscode-languageclient/node";
 
 import { MANIFEST_SERVER, isManifest, serverAtLeast } from "./fb";
 import { Found } from "./paths";
+import { Watchdog, isSourceAction, withinTime } from "./watchdog";
 
 export type ServerState = "disabled" | "missing" | "starting" | "running" | "failed";
 
@@ -47,6 +49,9 @@ export class ServerClient implements vscode.Disposable {
     private m_restarts: number[] = [];
     // Each start and stop takes the next one, so one that's superseded can tell.
     private m_generation = 0;
+    // The server start was given, which one that's stuck is started as again.
+    private m_given: { command: string; args: string[] } | undefined;
+    private m_watchdog: Watchdog | undefined;
     private readonly m_status: vscode.LanguageStatusItem;
     private readonly m_made = new vscode.EventEmitter<LanguageClient>();
 
@@ -56,6 +61,16 @@ export class ServerClient implements vscode.Disposable {
     // How long a server has to answer initialize before it's taken to have failed; the tests
     // shorten it.
     startTimeout = 20 * 1000;
+
+    // How often a running server is asked if it's answering, how long it has before it's taken to
+    // be stuck, and how long a save waits for its formatting, which takes milliseconds, before it
+    // goes on without it. The tests shorten them.
+    pingEvery = 10 * 1000;
+    pingPatience = 15 * 1000;
+    formatPatience = 2 * 1000;
+
+    // What it last told the user of a request that took too long, for the tests.
+    lastNotice = "";
 
     constructor(
         private readonly m_context: vscode.ExtensionContext,
@@ -85,14 +100,18 @@ export class ServerClient implements vscode.Disposable {
     // Starts the server the settings find, or, for the tests, `server` with its arguments. A start
     // or stop that comes while one is under way supersedes it: the earlier one's client is
     // disposed of, and it changes nothing once it goes on.
-    async start(server?: { command: string; args: string[] }): Promise<void> {
+    async start(server?: { command: string; args: string[] }, again = false): Promise<void> {
         const generation = ++this.m_generation;
         await this.disposeClient();
         if (generation !== this.m_generation) {
             return;
         }
 
-        this.m_restarts = [];
+        if (!again) {
+            this.m_restarts = [];
+        }
+
+        this.m_given = server;
         if (server === undefined) {
             const settings = vscode.workspace.getConfiguration("futureblitz");
             if (!settings.get<boolean>("lsp.enabled", true)) {
@@ -145,8 +164,22 @@ export class ServerClient implements vscode.Disposable {
                     this.serves(document.uri) ? next(document, position, context, token) : undefined,
                 provideHover: (document, position, token, next) =>
                     this.serves(document.uri) ? next(document, position, token) : undefined,
-                provideCodeActions: (document, range, context, token, next) =>
-                    this.serves(document.uri) ? next(document, range, context, token) : undefined,
+                // A save waits for these, so it goes on without a server that isn't answering. A
+                // request can't say whether a save asked: Format Document has the limit too.
+                provideCodeActions: (document, range, context, token, next) => {
+                    if (!this.serves(document.uri)) {
+                        return undefined;
+                    }
+
+                    const actions = next(document, range, context, token);
+                    return isSourceAction(context.only?.value)
+                        ? withinTime(actions, this.formatPatience, () => this.tookTooLong("source actions", document))
+                        : actions;
+                },
+                provideDocumentFormattingEdits: (document, options, token, next) =>
+                    withinTime(next(document, options, token), this.formatPatience, () =>
+                        this.tookTooLong("formatting", document),
+                    ),
             },
             outputChannel: this.m_output,
             revealOutputChannelOn: node.RevealOutputChannelOn.Never,
@@ -155,7 +188,15 @@ export class ServerClient implements vscode.Disposable {
                 return false;
             },
             errorHandler: {
-                error: () => ({ action: node.ErrorAction.Continue, handled: true }),
+                // A reader that's lost its place in the stream never finds it again, so every
+                // answer after it would be lost, in silence, a save's formatting among them.
+                error: () => {
+                    if (this.m_state === "running") {
+                        void this.stuck(client, command, "its connection broke");
+                    }
+
+                    return { action: node.ErrorAction.Continue, handled: true };
+                },
                 closed: () => this.closed(command),
             },
         };
@@ -180,6 +221,13 @@ export class ServerClient implements vscode.Disposable {
             if (generation === this.m_generation && client.state === clientModule().State.Running) {
                 this.setState("running", command);
                 this.warnIfOld(client);
+                // An older fb-lsp says it doesn't know fb/ping, which is an answer.
+                this.m_watchdog = new Watchdog({
+                    ping: () => client.sendRequest("fb/ping"),
+                    every: this.pingEvery,
+                    patience: this.pingPatience,
+                    stuck: () => void this.stuck(client, command, "it stopped answering"),
+                });
             }
         } catch (error) {
             if (generation === this.m_generation) {
@@ -228,6 +276,8 @@ export class ServerClient implements vscode.Disposable {
     // So a client that's still starting gets to finish first, for a while, and one that finishes
     // later than that, a slow server's, is stopped then, as it would otherwise stay.
     private async disposeClient(): Promise<void> {
+        this.m_watchdog?.stop();
+        this.m_watchdog = undefined;
         const client = this.m_client;
         const started = this.m_started;
         this.m_client = undefined;
@@ -285,8 +335,47 @@ export class ServerClient implements vscode.Disposable {
         }
 
         // The client stays, stopped, for the next start or stop to dispose of.
+        this.m_watchdog?.stop();
+        this.m_watchdog = undefined;
         this.reportFailed(server, `it stopped ${MAX_RESTARTS + 1} times in 3 minutes`);
         return { action: clientModule().CloseAction.DoNotRestart, handled: true };
+    }
+
+    // A request a save waits for took too long, so it goes on without it: says so, and asks now
+    // whether the server's answering.
+    private tookTooLong(what: string, document: vscode.TextDocument): void {
+        const seconds = this.formatPatience / 1000;
+        this.lastNotice = `FutureBlitz: fb-lsp's ${what} for ${path.basename(document.uri.fsPath)} took over ${seconds} s, so it went on without them.`;
+        this.m_output.appendLine(this.lastNotice);
+        void vscode.window.showWarningMessage(this.lastNotice);
+        this.m_watchdog?.ask();
+    }
+
+    // The server's running, and doesn't answer, or its messages can't be read: start it again and
+    // say so, unless that's happened too often, as the client does for one that stops.
+    private async stuck(client: LanguageClient, server: string, reason: string): Promise<void> {
+        if (client !== this.m_client) {
+            return;
+        }
+
+        const now = Date.now();
+        this.m_restarts = this.m_restarts.filter((at) => now - at < RESTART_WINDOW);
+        if (this.m_restarts.length >= MAX_RESTARTS) {
+            ++this.m_generation;
+            await this.disposeClient();
+            this.reportFailed(server, `${reason}, ${MAX_RESTARTS + 1} times in 3 minutes`);
+            return;
+        }
+
+        this.m_restarts.push(now);
+        const message = `FutureBlitz: the language server was restarted, as ${reason}.`;
+        this.m_output.appendLine(message);
+        void vscode.window.showWarningMessage(message, "Show Output").then((choice) => {
+            if (choice === "Show Output") {
+                this.m_output.show(true);
+            }
+        });
+        await this.start(this.m_given, true);
     }
 
     private reportMissing(found: Found): void {

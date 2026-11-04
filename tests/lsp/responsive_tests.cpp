@@ -1,5 +1,6 @@
 #include "client.hpp"
 #include "fb/lsp/protocol.hpp"
+#include "fb/process.hpp"
 
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
@@ -7,8 +8,13 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <format>
 #include <functional>
+#include <map>
+#include <optional>
+#include <set>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -430,4 +436,239 @@ TEST_CASE("each change's check brings the refreshes it asks for, though checks a
     const json_t checked =
         client.request("textDocument/semanticTokens/full", { { "textDocument", document } });
     CHECK((told || received[answered]["result"] == checked));
+}
+
+namespace {
+
+/// `twice`, and a Const that computes a lot, so the check of it takes seconds, as a stuck one
+/// would.
+std::string spinning(const std::string_view after = {}) {
+    return std::format("{}Const Function Spin(n: Int): Int\n"
+                       "    Local t = 0\n"
+                       "    For i = 1 To n\n"
+                       "        t = t + 1\n"
+                       "    End For\n"
+                       "    Return t\n"
+                       "End Function\n"
+                       "Const Slow = Spin(3000000)\n"
+                       "Local more = Twice(total)\n{}",
+                       twice, after);
+}
+
+/// Where the response to request `id` is among what the client received, or its size.
+std::size_t answered_at(const client_t& client, const std::int64_t id) {
+    const std::vector<json_t> received = client.received();
+    return last_where(received, received.size(), [&](const json_t& message) {
+        return !message.contains("method") && message.value("id", json_t()) == id;
+    });
+}
+
+} // namespace
+
+TEST_CASE("a request whose check is stuck is answered by its deadline, and nothing else waits",
+          "[lsp]") {
+    const folder_t folder({});
+    const std::string uri = folder.uri("stuck.fb");
+    client_t client({ .request_deadline = std::chrono::milliseconds(500) });
+    client.open(uri, twice);
+    client.settle();
+
+    client.change(uri, spinning());
+    const json_t document{ { "uri", uri } };
+
+    // A hover on the changed line needs its check, and has until its deadline.
+    const std::int64_t waiting =
+        client.queue("textDocument/hover",
+                     { { "textDocument", document }, { "position", client_t::position(12, 15) } });
+    // A second, behind it, goes as soon as the first does.
+    const std::int64_t behind =
+        client.queue("textDocument/hover",
+                     { { "textDocument", document }, { "position", client_t::position(12, 15) } });
+    client.drain();
+
+    // A save's formatting is answered meanwhile, as is the extension's ping, whatever the machine's
+    // doing: that check isn't done when they are.
+    const json_t formatting =
+        client.send("textDocument/formatting",
+                    {
+                        { "textDocument", document },
+                        { "options", { { "tabSize", 4 }, { "insertSpaces", true } } },
+                    });
+    CHECK(formatting.contains("result"));
+    CHECK(client.send("fb/ping", json_t::object()).contains("result"));
+
+    // A hover on an unchanged line is the last check's.
+    json_t unchanged =
+        client.send("textDocument/hover",
+                    { { "textDocument", document }, { "position", client_t::position(1, 11) } });
+    INFO(unchanged.dump());
+    CHECK(unchanged["result"]["contents"]["value"].get<std::string>().contains("Twice"));
+    CHECK_FALSE(client.server().workspace().checked_now(folder.path("stuck.fb")));
+
+    CHECK(client.response(waiting)["error"]["code"] ==
+          static_cast<std::int32_t>(fb::lsp::error_code_t::REQUEST_FAILED));
+    CHECK(client.response(behind)["error"]["code"] ==
+          static_cast<std::int32_t>(fb::lsp::error_code_t::REQUEST_FAILED));
+    client.settle();
+}
+
+TEST_CASE("a request moved for its check doesn't wait behind a whole package's", "[lsp]") {
+    const folder_t folder({});
+    const std::string uri = folder.uri("moved.fb");
+    client_t client({});
+    client.open(uri, spinning());
+    client.settle();
+
+    // References compile the file again, for seconds, and then the text has no Const that does.
+    const json_t document{ { "uri", uri } };
+    const std::int64_t references = client.queue(
+        "textDocument/references", {
+                                       { "textDocument", document },
+                                       { "position", client_t::position(1, 11) },
+                                       { "context", { { "includeDeclaration", true } } },
+                                   });
+    client.drain();
+    // Once they've started: a version typed past before its turn compiles nothing.
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    client.queue_change(uri, std::string(twice) + "Local y = ");
+    const std::int64_t completion =
+        client.queue("textDocument/completion",
+                     { { "textDocument", document }, { "position", client_t::position(4, 10) } });
+    client.drain();
+    const json_t answered = client.response(completion);
+    INFO(answered.dump());
+    CHECK(answered.contains("result"));
+    CHECK(client.response(references).contains("error"));
+    CHECK(answered_at(client, completion) < answered_at(client, references));
+    client.settle();
+}
+
+TEST_CASE("references past their deadline are answered, though what they need goes on compiling",
+          "[lsp]") {
+    const folder_t folder({});
+    const std::string uri = folder.uri("referenced.fb");
+    client_t client({ .request_deadline = std::chrono::milliseconds(300) });
+    client.open(uri, spinning());
+    client.settle();
+
+    const json_t params{
+        { "textDocument", { { "uri", uri } } },
+        { "position", client_t::position(1, 11) },
+        { "context", { { "includeDeclaration", true } } },
+    };
+    const auto asked = std::chrono::steady_clock::now();
+    const json_t first = client.send("textDocument/references", params);
+    const json_t second = client.send("textDocument/references", params);
+    // Seconds less than the check takes.
+    CHECK(std::chrono::steady_clock::now() - asked < std::chrono::seconds(4));
+    CHECK(first["error"]["code"] ==
+          static_cast<std::int32_t>(fb::lsp::error_code_t::REQUEST_FAILED));
+    CHECK(second["error"]["code"] ==
+          static_cast<std::int32_t>(fb::lsp::error_code_t::REQUEST_FAILED));
+    client.settle();
+}
+
+TEST_CASE("fb-lsp's messages stay whole while it reads more, each request answered once", "[lsp]") {
+    // The user's program, typed into with VS Code's requests after each keystroke and a save's
+    // formatting. Reading std::cin flushed std::cout, tied to it, on the reader's thread: with
+    // another thread writing, a message came out twice or in pieces, and the client's reader never
+    // found its place again.
+    const std::string program = "Import std.core\n"
+                                "Import std.concurrent\n\n"
+                                "Global total = 0\n\n"
+                                "Function AddUp(n: Int)\n"
+                                "    total.Add(n)\n"
+                                "End Function\n\n"
+                                "ParallelForEach([1, 2, 3, 4], AddUp)\n"
+                                "Expect(total == 10)\n";
+    const folder_t folder({ { "main.fb", program } });
+    const std::string uri = folder.uri("main.fb");
+    const json_t document{ { "uri", uri } };
+    std::string input;
+    const auto message = [&](const json_t& body) {
+        const std::string text = body.dump();
+        input += std::format("Content-Length: {}\r\n\r\n{}", text.size(), text);
+    };
+    std::set<std::int64_t> asked;
+    std::int64_t next = 1;
+    const auto request = [&](const std::string& method, const json_t& params) {
+        asked.insert(next);
+        message(
+            { { "jsonrpc", "2.0" }, { "id", next++ }, { "method", method }, { "params", params } });
+    };
+    request("initialize", { { "capabilities", json_t::object() } });
+    message({
+        { "jsonrpc", "2.0" },
+        { "method", "textDocument/didOpen" },
+        {
+            "params",
+            {
+                {
+                    "textDocument",
+                    {
+                        { "uri", uri },
+                        { "languageId", "futureblitz" },
+                        { "version", 1 },
+                        { "text", program },
+                    },
+                },
+            },
+        },
+    });
+    for (int round = 2; round < 400; ++round) {
+        const auto column = static_cast<std::uint32_t>(round % 20);
+        message({
+            { "jsonrpc", "2.0" },
+            { "method", "textDocument/didChange" },
+            {
+                "params",
+                {
+                    { "textDocument", { { "uri", uri }, { "version", round } } },
+                    {
+                        "contentChanges",
+                        json_t::array({ { { "text", program + std::string(column, 'x') } } }),
+                    },
+                },
+            },
+        });
+        const json_t at{
+            { "textDocument", document },
+            { "position", client_t::position(11, column) },
+        };
+        request("textDocument/semanticTokens/full", { { "textDocument", document } });
+        request("textDocument/codeLens", { { "textDocument", document } });
+        request("textDocument/documentSymbol", { { "textDocument", document } });
+        request("textDocument/foldingRange", { { "textDocument", document } });
+        request("textDocument/hover", at);
+        request("textDocument/completion", at);
+        request("textDocument/formatting",
+                {
+                    { "textDocument", document },
+                    { "options", { { "tabSize", 4 }, { "insertSpaces", true } } },
+                });
+    }
+
+    request("shutdown", nullptr);
+    message({ { "jsonrpc", "2.0" }, { "method", "exit" } });
+
+    const std::expected<fb::process_result_t, std::string> run = fb::run_process(FB_LSP, {}, input);
+    REQUIRE(run);
+    CHECK(run->exit_code == 0);
+    std::istringstream output(run->output);
+    std::map<std::int64_t, int> answers;
+    while (const std::optional<std::string> body = fb::lsp::read_message(output)) {
+        const json_t received = json_t::parse(*body, nullptr, false);
+        INFO(body->substr(0, 200));
+        REQUIRE(!received.is_discarded());
+        if (!received.contains("method") && received.contains("id")) {
+            ++answers[received["id"].get<std::int64_t>()];
+        }
+    }
+
+    CHECK(output.eof());
+    // But those on a worker as shutdown's wait ran out, on a machine that's busy: one for each, and
+    // never shutdown's own, whatever comes behind it.
+    CHECK(answers.size() + 3 >= asked.size());
+    CHECK(answers.contains(next - 1));
+    CHECK(std::ranges::all_of(answers, [](const auto& each) { return each.second == 1; }));
 }

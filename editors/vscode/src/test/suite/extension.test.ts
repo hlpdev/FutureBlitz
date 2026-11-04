@@ -78,7 +78,6 @@ suite("the language", () => {
         assert.equal(editor.document.lineAt(2).text, '// Print("format me")');
         await vscode.commands.executeCommand("undo");
         assert.equal(editor.document.lineAt(2).text, 'Print("format me")');
-        await vscode.commands.executeCommand("workbench.action.files.revert");
     });
 });
 
@@ -159,6 +158,86 @@ suite("the language server", () => {
         assert.equal(api.server.state, "failed");
         assert.match(api.server.detail, /didn't answer in 1 seconds/);
         await waitFor("the hung server to go", () => running(log).length === 0, 10000);
+    });
+
+    test("a save doesn't wait for one that stops answering, and it's restarted, then given up on", async () => {
+        const log = path.join(folder("files").uri.fsPath, "stalled.log");
+        const before = [api.server.pingEvery, api.server.pingPatience, api.server.formatPatience];
+        api.server.pingEvery = 300;
+        api.server.pingPatience = 500;
+        api.server.formatPatience = 200;
+        try {
+            await api.server.start({ command: node, args: [fakeServer, "stall", log] });
+            assert.equal(api.server.state, "running");
+            const editor = await open(file("files", "format.fb"));
+            await editor.edit((edit) => edit.insert(new vscode.Position(3, 0), "\n"));
+            const saving = Date.now();
+            await editor.document.save();
+            assert.ok(Date.now() - saving < 5000);
+            assert.notEqual(editor.document.lineAt(0).text, "// formatted");
+
+            await waitFor("it to be given up on", () => api.server.state === "failed", 30000);
+            assert.match(api.server.detail, /stopped answering, 4 times/);
+            await waitFor("the stalled servers to go", () => running(log).length === 0, 10000);
+        } finally {
+            [api.server.pingEvery, api.server.pingPatience, api.server.formatPatience] = before;
+        }
+    });
+
+    test("a save doesn't wait for its source actions from one that stops answering", async () => {
+        const settings = vscode.workspace.getConfiguration("editor");
+        const log = path.join(folder("files").uri.fsPath, "stalled-actions.log");
+        const before = [api.server.pingEvery, api.server.pingPatience, api.server.formatPatience];
+        api.server.pingEvery = 100000;
+        api.server.pingPatience = 100000;
+        api.server.formatPatience = 200;
+        await settings.update(
+            "codeActionsOnSave",
+            { "source.organizeImports": "explicit" },
+            vscode.ConfigurationTarget.Global,
+        );
+        try {
+            await api.server.start({ command: node, args: [fakeServer, "stall", log] });
+            const editor = await open(file("files", "format.fb"));
+            await editor.edit((edit) => edit.insert(new vscode.Position(3, 0), "\n"));
+            const saving = Date.now();
+            await editor.document.save();
+            assert.ok(Date.now() - saving < 5000);
+        } finally {
+            await settings.update("codeActionsOnSave", undefined, vscode.ConfigurationTarget.Global);
+            [api.server.pingEvery, api.server.pingPatience, api.server.formatPatience] = before;
+            await api.server.stop();
+        }
+    });
+
+    test("formatting that comes late says so, and a server that's busy isn't restarted", async () => {
+        const log = path.join(folder("files").uri.fsPath, "late.log");
+        const before = [api.server.pingEvery, api.server.pingPatience, api.server.formatPatience];
+        api.server.pingEvery = 100;
+        api.server.pingPatience = 500;
+        api.server.formatPatience = 200;
+        api.server.lastNotice = "";
+        try {
+            await api.server.start({ command: node, args: [fakeServer, "late", log] });
+            const editor = await open(file("files", "format.fb"));
+            await editor.edit((edit) => edit.insert(new vscode.Position(3, 0), "\n"));
+            await editor.document.save();
+            assert.match(api.server.lastNotice, /took over 0.2 s/);
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+            assert.equal(api.server.state, "running");
+            assert.equal(running(log).length, 1);
+        } finally {
+            [api.server.pingEvery, api.server.pingPatience, api.server.formatPatience] = before;
+            await api.server.stop();
+        }
+    });
+
+    test("one whose stream breaks is restarted, then given up on", async () => {
+        const log = path.join(folder("files").uri.fsPath, "garbled.log");
+        await api.server.start({ command: node, args: [fakeServer, "garble", log] });
+        await waitFor("it to be given up on", () => api.server.state === "failed", 30000);
+        assert.match(api.server.detail, /connection broke, 4 times/);
+        await waitFor("the garbled servers to go", () => running(log).length === 0, 10000);
     });
 
     test("format on save goes through it, once", async () => {

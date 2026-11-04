@@ -8,6 +8,7 @@
 #include "fb/lsp/workspace.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
@@ -25,6 +26,15 @@
 
 namespace fb::lsp {
 
+/// How server_t works.
+struct server_options_t {
+    workspace_t::options_t workspace;
+    toml_features_t::options_t toml;
+    /// How long a request a worker answers has, from when it came, to get the check it waits for:
+    /// past it it's answered RequestFailed, so a check that's stuck keeps no one waiting.
+    std::chrono::milliseconds request_deadline{ 30'000 };
+};
+
 /// The language server: it takes the client's JSON-RPC messages, answers its requests, and
 /// sends its diagnostics, through `send`, which its workspace's threads call too. docs/tooling.md
 /// lists what it does.
@@ -32,12 +42,9 @@ class server_t {
 public:
     using send_t = std::function<void(const json_t& message)>;
 
-    struct options_t {
-        workspace_t::options_t workspace;
-        toml_features_t::options_t toml;
-    };
+    using options_t = server_options_t;
 
-    explicit server_t(send_t send, options_t options = {});
+    explicit server_t(send_t send, const options_t& options = {});
     server_t(const server_t&) = delete;
     server_t& operator=(const server_t&) = delete;
     /// Stops the lens thread first, as it reads the workspace.
@@ -71,6 +78,7 @@ public:
 private:
     send_t m_send;
     std::mutex m_send_mutex;
+    std::chrono::milliseconds m_request_deadline;
     positions_t m_positions;
     bool m_initialized = false;
     bool m_shut_down = false;
@@ -125,6 +133,10 @@ private:
         std::string text;
         /// Set when the client cancels it as it's answered, which it's answered as instead.
         std::shared_ptr<std::atomic<bool>> cancelled = std::make_shared<std::atomic<bool>>(false);
+        /// When it's answered RequestFailed, if the check it waits for isn't done.
+        std::chrono::steady_clock::time_point deadline;
+        /// Whether the quick worker has it, which doesn't wait for a check: the slow one does.
+        bool quick = false;
     };
     /// A thread that answers requests that need a check, in the order they came, so none of them
     /// keeps the message thread, and what's behind it, waiting. Its thread starts with its first
@@ -143,8 +155,10 @@ private:
         /// Takes a request it hasn't started on out of those waiting, and whether it was there;
         /// the one it's answering is answered as cancelled instead.
         bool cancel(const json_t& id);
-        /// Waits until it has answered every request it was given.
-        void wait_idle();
+        /// Waits until it has answered every request it was given, or `until`.
+        void wait_idle(std::chrono::steady_clock::time_point until);
+        /// Takes out those waiting, which it won't get to.
+        [[nodiscard]] std::vector<request_job_t> take_waiting();
         /// Ends its thread once the request it's answering is answered, leaving those waiting.
         void stop();
 
@@ -181,10 +195,38 @@ private:
     std::unique_ptr<workspace_t> m_workspace;
     /// The workers, which answer the requests that need a check: a quick one for what the last
     /// check answers as code is typed, and a slow one for what waits for the check of the text, so
-    /// a hover never waits behind a code action. After the workspace, so they stop before it goes,
-    /// as they read its checks.
+    /// a hover never waits behind a code action. One the quick one has that needs a check that
+    /// isn't done goes on to `m_moved`, which waits for it, and never behind a whole package's
+    /// checks, as the slow one's are. After the workspace, so they stop before it goes, as they
+    /// read its checks.
     worker_t m_quick{ [this](const request_job_t& job) { answer_job(job); } };
+    worker_t m_moved{ [this](const request_job_t& job) { answer_job(job); } };
     worker_t m_slow{ [this](const request_job_t& job) { answer_job(job); } };
+    /// A thread that runs what a request needs compiled, which has no limit, while the worker that
+    /// has the request waits for it only until the request's deadline. Stops after the workers.
+    class background_t {
+    public:
+        background_t() = default;
+        background_t(const background_t&) = delete;
+        background_t& operator=(const background_t&) = delete;
+        ~background_t() {
+            stop();
+        }
+
+        void push(std::function<void()> task);
+        /// Ends its thread once the task it's running is done, leaving those waiting.
+        void stop();
+
+    private:
+        std::deque<std::function<void()>> m_tasks;
+        std::mutex m_mutex;
+        std::condition_variable m_ready;
+        bool m_stop = false;
+        std::thread m_thread;
+
+        void run();
+    };
+    background_t m_background;
     /// The request a worker's thread is answering, which asked_text() and asked_check() read,
     /// or nullptr on another thread.
     static thread_local const request_job_t* m_answering;
@@ -200,6 +242,10 @@ private:
     void answer_request(const json_t& id, const std::string& method, const json_t& params);
     /// Answers a worker's request, about the text it was asked about.
     void answer_job(const request_job_t& job);
+    /// The deadline of the worker's request being answered, or none on another thread.
+    [[nodiscard]] static std::chrono::steady_clock::time_point answering_until();
+    /// Throws past_deadline_t when the worker's request being answered is past its deadline.
+    static void check_deadline();
     /// The text of a file, as the request being answered sees it: an open document's as it was
     /// when a worker's request about it came, or else as it is.
     [[nodiscard]] std::optional<std::string> asked_text(const std::filesystem::path& path) const;
