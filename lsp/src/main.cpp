@@ -27,16 +27,17 @@ namespace {
 
 /// How many bytes wait for a client that isn't reading before it's taken to be gone.
 constexpr std::size_t most_waiting = std::size_t{ 256 } * 1024 * 1024;
-/// How long the message thread has to end the process, once the client's said exit or gone, before
-/// the reader does, and how long one message can hold it before fb/ping goes unanswered.
-constexpr std::chrono::seconds exit_wait(3);
+/// How long one message can hold the message thread, once the client's said exit or gone, before
+/// the reader ends the process for it: longer than shutdown waits, or its answer would be lost. And
+/// how long one can hold it before fb/ping goes unanswered.
+constexpr std::chrono::seconds exit_wait(6);
 constexpr std::chrono::seconds busy_limit(60);
 
 /// Writes the messages sent so far, for a moment, as a client that's gone reads none of them, and
 /// ends the process with `code`, without waiting for a check that's running, which can take
 /// seconds, as a whole package's does.
 [[noreturn]] void finish(fb::lsp::outbox_t& outbox, const int code) {
-    static_cast<void>(outbox.flush(std::chrono::seconds(2)));
+    static_cast<void>(outbox.flush(std::chrono::seconds(5)));
     std::_Exit(code);
 }
 
@@ -70,6 +71,13 @@ void serve() {
     server.set_inbox(&inbox);
     fb::lsp::liveness_t liveness(busy_limit);
     std::thread reader([&] {
+        // The message thread ends the process once it gets to the end of what's waiting, unless
+        // one message is holding it there.
+        const auto wait_for_it = [&] {
+            while (!liveness.held_for(exit_wait)) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+        };
         bool shutdown = false;
         while (const std::optional<std::string> body = fb::lsp::read_message(std::cin)) {
             fb::lsp::json_t message = fb::lsp::json_t::parse(*body, nullptr, false);
@@ -97,13 +105,13 @@ void serve() {
             const bool exiting = method == "exit";
             inbox.push(std::move(message));
             if (exiting) {
-                std::this_thread::sleep_for(exit_wait);
+                wait_for_it();
                 finish(outbox, shutdown ? 0 : 1);
             }
         }
 
         inbox.close();
-        std::this_thread::sleep_for(exit_wait);
+        wait_for_it();
         finish(outbox, 1);
     });
     reader.detach();

@@ -58,7 +58,9 @@ lsp_probe/process_tests.py and stdout_probe, and watchdog.test and the suite's "
 process_tests checks of lsp/src. client.test drives `ServerClient` with a stand-in for the vscode module, for the
 watchdog stopping as `closed` gives up. process_tests' slow check is 300 Consts that differ, each
 to compile-time code's limit of steps, as a call with the same arguments isn't run again, and it fails
-on the code before these fixes.
+on the code before these fixes. The reader's end of the process waits for one message to hold the
+message thread for 6 seconds (`liveness_t::held_for`), not 3 from reading exit, which lost
+shutdown's answer when exit came right behind it, as process_tests has it.
 
 ## 1.2.2
 

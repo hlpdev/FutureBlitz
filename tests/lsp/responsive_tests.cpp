@@ -666,7 +666,8 @@ TEST_CASE("fb-lsp's messages stay whole while it reads more, each request answer
     }
 
     CHECK(output.eof());
-    // But those on a worker as shutdown's wait ran out, on a machine that's busy: one for each.
+    // But those on a worker as shutdown's wait ran out, on a machine that's busy: one for each, and
+    // never shutdown's own, whatever comes behind it.
     CHECK(answers.size() + 3 >= asked.size());
     CHECK(answers.contains(next - 1));
     CHECK(std::ranges::all_of(answers, [](const auto& each) { return each.second == 1; }));

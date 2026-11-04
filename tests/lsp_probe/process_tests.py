@@ -109,6 +109,18 @@ class ProcessTests(unittest.TestCase):
         self.client.process.stdin.close()
         self._ends_within(15)
 
+    def test_shutdown_is_answered_though_exit_came_right_behind_it(self):
+        # The reader sees exit first, and what ends the process for a message thread that's stuck
+        # mustn't end it while shutdown's waiting its time, or its answer's lost.
+        self.client = Client(self.folder.name, SLOW)
+        self.client.references(2)
+        self.client.send({"id": 3, "method": "shutdown"})
+        self.client.send({"method": "exit"})
+        self.client.process.stdin.close()
+        code, _ = self._ends_within(15)
+        self.assertEqual(code, 0)
+        self.assertIsNotNone(self.client.answer(3, 5), "shutdown wasn't answered")
+
     def test_its_client_going_ends_it_with_shutdown_waiting_on_a_check(self):
         self.client = Client(self.folder.name, SLOW)
         self.client.references(2)

@@ -24,6 +24,8 @@ public:
     void handling();
     void handled();
     [[nodiscard]] bool going() const;
+    /// Whether the message being handled has held it for `time`. Not while it's between messages.
+    [[nodiscard]] bool held_for(std::chrono::milliseconds time) const;
 
 private:
     std::chrono::milliseconds m_limit;

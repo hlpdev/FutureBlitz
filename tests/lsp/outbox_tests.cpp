@@ -341,6 +341,8 @@ TEST_CASE("the message thread is going on until one message holds it for too lon
     liveness.handling();
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     CHECK_FALSE(liveness.going());
+    CHECK(liveness.held_for(std::chrono::milliseconds(50)));
     liveness.handled();
     CHECK(liveness.going());
+    CHECK_FALSE(liveness.held_for(std::chrono::milliseconds(0)));
 }
