@@ -47,7 +47,7 @@ SYNTAX 1 16 a is defined already at line 1, column 16
 SYNTAX 1 22 a is defined already at line 1, column 22
 SYNTAX 1 18 a.b is defined already at line 1, column 18
 SYNTAX 1 16 a is an inline table or an array, which can't be added to at line 1, column 16
-517 True
+261382 True
 SYNTAX 1 261 arrays and inline tables nest 256 deep at most at line 1, column 261
 SYNTAX 1 1541 arrays and inline tables nest 256 deep at most at line 1, column 1541
 SYNTAX 1 261 arrays and inline tables nest 256 deep at most at line 1, column 261

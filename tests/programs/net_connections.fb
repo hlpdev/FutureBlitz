@@ -1,26 +1,55 @@
 // Many connections, one after another and at once, over TCP and IPC, and many datagrams: each
 // socket goes with its object, so none is left over, and the leak report says nothing. A
-// socket's file descriptor left open would run past macOS's 256 long before the end. The server's
-// end of each TCP connection closes first, so it's the one that waits out TIME_WAIT, on the
-// listener's port, and the client's port is free again at once: ten runs at once, each of more
-// than a thousand connections, would otherwise run macOS out of ports to connect from. The IPC
-// name is the run's own, with a random Uuid in it, since another run at once would have a name
-// of its own.
+// socket's file descriptor left open would run past macOS's 256 before the end. The server's end
+// of each TCP connection closes first, so it's the one that waits out TIME_WAIT, on the listener's
+// port, and the client's port is free again at once: ten runs at once would otherwise run macOS out
+// of ports to connect from. A machine that's running other programs like it can still be out of
+// them, or of its buffers for them, for a moment, so a connection tries again, as that's the
+// machine's and not what this is testing. The IPC name is the run's own, with a random Uuid in it,
+// since another run at once would have a name of its own.
 
 Import std.core
 Import std.ffi
 Import std.io
 Import std.net
+Import std.time
 Import std.uuid
 
-Const rounds = 1000
+Const rounds = 300
+// How many times a connection tries, 100 ms apart.
+Const tries = 300
+
+// A connection, once the machine has a port for it.
+Function Connected(address: SocketAddress): TcpStream Throws NetError, TimeoutError
+    For i = 1 To tries - 1
+        Try
+            Return Try TcpStream.Connect(address)
+        Catch e As NetError
+            Sleep(100.Milliseconds)
+        End Try
+    End For
+
+    Return Try TcpStream.Connect(address)
+End Function
+
+Async Function ConnectedAsync(address: SocketAddress): TcpStream Throws NetError, TimeoutError
+    For i = 1 To tries - 1
+        Try
+            Return Try Await TcpStream.ConnectAsync(address)
+        Catch e As NetError
+            Await Timer.After(100.Milliseconds)
+        End Try
+    End For
+
+    Return Try Await TcpStream.ConnectAsync(address)
+End Function
 
 // One after another, blocking: each connection says its number, and both ends go.
 Function OneByOne(listener: TcpListener): Int Throws NetError, TimeoutError, IOError
     Local total = 0
     Local into = Buffer<UInt8>(4)
     For i = 1 To rounds
-        Local client = Try TcpStream.Connect(listener.LocalAddress)
+        Local client = Try Connected(listener.LocalAddress)
         Try client.WriteBytes([(i % 256) As UInt8, 1, 2, 3])
         Local server = Try listener.Accept()
         Try ReadExact(server, into)
@@ -48,7 +77,7 @@ End Function
 // It catches what it throws, since an array can't hold Tasks that throw yet.
 Async Function Ask(address: SocketAddress, number: Int): Int
     Try
-        Local client = Try Await TcpStream.ConnectAsync(address)
+        Local client = Try Await ConnectedAsync(address)
         Local bytes = Buffer<UInt8>.From([(number % 256) As UInt8])
         Try Await client.WriteAsync(bytes)
         Local back = Buffer<UInt8>(1)

@@ -408,6 +408,9 @@ struct builtin_interfaces_t {
     /// without members that's only a constraint. Analysis makes it, so it's there without the
     /// standard library too.
     type_id_t any_class = type_id_t::INVALID;
+    /// The "Enum" of a constraint, like `Where E: Enum`, which the Enums meet, as any_class is for
+    /// Classes.
+    type_id_t any_enum = type_id_t::INVALID;
     /// The "Error" of a constraint, `Where E: Error`, which the Classes that extend std's Error
     /// meet, so a type parameter can be thrown, caught, and in a Throws. It extends any_class.
     type_id_t any_error = type_id_t::INVALID;

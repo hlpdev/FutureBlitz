@@ -1,0 +1,13 @@
+// An integer As a closed Enum has to be one of its values, as the number it is.
+Import std.core
+
+Enum Tier: UInt8
+    LOW = 0
+    HIGH = 10
+    TOP = 255
+End Enum
+
+Function Make<E: Enum>(number: Int): E => number As E
+
+Print(Make<Tier>(10))
+Print(Make<Tier>(256))

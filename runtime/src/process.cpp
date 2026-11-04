@@ -628,6 +628,8 @@ struct spawn_t {
     bool cleared = false;
     std::optional<std::string> folder;
     std::array<stdio_t, 3> stdio{};
+    /// In a session of its own, nothing to do with this program's.
+    bool detached = false;
 };
 
 #ifdef _WIN32
@@ -903,7 +905,7 @@ child_t* start_child(uv_loop_t* loop, const spawn_t& spawn, std::int64_t& failur
     options.exit_cb = on_exit;
     options.file = launch->file.c_str();
     options.args = arguments.data();
-    options.flags = launch->flags;
+    options.flags = launch->flags | (spawn.detached ? UV_PROCESS_DETACHED : 0U);
     options.cwd = spawn.folder ? spawn.folder->c_str() : nullptr;
     options.stdio_count = static_cast<int>(stdio.size());
     options.stdio = stdio.data();
@@ -947,6 +949,149 @@ child_t* start_child(uv_loop_t* loop, const spawn_t& spawn, std::int64_t& failur
     child->pid = child->process.pid;
     return child;
 }
+
+/// What a spawn's arguments say, or nullopt with what's wrong in `failure`, as
+/// fb_os_process_spawn() gives it.
+std::optional<spawn_t> spawn_of(const fb_string_t* program, const fb_array_t* arguments,
+                                const fb_array_t* names, const fb_array_t* values,
+                                const std::int32_t cleared, const fb_string_t* folder,
+                                const std::int32_t input, const std::int32_t output,
+                                const std::int32_t error, std::int64_t* failure) {
+    spawn_t spawn{
+        .program = std::string(text_of(program)),
+        .cleared = cleared != 0,
+        .stdio = { static_cast<stdio_t>(input), static_cast<stdio_t>(output),
+                   static_cast<stdio_t>(error), },
+    };
+    for (const fb_string_t* argument : strings_of(arguments)) {
+        spawn.arguments.emplace_back(text_of(argument));
+    }
+
+    const std::span<const fb_string_t* const> set = strings_of(values);
+    for (std::size_t i = 0; const fb_string_t* name : strings_of(names)) {
+        spawn.changes.emplace_back(std::string(text_of(name)),
+                                   set[i] != nullptr ? std::optional(std::string(text_of(set[i])))
+                                                     : std::nullopt);
+        ++i;
+    }
+
+    if (folder->length > 0) {
+        spawn.folder = std::string(text_of(folder));
+    }
+
+    *failure = 0;
+    const bool nul = has_nul(spawn.program) || std::ranges::any_of(spawn.arguments, has_nul) ||
+                     (spawn.folder && has_nul(*spawn.folder)) ||
+                     std::ranges::any_of(spawn.changes, [](const auto& change) {
+                         return change.second && has_nul(*change.second);
+                     });
+    if (std::ranges::any_of(spawn.changes, [](const auto& change) {
+            return change.first.empty() || change.first.contains('=') || has_nul(change.first);
+        })) {
+        *failure = 2;
+        return std::nullopt;
+    }
+
+    if (nul) {
+        *failure = 1;
+        return std::nullopt;
+    }
+
+    return spawn;
+}
+
+/// Starts `spawn` on the processes' thread, and gives its child's handle, or 0 with why in
+/// `failure`.
+std::uint64_t started_child(const spawn_t& spawn, std::int64_t* failure) {
+    child_t* child = nullptr;
+    const std::int64_t done = processes().run([&](uv_loop_t* loop, const waiter_t& waiter) {
+        child = start_child(loop, spawn, *failure);
+        answer(waiter, 0);
+    });
+    if (done != 0) {
+        *failure = done;
+    }
+
+    return child != nullptr ? std::bit_cast<std::uint64_t>(child) : 0;
+}
+
+#ifdef _WIN32
+/// An argument as a C program's command line has it, in quotes if it needs them.
+std::wstring quoted_argument(const std::wstring& argument) {
+    if (!argument.empty() && !argument.contains(L' ') && !argument.contains(L'\t') &&
+        !argument.contains(L'"')) {
+        return argument;
+    }
+
+    std::wstring quoted = L"\"";
+    std::size_t slashes = 0;
+    for (const wchar_t each : argument) {
+        if (each == L'\\') {
+            ++slashes;
+            continue;
+        }
+
+        quoted.append(each == L'"' ? (slashes * 2) + 1 : slashes, L'\\');
+        slashes = 0;
+        quoted += each;
+    }
+
+    quoted.append(slashes * 2, L'\\');
+    return quoted + L"\"";
+}
+
+/// Starts `spawn` on its own, with CreateProcess, as uv_spawn can't leave a job this program is in,
+/// as `fb run` has it in one that ends what's in it. In none, or one that doesn't let it leave, it
+/// starts as it can. Gives its process's number, or 0 with libuv's error in `failure`, or 3 for a
+/// batch file's argument that cmd.exe can't take.
+std::int64_t start_on_its_own(const spawn_t& spawn, std::int64_t& failure) {
+    const std::scoped_lock lock(fb::os::environment_lock());
+    std::optional<std::vector<std::string>> environment = environment_of(spawn);
+    const std::optional<launch_t> launch = launch_of(spawn, environment, failure);
+    if (!launch) {
+        return 0;
+    }
+
+    const bool verbatim =
+        (launch->flags & static_cast<unsigned>(UV_PROCESS_WINDOWS_VERBATIM_ARGUMENTS)) != 0;
+    std::wstring line;
+    for (const std::string& argument : launch->arguments) {
+        line += (line.empty() ? L"" : L" ") +
+                (verbatim ? wide_of(argument) : quoted_argument(wide_of(argument)));
+    }
+
+    std::wstring block;
+    if (environment) {
+        std::ranges::sort(*environment);
+        for (const std::string& variable : *environment) {
+            block += wide_of(variable);
+            block += L'\0';
+        }
+
+        block += L'\0';
+    }
+
+    const DWORD flags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_UNICODE_ENVIRONMENT;
+    const std::wstring file = wide_of(launch->file);
+    const std::wstring folder = spawn.folder ? wide_of(*spawn.folder) : std::wstring();
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    const auto start = [&](const DWORD also) {
+        return CreateProcessW(file.c_str(), line.data(), nullptr, nullptr, FALSE, flags | also,
+                              environment ? static_cast<void*>(block.data()) : nullptr,
+                              spawn.folder ? folder.c_str() : nullptr, &startup, &process) != 0;
+    };
+    if (!start(CREATE_BREAKAWAY_FROM_JOB) && !start(0)) {
+        failure = uv_translate_sys_error(static_cast<int>(GetLastError()));
+        return 0;
+    }
+
+    CloseHandle(process.hProcess);
+    CloseHandle(process.hThread);
+    return process.dwProcessId;
+}
+#endif
 
 /// Splits `count` bytes from `from` into buffers libuv takes.
 std::vector<uv_buf_t> buffers_of(std::string& bytes) {
@@ -1023,58 +1168,41 @@ std::uint64_t fb_os_process_spawn(const fb_string_t* program, const fb_array_t* 
                                   const std::int32_t cleared, const fb_string_t* folder,
                                   const std::int32_t input, const std::int32_t output,
                                   const std::int32_t error, std::int64_t* failure) {
-    spawn_t spawn{
-        .program = std::string(text_of(program)),
-        .cleared = cleared != 0,
-        .stdio = { static_cast<stdio_t>(input), static_cast<stdio_t>(output),
-                   static_cast<stdio_t>(error), },
-    };
-    for (const fb_string_t* argument : strings_of(arguments)) {
-        spawn.arguments.emplace_back(text_of(argument));
-    }
-
-    const std::span<const fb_string_t* const> set = strings_of(values);
-    for (std::size_t i = 0; const fb_string_t* name : strings_of(names)) {
-        spawn.changes.emplace_back(std::string(text_of(name)),
-                                   set[i] != nullptr ? std::optional(std::string(text_of(set[i])))
-                                                     : std::nullopt);
-        ++i;
-    }
-
-    if (folder->length > 0) {
-        spawn.folder = std::string(text_of(folder));
-    }
-
-    *failure = 0;
-    const bool nul = has_nul(spawn.program) || std::ranges::any_of(spawn.arguments, has_nul) ||
-                     (spawn.folder && has_nul(*spawn.folder)) ||
-                     std::ranges::any_of(spawn.changes, [](const auto& change) {
-                         return change.second && has_nul(*change.second);
-                     });
-    if (std::ranges::any_of(spawn.changes, [](const auto& change) {
-            return change.first.empty() || change.first.contains('=') || has_nul(change.first);
-        })) {
-        *failure = 2;
-        return 0;
-    }
-
-    if (nul) {
-        *failure = 1;
+    const std::optional<spawn_t> spawn =
+        spawn_of(program, arguments, names, values, cleared, folder, input, output, error, failure);
+    if (!spawn) {
         return 0;
     }
 
     // What this program printed comes out before what a child that shares its stdout prints.
     fb_flush();
-    child_t* child = nullptr;
-    const std::int64_t done = processes().run([&](uv_loop_t* loop, const waiter_t& waiter) {
-        child = start_child(loop, spawn, *failure);
-        answer(waiter, 0);
-    });
-    if (done != 0) {
-        *failure = done;
+    return started_child(*spawn, failure);
+}
+
+std::int64_t fb_os_process_spawn_detached(const fb_string_t* program, const fb_array_t* arguments,
+                                          const fb_array_t* names, const fb_array_t* values,
+                                          const std::int32_t cleared, const fb_string_t* folder,
+                                          std::int64_t* failure) {
+    const auto none = static_cast<std::int32_t>(stdio_t::NONE);
+    std::optional<spawn_t> spawn =
+        spawn_of(program, arguments, names, values, cleared, folder, none, none, none, failure);
+    if (!spawn) {
+        return 0;
     }
 
-    return child != nullptr ? std::bit_cast<std::uint64_t>(child) : 0;
+#ifdef _WIN32
+    return start_on_its_own(*spawn, *failure);
+#else
+    spawn->detached = true;
+    const std::uint64_t child = started_child(*spawn, failure);
+    if (child == 0) {
+        return 0;
+    }
+
+    const std::int64_t pid = fb_os_process_pid(child);
+    fb_os_process_release(child);
+    return pid;
+#endif
 }
 
 void fb_os_process_hold(const std::uint64_t child) {

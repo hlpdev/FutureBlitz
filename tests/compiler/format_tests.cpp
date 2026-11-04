@@ -69,6 +69,16 @@ std::string read_file(const std::filesystem::path& path) {
 
 } // namespace
 
+TEST_CASE("formatting leaves For Member and Where E: Enum as they're written", "[format]") {
+    const std::string written = "Function F<E: Enum>()\n"
+                                "    Where E: Enum\n"
+                                "    For Member m In E\n"
+                                "        Print(m.Name, m.Value)\n"
+                                "    End For\n"
+                                "End Function\n";
+    CHECK(formatted(written) == written);
+}
+
 TEST_CASE("formatting puts one space around binary operators and after commas", "[format]") {
     CHECK(formatted("x=a+b*c\n") == "x = a + b * c\n");
     CHECK(formatted("Print(a,b ,  c)\n") == "Print(a, b, c)\n");

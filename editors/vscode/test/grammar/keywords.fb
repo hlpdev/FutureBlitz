@@ -99,6 +99,17 @@ Super.New(name)
 //    ^^^ entity.name.function.member.futureblitz
 Set<Int>()
 // <--- entity.name.type.futureblitz - storage.type.function.accessor
+For Member m In T
+//  ^^^^^^ storage.type.futureblitz
+End For
+For Member In all
+//  ^^^^^^ - storage.type.futureblitz
+//         ^^ keyword.control.loop.futureblitz
+End For
+For Member  In all
+//  ^^^^^^ - storage.type.futureblitz
+//          ^^ keyword.control.loop.futureblitz
+End For
 For Method m In T
 //  ^^^^^^ storage.type.futureblitz
 //         ^ - entity.name.function

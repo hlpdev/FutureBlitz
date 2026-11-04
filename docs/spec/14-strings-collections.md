@@ -155,7 +155,10 @@ Print(Dump(order))   // the same, with each part on a line of its own
   only place it's shown. A value in std's box for a `values: Formattable...` parameter shows as
   itself.
 - An object that's already being shown, in a cycle, shows as `Node { … }`, and an array as
-  `[ … ]`, as a graph of Structs through their arrays can be.
+  `[ … ]`, as a graph of Structs through their arrays can be. So does one past 200 objects deep, or
+  past what a thread's stack can spare for objects with many Fields, or once the whole form has
+  about 4 MiB of objects' text, whatever holds them, as a graph with links across it would otherwise
+  show by every path through it. An object two others hold, not in a cycle, shows in each.
 - `"{x:#?}"` writes each part on a line of its own, indented four spaces, with a comma after it,
   and `Dump(x)` (std.core) gives that text. Both take a fill, an alignment, and a width.
 - std's collections show their elements, as `Stack<Int32> [1, 2]`, and a Map its entries, as

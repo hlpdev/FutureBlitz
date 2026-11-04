@@ -13,6 +13,7 @@ Import std.core.values
 Import std.collections.map
 
 Extern "runtime"
+    Function fb_value_float(value: Float32): Double
     Function fb_value_quoted(text: String): String
     Function fb_value_hex(bytes: UInt8[]): String
     Function fb_value_joined(parts: String[]): String
@@ -123,11 +124,16 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         End If
     End New
 
-    /// A Double's Value. A Float converts to one, and a decimal literal is read as one.
+    /// A Double's Value. A decimal literal is read as one. A Float converts to one, with the
+    /// digits that shows, as a Float's 0.1 is 0.10000000149011612; FromFloat32 has its shortest form.
     Public New(value: Double)
         Shape = ValueKind.DOUBLE
         Real = value
     End New
+
+    /// A Float32's Value: the Double its shortest text reads as, so a Float32's 0.1 is 0.1. It's
+    /// not a New of its own, since a decimal literal would take that, and lose a Double's digits.
+    Public Static Method FromFloat32(value: Float32): Value => Value(fb_value_float(value))
 
     /// A String's Value.
     Public New(value: String)

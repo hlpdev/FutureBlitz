@@ -59,6 +59,10 @@ public:
     [[nodiscard]] static std::expected<file_lock_t, std::string>
     take(const std::filesystem::path& path, const std::function<void()>& waiting);
 
+    /// Takes the lock if nothing holds it, without waiting. Nothing when another process holds
+    /// it, or the file can't be opened.
+    [[nodiscard]] static std::optional<file_lock_t> try_take(const std::filesystem::path& path);
+
     file_lock_t(const file_lock_t&) = delete;
     file_lock_t& operator=(const file_lock_t&) = delete;
     file_lock_t(file_lock_t&& other) noexcept;
@@ -80,9 +84,17 @@ private:
 [[nodiscard]] std::optional<std::filesystem::path> real_path(const std::filesystem::path& path);
 
 /// Runs a program in this terminal, with this process's stdin, stdout, and stderr, and returns
-/// its exit code.
+/// its exit code. It ends if this process ends first, however it ends: on Windows with what it
+/// started, from a job, and on POSIX by itself, from a process that watches for that. What it
+/// started and left running when it ended by itself stays, as does what it starts on its own,
+/// outside the job, as std's Command.SpawnDetached and OpenDefault do. SIGTERM and SIGHUP to this
+/// process go on to it, and this process returns when it ends.
 [[nodiscard]] std::expected<int, std::string> run_attached(const std::filesystem::path& program,
                                                            std::span<const std::string> arguments);
+
+/// Whether SIGTERM or SIGHUP came while the last run_attached() waited, so this process was asked
+/// to end too. Never on Windows.
+[[nodiscard]] bool attached_was_signalled();
 
 /// Starts a program and doesn't wait for it, with none of this process's stdin, stdout, or
 /// stderr, as a browser is opened. Fails only when it can't be started.

@@ -951,10 +951,10 @@ private:
     }
 
     /// "(for-field f: F T (where F: Printable) (block ...))", or "(for-method m T ...)",
-    /// "(for-property ...)", or "(for-static-field ...)".
+    /// "(for-property ...)", "(for-static-field ...)", or "(for-member ...)".
     [[nodiscard]] node_t build(const for_member_stmt_t& node) const {
         constexpr auto kinds = std::to_array<std::string_view>(
-            { "for-field", "for-method", "for-property", "for-static-field" });
+            { "for-field", "for-method", "for-property", "for-static-field", "for-member" });
         node_t out = list(std::string(kinds[std::to_underlying(node.kind)]));
         add_label(out, node.label);
         out.items.push_back(

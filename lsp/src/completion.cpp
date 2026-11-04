@@ -406,17 +406,58 @@ public:
         }
     }
 
+    /// What a loop over a type's members has on its variable.
+    void add_loop_members(const symbol_t& variable) {
+        const auto* loop =
+            variable.declaration
+                ? std::get_if<for_member_stmt_t>(&m_ast.get(*variable.declaration).node)
+                : nullptr;
+        if (loop == nullptr) {
+            return;
+        }
+
+        std::vector<std::string_view> values{ "Name" };
+        std::vector<std::string_view> methods;
+        switch (loop->kind) {
+        case member_kind_t::FIELD:
+            values.emplace_back("Index");
+            methods = { "Get", "Set", "Has", "Attribute" };
+            break;
+        case member_kind_t::METHOD:
+            methods = { "Call", "Has", "Attribute" };
+            break;
+        case member_kind_t::PROPERTY:
+        case member_kind_t::STATIC_FIELD:
+            methods = { "Get", "Set", "Has", "Attribute" };
+            break;
+        case member_kind_t::MEMBER:
+            values.emplace_back("Value");
+            break;
+        }
+
+        for (const std::string_view name : values) {
+            m_items.add(std::string(name), item_kind_t::PROPERTY, "For", rank_t::NEAR);
+        }
+
+        for (const std::string_view name : methods) {
+            m_items.add(std::string(name), item_kind_t::METHOD, "For", rank_t::NEAR);
+        }
+    }
+
     /// The members of the expression before the '.' that ends at `dot`, and for a value, the
     /// postfix completions of it. Before a check has the '.', as it's just been typed, the
     /// expression is receiver_before()'s.
     json_t members(const std::uint32_t dot, const positions_t& positions) {
         std::optional<expr_id_t> found;
+        std::optional<symbol_id_t> loop_variable;
         for (std::size_t i = 0; i < m_ast.expr_count() && !found; ++i) {
             const expr_t& expr = m_ast.get(static_cast<expr_id_t>(i));
             const auto* member = std::get_if<member_expr_t>(&expr.node);
             if (member != nullptr && expr.span.file == m_query.file() &&
                 m_ast.get(member->object).span.end == dot) {
                 found = member->object;
+                // "m.Name" on a loop's variable is the variable's, not the name before it.
+                loop_variable = m_analysis.expr(static_cast<expr_id_t>(i)).symbol;
             }
         }
 
@@ -433,6 +474,11 @@ public:
         const expr_info_t& object = m_analysis.expr(object_id);
         const auto* name = std::get_if<name_expr_t>(&m_ast.get(object_id).node);
         const symbol_t* named = object.symbol ? &m_analysis.symbol(*object.symbol) : nullptr;
+        if (loop_variable &&
+            m_analysis.symbol(*loop_variable).kind == symbol_kind_t::MEMBER_VARIABLE) {
+            named = &m_analysis.symbol(*loop_variable);
+        }
+
         const std::optional<type_id_t> builtin =
             name != nullptr && named == nullptr ? builtin_type(name->name) : std::nullopt;
         if (named != nullptr && named->kind == symbol_kind_t::MODULE) {
@@ -444,6 +490,8 @@ public:
             add_statics(named->type);
         } else if (builtin) {
             add_statics(*builtin);
+        } else if (named != nullptr && named->kind == symbol_kind_t::MEMBER_VARIABLE) {
+            add_loop_members(*named);
         } else {
             add_instance_members(object.type);
             add_postfix(object_id, positions);

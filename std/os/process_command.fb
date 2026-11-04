@@ -22,6 +22,9 @@ Extern "runtime"
     Function fb_os_process_spawn(program: String, arguments: String[], names: String[],
                                  values: String?[], cleared: Int32, folder: String, input: Int32,
                                  output: Int32, error: Int32, ByRef failure: Int64): UInt64
+    Function fb_os_process_spawn_detached(program: String, arguments: String[], names: String[],
+                                          values: String?[], cleared: Int32, folder: String,
+                                          ByRef failure: Int64): Int64
     Function fb_os_process_arguments(into: String[])
 End Extern
 
@@ -163,6 +166,20 @@ Public Class Command
         Return Try Started(Stdio.INHERIT, Stdio.INHERIT, Stdio.INHERIT)
     End Method
 
+    /// Starts the program on its own, and gives its process's number, which an update or another
+    /// program can ask after. It has none of this program's streams, whatever Stdin, Stdout, or
+    /// Stderr said, nothing waits for it, and nothing that ends this program ends it: a plain Child
+    /// under `fb run` on Windows ends when fb does, if fb's killed, and this doesn't. Throws and
+    /// panics as Spawn does.
+    @PanicsAtCaller
+    Public Method SpawnDetached(): Int64 Throws IOError
+        Local failure: Int64 = 0
+        Local id = fb_os_process_spawn_detached(Program, Arguments, Names, Values, Cleared ? 1 : 0,
+                                                InFolder, ByRef failure)
+        Try CheckStarted(failure, id != 0)
+        Return id
+    End Method
+
     /// Runs the program to its end, and gives what it wrote to its stdout and stderr, and how it
     /// ended. Its stdin has nothing, or closes at once when Stdin pipes it. Throws and panics as
     /// Spawn does.
@@ -200,14 +217,9 @@ Public Class Command
         Return Await child.WaitAsync()
     End Method
 
-    /// Starts the program with the streams it was given, or these.
+    /// Panics or throws for what the runtime says went wrong in starting the program.
     @PanicsAtCaller
-    Method Started(input: Stdio, output: Stdio, errors: Stdio): Child Throws IOError
-        Local streams = [InputHow ?? input, OutputHow ?? output, ErrorHow ?? errors]
-        Local failure: Int64 = 0
-        Local handle = fb_os_process_spawn(Program, Arguments, Names, Values, Cleared ? 1 : 0,
-                                           InFolder, streams[0] As Int32, streams[1] As Int32,
-                                           streams[2] As Int32, ByRef failure)
+    Method CheckStarted(failure: Int64, started: Bool) Throws IOError
         If failure == 1
             Panic("a Command takes a program, arguments, variables' values, and a folder " +
                   "without a NUL")
@@ -216,10 +228,20 @@ Public Class Command
         ElseIf failure == 3
             Throw IOError(IOErrorKind.OTHER, "{Program}: cmd.exe can't give a .bat or .cmd " +
                           "file an argument with a line break", Program)
-        ElseIf handle == 0
+        ElseIf !started
             Throw ProcessError(failure, Program)
         End If
+    End Method
 
+    /// Starts the program with the streams it was given, or these.
+    @PanicsAtCaller
+    Method Started(input: Stdio, output: Stdio, errors: Stdio): Child Throws IOError
+        Local streams = [InputHow ?? input, OutputHow ?? output, ErrorHow ?? errors]
+        Local failure: Int64 = 0
+        Local handle = fb_os_process_spawn(Program, Arguments, Names, Values, Cleared ? 1 : 0,
+                                           InFolder, streams[0] As Int32, streams[1] As Int32,
+                                           streams[2] As Int32, ByRef failure)
+        Try CheckStarted(failure, handle != 0)
         Return Child(handle, streams[0] == Stdio.PIPED, streams[1] == Stdio.PIPED,
                      streams[2] == Stdio.PIPED)
     End Method

@@ -1,0 +1,176 @@
+// A debug form of a graph with links across it, which has more paths through it than a String
+// holds, and of a long chain: each is bounded, and cut as a cycle is. What's small and shared
+// shows in full each time.
+Import std.core
+Import std.text
+
+Class Widget
+    Public Field Name: String
+    Public Field Parent: Widget?
+    Public Field Next: Widget?
+    Public Field Children: Widget[] = []
+    Public Field Peers: Widget[] = []
+    Public New(name: String)
+        Name = name
+    End New
+End Class
+
+Local root = Widget("root")
+For i = 1 To 40
+    Local child = Widget("child")
+    child.Parent = root
+    root.Children.Add(child)
+End For
+
+For child In root.Children
+    child.Peers = root.Children.Clone()
+End For
+
+Local text = "{root:?}"
+Print(text.Bytes.Count > 4194304, text.Bytes.Count < 5000000)
+Print(text.StartsWith("Widget {{ Name: \"root\""), text.Contains("Widget {{ … }}"))
+Local dumped = Dump(root)
+Print(dumped.Bytes.Count > 1000000, dumped.Bytes.Count < 64000000)
+
+// The next form starts again.
+Local leaf = Widget("leaf")
+Print("{leaf:?}")
+
+For child In root.Children
+    child.Parent = Null
+    child.Peers = []
+End For
+
+// A chain longer than a form goes deep.
+Local head = Widget("head")
+Local at = head
+For i = 1 To 20000
+    Local next = Widget("link")
+    at.Next = next
+    at = next
+End For
+
+// 200 objects deep exactly, and the same on another thread, in a debug build and a release one.
+Function Names(text: String): Int => text.Split("Name:").Count - 1
+
+Local chain = "{head:?}"
+Print(Names(chain), chain.Contains("Widget {{ … }}"), chain.Bytes.Count < 16000000)
+
+// Unlinked from the end, as releasing it from its head would go as deep.
+Local links: Widget[] = []
+Local walking: Widget? = head
+While walking != Null
+    links.Add(walking)
+    walking = walking.Next
+End While
+
+For i = links.Count - 1 To 0 Step -1
+    links[i].Next = Null
+End For
+
+Function OnWorker(): String
+    Local first = Widget("first")
+    Local last = first
+    Local all: Widget[] = [first]
+    For i = 1 To 5000
+        Local next = Widget("link")
+        last.Next = next
+        all.Add(next)
+        last = next
+    End For
+
+    Local shown = Names("{first:?}")
+    For i = all.Count - 1 To 0 Step -1
+        all[i].Next = Null
+    End For
+
+    Return "{shown}"
+End Function
+
+Print(Await Spawn(OnWorker))
+
+// With many Fields, whose frames are larger, the form stops before the thread's stack does.
+Class Wide
+    Public Field A: Int = 1
+    Public Field B: String = "b"
+    Public Field C: Int[] = []
+    Public Field D: Wide?
+    Public Field E: Double = 1.5
+    Public Field F: String = "f"
+    Public Field G: Int = 2
+    Public Field H: Int? = 1
+    Public Field I: String = "i"
+    Public Field J: Bool = True
+    Public Field K: String = "k"
+    Public Field L: String = "l"
+    Public Field M: Int = 1
+    Public Field N: String = "n"
+    Public Field O: Int? = Null
+    Public Field P: String = "p"
+    Public Field Q: String = "q"
+    Public Field R: Double = 2.5
+    Public Field S: String = "s"
+    Public Field T: Int = 1
+    Public Field U: String = "u"
+    Public Field V: Bool = False
+    Public Field W: String? = "w"
+    Public Field X: Int = 1
+End Class
+
+Function WideOnWorker(): Bool
+    Local first = Wide()
+    Local last = first
+    Local all: Wide[] = [first]
+    For i = 1 To 2000
+        Local next = Wide()
+        last.D = next
+        all.Add(next)
+        last = next
+    End For
+
+    Local shown = "{first:?}"
+    For i = all.Count - 1 To 0 Step -1
+        all[i].D = Null
+    End For
+
+    Return shown.Contains("Wide {{ … }}")
+End Function
+
+Print(Await Spawn(WideOnWorker))
+
+// A form's limit is the whole form's, though what holds its objects is no object.
+Struct Row
+    Public Field Left: Widget
+    Public Field Right: Widget
+End Struct
+
+Local crossed = Widget("crossed")
+For i = 1 To 40
+    Local child = Widget("child")
+    child.Parent = crossed
+    crossed.Children.Add(child)
+End For
+
+For child In crossed.Children
+    child.Peers = crossed.Children.Clone()
+End For
+
+Local row = Row(crossed, crossed)
+Local rowText = "{row:?}"
+Print(rowText.Bytes.Count > 4194304, rowText.Bytes.Count < 5000000)
+Local tupleText = "{(crossed, crossed):?}"
+Print(tupleText.Bytes.Count > 4194304, tupleText.Bytes.Count < 5000000)
+Print("{Widget("next"):?}".Bytes.Count < 200)
+For child In crossed.Children
+    child.Parent = Null
+    child.Peers = []
+End For
+
+// An object two others hold shows in each, and a cycle is cut where it comes back.
+Local shared = Widget("shared")
+Local both = Widget("both")
+both.Children = [shared, shared]
+Print("{both:?}")
+shared.Parent = both
+Print("{both:?}")
+shared.Parent = Null

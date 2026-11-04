@@ -652,11 +652,13 @@ enum class member_kind_t : std::uint8_t {
     METHOD,
     PROPERTY,
     STATIC_FIELD,
+    /// An Enum's members.
+    MEMBER,
 };
 
-/// "For Field f: F In T", "For Method m In T", "For Property p: P In T", or "For Static Field
-/// s: S In T": a loop over a type's members, which the compiler unrolls into a copy of the body
-/// for each one.
+/// "For Field f: F In T", "For Method m In T", "For Property p: P In T", "For Static Field
+/// s: S In T", or "For Member m In E": a loop over a type's members, which the compiler unrolls
+/// into a copy of the body for each one.
 struct for_member_stmt_t {
     std::optional<name_t> label;
     member_kind_t kind = member_kind_t::FIELD;

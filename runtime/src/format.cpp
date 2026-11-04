@@ -2,6 +2,7 @@
 #include "fb/text_format.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <charconv>
 #include <cmath>
 #include <cstddef>
@@ -102,6 +103,28 @@ bool read_whole(const fast_float::from_chars_result& result, const char* end, co
 
 } // namespace
 
+namespace {
+
+/// The debug form this thread is making: how many are inside each other, the bytes of its objects
+/// so far, each one's own counted once, and where on the stack it started.
+struct debug_form_t {
+    std::size_t nested = 0;
+    std::size_t shown = 0;
+    std::uintptr_t stack = 0;
+};
+
+/// About where this thread's stack is now.
+std::uintptr_t stack_here() {
+    return std::bit_cast<std::uintptr_t>(__builtin_frame_address(0));
+}
+
+debug_form_t& debug_form() {
+    thread_local debug_form_t form;
+    return form;
+}
+
+} // namespace
+
 extern "C" {
 
 fb_string_t* fb_format_int(const std::int64_t value, const fb_string_t* spec) {
@@ -178,23 +201,63 @@ fb_string_t* fb_char_debug(const std::uint32_t point) {
     return make(fb::debug_char(static_cast<char32_t>(point)));
 }
 
+std::int32_t fb_debug_begin() {
+    debug_form_t& form = debug_form();
+    if (form.nested++ == 0) {
+        form.shown = 0;
+        form.stack = stack_here();
+    }
+
+    return 0;
+}
+
+std::int32_t fb_debug_end() {
+    --debug_form().nested;
+    return 0;
+}
+
 fb_string_t* fb_debug_object(const fb_object_t* object, const std::int32_t indent) {
     const fb_class_t* type = object->type;
     if (type->debug == nullptr) {
         return make(type->name);
     }
 
-    // The objects this thread is showing, which a cycle comes back to: an array, whose Class is
+    // The objects this thread is showing, each with the bytes of those shown inside it so far,
+    // and the bytes of the whole form so far, each object's own counted once. A cycle comes back
+    // to one that's being shown. Only those are cut for that, as an object two others hold shows
+    // twice, so a graph with links across it is shown by each path through it, of which it can
+    // have more than any String holds; the bytes and how deep it goes bound that. How deep is what
+    // a thread's stack takes, in a debug build, on macOS's 512 KiB, and the stack it has used is
+    // the bound for objects with many Fields, whose frames are larger. An array, whose Class is
     // named like "Node[]", shows as one, and anything else as its Class.
-    thread_local std::vector<const fb_object_t*> showing;
-    if (std::ranges::contains(showing, object)) {
+    struct showing_t {
+        const fb_object_t* object;
+        std::size_t inside = 0;
+    };
+
+    constexpr std::size_t most_bytes = std::size_t{ 4 } * 1024 * 1024;
+    constexpr std::size_t most_nested = 200;
+    constexpr std::uintptr_t most_stack = std::uintptr_t{ 384 } * 1024;
+    thread_local std::vector<showing_t> showing;
+    std::size_t& shown = debug_form().shown;
+    const std::uintptr_t start = debug_form().stack;
+    const std::uintptr_t now = stack_here();
+    if ((start > now ? start - now : now - start) >= most_stack || shown >= most_bytes ||
+        showing.size() >= most_nested ||
+        std::ranges::contains(showing, object, &showing_t::object)) {
         const std::string_view name = type->name;
         return make(name.ends_with("[]") ? "[ … ]" : std::string(name) + " { … }");
     }
 
-    showing.push_back(object);
+    showing.push_back({ .object = object });
     fb_string_t* text = type->debug(object, indent);
+    const std::size_t size = view(text).size();
+    shown += size - std::min(size, showing.back().inside);
     showing.pop_back();
+    if (!showing.empty()) {
+        showing.back().inside += size;
+    }
+
     return text;
 }
 

@@ -1,0 +1,16 @@
+// Many lookups, each finished by the I/O thread, which may be the last to let go of its Task as the
+// main thread reads what it found. An array in the Task's result was let go of by both at once,
+// whose count isn't atomic, so a few in 30,000 leaked, or could have been freed in use.
+Import std.core
+Import std.net
+
+Local total = 0
+For i = 1 To 30000
+    Local found = Try Await Dns.ResolveAsync("127.0.0.1")
+    total += found.Count
+End For
+
+Print(total)
+Print(Try Await Dns.ResolveAsync("127.0.0.1"))
+Local missing = Try? Await Dns.ResolveAsync("no-such-host.invalid")
+Print(missing == Null)

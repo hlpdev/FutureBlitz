@@ -1,0 +1,214 @@
+// For Member goes over an Enum's declared members, whatever their values, and Where E: Enum is
+// what generic code asks of any Enum.
+Import std.core
+Import std.collections
+
+Enum Medal
+    BRONZE = 1
+    SILVER = 2
+End Enum
+
+Enum Tier: UInt8
+    LOW = 0
+    HIGH = 10
+End Enum
+
+Enum Temperature: Int8
+    COLD = -5
+    WARM = 20
+End Enum
+
+@Flags Enum Access
+    READ
+    WRITE
+    RUN
+End Enum
+
+@Open Enum Kind: UInt64
+    SMALL = 3
+    HUGE = 18446744073709551615
+End Enum
+
+Enum Lone
+    ONLY
+End Enum
+
+@Flags Enum Mode
+    NONE = 0
+    READ = 1
+    WRITE = 2
+    READ_WRITE = READ | WRITE
+End Enum
+
+Function MembersOf<E: Enum>(): (String, E)[]
+    Local all: (String, E)[] = []
+    For Member m In E
+        all.Add((m.Name, m.Value))
+    End For
+
+    Return all
+End Function
+
+Function Show<E: Enum>()
+    Local parts: String[] = []
+    For each In MembersOf<E>()
+        parts.Add("{each.0} = {each.1} ({each.1 As Int64})")
+    End For
+
+    Print(parts)
+End Function
+
+Show<Medal>()
+Show<Tier>()
+Show<Temperature>()
+Show<Access>()
+Show<Kind>()
+Show<Lone>()
+Show<Mode>()
+
+// Over a concrete Enum, in the code's own order, with Break and Continue as a For Field has.
+For Member m In Tier
+    Print(m.Name, m.Value, m.Value == Tier.HIGH, m.Value As Int)
+End For
+
+For Member m In Medal
+    If m.Value == Medal.BRONZE Then Continue
+    Print("not bronze:", m.Name)
+End For
+
+Outer: For Member a In Medal
+    For Member b In Tier
+        Print(a.Name, b.Name)
+        Break Outer
+    End For
+End For
+
+// What Enum gives: ==, a hash, text, a thread, and As both ways.
+Function FindName<E: Enum>(wanted: E): String
+    For Member m In E
+        If m.Value == wanted Then Return m.Name
+    End For
+
+    Return "{wanted}"
+End Function
+
+Print(FindName(Tier.HIGH), FindName(Access.READ | Access.RUN))
+
+Function Named<E: Enum>(): Map<E, String>
+    Local names = Map<E, String>()
+    For Member m In E
+        names[m.Value] = m.Name
+    End For
+
+    Return names
+End Function
+
+Print(Named<Medal>()[Medal.SILVER])
+
+Function Combined<E: Enum>(): E
+    Local bits: Int64 = 0
+    For Member m In E
+        bits = bits | (m.Value As Int64)
+    End For
+
+    Return bits As E
+End Function
+
+Print(Combined<Access>())
+
+Function Sends<T: Sendable>(value: T): T => value
+Function SendsAny<E: Enum>(value: E): E => Sends(value)
+Print(SendsAny(Medal.SILVER))
+
+// Inside a generic type too, and with a member loop in a Method.
+Class Picker<E: Enum>
+    Public Field Options: String[] = []
+    Public New()
+        For Member m In E
+            Options.Add(m.Name)
+        End For
+    End New
+End Class
+
+Print(Picker<Access>().Options)
+
+// A lambda in the body has its copy's member.
+Function Namers<E: Enum>(): (Func(): String)[]
+    Local namers: (Func(): String)[] = []
+    For Member m In E
+        namers.Add(Function() => "{m.Name} {m.Value}")
+    End For
+
+    Return namers
+End Function
+
+For namer In Namers<Medal>()
+    Print(namer())
+End For
+
+// A generic Struct's Method.
+Struct Table<E: Enum>
+    Public Method Count(): Int
+        Local count = 0
+        For Member m In E
+            count += 1
+        End For
+
+        Return count
+    End Method
+End Struct
+
+Print(Table<Mode>().Count())
+
+// A For Field's type, when it says it's an Enum.
+Struct Settings
+    Public Field Rank: Medal
+    Public Field Level: Tier
+End Struct
+
+For Field f: F In Settings
+    Where F: Enum
+    For Member m In F
+        Print(f.Name, m.Name, m.Value)
+    End For
+End For
+
+// At compile time: a size, signed and unsigned values, and As E.
+Const Function CountOf<E: Enum>(): Int
+    Local count = 0
+    For Member m In E
+        count += 1
+    End For
+
+    Return count
+End Function
+
+Const Function Lowest<E: Enum>(): Int64
+    Local lowest: Int64 = 9223372036854775807
+    For Member m In E
+        Local number = m.Value As Int64
+        If number < lowest Then lowest = number
+    End For
+
+    Return lowest
+End Function
+
+Const Function Named<E: Enum>(number: Int): E => number As E
+
+// A negative member is the Enum's own value, compared at compile time.
+Const Function IsCold(): Bool
+    For Member m In Temperature
+        If m.Value == Temperature.COLD Then Return True
+    End For
+
+    Return False
+End Function
+
+Const COLD_FOUND = IsCold()
+Print(COLD_FOUND)
+
+Const MEDALS = CountOf<Medal>()
+Const COLDEST = Lowest<Temperature>()
+Const WRAPPED = Lowest<Kind>()
+Const CHOSEN = Named<Tier>(10)
+Print(MEDALS, COLDEST, WRAPPED, CHOSEN)

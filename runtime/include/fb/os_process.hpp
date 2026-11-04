@@ -39,6 +39,14 @@ std::uint64_t fb_os_process_spawn(const fb_string_t* program, const fb_array_t* 
                                   std::int32_t cleared, const fb_string_t* folder,
                                   std::int32_t input, std::int32_t output, std::int32_t error,
                                   std::int64_t* failure);
+/// Starts a program as fb_os_process_spawn() does, on its own: its streams have nothing, this
+/// program has no handle for it, and nothing that ends this program ends it, on Windows outside a
+/// job this program is in, where it can leave, and on POSIX in a session of its own. Gives its
+/// process's number, or 0 with what fb_os_process_spawn() puts in `failure`.
+std::int64_t fb_os_process_spawn_detached(const fb_string_t* program, const fb_array_t* arguments,
+                                          const fb_array_t* names, const fb_array_t* values,
+                                          std::int32_t cleared, const fb_string_t* folder,
+                                          std::int64_t* failure);
 /// Another holder of the child's handle.
 void fb_os_process_hold(std::uint64_t child);
 /// A holder lets go of the handle. Once none holds it, its stdin closes, and the runtime lets go

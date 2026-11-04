@@ -1,0 +1,39 @@
+// A Const Function run while types are declared knows an Enum declared further down: a Field's size
+// from its members, in a generic loop and a concrete one, and an As to it.
+Import std.core
+
+Struct Holder
+    Public Field Generic: Int[CountOf<Later>() + 1]
+    Public Field Concrete: Int[CountLater() + 1]
+    Public Field Chosen: Int[(Picked<Later>(10) As Int) + 1]
+End Struct
+
+Const Function CountOf<E: Enum>(): Int
+    Local count = 0
+    For Member m In E
+        count += 1
+    End For
+
+    Return count
+End Function
+
+Const Function CountLater(): Int
+    Local count = 0
+    For Member m In Later
+        count += 1
+    End For
+
+    Return count
+End Function
+
+Const Function Picked<E: Enum>(number: Int): E => number As E
+
+Enum Later
+    FIRST = 3
+    SECOND = 10
+    THIRD = 11
+End Enum
+
+Local holder = Holder()
+Print(holder.Generic.Count, holder.Concrete.Count, holder.Chosen.Count)
+Print(SizeOf<Holder>() == 4 * (4 + 4 + 11))

@@ -479,8 +479,11 @@ Local mask = Access.Read | Access.Write
 - `State.Connecting` is a member. Values compare with `==` and `!=`; a `@Flags` Enum's also combine
   with `|`, `&`, `^`, and `~`, and `mask.Has(flags)` tells whether all of `flags` are set.
 - `As` turns an Enum into any integer type, and an integer into an Enum. For an Enum without
-  `@Flags` or `@Open`, the integer must be one of its values: known ones are checked at compile
-  time, and others panic.
+  `@Flags` or `@Open`, the integer must be one of its values, as the number it is, so 256 is no
+  UInt8 Enum's 0: known ones are checked at compile time, and others panic. A @Flags or @Open Enum
+  takes what the integer's `As` to its integer type gives.
+- `For Member m In E` goes over an Enum's members, and `Where E: Enum` says a type parameter is
+  an Enum (see [13](13-compile-time.md#reflection) and [07](07-generics.md#class-enum-and-error)).
 - An `@Open` Enum holds any value of its integer type, as protobuf's open enums do, so a number
   a newer program wrote survives: `7 As Kind` is a Kind that isn't one of its members, which C
   can give too, and a `Select` on one needs a `Default`. A `@Flags` Enum holds every combination

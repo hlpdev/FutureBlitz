@@ -170,7 +170,7 @@ Function Collect<S, E>(items: S): E[]
 - A call infers a type argument from a constraint on another one: `Collect(numbers)` takes `E`
   from the instance of `Iterator` that the type of `numbers` implements.
 
-### `Class` and `Error`
+### `Class`, `Enum`, and `Error`
 
 `Class` in a constraint says the type argument is a Class, as C#'s `where T : class` does, so
 generic code can refer to its objects without keeping them:
@@ -195,6 +195,27 @@ End Function
 - It's only a constraint. It gives what every Class has, which is that it's `Equatable`, and `&`
   adds the rest: `Where T: Class & Hashable`. With Sendable, `Where T: Class & Sendable`, the T is
   a Shared Class, so its `Weak<T>` is Sendable too.
+
+`Enum` in a constraint says the type argument is an Enum, so generic code can go over its members
+with `For Member m In E` (see [13](13-compile-time.md#reflection)):
+
+```vb
+Function MembersOf<E: Enum>(): (String, E)[]
+    Local all: (String, E)[] = []
+    For Member m In E
+        all.Add((m.Name, m.Value))
+    End For
+
+    Return all
+End Function
+```
+
+- An Enum meets it, with @Flags or @Open too. Nothing else does, an integer or a `T?` of an Enum
+  included.
+- It's only a constraint. It gives what every Enum has, which is that it's `Equatable`, `Hashable`,
+  `Printable`, and `Sendable`, and `As` to and from any integer type, which panics at run time for
+  an integer that isn't one of the values of an Enum without @Flags or @Open. An Enum's operators,
+  like a @Flags Enum's `|`, aren't among them, so generic code combines flags through an integer.
 
 `Error`, std's root of errors, in a constraint says the type argument is a Class that extends
 it, as Swift's `E: Error` does, so generic code can throw and catch one, and list it after a

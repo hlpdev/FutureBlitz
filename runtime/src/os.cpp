@@ -171,7 +171,42 @@ bool exists(const std::string_view path) {
     return GetFileAttributesW(wide(path).c_str()) != INVALID_FILE_ATTRIBUTES;
 }
 
+/// Hands `target` to the shell from a process outside the job this program is in, as `fb run` has
+/// it in one that ends what's in it, which would take the browser it opens with it. Whether it
+/// starts is all this says, so a file that isn't there is looked for first. False when this
+/// program isn't in a job, or can't leave it.
+bool opened_outside_job(const std::string_view target) {
+    BOOL in_job = FALSE;
+    if (IsProcessInJob(GetCurrentProcess(), nullptr, &in_job) == 0 || in_job == FALSE) {
+        return false;
+    }
+
+    std::wstring folder(MAX_PATH, L'\0');
+    folder.resize(GetSystemDirectoryW(folder.data(), MAX_PATH));
+    const std::wstring program = folder + L"\\rundll32.exe";
+    // It gives what's after the comma to the handler as it is, so nothing is quoted.
+    std::wstring line = L"rundll32.exe url.dll,FileProtocolHandler " + wide(target);
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    if (CreateProcessW(program.c_str(), line.data(), nullptr, nullptr, FALSE,
+                       CREATE_BREAKAWAY_FROM_JOB, nullptr, nullptr, &startup, &process) == 0) {
+        return false;
+    }
+
+    CloseHandle(process.hProcess);
+    CloseHandle(process.hThread);
+    return true;
+}
+
 opened_t open_default(const std::string_view target) {
+    const bool address = target.contains("://") || target.starts_with("mailto:");
+    if (address || exists(target)) {
+        if (opened_outside_job(target)) {
+            return opened_t::DONE;
+        }
+    }
+
     // The shell can hand the target to a COM object, which wants COM started on the thread.
     const HRESULT started = CoInitializeEx(nullptr, static_cast<DWORD>(COINIT_APARTMENTTHREADED) |
                                                         static_cast<DWORD>(COINIT_DISABLE_OLE1DDE));

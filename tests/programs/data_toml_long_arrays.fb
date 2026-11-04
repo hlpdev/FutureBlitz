@@ -1,0 +1,93 @@
+// Toml.Write's long arrays: past 100 bytes on a line, an element a line, which reads back the same,
+// so one element's change is one line. Short ones, one of one element, and inline tables stay on
+// their lines.
+Import std.core
+Import std.data
+Import std.text
+
+// A vertex a line: `count` of them, the one at `changed` moved.
+Function Mesh(count: Int, changed: Int): Value
+    Local vertices = Value.Array()
+    For i = 0 Until count
+        Local x: Double = i As Double
+        vertices.Add(Value([Value(i == changed ? x + 0.5 : x), Value(1.5), Value(2.5)]))
+    End For
+
+    Local mesh = Value.Object()
+    mesh["vertices"] = vertices
+    Return mesh
+End Function
+
+Local first = Toml.Write(Mesh(100, -1))
+Local second = Toml.Write(Mesh(100, 40))
+Print((Try Toml.Read(first)) == Mesh(100, -1))
+Local before = first.Split("\n")
+Local after = second.Split("\n")
+Local differing = 0
+For i = 0 Until before.Count
+    If before[i] != after[i] Then differing += 1
+End For
+
+Print("lines {before.Count} {after.Count}, differing {differing}")
+Print(before[0])
+Print(before[1])
+Print(before[100])
+Print(before[101])
+
+// Short, of one element, and with an inline table.
+Local shapes = Value.Object()
+shapes["short"] = Value([Value(1), Value(2), Value(3)])
+shapes["one"] = Value([Value("x".Repeated(200))])
+Local table = Value.Object()
+table["name"] = Value("y".Repeated(120))
+table["more"] = Value([Value(1), Value("z".Repeated(120))])
+shapes["tables"] = Value([table, Value(1)])
+Local both = Value.Array()
+both.Add(Value([Value("a".Repeated(60)), Value("b".Repeated(60))]))
+both.Add(Value([Value(1), Value(2)]))
+shapes["nested"] = both
+// An Array's only element, when it's a long Array, goes on its own lines.
+shapes["meshes"] = Value([Value([Value("c".Repeated(60)), Value("d".Repeated(60))])])
+Local written = Toml.Write(shapes)
+Print((Try Toml.Read(written)) == shapes)
+For line In written.Split("\n")
+    Print(line.Length > 60 ? line.Slice(0, 30) + "... {line.Length}" : line)
+End For
+
+// Exactly at the limit, in bytes: a line of 100 stays, whatever spells the key, and one of 101
+// doesn't.
+Function Keyed(key: String, count: Int): Value
+    Local document = Value.Object()
+    document[key] = Value([Value("a".Repeated(count)), Value("b")])
+    Return document
+End Function
+
+Function FirstLine(key: String, count: Int): String
+    Return Toml.Write(Keyed(key, count)).Split("\n")[0]
+End Function
+
+For key In ["k", "a_long_key_name_of_some_length", "é", "ééééééééééééééééééééééééé"]
+    // How long the line is with ten a's says how many make it 100 bytes.
+    Local count = 10 + 100 - FirstLine(key, 10).Bytes.Count
+    Print(key, FirstLine(key, count).Bytes.Count, FirstLine(key, count + 1).EndsWith("["))
+End For
+
+// The text's own bytes count too, not its characters.
+Local accents = Value.Object()
+accents["k"] = Value([Value("é".Repeated(45)), Value("b")])
+Print(Toml.Write(accents).Split("\n")[0].EndsWith("["))
+accents["k"] = Value([Value("é".Repeated(40)), Value("b")])
+Print(Toml.Write(accents).Split("\n")[0].EndsWith("["))
+
+// In an Array on its own lines, the indent and comma count too.
+Function Nested(width: Int): Value
+    Local document = Value.Object()
+    Local inner = Value([Value("a".Repeated(width - 4 - 1 - 2 - 4 - 2 - 1)), Value("b")])
+    document["k"] = Value([inner, Value("z".Repeated(100))])
+    Return document
+End Function
+
+For width In [99, 100, 101]
+    Local line = Toml.Write(Nested(width)).Split("\n")[1]
+    Print(width, line.Bytes.Count, line.EndsWith("["))
+End For

@@ -205,6 +205,8 @@ private:
 struct reflected_t {
     std::string name;
     std::uint32_t index = 0;
+    /// An Enum's member's value, in the Enum's integer type.
+    std::uint64_t bits = 0;
     /// The member's symbol. A tuple's elements have none.
     std::optional<symbol_id_t> symbol;
     /// The type it's a member of.
@@ -4539,6 +4541,10 @@ private:
                 member.symbol = method.symbol;
                 copy(std::move(member), method.type, method.arguments);
             }
+        } else if (node.kind == member_kind_t::MEMBER) {
+            for (const enum_value_t& value : types().get(type).values) {
+                copy({ .name = value.name, .bits = value.bits }, type_id_t::INVALID);
+            }
         } else if (node.kind == member_kind_t::PROPERTY ||
                    node.kind == member_kind_t::STATIC_FIELD) {
             for (const symbol_id_t found : reflected_members(type, node.kind, span.file)) {
@@ -5840,6 +5846,17 @@ private:
                 return const_value_t{ .type = type_id_t::INT32, .data = position };
             }
 
+            if (node.member.text == "Value") {
+                if (is_signed(types().get(member.owner).inner)) {
+                    return const_value_t{
+                        .type = member.owner,
+                        .data = static_cast<std::int64_t>(member.bits),
+                    };
+                }
+
+                return const_value_t{ .type = member.owner, .data = member.bits };
+            }
+
             return const_value_t{ .type = type_id_t::STRING, .data = member.name };
         }
 
@@ -6971,7 +6988,7 @@ private:
                 return;
             }
 
-            operand_t text = debug_of(value, type, indent);
+            operand_t text = whole_debug_form(value, type, indent);
             if (spec->width > 0) {
                 text = runtime_call(runtime_function_t::FORMAT_TEXT,
                                     { text, make_bool(false), spec_text }, type_id_t::STRING, true);
@@ -7051,6 +7068,21 @@ private:
     /// is in quotes, an Enum is its member, an object shows its own Class's form, a Weak<T> what
     /// reading it gives, and what has no parts of its own to show, like a Task or a function
     /// value, its type's name.
+    /// debug_of() of a value that's a whole form, not a part of one: what objects it shows have a
+    /// limit together. A number's, Bool's, String's, Char's, or Enum's has none.
+    operand_t whole_debug_form(const operand_t& value, const type_id_t type,
+                               const operand_t& indent) {
+        if (is_integer(type) || is_float(type) || type == type_id_t::BOOL ||
+            type == type_id_t::STRING || type == type_id_t::CHAR || is_enum(type)) {
+            return debug_of(value, type, indent);
+        }
+
+        runtime_call(runtime_function_t::DEBUG_BEGIN, {}, type_id_t::INT32);
+        operand_t text = debug_of(value, type, indent);
+        runtime_call(runtime_function_t::DEBUG_END, {}, type_id_t::INT32);
+        return text;
+    }
+
     operand_t debug_of(const operand_t& value, const type_id_t type, const operand_t& indent) {
         m_debug_used = true;
         if (is_numeric(type) || type == type_id_t::BOOL) {
@@ -9655,7 +9687,7 @@ private:
             };
             for (std::size_t i = 0; i < sides.size(); ++i) {
                 parts.emplace_back(make_string(i == 0 ? "\n  left: " : "\n  right: "));
-                parts.push_back(debug_of(sides[i].first, sides[i].second, indent));
+                parts.push_back(whole_debug_form(sides[i].first, sides[i].second, indent));
             }
 
             if (message) {
@@ -11289,6 +11321,20 @@ private:
                       std::string message = {}) {
         const type_id_t integer = types().get(type).inner;
         const operand_t number = convert(value, integer, span);
+        // The same number in the integer it came from, which a wider one, or one of another sign,
+        // may not be.
+        const type_id_t source = type_of(value);
+        std::optional<operand_t> same;
+        if (source != integer && is_integer(source)) {
+            same = compare(binary_op_t::EQUAL, convert(number, source, span), value, span);
+            if (is_signed(source) != is_signed(integer)) {
+                const operand_t whole = is_signed(source) ? value : number;
+                const operand_t positive =
+                    compare(binary_op_t::GREATER_EQUAL, whole, zero(type_of(whole)), span);
+                same = compare(binary_op_t::AND, *same, positive, span);
+            }
+        }
+
         std::vector<std::uint64_t> values;
         for (const enum_value_t& member : types().get(type).values) {
             values.push_back(member.bits);
@@ -11322,7 +11368,11 @@ private:
 
         const block_id_t fail = new_block();
         const block_id_t ok = new_block();
-        terminate(branch_t{ .condition = valid, .if_true = ok, .if_false = fail });
+        terminate(branch_t{
+            .condition = same ? compare(binary_op_t::AND, *same, valid, span) : valid,
+            .if_true = ok,
+            .if_false = fail,
+        });
         start(fail);
         if (message.empty()) {
             message = std::format("the value isn't one of {}'s", types().name(type));

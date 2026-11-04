@@ -212,6 +212,11 @@ enum class runtime_function_t : std::uint8_t {
     DEBUG_OBJECT,
     /// (Int32) to a new String: a line break and the indent, for a debug form on many lines.
     DEBUG_INDENT,
+    /// To an Int32 that's 0: a whole debug form starts, on this thread, whose objects' text
+    /// together has a limit.
+    DEBUG_BEGIN,
+    /// To an Int32 that's 0: a whole debug form ends.
+    DEBUG_END,
     /// (String) to a new CString: a copy of its text with a NUL after it, for C code to read
     /// during a call.
     CSTRING_NEW,

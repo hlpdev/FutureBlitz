@@ -167,6 +167,40 @@ TEST_CASE("completion offers the names of the parameters a call doesn't give yet
     CHECK(!labels_of(items).contains("c:"));
 }
 
+TEST_CASE("a loop's variable offers what that kind of loop's has", "[lsp]") {
+    const folder_t folder({});
+    const std::string uri = folder.uri("loops.fb");
+    const std::string text = "Import std.core\n"
+                             "Enum Tier\n"
+                             "    LOW\n"
+                             "End Enum\n"
+                             "Struct Point\n"
+                             "    Public Field X: Int\n"
+                             "End Struct\n"
+                             "For Member m In Tier\n"
+                             "    Print(m.Name)\n"
+                             "End For\n"
+                             "For Field f In Point\n"
+                             "    Print(f.Name)\n"
+                             "End For\n";
+    client_t client({});
+    client.open(uri, text);
+    const auto labels_at = [&](const std::uint32_t line) {
+        std::set<std::string> found;
+        // Right after the '.' of "    Print(m."
+        const json_t items =
+            client.request("textDocument/completion", completion_at(uri, line, 12))["items"];
+        for (const json_t& item : items) {
+            found.insert(item["label"].get<std::string>());
+        }
+
+        return found;
+    };
+    CHECK(labels_at(8) == std::set<std::string>{ "Name", "Value" });
+    CHECK(labels_at(11) ==
+          std::set<std::string>{ "Attribute", "Get", "Has", "Index", "Name", "Set" });
+}
+
 TEST_CASE("completion offers the keywords that go where the word is", "[lsp]") {
     const folder_t folder({});
     const std::string uri = folder.uri("places.fb");

@@ -613,7 +613,9 @@ int run(const console_t& console, const options_t& options, const compilation_t&
     // A folder of its own, so the program keeps its name, or its package's.
     const std::filesystem::path stem =
         compilation.package ? path_from_utf8(compilation.package->program) : options.input.stem();
+    sweep_temporary();
     const std::filesystem::path folder = temporary_path(stem, "");
+    std::optional<file_lock_t> held = hold_temporary(folder);
     std::filesystem::path program = folder / stem;
     program += executable_extension;
     const std::string name = to_utf8(program.filename());
@@ -622,6 +624,7 @@ int run(const console_t& console, const options_t& options, const compilation_t&
     const std::expected<void, std::string> built =
         build_program(module, compilation, program, options.mode, &report);
     if (!built) {
+        held.reset();
         remove_temporary(folder);
         report_build_error(console, compilation, shown, built.error());
         return compile_errors_exit_code;
@@ -633,6 +636,7 @@ int run(const console_t& console, const options_t& options, const compilation_t&
         run_attached(program, options.program_arguments);
 
     // Cleaning up is best effort. A folder left in temp isn't worth an error.
+    held.reset();
     remove_temporary(folder);
     if (!exit_code) {
         console.error(exit_code.error());
@@ -1022,8 +1026,8 @@ runs_t run_tests(const console_t& console, const std::filesystem::path& program,
             }
         }
 
-        // Ctrl+C stops the tests, as it does a program fb runs.
-        if (!finished && interrupted(*ran)) {
+        // Ctrl+C stops the tests, as it does a program fb runs, and so does what asks fb to end.
+        if (!finished && (interrupted(*ran) || attached_was_signalled())) {
             runs.interrupted = *ran;
             return runs;
         }
@@ -1150,13 +1154,16 @@ int test_command(const options_t& options) {
     std::filesystem::path stem =
         compilation.package ? path_from_utf8(compilation.package->name) : input->stem();
     stem += "-tests";
+    sweep_temporary();
     const std::filesystem::path folder = temporary_path(stem, "");
+    std::optional<file_lock_t> held = hold_temporary(folder);
     std::filesystem::path program = folder / stem;
     program += executable_extension;
     program_build_t report;
     if (const std::expected<void, std::string> built =
             build_program(module, compilation, program, options.mode, &report);
         !built) {
+        held.reset();
         remove_temporary(folder);
         report_build_error(console, compilation, name, built.error());
         return compile_errors_exit_code;
@@ -1167,6 +1174,7 @@ int test_command(const options_t& options) {
     const auto running = std::chrono::steady_clock::now();
     std::vector<test_result_t> results(tests.size());
     const runs_t runs = run_tests(console, program, options.mode, tests, results);
+    held.reset();
     remove_temporary(folder);
     if (runs.interrupted) {
         console.error(
