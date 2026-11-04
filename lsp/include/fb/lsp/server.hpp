@@ -6,6 +6,7 @@
 #include "fb/lsp/query.hpp"
 #include "fb/lsp/toml_features.hpp"
 #include "fb/lsp/workspace.hpp"
+#include "fb/stack_thread.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -140,7 +141,7 @@ private:
     };
     /// A thread that answers requests that need a check, in the order they came, so none of them
     /// keeps the message thread, and what's behind it, waiting. Its thread starts with its first
-    /// request. A std::thread, as Apple's libc++ has no std::jthread.
+    /// request. A stack_thread_t, for the compiler it can run.
     class worker_t {
     public:
         explicit worker_t(std::function<void(const request_job_t&)> answer)
@@ -173,7 +174,7 @@ private:
         bool m_busy = false;
         const request_job_t* m_current = nullptr;
         std::condition_variable m_idle;
-        std::thread m_thread;
+        stack_thread_t m_thread;
 
         void run();
     };
@@ -222,7 +223,7 @@ private:
         std::mutex m_mutex;
         std::condition_variable m_ready;
         bool m_stop = false;
-        std::thread m_thread;
+        stack_thread_t m_thread;
 
         void run();
     };

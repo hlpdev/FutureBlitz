@@ -8,6 +8,7 @@
 #include "fb/utf8.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 #include <chrono>
@@ -19,7 +20,9 @@
 #include <optional>
 #include <set>
 #include <sstream>
+#include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 using fb::lsp::json_t;
@@ -435,6 +438,34 @@ TEST_CASE("std's files are checked quickly, with only what they import", "[lsp][
     INFO("rechecked in " << std::chrono::duration_cast<std::chrono::milliseconds>(rechecked).count()
                          << " ms");
     CHECK(rechecked < 3 * checked + std::chrono::seconds(1));
+}
+
+TEST_CASE("a check that throws is a check with no result, and the next one's fine", "[lsp]") {
+    const fb::lsp::test::folder_t folder({});
+    const std::filesystem::path path = folder.path("throws.fb");
+    std::atomic<bool> throwing = true;
+    fb::lsp::workspace_t::options_t options;
+    options.delay = std::chrono::milliseconds(0);
+    options.check = [&throwing](const fb::check_request_t& request) {
+        if (throwing) {
+            throw std::runtime_error("out of something");
+        }
+
+        return fb::check_files(request);
+    };
+    fb::lsp::workspace_t workspace([](const fb::lsp::published_t&) {}, options);
+    workspace.open(path, 1, "Local n = 1\n");
+    const auto until = std::chrono::steady_clock::now() + std::chrono::minutes(1);
+    while (workspace.history().empty() && std::chrono::steady_clock::now() < until) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    REQUIRE_FALSE(workspace.history().empty());
+    CHECK(workspace.history().front().modules == 0);
+
+    throwing = false;
+    workspace.change(path, 2, "Local n = 2\n");
+    CHECK(workspace.checked(path, 2, std::chrono::steady_clock::now() + std::chrono::minutes(1)));
 }
 
 TEST_CASE("std as a workspace folder: an edit checks only the std files that import it",

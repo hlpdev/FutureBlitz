@@ -69,6 +69,13 @@ std::optional<std::string> read_message(std::istream& in) {
                 return std::nullopt;
             }
 
+            // More than any document, which would otherwise take all the memory there is, or
+            // throw on the reader's thread: the stream's lost its place.
+            constexpr std::size_t most_message = std::size_t{ 1 } << 30U;
+            if (*length > most_message) {
+                return std::nullopt;
+            }
+
             std::string body(*length, '\0');
             in.read(body.data(), static_cast<std::streamsize>(*length));
             if (std::cmp_not_equal(in.gcount(), *length)) {
@@ -126,13 +133,20 @@ std::string uri_of(const std::filesystem::path& path) {
 }
 
 std::optional<std::filesystem::path> path_of(const std::string_view uri) {
-    constexpr std::string_view scheme = "file://";
+    constexpr std::string_view scheme = "file:";
     if (lowered(std::string(uri.substr(0, scheme.size()))) != scheme) {
         return std::nullopt;
     }
 
+    // With an authority, or without one, as file:/x is the same as file:///x.
+    std::string_view rest = uri.substr(scheme.size());
+    if (rest.starts_with("//")) {
+        rest.remove_prefix(2);
+    } else if (!rest.starts_with('/')) {
+        return std::nullopt;
+    }
+
     std::string text;
-    const std::string_view rest = uri.substr(scheme.size());
     for (std::size_t i = 0; i < rest.size(); ++i) {
         if (rest[i] == '%' && i + 2 < rest.size()) {
             const std::optional<int> high = hex_value(rest[i + 1]);

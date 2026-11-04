@@ -5,6 +5,7 @@
 #include "fb/lsp/protocol.hpp"
 #include "fb/registry.hpp"
 #include "fb/registry_api.hpp"
+#include "fb/stack_thread.hpp"
 
 #include <chrono>
 #include <condition_variable>
@@ -116,7 +117,7 @@ private:
     /// Only the server's thread reads it.
     bool m_snippet_edits = false;
     bool m_stopping = false;
-    std::thread m_thread;
+    stack_thread_t m_thread;
 
     /// What a registry's asked, on a thread of its own, as a registry can take seconds or never
     /// answer: a package's versions, or a search.

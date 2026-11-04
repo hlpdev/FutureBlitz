@@ -89,10 +89,18 @@ void outbox_t::write_all() {
         m_writing = true;
         lock.unlock();
         write_message(m_out, body);
+        // What it writes to is gone, and nothing will read another message.
+        const bool gone = !m_out.good() && m_full && !m_told_gone;
         lock.lock();
         m_bytes -= body.size();
         m_writing = false;
         m_written.notify_all();
+        if (gone) {
+            m_told_gone = true;
+            lock.unlock();
+            m_full();
+            lock.lock();
+        }
     }
 }
 

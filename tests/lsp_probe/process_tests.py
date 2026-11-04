@@ -1,5 +1,6 @@
 """fb-lsp as a process, over real pipes, for what its tests in-process can't see: it ends when it's
 told to, or when its client goes, whatever it's doing, and with a client that isn't reading."""
+import contextlib
 import json
 import os
 import pathlib
@@ -8,7 +9,6 @@ import tempfile
 import threading
 import time
 import unittest
-from urllib.request import pathname2url
 
 LSP = os.environ["FB_LSP"]
 LSP_SOURCES = pathlib.Path(__file__).resolve().parents[2] / "lsp" / "src"
@@ -32,7 +32,9 @@ QUICK = "Import std.core\nFunction Twice(n: Int): Int => n * 2\nPrint(Twice(1))\
 class Client:
     def __init__(self, folder, text, read=True):
         self.folder = pathlib.Path(folder)
-        self.uri = "file:" + pathname2url(str(self.folder / "main.fb"))
+        # Not pathname2url, whose file:/x before Python 3.14 fb-lsp didn't take: Linux's CI checked
+        # nothing here, as no document was open.
+        self.uri = (self.folder / "main.fb").as_uri()
         (self.folder / "main.fb").write_text(text)
         self.process = subprocess.Popen([LSP], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=subprocess.DEVNULL, cwd=folder)
@@ -90,13 +92,22 @@ class ProcessTests(unittest.TestCase):
             self.client.process.kill()
         if self.client is not None:
             self.client.process.wait()
-            self.client.process.stdin.close()
+            # What a send to a process that's gone left in its buffer can't be written.
+            with contextlib.suppress(OSError):
+                self.client.process.stdin.close()
             self.client.process.stdout.close()
 
     def _ends_within(self, seconds):
         begun = time.monotonic()
         code = self.client.process.wait(timeout=seconds)
         return code, time.monotonic() - begun
+
+    def test_the_document_is_one_it_has_open(self):
+        # What the rest of these depend on: a request of a document it didn't have would be null.
+        self.client = Client(self.folder.name, QUICK)
+        self.client.send({"id": 2, "method": "textDocument/documentSymbol", "params": {
+            "textDocument": {"uri": self.client.uri}}})
+        self.assertTrue((self.client.answer(2, 30) or {}).get("result"))
 
     def test_shutdown_and_exit_end_it_with_a_check_running(self):
         self.client = Client(self.folder.name, SLOW)
@@ -157,14 +168,37 @@ class ProcessTests(unittest.TestCase):
         code, _ = self._ends_within(15)
         self.assertEqual(code, 0)
 
+    def test_a_client_that_closed_what_it_reads_ends_it(self):
+        self.client = Client(self.folder.name, QUICK, read=False)
+        self.client.process.stdout.close()
+        # It may already have ended, on writing initialize's answer.
+        with contextlib.suppress(OSError):
+            self.client.send({"id": 2, "method": "textDocument/documentSymbol", "params": {
+                "textDocument": {"uri": self.client.uri}}})
+        code, _ = self._ends_within(15)
+        self.assertEqual(code, 1)
+
+    def test_a_length_no_message_has_ends_it(self):
+        # Not by aborting, which is what an exception on the reader's thread does.
+        self.client = Client(self.folder.name, QUICK)
+        self.client.process.stdin.write(b"Content-Length: 9223372036854775807\r\n\r\n")
+        self.client.process.stdin.flush()
+        code, _ = self._ends_within(15)
+        self.assertEqual(code, 1)
+
     def test_ping_is_answered_with_the_message_thread_held(self):
-        # Shutdown holds the message thread for as long as it waits on the references.
+        # Shutdown holds the message thread for as long as it waits on the references, so the ping
+        # is answered first, however slow the machine.
         self.client = Client(self.folder.name, SLOW)
+        self.assertIsNotNone(self.client.answer(1, 60), "initialize wasn't answered")
         self.client.references(2)
         self.client.send({"id": 3, "method": "shutdown"})
         self.client.send({"id": 4, "method": "fb/ping"})
-        self.assertIn("result", self.client.answer(4, 2) or {})
-        self.assertNotIn(3, self.client.answers)
+        self.assertIn("result", self.client.answer(4, 30) or {})
+        with self.client.arrived:
+            answered = list(self.client.answers)
+        if 3 in answered:
+            self.assertLess(answered.index(4), answered.index(3))
 
     def test_nothing_but_the_outbox_writes_messages(self):
         for source in LSP_SOURCES.glob("*.cpp"):

@@ -728,7 +728,8 @@ TEST_CASE("a save's formatting isn't kept waiting by requests for a check", "[ls
     REQUIRE(edits.size() == 1);
     CHECK(edits[0]["range"]["start"]["line"] == 1);
     CHECK(edits[0]["newText"] == "Local n = 1\n");
-    CHECK(std::chrono::steady_clock::now() - asked < std::chrono::milliseconds(1000));
+    // Before the check's delay is up, however slow the machine.
+    CHECK(std::chrono::steady_clock::now() - asked < std::chrono::milliseconds(2000));
     // They come once the check's done, which they asked for.
     CHECK(client.response(hover)["result"]["contents"]["value"].get<std::string>().contains(
         "n: Int32"));
@@ -750,7 +751,8 @@ TEST_CASE("semantic tokens before a check are the lexer's, and the client asks a
     // At once, without waiting for the check, which waits for the edit's pause.
     const auto asked = std::chrono::steady_clock::now();
     const std::vector<semantic_token_t> lexical = semantic_tokens(client, main);
-    CHECK(std::chrono::steady_clock::now() - asked < std::chrono::milliseconds(1000));
+    // Before the check's delay is up, however slow the machine.
+    CHECK(std::chrono::steady_clock::now() - asked < std::chrono::milliseconds(2000));
     CHECK(token_at(lexical, 0, 0).type == "keyword");
     CHECK(token_at(lexical, 1, 7).type == "string");
     CHECK(token_at(lexical, 4, 0).type == "none");

@@ -6,12 +6,14 @@
 #include "fb/format.hpp"
 #include "fb/lsp/features.hpp"
 #include "fb/source.hpp"
+#include "fb/stack_thread.hpp"
 
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <filesystem>
 #include <functional>
 #include <map>
@@ -20,7 +22,6 @@
 #include <optional>
 #include <set>
 #include <string>
-#include <thread>
 #include <vector>
 
 namespace fb::lsp {
@@ -110,6 +111,8 @@ public:
         std::chrono::milliseconds dependents_delay{ 400 };
         /// Whether the units of the client's folders are checked whole as they're added.
         bool load_folders = true;
+        /// What checks; check_files when not given.
+        std::function<std::expected<compilation_t, std::string>(const check_request_t&)> check;
     };
 
     using publish_t = std::function<void(const published_t&)>;
@@ -308,8 +311,8 @@ private:
     /// said it watches.
     std::set<std::string> m_outside;
     std::vector<std::filesystem::path> m_watched_outside;
-    std::thread m_foreground;
-    std::thread m_background;
+    stack_thread_t m_foreground;
+    stack_thread_t m_background;
 
     void run_foreground();
     void run_background();

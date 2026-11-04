@@ -9,6 +9,7 @@
 #include "fb/sema.hpp"
 #include "fb/source.hpp"
 #include "fb/spec_pages.hpp"
+#include "fb/stack_thread.hpp"
 #include "fb/utf8.hpp"
 
 #include <algorithm>
@@ -1010,8 +1011,9 @@ struct mcp_server_t::core_t : std::enable_shared_from_this<core_t> {
             return;
         }
 
-        std::thread([core = shared_from_this(), key = std::move(key), tool = std::move(tool),
-                     arguments = arguments] {
+        // A tool can run the compiler, which needs the stack.
+        stack_thread_t([core = shared_from_this(), key = std::move(key), tool = std::move(tool),
+                        arguments = arguments] {
             json_t result;
             try {
                 result = text_result(core->run(tool, arguments));

@@ -485,7 +485,7 @@ bool is_manifest(const std::filesystem::path& path) {
 
 toml_features_t::toml_features_t(send_t send, const positions_t& positions, options_t options)
     : m_send(std::move(send)), m_positions(positions), m_options(std::move(options)) {
-    m_thread = std::thread([this] { run(); });
+    m_thread = stack_thread_t([this] { run(); });
     m_fetcher = std::thread([this] { fetch(); });
 }
 

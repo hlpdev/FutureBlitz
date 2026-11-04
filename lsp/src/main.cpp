@@ -5,8 +5,10 @@
 #include "fb/lsp/outbox.hpp"
 #include "fb/lsp/protocol.hpp"
 #include "fb/lsp/server.hpp"
+#include "fb/stack_thread.hpp"
 
 #include <chrono>
+#include <csignal>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
@@ -41,6 +43,14 @@ constexpr std::chrono::seconds busy_limit(60);
     std::_Exit(code);
 }
 
+/// Says what went wrong on stderr, which only a person looks at. std::print doesn't link with
+/// MinGW's C++ library.
+void say_error(const std::exception& error) {
+    std::fputs("fb-lsp: ", stderr);
+    std::fputs(error.what(), stderr);
+    std::fputs("\n", stderr);
+}
+
 /// Answers the client's messages until it says exit, or goes away without saying it.
 void serve() {
     // Reading std::cin would flush std::cout, which it's tied to, on the reader's thread, and two
@@ -70,7 +80,7 @@ void serve() {
     fb::lsp::inbox_t inbox;
     server.set_inbox(&inbox);
     fb::lsp::liveness_t liveness(busy_limit);
-    std::thread reader([&] {
+    const auto read_all = [&] {
         // The message thread ends the process once it gets to the end of what's waiting, unless
         // one message is holding it there. What's waiting is answered only for a client that said
         // shutdown, which those before it are owed; one that exits or goes without it wants none,
@@ -123,15 +133,29 @@ void serve() {
         inbox.close();
         wait_for_it();
         finish(outbox, 1);
+    };
+    fb::stack_thread_t reader([&] {
+        try {
+            read_all();
+        } catch (const std::exception& error) {
+            say_error(error);
+            finish(outbox, 1);
+        }
     });
     reader.detach();
-    while (const std::optional<fb::lsp::json_t> message = inbox.pop()) {
-        liveness.handling();
-        server.handle(*message);
-        liveness.handled();
-        if (const std::optional<int> code = server.exit_code()) {
-            finish(outbox, *code);
+    // Past here nothing returns: what it has would wait for checks, and for a client to read, and
+    // the reader has it all.
+    try {
+        while (const std::optional<fb::lsp::json_t> message = inbox.pop()) {
+            liveness.handling();
+            server.handle(*message);
+            liveness.handled();
+            if (const std::optional<int> code = server.exit_code()) {
+                finish(outbox, *code);
+            }
         }
+    } catch (const std::exception& error) {
+        say_error(error);
     }
 
     finish(outbox, 1);
@@ -143,15 +167,16 @@ int main() {
 #ifdef _WIN32
     // A message's length counts its bytes, which text mode would change at each line break.
     static_cast<void>(_setmode(_fileno(stdin), _O_BINARY));
+#else
+    // A write to a client that's gone fails, as on Windows, and the outbox ends the process, with
+    // its exit code; a registry's socket that's closed mustn't end it at all.
+    static_cast<void>(std::signal(SIGPIPE, SIG_IGN));
 #endif
     std::ios::sync_with_stdio(false);
     try {
         serve();
     } catch (const std::exception& error) {
-        // std::print doesn't link with MinGW's C++ library.
-        std::fputs("fb-lsp: ", stderr);
-        std::fputs(error.what(), stderr);
-        std::fputs("\n", stderr);
+        say_error(error);
     } catch (...) {
         std::fputs("fb-lsp: an unknown error\n", stderr);
     }

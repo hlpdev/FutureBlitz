@@ -15,6 +15,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <expected>
 #include <filesystem>
 #include <format>
@@ -337,8 +338,8 @@ std::vector<std::filesystem::path> package_files(const std::filesystem::path& ro
 
 workspace_t::workspace_t(publish_t publish, const options_t options)
     : m_publish(std::move(publish)), m_options(options) {
-    m_foreground = std::thread([this] { run_foreground(); });
-    m_background = std::thread([this] { run_background(); });
+    m_foreground = stack_thread_t([this] { run_foreground(); });
+    m_background = stack_thread_t([this] { run_background(); });
 }
 
 workspace_t::~workspace_t() {
@@ -1155,7 +1156,7 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
     ++m_running;
     lock.unlock();
     const auto start = steady_t::now();
-    std::expected<compilation_t, std::string> result = check_files({
+    const check_request_t request{
         .files = job.roots,
         .main = job.main,
         .read = [&texts](const std::filesystem::path& file) -> std::optional<std::string> {
@@ -1168,7 +1169,17 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
         .workspace = std::move(workspace),
         // References' and renames' checks aren't published.
         .inspect = !job.examples,
-    });
+    };
+    // One that throws, as running out of memory does, is one with no result: on this thread it
+    // would end the process.
+    std::expected<compilation_t, std::string> result =
+        [&] -> std::expected<compilation_t, std::string> {
+        try {
+            return m_options.check ? m_options.check(request) : check_files(request);
+        } catch (const std::exception& error) {
+            return std::unexpected(std::string(error.what()));
+        }
+    }();
     std::shared_ptr<const compilation_t> compilation =
         result ? std::make_shared<const compilation_t>(std::move(*result)) : nullptr;
     const auto took =

@@ -748,7 +748,7 @@ void server_t::worker_t::push(request_job_t job) {
         const std::scoped_lock lock(m_mutex);
         m_jobs.push_back(std::move(job));
         if (!m_thread.joinable()) {
-            m_thread = std::thread([this] { run(); });
+            m_thread = stack_thread_t([this] { run(); });
         }
     }
 
@@ -822,7 +822,7 @@ void server_t::background_t::push(std::function<void()> task) {
         const std::scoped_lock lock(m_mutex);
         m_tasks.push_back(std::move(task));
         if (!m_thread.joinable()) {
-            m_thread = std::thread([this] { run(); });
+            m_thread = stack_thread_t([this] { run(); });
         }
     }
 

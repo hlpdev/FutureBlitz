@@ -6,6 +6,7 @@
 #include "fb/utf8.hpp"
 
 #include <array>
+#include <atomic>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 #include <chrono>
@@ -315,6 +316,29 @@ TEST_CASE("with no stderr, what writes to stdout goes nowhere", "[lsp]") {
     REQUIRE(run);
     CHECK(run->exit_code == 0);
     CHECK(run->output == "message");
+}
+
+namespace {
+
+/// What writes nothing, as a stdout that's closed does.
+class closed_buffer_t : public std::streambuf {};
+
+} // namespace
+
+TEST_CASE("an outbox says once that what it writes to is gone", "[lsp]") {
+    closed_buffer_t buffer;
+    std::ostream out(&buffer);
+    std::atomic<int> told = 0;
+    fb::lsp::outbox_t outbox(out, 1024, [&told] { ++told; });
+    outbox.push("one");
+    outbox.push("two");
+    CHECK(outbox.flush(std::chrono::seconds(30)));
+    CHECK(told == 1);
+}
+
+TEST_CASE("a length no message has is the end of what can be read", "[lsp]") {
+    std::istringstream too_long("Content-Length: 9223372036854775807\r\n\r\n");
+    CHECK_FALSE(fb::lsp::read_message(too_long));
 }
 
 TEST_CASE("a child doesn't inherit what the messages are written to", "[lsp]") {

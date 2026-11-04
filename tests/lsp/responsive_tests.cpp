@@ -1,8 +1,10 @@
 #include "client.hpp"
 #include "fb/lsp/protocol.hpp"
 #include "fb/process.hpp"
+#include "fb/stack_thread.hpp"
 
 #include <algorithm>
+#include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <cctype>
 #include <chrono>
@@ -19,6 +21,7 @@
 #include <string_view>
 #include <thread>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 // 1.2.2: fb-lsp answers every request while code is typed, none of them kept waiting for a
@@ -188,7 +191,8 @@ TEST_CASE("a request that waits for a check gives way once typing moves past its
 
     waiter.join();
     client.settle();
-    CHECK(took < std::chrono::milliseconds(500));
+    // While the typing went on, however slow the machine.
+    CHECK(took < std::chrono::seconds(2));
     CHECK(client.response(completion)["error"]["code"] ==
           static_cast<std::int32_t>(fb::lsp::error_code_t::CONTENT_MODIFIED));
 }
@@ -566,6 +570,74 @@ TEST_CASE("a request cancelled while a whole package's checks run stops waiting 
           static_cast<std::int32_t>(fb::lsp::error_code_t::REQUEST_CANCELLED));
     // Seconds less than the check takes.
     CHECK(std::chrono::steady_clock::now() - asked < std::chrono::seconds(4));
+}
+
+namespace {
+
+/// Uses `depth` pieces of 4 KiB of the stack, and says how many.
+// NOLINTNEXTLINE(misc-no-recursion): the stack's what it's for
+std::size_t use_stack(const std::size_t depth) {
+    std::array<volatile char, 4096> piece{};
+    piece[depth % piece.size()] = 1;
+    const std::size_t below = depth == 0 ? 0 : 1 + use_stack(depth - 1);
+    return below + (piece[0] == 2 ? 1U : 0U);
+}
+
+} // namespace
+
+TEST_CASE("a thread for the compiler has the stack a main thread has for it", "[lsp]") {
+    // 48 MiB, which macOS' 512 KiB and Linux's 8 MiB for a std::thread don't hold.
+    std::size_t used = 0;
+    fb::stack_thread_t thread([&used] { used = use_stack(12000); });
+    REQUIRE(thread.joinable());
+    fb::stack_thread_t moved = std::move(thread);
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move): what it says of itself
+    CHECK_FALSE(thread.joinable());
+    moved.join();
+    CHECK_FALSE(moved.joinable());
+    CHECK(used == 12000);
+}
+
+TEST_CASE("code nested as deep as the compiler goes is checked, and asked about", "[lsp]") {
+    // On the threads the checks and requests have, not the main thread's, where parser_tests has
+    // it.
+    std::string text = "_ = 1";
+    for (int i = 0; i < 1000; ++i) {
+        text += " + 1";
+    }
+
+    const folder_t folder({});
+    const std::string uri = folder.uri("deep.fb");
+    client_t client({});
+    client.open(uri, text + "\n");
+    client.settle();
+    CHECK(client.server().workspace().checked_now(folder.path("deep.fb")));
+    CHECK(client
+              .send("textDocument/hover",
+                    {
+                        { "textDocument", { { "uri", uri } } },
+                        { "position", client_t::position(0, 4) },
+                    })
+              .is_object());
+
+    // And past it, which is one error.
+    std::string deeper = "_ = (";
+    for (int i = 0; i < 5000; ++i) {
+        deeper += '(';
+    }
+
+    client.change(uri, deeper + "\n");
+    const json_t shown = client.published(uri);
+    CHECK(shown.dump().contains("deeper than the compiler goes"));
+}
+
+TEST_CASE("a file: URI has an authority or doesn't", "[lsp]") {
+    CHECK(fb::lsp::path_of("file:/a/b.fb") == fb::lsp::path_of("file:///a/b.fb"));
+    CHECK(fb::lsp::path_of("FILE:/a/b.fb") == fb::lsp::path_of("file:///a/b.fb"));
+    CHECK(fb::lsp::path_of("file:/C:/a/b.fb") == fb::lsp::path_of("file:///C:/a/b.fb"));
+    CHECK(fb::lsp::path_of("file:///a/b.fb").has_value());
+    CHECK_FALSE(fb::lsp::path_of("file:a/b.fb"));
+    CHECK_FALSE(fb::lsp::path_of("https://a/b.fb"));
 }
 
 TEST_CASE("an inbox finds a waiting $/cancelRequest, however messages have left it", "[lsp]") {

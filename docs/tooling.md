@@ -1284,7 +1284,10 @@ what it needs is still compiling or not, and that compile goes on, with no limit
 next. shutdown waits 3 seconds for the requests before it, and exit, or stdin closing, ends the
 process once the message thread gets to it, or once one message has held that thread for 6 seconds,
 longer than shutdown can; without a shutdown before it, what's waiting is dropped, as such a client
-wants no answers to it. What waits to be written has a limit of
+wants no answers to it. A write that fails, as the client closed what it reads, ends the process too,
+and on every system; so does a length no message has, past 1 GiB. Checks and requests run on threads
+with the 64 MiB the main thread has for the compiler's recursion (`stack_thread_t`), as a
+`std::thread` has 512 KiB on macOS. What waits to be written has a limit of
 256 MB, past which the client isn't reading and the process ends, and a document's newer diagnostics
 replace its older ones that haven't gone. Formatting waits for no check. The extension asks `fb/ping` every 10 seconds, which the reader thread answers, unless one message
 has held the message thread for a minute, so a busy server isn't called stuck, and an

@@ -83,6 +83,15 @@ runner failed process_tests' 3,000 at 15 seconds. `inbox_t` counts the $/cancelR
 looks only when there's one, and an exit or a closed stdin without a shutdown before it drops what's
 waiting (`drop_waiting`), as nobody's left to read those answers.
 
+What differs on POSIX, from reading for it. `fb::stack_thread_t`: every check, request, and `fb mcp`
+tool ran on a `std::thread`, 512 KiB on macOS against the 64 MiB cmake/stack.cmake gives the main
+thread, so code nested as deep as the parser allows could crash fb-lsp there. SIGPIPE is ignored, so a
+client that closes what it reads ends fb-lsp with its exit code, and on Windows, where it went on
+forever, too (`outbox_t`'s `full`). A length past 1 GiB ends the reader, which threw and aborted, and a
+check that throws is one with no result. `path_of` takes `file:/x`; process_tests wrote that on
+Python before 3.14, so Linux's CI ran them with no document open. The tests' time limits that a
+slow machine could miss say what they mean instead.
+
 ## 1.2.2
 
 - **fb mcp at exit** (the 2026-11-02 CI): a server waits for the thread reading std's docs, which a test's program could leave running as it exited, reading the compiler's statics as they were destroyed: a segfault on Linux.
