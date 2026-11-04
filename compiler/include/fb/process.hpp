@@ -88,9 +88,11 @@ private:
 /// started, from a job, and on POSIX by itself, from a process that watches for that. What it
 /// started and left running when it ended by itself stays, as does what it starts on its own,
 /// outside the job, as std's Command.SpawnDetached and OpenDefault do. SIGTERM and SIGHUP to this
-/// process go on to it, and this process returns when it ends.
+/// process go on to it, and this process returns when it ends. Its environment is this process's,
+/// with `environment`'s variables in place of those of their names.
 [[nodiscard]] std::expected<int, std::string> run_attached(const std::filesystem::path& program,
-                                                           std::span<const std::string> arguments);
+                                                           std::span<const std::string> arguments,
+                                                           environment_t environment = {});
 
 /// Whether SIGTERM or SIGHUP came while the last run_attached() waited, so this process was asked
 /// to end too. Never on Windows.

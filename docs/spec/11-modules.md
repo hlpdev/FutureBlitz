@@ -251,6 +251,9 @@ layout = { path = "../layout", version = "0.4" }    # its folder here, 0.4 once 
   `fb test` builds a package's tests, from each of its `.fb` files, its tests/ folder's, and its
   doc comments' examples, and runs them (see [09](09-errors.md#tests)). `fb doc` writes a
   package's public API as JSON, to `<folder>/build/<name>.json` unless `-o` says where.
+  The program `fb run` or `fb test` starts has `FUTUREBLITZ_RUN=1` in its environment, which
+  what it starts inherits as usual, so it can tell it was started that way, as `Env.Get` reads it;
+  a built executable run any other way doesn't, unless what started it has the variable.
 - `[native]` names the package's C libraries, each by the name `Lib` gives it (see
   [12](12-ffi.md)): `zstd = "libs/zstd"`, or `zstd = { static = "libs/zstd" }`, is a static
   archive from the package's folder: the file itself, or without its `lib` prefix and its
@@ -312,7 +315,9 @@ program = "cook.fb"
   shown only when it fails, a line of the error's notes each.
 - It runs again when what it read changes, or its program does: a file or folder
   `fb:rerun-if-changed` named, or without one, any of its package's files, as its archive has
-  them; its program's files and the files they embed; the build's fb.lock, as `fb update` changes
+  them; its program's files and the files they embed; the native and prebuilt libraries its
+  program links or has beside it, as one rebuilt at the same version is another program; the
+  build's fb.lock, as `fb update` changes
   it; where the project being built is, so a copy runs it again; and fb, its version or the
   commit it's built from. A file of 1 MB or less changes when its
   bytes do, and a bigger one when its size or time does. What it read is read before it runs, so

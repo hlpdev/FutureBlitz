@@ -3892,8 +3892,9 @@ std::vector<std::string> program_heading(const std::filesystem::path& program,
     };
 }
 
-/// A step's program's lines: program_heading()'s, then each file it was built from and each it
-/// embeds, with file_stamp()'s, or for one that `compiled` didn't get to, its own file.
+/// A step's program's lines: program_heading()'s, then each file it was built from, each it embeds,
+/// and each library it links or has beside it, with file_stamp()'s, or for one that `compiled`
+/// didn't get to, its own file.
 std::vector<std::string> program_lines(const std::filesystem::path& program,
                                        const std::filesystem::path& root,
                                        const compilation_t* compiled) {
@@ -3901,11 +3902,41 @@ std::vector<std::string> program_lines(const std::filesystem::path& program,
     if (compiled != nullptr) {
         std::ranges::copy_if(compiled->on_disk, std::back_inserter(files),
                              [](const std::filesystem::path& file) { return !file.empty(); });
-        // An embed is named as messages name it, from fb's folder, which the next build's
+        // These may be named from fb's folder, as messages name them, which the next build's
         // needn't be.
-        for (const std::string& embedded : compiled->embedded) {
+        const auto add = [&files](const std::filesystem::path& file) {
             std::error_code ignored;
-            files.push_back(std::filesystem::absolute(path_from_utf8(embedded), ignored));
+            files.push_back(std::filesystem::absolute(file, ignored));
+        };
+        for (const std::string& embedded : compiled->embedded) {
+            add(path_from_utf8(embedded));
+        }
+
+        // A native library rebuilt at the same version makes another program, and a dynamic one's
+        // copy beside the program is only made as it's built.
+        for (const std::filesystem::path& archive : compiled->natives.archives) {
+            add(archive);
+        }
+
+        for (const dynamic_native_t& library : compiled->natives.dynamic) {
+            add(library.linked);
+            add(library.file);
+        }
+
+        // A prebuilt library is its interface file and the binary beside it.
+        const auto add_prebuilt = [&add](std::filesystem::path interface) {
+            add(interface);
+            interface.replace_extension(".fblib");
+            add(interface);
+        };
+        for (const std::filesystem::path& interface : compiled->interfaces) {
+            add_prebuilt(interface);
+        }
+
+        for (const beside_library_t& library : compiled->beside) {
+            if (!library.interface.empty()) {
+                add_prebuilt(library.interface);
+            }
         }
     } else {
         files.push_back(program);
