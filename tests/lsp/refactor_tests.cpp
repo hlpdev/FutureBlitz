@@ -29,7 +29,6 @@
 using fb::lsp::json_t;
 using fb::lsp::test::client_t;
 using fb::lsp::test::folder_t;
-using fb::lsp::test::folder_t;
 
 namespace {
 
