@@ -1,3 +1,4 @@
+#include "client.hpp"
 #include "fb/lsp/inbox.hpp"
 #include "fb/lsp/outbox.hpp"
 #include "fb/lsp/protocol.hpp"
@@ -297,15 +298,14 @@ std::string read_file(const std::filesystem::path& path) {
 } // namespace
 
 TEST_CASE("what writes to stdout doesn't reach the messages", "[lsp]") {
-    const std::filesystem::path file =
-        std::filesystem::temp_directory_path() / std::format("fb-stdout-probe-{}.txt", 1);
+    const fb::lsp::test::folder_t folder({});
+    const std::filesystem::path file = folder.path("stray.txt");
     const std::vector<std::string> arguments{ "file", fb::to_utf8(file) };
     const std::expected<fb::process_result_t, std::string> run =
         fb::run_process(FB_LSP_STDOUT_PROBE, arguments);
     REQUIRE(run);
     CHECK(run->output == "message");
     CHECK(read_file(file) == "stray");
-    std::filesystem::remove(file);
 }
 
 TEST_CASE("with no stderr, what writes to stdout goes nowhere", "[lsp]") {
@@ -318,9 +318,12 @@ TEST_CASE("with no stderr, what writes to stdout goes nowhere", "[lsp]") {
 }
 
 TEST_CASE("a child doesn't inherit what the messages are written to", "[lsp]") {
-    const std::filesystem::path file =
-        std::filesystem::temp_directory_path() / "fb-stdout-probe-child.txt";
-    const std::vector<std::string> arguments{ "child", fb::to_utf8(file) };
+    // Nothing reads its stderr, and a file would be held by the child after the test.
+#ifdef _WIN32
+    const std::vector<std::string> arguments{ "child", "NUL" };
+#else
+    const std::vector<std::string> arguments{ "child", "/dev/null" };
+#endif
     const auto begun = std::chrono::steady_clock::now();
     const std::expected<fb::process_result_t, std::string> run =
         fb::run_process(FB_LSP_STDOUT_PROBE, arguments);
