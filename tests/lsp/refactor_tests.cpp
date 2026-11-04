@@ -29,6 +29,7 @@
 using fb::lsp::json_t;
 using fb::lsp::test::client_t;
 using fb::lsp::test::folder_t;
+using fb::lsp::test::folder_t;
 
 namespace {
 
@@ -133,10 +134,10 @@ std::string printed(const program_t& program, const std::string_view name) {
     }
 
     REQUIRE(!compilation.diagnostics.has_errors());
-    const std::filesystem::path folder =
-        std::filesystem::temp_directory_path() / "fb-refactor-tests";
-    std::filesystem::create_directories(folder);
-    std::filesystem::path program_path = folder / name;
+    // A folder for each build: another run of these tests at once would be writing the same
+    // executable, or running it.
+    const folder_t folder({});
+    std::filesystem::path program_path = folder.path(std::string(name));
     program_path += fb::executable_extension;
     const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
     const std::expected<fb::process_result_t, std::string> ran =
