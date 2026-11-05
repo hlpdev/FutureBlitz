@@ -608,7 +608,8 @@ TEST_CASE("fb new makes a package that fb runs", "[cli]") {
     CHECK(read_file(package / "project.toml") ==
           "[project]\nname = \"hello\"\nversion = \"0.1.0\"\n");
     CHECK(read_file(package / "main.fb") == "Import std.core\n\nPrint(\"Hello, world!\")\n");
-    CHECK(read_file(package / ".gitignore") == "build/\n");
+    // What a killed build leaves of fb.lock's temporary file isn't committed either.
+    CHECK(read_file(package / ".gitignore") == "build/\n.fb.lock.partial-*\n");
     // The primer on FutureBlitz and fb mcp that assistants read.
     CHECK(read_file(package / "AGENTS.md") == fb::agents_primer());
 

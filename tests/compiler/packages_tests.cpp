@@ -214,6 +214,43 @@ TEST_CASE("an archive that isn't what fb.lock says stops the build", "[packages]
     CHECK(world.run() == "shapes v0.3.4 isn't in the cache yet; fb build or fb check fetches it");
 }
 
+TEST_CASE("an fb.lock that can't be read stops the build, and keeps its pins", "[packages]") {
+    const world_t world;
+    said_t said;
+    REQUIRE(world.sync(said));
+    const std::filesystem::path lock = world.sandbox / "game/fb.lock";
+    const std::expected<std::optional<std::string>, std::string> before = fb::load_lockfile(lock);
+    REQUIRE(before);
+    {
+        const fb::testing::unreadable_file_t unreadable(lock);
+        const std::expected<fb::sync_result_t, std::string> synced = world.sync(said);
+        REQUIRE_FALSE(synced);
+        CHECK(synced.error() == fb::to_utf8(lock) + ": it can't be opened");
+        CHECK(world.run() == "fb.lock can't be read: it can't be opened");
+    }
+
+    CHECK(fb::load_lockfile(lock) == before);
+}
+
+TEST_CASE("a read-only fb.lock builds until it has to change, which is refused", "[packages]") {
+    const world_t world;
+    said_t said;
+    REQUIRE(world.sync(said));
+    const std::filesystem::path lock = world.sandbox / "game/fb.lock";
+    const std::expected<std::optional<std::string>, std::string> before = fb::load_lockfile(lock);
+    REQUIRE(before);
+    fb::testing::set_read_only(lock, true);
+
+    CHECK(world.sync(said));
+    // A version fb.lock doesn't have.
+    world.game("physics = { version = \"=1.0.0\", registry = \"local\" }\n");
+    const std::expected<fb::sync_result_t, std::string> synced = world.sync(said);
+    fb::testing::set_read_only(lock, false);
+    REQUIRE_FALSE(synced);
+    CHECK(synced.error() == std::format("couldn't write {}: it's read-only", fb::to_utf8(lock)));
+    CHECK(fb::load_lockfile(lock) == before);
+}
+
 TEST_CASE("the driver finds registry packages through fb.lock, and says what's missing",
           "[packages]") {
     const world_t world;

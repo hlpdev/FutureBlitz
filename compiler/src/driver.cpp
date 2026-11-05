@@ -2492,11 +2492,15 @@ public:
         std::vector<std::size_t> chain;
         // The program's registry packages are where fb.lock beside its project.toml says.
         const std::filesystem::path& lock_folder = locked.value_or(folder);
-        if (const std::optional<std::string> text = load_lockfile(lock_folder / "fb.lock")) {
+        const std::expected<std::optional<std::string>, std::string> text =
+            load_lockfile(lock_folder / "fb.lock");
+        if (!text) {
+            m_lock_error = text.error();
+        } else if (*text) {
             // Why it can't be read is copied: GCC 15.2's -O2 and -O3 for MinGW moved the string
             // out of the expected into an optional's and then freed its buffer through the
             // pointer from before the move, which the loader freed again.
-            std::expected<lockfile_t, std::string> read = read_lockfile(*text, lock_folder);
+            std::expected<lockfile_t, std::string> read = read_lockfile(**text, lock_folder);
             if (read) {
                 m_lockfile = std::move(*read);
             } else {
@@ -3879,14 +3883,15 @@ bool write_stamp(const std::filesystem::path& path, const std::vector<std::strin
 /// program, and the build's fb.lock, whose packages it was built with, by its bytes' hash.
 std::vector<std::string> program_heading(const std::filesystem::path& program,
                                          const std::filesystem::path& root) {
-    const std::optional<std::string> lock = load_lockfile(root / "fb.lock");
+    const std::expected<std::optional<std::string>, std::string> lock =
+        load_lockfile(root / "fb.lock");
     return {
         std::format("fb {} ({}, {})", build_config::version, build_commit,
                     build_config::toolchain_target),
         // Where they really are, as another spelling, in other letter cases or 8.3 short names,
         // is the same project.
         "program " + to_utf8(disk::real_path(program).value_or(program)),
-        lock ? "lock " + fnv1a(*lock) : std::string("lock none"),
+        lock && *lock ? "lock " + fnv1a(**lock) : std::string("lock none"),
         // A step's told where its project is, so a copy with a stamp from here runs it again.
         "root " + to_utf8(disk::real_path(root).value_or(root)),
     };

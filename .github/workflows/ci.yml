@@ -96,7 +96,8 @@ jobs:
         run: cmake --build build
 
       - name: Test
-        run: ctest --test-dir build -j 4 --output-on-failure
+        # A failure says so at once, where the rest would take the job another hour to say the same.
+        run: ctest --test-dir build -j 4 --output-on-failure --stop-on-failure
 
       - name: Release builds and repeated concurrent programs
         run: python tools/verify.py --build build --no-build --no-tests --no-format --no-tidy

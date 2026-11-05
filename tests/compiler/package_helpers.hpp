@@ -21,7 +21,66 @@
 #include <utility>
 #include <vector>
 
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#include <share.h>
+#include <sys/stat.h>
+#else
+#include <unistd.h>
+#endif
+
 namespace fb::testing {
+
+/// A file this user can't read for as long as it lives, which is all it does to it: no permission
+/// to, or on Windows, where permissions don't say that, another handle that shares nothing.
+class unreadable_file_t {
+public:
+    explicit unreadable_file_t(std::filesystem::path path) : m_path(std::move(path)) {
+#ifdef _WIN32
+        (void)_wsopen_s(&m_handle, m_path.c_str(), _O_RDONLY | _O_BINARY, _SH_DENYRW, _S_IREAD);
+        REQUIRE(m_handle != -1);
+#else
+        // Root reads anything.
+        if (geteuid() == 0) {
+            SKIP("root can read any file");
+        }
+
+        m_kept = std::filesystem::status(m_path).permissions();
+        std::filesystem::permissions(m_path, std::filesystem::perms::none);
+#endif
+    }
+
+    unreadable_file_t(const unreadable_file_t&) = delete;
+    unreadable_file_t& operator=(const unreadable_file_t&) = delete;
+    unreadable_file_t(unreadable_file_t&&) = delete;
+    unreadable_file_t& operator=(unreadable_file_t&&) = delete;
+
+    ~unreadable_file_t() {
+#ifdef _WIN32
+        (void)_close(m_handle);
+#else
+        std::error_code ignored;
+        std::filesystem::permissions(m_path, m_kept, ignored);
+#endif
+    }
+
+private:
+    std::filesystem::path m_path;
+#ifdef _WIN32
+    int m_handle = -1;
+#else
+    std::filesystem::perms m_kept = std::filesystem::perms::none;
+#endif
+};
+
+/// Takes away this user's right to write the file at `path`, or gives it back.
+inline void set_read_only(const std::filesystem::path& path, const bool read_only) {
+    using std::filesystem::perm_options;
+    using std::filesystem::perms;
+    std::filesystem::permissions(path, perms::owner_write,
+                                 read_only ? perm_options::remove : perm_options::add);
+}
 
 /// An HTTP client that never reaches the network, for tests whose registries are on disk, so a
 /// mistake can't send them to the internet.

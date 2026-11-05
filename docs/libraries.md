@@ -223,6 +223,15 @@ dependencies = []
   it has to.
 - A download whose SHA-256 isn't fb.lock's is an error naming the package and both hashes, and
   nothing of it is used.
+- fb replaces fb.lock at once, by a rename from a temporary file beside it,
+  `.fb.lock.partial-<random>`, so two builds of a package at once each read all of an old or a new
+  one. It's hidden, so a package's archive and a build step's files don't have it, `fb new`'s
+  .gitignore names it, and a save removes those a killed build left over an hour ago. The new file
+  has the old one's permissions, but not its owner, group, or Windows ACLs; a link stays a link,
+  and the file it points to is replaced.
+- An fb.lock that can't be read stops a build, rather than being resolved anew, which would lose
+  its pins. A read-only one, or one this user can't write, builds until it has to change, and
+  then is an error.
 
 **The cache folder** is `~/.futureblitz/` (`%USERPROFILE%\.futureblitz\` on Windows), or the
 folder `FB_HOME` names:

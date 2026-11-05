@@ -110,7 +110,7 @@ int new_command(const options_t& options) {
     const auto files = std::to_array<std::pair<std::string_view, std::string>>({
         { "project.toml", std::format("[project]\nname = \"{}\"\nversion = \"0.1.0\"\n", name) },
         { "main.fb", std::string(main_file) },
-        { ".gitignore", "build/\n" },
+        { ".gitignore", "build/\n.fb.lock.partial-*\n" },
         { "AGENTS.md", std::string(agents_primer()) },
     });
     for (const auto& [file, text] : files) {

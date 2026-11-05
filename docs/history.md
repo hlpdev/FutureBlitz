@@ -3,11 +3,11 @@
 What each milestone and step added, by name, and each review's fixes, as CLAUDE.md kept
 them while each was built. Newest first.
 
-## After 1.2.3
+## 1.2.3
 
 - **fb.lock is replaced at once**: `sync_packages` wrote it through a truncating ofstream, so a second build in the same package could read part of it. `save_lockfile` writes a hidden temporary file beside it, which no walk of the package's files sees, keeps the old file's permissions, and renames it over, trying again while another build has hold of it. On Windows a file being replaced can't be opened for a moment, which a build took for no fb.lock and resolved anew, or a step's stamp for "lock none", so `load_lockfile` tries again too, in both the package manager and the driver. Tests: many writers and readers, where no reader sees part of it or fails to open it, a failed save says why and leaves no temporary file, and permissions are kept.
 
-## 1.2.3
+  From its review: an fb.lock that can't be read was taken for none and replaced, as a rename needs only the folder's rights, which lost its pins, where the old write failed. `load_lockfile` now says why, and stops the build. A read-only one, or one this user can't write, is refused at once, which also left a temporary file and waited five seconds on Windows. A link stays a link, with the file it points to replaced. `fb new`'s .gitignore names the temporary files, and a save removes those a killed build left over an hour ago. Tests: a file that can't be read, by its permissions or on Windows by a handle that shares nothing; a read-only one that builds until it has to change; a link; and the sweep.
 
 - **`FUTUREBLITZ_RUN=1`**: `fb run` and `fb test` set it for the program they start, through a new `environment` argument to `run_attached`, so fbengine's Assets.RunByFb stops guessing from fb's temporary folder's layout. Tests: `fb run` and `fb test` see it, and a built executable run directly doesn't.
 
@@ -34,8 +34,6 @@ From its review: a FileWatcher takes the `\\?\` form by its long names' length, 
 - **`String.FromUtf8Lossy`**: std's public lossy UTF-8 decode, the one File.ReadText has inside, for what reads bytes itself, as an Async ReadText does. Test: tests/programs/text_from_utf8_lossy, against File.ReadText of the same bytes.
 - **ZipWriter's and TarWriter's Finish throw**: past what a UInt8[] holds, Finish throws an `IOError` where it panicked, as a program can't tell how large an archive will come to before it's made, and starts again all the same; their docs say they make it in memory. A caller now needs `Try`. Test: std_tests' archive writers past a smaller limit, and empty after.
 - **FileWatcher through 8.3 short names**: on Windows, libuv cuts what happens in a folder down to a name by the length of the path it was given, out of a path with long names, so a folder named by a short name, as under a TEMP like `C:\Users\RUNNER~1`, told of garbage names, which the watcher dropped; and it compares a watched file's name with the long one Windows tells of, so a file named by its own short name told of nothing. The watcher gives libuv the long form (`os_long_path()`), and still tells of paths as the program gave them. Test: tests/programs/io_watch_short_name, a folder, a recursive one, a file, and a file in a short-named folder.
-
-## 1.2.3
 
 fb-lsp hung in VS Code on 1.2.2, its saves stuck on "Running 'FutureBlitz' Formatter". std::cin is
 tied to std::cout by default, so the reader thread's std::getline flushed std::cout, without the
