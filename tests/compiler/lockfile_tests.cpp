@@ -87,7 +87,7 @@ TEST_CASE("many builds writing fb.lock never let another read part of it", "[loc
     std::atomic<int> reads = 0;
     std::atomic<bool> done = false;
     {
-        std::vector<std::jthread> reading;
+        std::vector<std::thread> reading;
         reading.reserve(readers);
         for (std::size_t reader = 0; reader < readers; ++reader) {
             reading.emplace_back([&] {
@@ -105,7 +105,7 @@ TEST_CASE("many builds writing fb.lock never let another read part of it", "[loc
             });
         }
 
-        std::vector<std::jthread> writing;
+        std::vector<std::thread> writing;
         writing.reserve(writers);
         for (std::size_t writer = 0; writer < writers; ++writer) {
             writing.emplace_back([&, writer] {
@@ -117,8 +117,13 @@ TEST_CASE("many builds writing fb.lock never let another read part of it", "[loc
             });
         }
 
-        writing.clear();
+        for (std::thread& writer : writing) {
+            writer.join();
+        }
         done = true;
+        for (std::thread& reader : reading) {
+            reader.join();
+        }
     }
 
     INFO((wrong.empty() ? std::string() : wrong.front()));
