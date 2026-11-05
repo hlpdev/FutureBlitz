@@ -277,8 +277,8 @@ version.
 - `fb new <folder>` makes a package there, named by the folder's own name, however it's
   written (`fb new .` names it by the current folder's), which is checked as project.toml's names
   are, and on Windows isn't a device's, like CON: project.toml, a main.fb that imports std.core
-  and prints "Hello, world!", and a .gitignore of build/. It refuses a folder that's there and
-  isn't empty.
+  and prints "Hello, world!", and a .gitignore of build/ and fb.lock's temporary files. It refuses
+  a folder that's there and isn't empty.
 
 ## Debug info (step 3)
 
@@ -542,9 +542,12 @@ The style, std's own (settled with the user 2026-10-29), which `fb fmt` enforces
 - std.test: `Expect(a == b)` is built in, and on failure prints the expression and each side's
   value, and the test goes on; `ExpectThrows`, `Fail`, and `Skip`. A panic or an Assert in a test
   fails it.
-- `fb run` and `fb test` set `FUTUREBLITZ_RUN=1` for the program they start, and nothing else fb
-  starts: a program that has to know how it was started reads that, not where fb's temporary
-  folder is, which is fb's own. An executable run directly doesn't have it.
+- `fb run` and `fb test` set `FUTUREBLITZ_RUN=1` for the program they start: a program that has
+  to know how it was started reads that, not where fb's temporary folder is, which is fb's own.
+  fb sets it for nothing else it starts, but it's inherited as any variable is, so a build step
+  has it when an fb that a program under `fb run` started runs that step. An executable run
+  directly doesn't have it, and neither does one VS Code debugs: F5 runs it through CodeLLDB,
+  not `fb run`, with what a launch configuration's `env` gives it.
 - `fb test` runs the tests in parallel in one process, and starts it again after a test that
   panics, running the rest, and in a debug build the ones that finished in that run too, whose
   leaks it didn't check; filters by name, a summary, and leaks reported per test.

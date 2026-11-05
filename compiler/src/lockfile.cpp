@@ -24,12 +24,55 @@
 #include <utility>
 #include <vector>
 
+#ifndef _WIN32
+#include <unistd.h>
+#endif
+
 namespace fb {
 namespace {
 
 /// How many times, a millisecond longer each, to try a file another build has hold of: about five
 /// seconds in all.
 constexpr int busy_tries = 100;
+
+/// How a temporary file of save_lockfile()'s starts. Hidden, so no walk of a package's files sees
+/// it, and `fb new`'s .gitignore has it.
+constexpr std::string_view partial_prefix = ".fb.lock.partial-";
+
+/// Whether this user may write the file at `path`, whose status is `status`.
+bool can_write(const std::filesystem::path& path, const std::filesystem::file_status& status) {
+#ifdef _WIN32
+    // Windows' permissions say only whether it's read-only, and a rename fails on what its ACLs
+    // deny.
+    (void)path;
+    return (status.permissions() & std::filesystem::perms::owner_write) !=
+           std::filesystem::perms::none;
+#else
+    (void)status;
+    return access(path.c_str(), W_OK) == 0;
+#endif
+}
+
+/// Removes what builds that were killed left of their temporary files in `folder`. One from the
+/// last hour may be another build's, still writing.
+void sweep_partials(const std::filesystem::path& folder) {
+    std::error_code error;
+    const std::filesystem::path from = folder.empty() ? std::filesystem::path(".") : folder;
+    const std::filesystem::file_time_type now = std::filesystem::file_time_type::clock::now();
+    for (std::filesystem::directory_iterator each(from, error), end; !error && each != end;
+         each.increment(error)) {
+        if (!to_utf8(each->path().filename()).starts_with(partial_prefix)) {
+            continue;
+        }
+
+        std::error_code ignored;
+        const std::filesystem::file_time_type written =
+            std::filesystem::last_write_time(each->path(), ignored);
+        if (!ignored && now - written > std::chrono::hours(1)) {
+            std::filesystem::remove(each->path(), ignored);
+        }
+    }
+}
 
 /// How fb.lock writes a registry on disk: its folder, from the lock's.
 constexpr std::string_view path_source = "path+";
@@ -119,8 +162,21 @@ const locked_package_t* lockfile_t::find(const std::string_view name) const {
     return found != packages.end() ? &*found : nullptr;
 }
 
-std::optional<std::string> load_lockfile(const std::filesystem::path& path) {
+std::expected<std::optional<std::string>, std::string>
+load_lockfile(const std::filesystem::path& path) {
     for (int tries = 1; tries <= busy_tries; ++tries) {
+        std::error_code error;
+        const std::filesystem::file_type type = std::filesystem::status(path, error).type();
+        if (type == std::filesystem::file_type::not_found) {
+            return std::nullopt;
+        }
+
+        // An error's type is none, which trying again can get past.
+        if (type != std::filesystem::file_type::regular &&
+            type != std::filesystem::file_type::none) {
+            return std::unexpected("it isn't a file");
+        }
+
         const std::ifstream in(path, std::ios::binary);
         if (in) {
             std::ostringstream bytes;
@@ -129,23 +185,42 @@ std::optional<std::string> load_lockfile(const std::filesystem::path& path) {
         }
 
         // On Windows, a file being replaced can't be opened for a moment.
-        std::error_code error;
-        if (std::filesystem::status(path, error).type() != std::filesystem::file_type::regular) {
-            return std::nullopt;
-        }
-
         std::this_thread::sleep_for(std::chrono::milliseconds(tries));
     }
 
-    return std::nullopt;
+    return std::unexpected("it can't be opened");
 }
 
 std::expected<void, std::string> save_lockfile(const std::filesystem::path& path,
                                                const std::string_view text) {
+    std::error_code error;
+    // A link stays a link, to the file saved.
+    std::filesystem::path target = path;
+    if (std::filesystem::is_symlink(std::filesystem::symlink_status(path, error))) {
+        target = std::filesystem::weakly_canonical(path, error);
+        if (error) {
+            return std::unexpected(
+                std::format("couldn't write {}: {}", to_utf8(path), error.message()));
+        }
+    }
+
+    const std::filesystem::file_status before = std::filesystem::status(target, error);
+    const bool replacing = !error && std::filesystem::exists(before);
+    if (replacing) {
+        // A rename needs only the folder's rights, so it would go through what these say.
+        if (!std::filesystem::is_regular_file(before)) {
+            return std::unexpected(
+                std::format("couldn't write {}: it isn't a file", to_utf8(path)));
+        }
+
+        if (!can_write(target, before)) {
+            return std::unexpected(std::format("couldn't write {}: it's read-only", to_utf8(path)));
+        }
+    }
+
     std::random_device random;
     const std::filesystem::path partial =
-        path.parent_path() / std::format(".fb.lock.partial-{:08x}", random());
-    std::error_code error;
+        target.parent_path() / std::format("{}{:08x}", partial_prefix, random());
     {
         std::ofstream out(partial, std::ios::binary);
         out.write(text.data(), static_cast<std::streamsize>(text.size()));
@@ -156,21 +231,16 @@ std::expected<void, std::string> save_lockfile(const std::filesystem::path& path
         }
     }
 
-    const std::filesystem::file_status before = std::filesystem::status(path, error);
-    if (!error && std::filesystem::exists(before)) {
+    if (replacing) {
         std::filesystem::permissions(partial, before.permissions(), error);
     }
 
     // A build reading the file on Windows holds it for a moment, as a virus scanner can.
     for (int tries = 1; tries <= busy_tries; ++tries) {
-        std::filesystem::rename(partial, path, error);
+        std::filesystem::rename(partial, target, error);
         if (!error) {
+            sweep_partials(target.parent_path());
             return {};
-        }
-
-        // Time doesn't make a folder in its place go away.
-        if (std::filesystem::is_directory(before)) {
-            break;
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(tries));

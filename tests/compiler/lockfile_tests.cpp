@@ -1,6 +1,7 @@
 #include "fb/lockfile.hpp"
 #include "fb/registry.hpp"
 #include "fb/utf8.hpp"
+#include "package_helpers.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -10,11 +11,14 @@
 #include <expected>
 #include <filesystem>
 #include <format>
+#include <fstream>
+#include <ios>
 #include <mutex>
 #include <optional>
 #include <set>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -59,6 +63,16 @@ std::set<std::string> names_in(const std::filesystem::path& folder) {
     return names;
 }
 
+/// The fb.lock at `path`'s text, or nullopt when it isn't there or can't be read.
+std::optional<std::string> text_at(const std::filesystem::path& path) {
+    return fb::load_lockfile(path).value_or(std::nullopt);
+}
+
+/// Writes `text` to a new file at `path`.
+void write_file(const std::filesystem::path& path, const std::string_view text) {
+    std::ofstream(path, std::ios::binary) << text;
+}
+
 } // namespace
 
 TEST_CASE("many builds writing fb.lock never let another read part of it", "[lockfile]") {
@@ -92,7 +106,7 @@ TEST_CASE("many builds writing fb.lock never let another read part of it", "[loc
         for (std::size_t reader = 0; reader < readers; ++reader) {
             reading.emplace_back([&] {
                 while (!done) {
-                    const std::optional<std::string> read = fb::load_lockfile(path);
+                    const std::optional<std::string> read = text_at(path);
                     if (!read) {
                         report("a reader couldn't open it");
                     } else if (!std::ranges::contains(whole, *read)) {
@@ -164,14 +178,93 @@ TEST_CASE("fb.lock saved over another keeps its permissions", "[lockfile]") {
 
     REQUIRE(fb::save_lockfile(path, "two"));
     CHECK(std::filesystem::status(path).permissions() == kept);
-    CHECK(fb::load_lockfile(path) == "two");
+    CHECK(text_at(path) == "two");
 }
 
-TEST_CASE("fb.lock that isn't there, or is a folder, loads as nothing at once", "[lockfile]") {
+TEST_CASE("fb.lock that isn't there is nothing, and a folder in its place says so", "[lockfile]") {
     const std::filesystem::path folder = lock_folder("nothing");
-    CHECK(fb::load_lockfile(folder / "fb.lock") == std::nullopt);
+    const auto missing = fb::load_lockfile(folder / "fb.lock");
+    REQUIRE(missing);
+    CHECK(*missing == std::nullopt);
+
     std::filesystem::create_directories(folder / "fb.lock");
-    CHECK(fb::load_lockfile(folder / "fb.lock") == std::nullopt);
+    const auto a_folder = fb::load_lockfile(folder / "fb.lock");
+    REQUIRE_FALSE(a_folder);
+    CHECK(a_folder.error() == "it isn't a file");
+}
+
+TEST_CASE("fb.lock that can't be read isn't taken for one that isn't there", "[lockfile]") {
+    const std::filesystem::path folder = lock_folder("unreadable");
+    const std::filesystem::path path = folder / "fb.lock";
+    REQUIRE(fb::save_lockfile(path, "pins"));
+    {
+        const fb::testing::unreadable_file_t unreadable(path);
+        const auto loaded = fb::load_lockfile(path);
+        REQUIRE_FALSE(loaded);
+        CHECK(loaded.error() == "it can't be opened");
+    }
+
+    CHECK(text_at(path) == "pins");
+}
+
+TEST_CASE("a read-only fb.lock is refused at once, and left as it is", "[lockfile]") {
+    const std::filesystem::path folder = lock_folder("read-only");
+    const std::filesystem::path path = folder / "fb.lock";
+    REQUIRE(fb::save_lockfile(path, "pins"));
+    fb::testing::set_read_only(path, true);
+
+    const auto started = std::chrono::steady_clock::now();
+    const std::expected<void, std::string> saved = fb::save_lockfile(path, "other");
+    const auto took = std::chrono::steady_clock::now() - started;
+    fb::testing::set_read_only(path, false);
+
+    REQUIRE_FALSE(saved);
+    CHECK(saved.error() == std::format("couldn't write {}: it's read-only", fb::to_utf8(path)));
+    CHECK(text_at(path) == "pins");
+    // It doesn't wait out what's meant for another build's hold on it.
+    CHECK(took < std::chrono::seconds(4));
+    CHECK(names_in(folder) == std::set<std::string>{ "fb.lock" });
+}
+
+TEST_CASE("fb.lock that's a link stays one, to the file saved", "[lockfile]") {
+    const std::filesystem::path folder = lock_folder("link");
+    std::filesystem::create_directories(folder / "real");
+    std::filesystem::create_directories(folder / "package");
+    const std::filesystem::path real = folder / "real" / "fb.lock";
+    const std::filesystem::path link = folder / "package" / "fb.lock";
+    write_file(real, "one");
+    std::error_code error;
+    std::filesystem::create_symlink(real, link, error);
+    if (error) {
+        SKIP("this system doesn't let the tests make a link");
+    }
+
+    REQUIRE(fb::save_lockfile(link, "two"));
+    CHECK(std::filesystem::is_symlink(link));
+    CHECK(text_at(real) == "two");
+    CHECK(text_at(link) == "two");
+    CHECK(names_in(folder / "real") == std::set<std::string>{ "fb.lock" });
+    CHECK(names_in(folder / "package") == std::set<std::string>{ "fb.lock" });
+}
+
+TEST_CASE("a save of fb.lock removes what killed builds left, not what's being written",
+          "[lockfile]") {
+    const std::filesystem::path folder = lock_folder("sweep");
+    const std::filesystem::path killed = folder / ".fb.lock.partial-00000001";
+    const std::filesystem::path writing = folder / ".fb.lock.partial-00000002";
+    const std::filesystem::path other = folder / ".other";
+    for (const std::filesystem::path& each : { killed, writing, other }) {
+        write_file(each, "part");
+    }
+
+    const std::filesystem::file_time_type old =
+        std::filesystem::file_time_type::clock::now() - std::chrono::hours(2);
+    std::filesystem::last_write_time(killed, old);
+    std::filesystem::last_write_time(other, old);
+
+    REQUIRE(fb::save_lockfile(folder / "fb.lock", "text"));
+    CHECK(names_in(folder) ==
+          std::set<std::string>{ ".fb.lock.partial-00000002", ".other", "fb.lock" });
 }
 
 TEST_CASE("fb.lock writes each package, sorted, and reads back the same", "[lockfile]") {

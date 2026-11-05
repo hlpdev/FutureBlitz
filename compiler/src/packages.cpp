@@ -379,7 +379,13 @@ std::expected<sync_result_t, std::string> sync_packages(const std::filesystem::p
     }
 
     const std::filesystem::path lock_path = root / "fb.lock";
-    const std::optional<std::string> lock_text = load_lockfile(lock_path);
+    const std::expected<std::optional<std::string>, std::string> loaded = load_lockfile(lock_path);
+    // One that can't be read stops here, as resolving anew would lose what it pins.
+    if (!loaded) {
+        return std::unexpected(std::format("{}: {}", to_utf8(lock_path), loaded.error()));
+    }
+
+    const std::optional<std::string>& lock_text = *loaded;
     lockfile_t before;
     if (lock_text) {
         std::expected<lockfile_t, std::string> read = read_lockfile(*lock_text, root);

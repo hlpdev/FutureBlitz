@@ -63,14 +63,18 @@ inline constexpr int lockfile_version = 1;
 [[nodiscard]] std::expected<lockfile_t, std::string>
 read_lockfile(std::string_view text, const std::filesystem::path& root);
 
-/// The bytes of the fb.lock at `path`, or nullopt when it isn't there or can't be read. One that
-/// another build is replacing is read once it's replaced.
-[[nodiscard]] std::optional<std::string> load_lockfile(const std::filesystem::path& path);
+/// The bytes of the fb.lock at `path`, nullopt when it isn't there, or why it can't be read, which
+/// isn't the same as its not being there, as a build would then resolve anew and lose its pins. One
+/// that another build is replacing is read once it's replaced.
+[[nodiscard]] std::expected<std::optional<std::string>, std::string>
+load_lockfile(const std::filesystem::path& path);
 
-/// Replaces the fb.lock at `path` with `text` at once, with the same permissions when there's one
-/// already, so a build reading it has all of the old text or all of the new, whatever other builds
-/// of the package write. Its temporary file beside it is hidden, so no walk of the package's files
-/// sees it.
+/// Replaces the fb.lock at `path` with `text` at once, so a build reading it has all of the old
+/// text or all of the new, whatever other builds of the package write, or says why it can't: a
+/// read-only one, and one this user can't write, is refused. A link stays a link, and the file it
+/// points to is replaced. The new file has the old one's permissions, but not its owner, group, or
+/// Windows ACLs. Its temporary file beside it is hidden, so no walk of the package's files sees it,
+/// and a save removes those a killed build left over an hour ago.
 [[nodiscard]] std::expected<void, std::string> save_lockfile(const std::filesystem::path& path,
                                                              std::string_view text);
 
