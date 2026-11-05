@@ -7,6 +7,7 @@
 #include "fb/lsp/server.hpp"
 #include "fb/stack_thread.hpp"
 
+#include <atomic>
 #include <chrono>
 #include <csignal>
 #include <cstddef>
@@ -60,10 +61,23 @@ void serve() {
     std::cin.tie(nullptr);
     fb::lsp::fd_buffer_t output(fb::lsp::take_stdout());
     std::ostream out(&output);
-    fb::lsp::outbox_t outbox(out, most_waiting, [] {
-        std::fputs("fb-lsp: the client isn't reading what it's sent\n", stderr);
-        std::_Exit(1);
-    });
+    // Whether the client's said shutdown, so one that closes what it reads after is one that's
+    // done.
+    std::atomic<bool> shutdown = false;
+    fb::lsp::outbox_t outbox(
+        out, most_waiting,
+        [] {
+            std::fputs("fb-lsp: the client isn't reading what it's sent\n", stderr);
+            std::_Exit(1);
+        },
+        [&shutdown] {
+            if (shutdown) {
+                std::_Exit(0);
+            }
+
+            std::fputs("fb-lsp: the client closed what it reads\n", stderr);
+            std::_Exit(1);
+        });
     const auto send = [&outbox](const fb::lsp::json_t& message) {
         std::string replaces;
         if (message.value("method", std::string()) == "textDocument/publishDiagnostics") {
@@ -90,7 +104,6 @@ void serve() {
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
             }
         };
-        bool shutdown = false;
         while (const std::optional<std::string> body = fb::lsp::read_message(std::cin)) {
             fb::lsp::json_t message = fb::lsp::json_t::parse(*body, nullptr, false);
             if (message.is_discarded()) {
@@ -113,7 +126,10 @@ void serve() {
                 continue;
             }
 
-            shutdown = shutdown || method == "shutdown";
+            if (method == "shutdown") {
+                shutdown = true;
+            }
+
             const bool exiting = method == "exit";
             if (exiting && !shutdown) {
                 inbox.drop_waiting();

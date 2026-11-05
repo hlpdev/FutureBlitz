@@ -27,8 +27,10 @@
 
 namespace fb::lsp {
 
-outbox_t::outbox_t(std::ostream& out, const std::size_t most, std::function<void()> full)
-    : m_out(out), m_most(most), m_full(std::move(full)), m_writer([this] { write_all(); }) {}
+outbox_t::outbox_t(std::ostream& out, const std::size_t most, std::function<void()> full,
+                   std::function<void()> gone)
+    : m_out(out), m_most(most), m_full(std::move(full)), m_gone(std::move(gone)),
+      m_writer([this] { write_all(); }) {}
 
 outbox_t::~outbox_t() {
     {
@@ -48,7 +50,10 @@ void outbox_t::push(std::string body, std::string replaces) {
                               ? m_waiting.end()
                               : std::ranges::find(m_waiting, replaces, &waiting_t::replaces);
         const std::size_t freed = same != m_waiting.end() ? same->body.size() : 0;
-        if (m_bytes - freed + body.size() > m_most) {
+        // One message goes whatever its size, as a long answer to a client that's reading is no
+        // sign it isn't: what the limit's for is what piles up behind it.
+        const bool alone = m_waiting.size() == (same != m_waiting.end() ? 1U : 0U);
+        if (!alone && m_bytes - freed + body.size() > m_most) {
             full = true;
         } else {
             m_bytes += body.size() - freed;
@@ -86,19 +91,19 @@ void outbox_t::write_all() {
 
         const std::string body = std::move(m_waiting.front().body);
         m_waiting.pop_front();
+        m_bytes -= body.size();
         m_writing = true;
         lock.unlock();
         write_message(m_out, body);
         // What it writes to is gone, and nothing will read another message.
-        const bool gone = !m_out.good() && m_full && !m_told_gone;
+        const bool gone = !m_out.good() && m_gone && !m_told_gone;
         lock.lock();
-        m_bytes -= body.size();
         m_writing = false;
         m_written.notify_all();
         if (gone) {
             m_told_gone = true;
             lock.unlock();
-            m_full();
+            m_gone();
             lock.lock();
         }
     }

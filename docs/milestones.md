@@ -303,6 +303,7 @@ adds what it leaves out. Checked against all of docs/spec/ on 2026-10-17.
 | A Float range, like `0.0 To 1.0 Step 0.1`, which a For loop counts but a range doesn't | M6 step 2 | open question |
 | Plugins and loading libraries at run time, `Plugin.Load` and `DynamicLibrary`, which game mods would use (the user's call, 2026-10-28) | M7 | open question |
 | The quick fix that `fb add`s the registry package declaring a name nothing in the program does, which needs the registry to keep an index of each published version's Public names, and an API to ask it which packages have a name (the coordinator's call, 2026-11-01) | M11 step 5 | open question |
+| A project on a Windows share: MinGW's std::filesystem has no root name for \\\\server\\share, so the compiler's `absolute`, `lexically_normal`, and `weakly_canonical` lose it, `fb check` says it can't read the file, and fb-lsp, whose URIs are right, publishes no errors. A mapped drive works | 1.2.3's review | open question |
 
 ## Process
 

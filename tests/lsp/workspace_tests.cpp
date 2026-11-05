@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <sstream>
@@ -446,6 +447,12 @@ TEST_CASE("a check that throws is a check with no result, and the next one's fin
     std::atomic<bool> throwing = true;
     fb::lsp::workspace_t::options_t options;
     options.delay = std::chrono::milliseconds(0);
+    std::mutex logged_mutex;
+    std::vector<std::string> logged;
+    options.log = [&](const std::string& text) {
+        const std::scoped_lock lock(logged_mutex);
+        logged.push_back(text);
+    };
     options.check = [&throwing](const fb::check_request_t& request) {
         if (throwing) {
             throw std::runtime_error("out of something");
@@ -455,13 +462,18 @@ TEST_CASE("a check that throws is a check with no result, and the next one's fin
     };
     fb::lsp::workspace_t workspace([](const fb::lsp::published_t&) {}, options);
     workspace.open(path, 1, "Local n = 1\n");
+    // What waits for it is told it has no result, and doesn't wait out its time.
     const auto until = std::chrono::steady_clock::now() + std::chrono::minutes(1);
-    while (workspace.history().empty() && std::chrono::steady_clock::now() < until) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
+    CHECK_FALSE(workspace.checked(path, 1, until));
+    CHECK(std::chrono::steady_clock::now() < until);
 
     REQUIRE_FALSE(workspace.history().empty());
     CHECK(workspace.history().front().modules == 0);
+    {
+        const std::scoped_lock lock(logged_mutex);
+        REQUIRE(logged.size() == 1);
+        CHECK(logged[0].contains("out of something"));
+    }
 
     throwing = false;
     workspace.change(path, 2, "Local n = 2\n");

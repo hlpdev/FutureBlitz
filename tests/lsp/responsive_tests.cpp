@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <catch2/catch_test_macros.hpp>
 #include <cctype>
 #include <chrono>
@@ -19,15 +20,22 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <thread>
 #include <tuple>
 #include <utility>
 #include <vector>
 
+#ifndef _WIN32
+#include <cerrno>
+#include <pthread.h>
+#endif
+
 // 1.2.2: fb-lsp answers every request while code is typed, none of them kept waiting for a
 // check on the message thread, and none dropped.
 
 using fb::lsp::json_t;
+using fb::lsp::test::check_gate_t;
 using fb::lsp::test::client_t;
 using fb::lsp::test::folder_t;
 
@@ -176,23 +184,24 @@ TEST_CASE("a request that waits for a check gives way once typing moves past its
         client.queue("textDocument/hover",
                      { { "textDocument", document }, { "position", client_t::position(1, 11) } });
     client.drain();
-    const auto asked = std::chrono::steady_clock::now();
-    std::chrono::steady_clock::duration took{};
+    std::atomic<bool> answered = false;
     std::thread waiter([&] {
         (void)client.response(hover);
-        took = std::chrono::steady_clock::now() - asked;
+        answered = true;
     });
-    while (std::chrono::steady_clock::now() - asked < std::chrono::seconds(2)) {
+    // The typing stops when it's answered, or, with it waiting for as long as typing goes on, never
+    // does but for this.
+    const auto asked = std::chrono::steady_clock::now();
+    while (!answered && std::chrono::steady_clock::now() - asked < std::chrono::minutes(1)) {
         text += '1';
         client.queue_change(uri, text);
         client.drain();
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
 
+    CHECK(answered);
     waiter.join();
     client.settle();
-    // While the typing went on, however slow the machine.
-    CHECK(took < std::chrono::seconds(2));
     CHECK(client.response(completion)["error"]["code"] ==
           static_cast<std::int32_t>(fb::lsp::error_code_t::CONTENT_MODIFIED));
 }
@@ -449,8 +458,7 @@ TEST_CASE("each change's check brings the refreshes it asks for, though checks a
 
 namespace {
 
-/// `twice`, and a Const that computes a lot, so the check of it takes seconds, as a stuck one
-/// would.
+/// `twice`, and what the tests whose checks a gate holds ask about.
 std::string spinning(const std::string_view after = {}) {
     return std::format("{}Const Function Spin(n: Int): Int\n"
                        "    Local t = 0\n"
@@ -459,7 +467,7 @@ std::string spinning(const std::string_view after = {}) {
                        "    End For\n"
                        "    Return t\n"
                        "End Function\n"
-                       "Const Slow = Spin(3000000)\n"
+                       "Const Slow = Spin(3)\n"
                        "Local more = Twice(total)\n{}",
                        twice, after);
 }
@@ -478,10 +486,12 @@ TEST_CASE("a request whose check is stuck is answered by its deadline, and nothi
           "[lsp]") {
     const folder_t folder({});
     const std::string uri = folder.uri("stuck.fb");
-    client_t client({ .request_deadline = std::chrono::milliseconds(500) });
+    check_gate_t gate;
+    client_t client({ .request_deadline = std::chrono::milliseconds(500), .gate = &gate });
     client.open(uri, twice);
     client.settle();
 
+    gate.close();
     client.change(uri, spinning());
     const json_t document{ { "uri", uri } };
 
@@ -518,6 +528,7 @@ TEST_CASE("a request whose check is stuck is answered by its deadline, and nothi
           static_cast<std::int32_t>(fb::lsp::error_code_t::REQUEST_FAILED));
     CHECK(client.response(behind)["error"]["code"] ==
           static_cast<std::int32_t>(fb::lsp::error_code_t::REQUEST_FAILED));
+    gate.open();
     client.settle();
 }
 
@@ -526,22 +537,25 @@ TEST_CASE("a request cancelled while its check outlasts its deadline is answered
     // As on CI's machines: the check takes longer than the deadline, which the request sat out.
     const folder_t folder({});
     const std::string uri = folder.uri("outlasts.fb");
-    client_t client({ .request_deadline = std::chrono::seconds(5) });
+    check_gate_t gate;
+    client_t client({ .request_deadline = std::chrono::seconds(5), .gate = &gate });
     client.open(uri, twice);
     client.settle();
 
+    gate.close();
     client.change(uri, spinning());
     const json_t document{ { "uri", uri } };
     const std::int64_t hover =
         client.queue("textDocument/hover",
                      { { "textDocument", document }, { "position", client_t::position(12, 15) } });
     client.drain();
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    gate.wait_for_one();
     client.notify("$/cancelRequest", { { "id", hover } });
     const json_t cancelled = client.response(hover);
     INFO(cancelled.dump());
     CHECK(cancelled["error"]["code"] ==
           static_cast<std::int32_t>(fb::lsp::error_code_t::REQUEST_CANCELLED));
+    gate.open();
     client.settle();
 }
 
@@ -549,11 +563,13 @@ TEST_CASE("a request cancelled while a whole package's checks run stops waiting 
           "[lsp]") {
     const folder_t folder({});
     const std::string uri = folder.uri("package.fb");
-    client_t client({});
+    check_gate_t gate;
+    client_t client({ .gate = &gate });
     client.open(uri, spinning());
     client.settle();
 
-    // References compile the file again, for seconds, off the worker.
+    // References compile the file again, off the worker, and never end here.
+    gate.close();
     const std::int64_t references = client.queue(
         "textDocument/references", {
                                        { "textDocument", { { "uri", uri } } },
@@ -561,15 +577,13 @@ TEST_CASE("a request cancelled while a whole package's checks run stops waiting 
                                        { "context", { { "includeDeclaration", true } } },
                                    });
     client.drain();
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
-    const auto asked = std::chrono::steady_clock::now();
+    gate.wait_for_one();
     client.notify("$/cancelRequest", { { "id", references } });
+    // With the check still held.
     const json_t cancelled = client.response(references);
     INFO(cancelled.dump());
     CHECK(cancelled["error"]["code"] ==
           static_cast<std::int32_t>(fb::lsp::error_code_t::REQUEST_CANCELLED));
-    // Seconds less than the check takes.
-    CHECK(std::chrono::steady_clock::now() - asked < std::chrono::seconds(4));
 }
 
 namespace {
@@ -638,7 +652,71 @@ TEST_CASE("a file: URI has an authority or doesn't", "[lsp]") {
     CHECK(fb::lsp::path_of("file:///a/b.fb").has_value());
     CHECK_FALSE(fb::lsp::path_of("file:a/b.fb"));
     CHECK_FALSE(fb::lsp::path_of("https://a/b.fb"));
+    // localhost is this machine.
+    CHECK(fb::lsp::path_of("file://localhost/a/b.fb") == fb::lsp::path_of("file:///a/b.fb"));
+    CHECK(fb::lsp::path_of("file://LOCALHOST/C:/a/b.fb") == fb::lsp::path_of("file:///C:/a/b.fb"));
+    CHECK_FALSE(fb::lsp::path_of("file://localhost"));
+    CHECK_FALSE(fb::lsp::path_of("file://"));
 }
+
+#ifdef _WIN32
+TEST_CASE("a file on a Windows share has the URI VS Code has for it", "[lsp]") {
+    constexpr std::string_view shared = "file://server/share/a%20b/x.fb";
+    const std::filesystem::path path = fb::lsp::path_of(shared).value_or(std::filesystem::path());
+    CHECK(path == std::filesystem::path("//server/share/a b/x.fb"));
+    CHECK(fb::lsp::uri_of(path) == shared);
+    // As the older form has it too, for a client that wrote what fb-lsp used to.
+    CHECK(fb::lsp::path_of("file:////server/share/a%20b/x.fb") == path);
+    CHECK(fb::lsp::uri_of(R"(\\server\share\a b\x.fb)") == shared);
+    // A drive is as it was.
+    CHECK(fb::lsp::uri_of("C:/a/x.fb") == "file:///C:/a/x.fb");
+    // Normal, and not on the current drive, whatever spells it.
+    CHECK(fb::lsp::uri_of("//server/share/a b/c/../x.fb") == shared);
+    CHECK(fb::lsp::file_key("//Server/Share/x.fb") == fb::lsp::file_key("//server/share/x.fb"));
+    CHECK(fb::lsp::file_key("//other/share/x.fb") != fb::lsp::file_key("//server/share/x.fb"));
+}
+
+TEST_CASE("a document on a Windows share has its diagnostics published to its own URI", "[lsp]") {
+    // Loopback, where no share of this name is, says so at once, and the document's text is the
+    // client's.
+    const std::string uri = "file://127.0.0.1/fb-no-such-share/shared.fb";
+    client_t client({ .load_folders = false });
+    client.open(uri, "Local n: Nothing = 1\n");
+    CHECK(client.published(uri).dump().contains("Nothing"));
+    // Not one the client's path_of makes the same: VS Code compares what it's sent.
+    const std::vector<json_t> received = client.received();
+    CHECK(std::ranges::any_of(received, [&](const json_t& message) {
+        return message.value("method", "") == "textDocument/publishDiagnostics" &&
+               message["params"]["uri"] == uri;
+    }));
+}
+#endif
+
+#ifndef _WIN32
+namespace {
+
+/// Fails each start that asks for a stack of its own, as with memory limited.
+int no_memory_for_stack(pthread_t* const thread, const pthread_attr_t* const attributes,
+                        void* (*const work)(void*), void* const argument) {
+    return attributes != nullptr ? EAGAIN : pthread_create(thread, nullptr, work, argument);
+}
+
+/// Fails everything.
+int no_threads(pthread_t*, const pthread_attr_t*, void* (*)(void*), void*) {
+    return EPERM;
+}
+
+} // namespace
+
+TEST_CASE("a thread starts with the system's stack where the compiler's won't fit", "[lsp]") {
+    std::atomic<bool> ran = false;
+    fb::stack_thread_t thread([&ran] { ran = true; }, &no_memory_for_stack);
+    thread.join();
+    CHECK(ran);
+    // Only for that: another failure is one.
+    CHECK_THROWS_AS(fb::stack_thread_t([] {}, &no_threads), std::system_error);
+}
+#endif
 
 TEST_CASE("an inbox finds a waiting $/cancelRequest, however messages have left it", "[lsp]") {
     const auto cancel = [](const int id) {
@@ -675,14 +753,41 @@ TEST_CASE("an inbox finds a waiting $/cancelRequest, however messages have left 
     CHECK(inbox.take_cancel(7));
 }
 
+TEST_CASE("one waiting $/cancelRequest doesn't have each request look through what's waiting",
+          "[lsp]") {
+    fb::lsp::inbox_t inbox;
+    for (int id = 0; id < 12000; ++id) {
+        inbox.push({ { "id", id }, { "method", "textDocument/documentSymbol" } });
+    }
+
+    inbox.push({ { "method", "$/cancelRequest" }, { "params", { { "id", 11999 } } } });
+    // Two of an id, and one with no id, which cancels nothing.
+    inbox.push({ { "method", "$/cancelRequest" }, { "params", { { "id", 5 } } } });
+    inbox.push({ { "method", "$/cancelRequest" }, { "params", { { "id", 5 } } } });
+    inbox.push({ { "method", "$/cancelRequest" } });
+    for (int id = 6; id < 11999; ++id) {
+        CHECK_FALSE(inbox.take_cancel(id));
+    }
+
+    CHECK_FALSE(inbox.take_cancel(nullptr));
+    CHECK(inbox.looked() == 0);
+    CHECK(inbox.take_cancel(11999));
+    CHECK(inbox.take_cancel(5));
+    CHECK(inbox.take_cancel(5));
+    CHECK_FALSE(inbox.take_cancel(5));
+    CHECK(inbox.looked() == 3);
+}
+
 TEST_CASE("a request moved for its check doesn't wait behind a whole package's", "[lsp]") {
     const folder_t folder({});
     const std::string uri = folder.uri("moved.fb");
-    client_t client({});
+    check_gate_t gate(true);
+    client_t client({ .gate = &gate });
     client.open(uri, spinning());
     client.settle();
 
-    // References compile the file again, for seconds, and then the text has no Const that does.
+    // References compile the file again, which the gate holds, and an edit's check it doesn't.
+    gate.close();
     const json_t document{ { "uri", uri } };
     const std::int64_t references = client.queue(
         "textDocument/references", {
@@ -692,7 +797,7 @@ TEST_CASE("a request moved for its check doesn't wait behind a whole package's",
                                    });
     client.drain();
     // Once they've started: a version typed past before its turn compiles nothing.
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    gate.wait_for_one();
     client.queue_change(uri, std::string(twice) + "Local y = ");
     const std::int64_t completion =
         client.queue("textDocument/completion",
@@ -701,6 +806,7 @@ TEST_CASE("a request moved for its check doesn't wait behind a whole package's",
     const json_t answered = client.response(completion);
     INFO(answered.dump());
     CHECK(answered.contains("result"));
+    gate.open();
     CHECK(client.response(references).contains("error"));
     CHECK(answered_at(client, completion) < answered_at(client, references));
     client.settle();
@@ -710,24 +816,25 @@ TEST_CASE("references past their deadline are answered, though what they need go
           "[lsp]") {
     const folder_t folder({});
     const std::string uri = folder.uri("referenced.fb");
-    client_t client({ .request_deadline = std::chrono::milliseconds(300) });
+    check_gate_t gate;
+    client_t client({ .request_deadline = std::chrono::milliseconds(300), .gate = &gate });
     client.open(uri, spinning());
     client.settle();
 
+    gate.close();
     const json_t params{
         { "textDocument", { { "uri", uri } } },
         { "position", client_t::position(1, 11) },
         { "context", { { "includeDeclaration", true } } },
     };
-    const auto asked = std::chrono::steady_clock::now();
     const json_t first = client.send("textDocument/references", params);
     const json_t second = client.send("textDocument/references", params);
-    // Seconds less than the check takes.
-    CHECK(std::chrono::steady_clock::now() - asked < std::chrono::seconds(4));
+    // Both with what they need still held.
     CHECK(first["error"]["code"] ==
           static_cast<std::int32_t>(fb::lsp::error_code_t::REQUEST_FAILED));
     CHECK(second["error"]["code"] ==
           static_cast<std::int32_t>(fb::lsp::error_code_t::REQUEST_FAILED));
+    gate.open();
     client.settle();
 }
 

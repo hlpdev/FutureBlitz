@@ -5,6 +5,7 @@
 #include "fb/process.hpp"
 #include "fb/utf8.hpp"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <catch2/catch_test_macros.hpp>
@@ -83,12 +84,11 @@ TEST_CASE("a client that stops reading keeps no one waiting, and gets every mess
     std::ostream out(&buffer);
     {
         fb::lsp::outbox_t outbox(out);
-        const auto start = std::chrono::steady_clock::now();
+        // Each returns with the buffer holding what's written, so a push that waited never would.
         for (int i = 0; i < 1000; ++i) {
             outbox.push(std::to_string(i));
         }
 
-        CHECK(std::chrono::steady_clock::now() - start < std::chrono::seconds(1));
         CHECK_FALSE(outbox.flush(std::chrono::milliseconds(50)));
         buffer.let_go();
         CHECK(outbox.flush(std::chrono::seconds(30)));
@@ -325,20 +325,109 @@ class closed_buffer_t : public std::streambuf {};
 
 } // namespace
 
-TEST_CASE("an outbox says once that what it writes to is gone", "[lsp]") {
+TEST_CASE("an outbox says once that what it writes to is gone, which isn't that it's full",
+          "[lsp]") {
     closed_buffer_t buffer;
     std::ostream out(&buffer);
-    std::atomic<int> told = 0;
-    fb::lsp::outbox_t outbox(out, 1024, [&told] { ++told; });
+    std::atomic<int> gone = 0;
+    std::atomic<int> full = 0;
+    fb::lsp::outbox_t outbox(out, 1024, [&full] { ++full; }, [&gone] { ++gone; });
     outbox.push("one");
     outbox.push("two");
     CHECK(outbox.flush(std::chrono::seconds(30)));
-    CHECK(told == 1);
+    CHECK(gone == 1);
+    CHECK(full == 0);
 }
+
+TEST_CASE("one message goes whatever its size, with nothing else waiting", "[lsp]") {
+    std::atomic<int> full = 0;
+    const std::string long_answer(100, 'x');
+    SECTION("with a client that's reading") {
+        std::ostringstream out;
+        {
+            fb::lsp::outbox_t outbox(out, 10, [&full] { ++full; });
+            outbox.push(long_answer);
+            CHECK(outbox.flush(std::chrono::seconds(30)));
+            outbox.push(long_answer);
+        }
+
+        CHECK(full == 0);
+        std::istringstream written(out.str());
+        CHECK(fb::lsp::read_message(written) == long_answer);
+        CHECK(fb::lsp::read_message(written) == long_answer);
+    }
+
+    SECTION("though what's behind it is held to the limit") {
+        held_buffer_t buffer;
+        std::ostream out(&buffer);
+        {
+            fb::lsp::outbox_t outbox(out, 10, [&full] { ++full; });
+            // The first the writer may have, which the buffer holds, and the next waits.
+            outbox.push(long_answer);
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            outbox.push(long_answer);
+            CHECK(full == 0);
+            outbox.push(long_answer);
+            CHECK(full == 1);
+            // One that replaces all that's waiting is alone.
+            outbox.push("a", "a");
+            CHECK(full == 2);
+            buffer.let_go();
+        }
+    }
+}
+
+namespace {
+
+/// A stream's buffer that says the most it was asked for at once.
+class asked_buffer_t : public std::stringbuf {
+public:
+    using std::stringbuf::stringbuf;
+
+    [[nodiscard]] std::streamsize most_asked() const {
+        return m_most_asked;
+    }
+
+protected:
+    std::streamsize xsgetn(char* into, const std::streamsize count) override {
+        m_most_asked = std::max(m_most_asked, count);
+        return std::stringbuf::xsgetn(into, count);
+    }
+
+private:
+    std::streamsize m_most_asked = 0;
+};
+
+} // namespace
 
 TEST_CASE("a length no message has is the end of what can be read", "[lsp]") {
     std::istringstream too_long("Content-Length: 9223372036854775807\r\n\r\n");
     CHECK_FALSE(fb::lsp::read_message(too_long));
+
+    // Past 1 GiB it's refused, reading nothing of the body; at it, it reads what there is.
+    REQUIRE(fb::lsp::most_message == std::size_t{ 1 } << 30U);
+    std::istringstream past(
+        std::format("Content-Length: {}\r\n\r\nabc", fb::lsp::most_message + 1));
+    CHECK_FALSE(fb::lsp::read_message(past));
+    CHECK(past.get() == 'a');
+    std::istringstream at(std::format("Content-Length: {}\r\n\r\nabc", fb::lsp::most_message));
+    CHECK_FALSE(fb::lsp::read_message(at));
+    CHECK(at.get() == std::istringstream::traits_type::eof());
+}
+
+TEST_CASE("a message's memory grows as its bytes come", "[lsp]") {
+    // A length with no body behind it: nothing asks for it all at once, which takes the memory.
+    asked_buffer_t no_body(std::format("Content-Length: {}\r\n\r\n", fb::lsp::most_message));
+    std::istream no_body_in(&no_body);
+    CHECK_FALSE(fb::lsp::read_message(no_body_in));
+    CHECK(no_body.most_asked() <= static_cast<std::streamsize>(fb::lsp::most_read));
+
+    // And one longer than a piece is whole.
+    const std::string body = body_of(1, (fb::lsp::most_read * 2) + 3);
+    asked_buffer_t whole(std::format("Content-Length: {}\r\n\r\n{}", body.size(), body));
+    std::istream whole_in(&whole);
+    CHECK((fb::lsp::read_message(whole_in) == std::optional(body)));
+    CHECK(whole.most_asked() <= static_cast<std::streamsize>(fb::lsp::most_read));
 }
 
 TEST_CASE("a child doesn't inherit what the messages are written to", "[lsp]") {

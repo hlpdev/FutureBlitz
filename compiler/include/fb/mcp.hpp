@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstddef>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -21,6 +22,9 @@ struct mcp_options_t {
     /// How long a tool call has before it's answered with an error, and left to finish on its own,
     /// its answer unsent.
     std::chrono::milliseconds deadline{ 30'000 };
+    /// How many tool calls run at once, each on a thread with a compiler's stack; those past it
+    /// wait their turn, and their deadlines count from when they came.
+    std::size_t most_running = 8;
 };
 
 /// The server, for the package at `root`, or the folder of loose files it is: it takes each

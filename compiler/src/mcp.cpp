@@ -37,6 +37,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -515,6 +516,16 @@ struct mcp_server_t::core_t : std::enable_shared_from_this<core_t> {
         reply_t reply;
         json_t id;
         std::chrono::steady_clock::time_point deadline;
+        /// Which call of that id it is, as one that was cancelled can run on after it.
+        std::uint64_t serial = 0;
+    };
+
+    /// A tool call to run.
+    struct tool_call_t {
+        std::string key;
+        std::uint64_t serial = 0;
+        std::string tool;
+        json_t arguments;
     };
 
     /// A batch's answers, sent as one once the last is in.
@@ -534,6 +545,11 @@ struct mcp_server_t::core_t : std::enable_shared_from_this<core_t> {
     std::condition_variable changed;
     /// The calls running, by their ids' JSON.
     std::map<std::string, call_t> calls;
+    /// The calls past options.most_running, for a thread that ends one to take.
+    std::deque<tool_call_t> queued;
+    /// The threads running calls, and the last call's serial.
+    std::size_t running = 0;
+    std::uint64_t last_serial = 0;
     /// The answers being sent from a call's thread or the deadlines' thread.
     std::size_t replying = 0;
     bool closed = false;
@@ -933,10 +949,10 @@ struct mcp_server_t::core_t : std::enable_shared_from_this<core_t> {
 
     /// Answers the call `key` names with `result`, unless it was answered, it was cancelled, or
     /// the server closed.
-    void finish(const std::string& key, json_t result) {
+    void finish(const std::string& key, const std::uint64_t serial, json_t result) {
         std::unique_lock lock(mutex);
         const auto found = calls.find(key);
-        if (closed || found == calls.end()) {
+        if (closed || found == calls.end() || found->second.serial != serial) {
             return;
         }
 
@@ -969,7 +985,44 @@ struct mcp_server_t::core_t : std::enable_shared_from_this<core_t> {
         changed.notify_all();
     }
 
-    /// Starts a tool call on a thread of its own.
+    /// Runs `current`, and those that wait behind it, until none's left, on its thread.
+    void run_calls(tool_call_t current) {
+        while (true) {
+            json_t result;
+            try {
+                result = text_result(run(current.tool, current.arguments));
+            } catch (const json_t::exception& error) {
+                result = text_result({
+                    .text = std::format("Its arguments aren't what it takes: {}", error.what()),
+                    .error = true,
+                });
+            } catch (const std::exception& error) {
+                result = text_result({ .text = error.what(), .error = true });
+            }
+
+            finish(current.key, current.serial, std::move(result));
+            const std::scoped_lock lock(mutex);
+            // Not those already answered, at their deadlines, or cancelled.
+            while (!queued.empty()) {
+                const auto found = calls.find(queued.front().key);
+                if (found != calls.end() && found->second.serial == queued.front().serial) {
+                    break;
+                }
+
+                queued.pop_front();
+            }
+
+            if (queued.empty()) {
+                --running;
+                return;
+            }
+
+            current = std::move(queued.front());
+            queued.pop_front();
+        }
+    }
+
+    /// Starts a tool call on a thread of its own, or has it wait for one, past the limit.
     void call(const json_t& id, const json_t& params, const reply_t& reply) {
         if (!params.contains("name") || !params.at("name").is_string()) {
             reply(failure(id, invalid_params, "tools/call needs the tool's name"));
@@ -990,44 +1043,55 @@ struct mcp_server_t::core_t : std::enable_shared_from_this<core_t> {
             return;
         }
 
-        std::string key = id.dump();
-        bool running = false;
+        tool_call_t next{ .key = id.dump(), .tool = std::move(tool), .arguments = arguments };
+        bool taken = false;
+        bool waits = false;
         {
             const std::scoped_lock lock(mutex);
-            running = calls.contains(key);
-            if (!running) {
-                calls.emplace(key,
+            taken = calls.contains(next.key);
+            if (!taken) {
+                next.serial = ++last_serial;
+                calls.emplace(next.key,
                               call_t{
                                   .reply = reply,
                                   .id = id,
                                   .deadline = std::chrono::steady_clock::now() + options.deadline,
+                                  .serial = next.serial,
                               });
                 changed.notify_all();
+                waits = running >= options.most_running;
+                if (waits) {
+                    queued.push_back(next);
+                } else {
+                    ++running;
+                }
             }
         }
 
-        if (running) {
+        if (taken) {
             reply(failure(id, invalid_request, "a call with that id is running already"));
             return;
         }
 
+        if (waits) {
+            return;
+        }
+
         // A tool can run the compiler, which needs the stack.
-        stack_thread_t([core = shared_from_this(), key = std::move(key), tool = std::move(tool),
-                        arguments = arguments] {
-            json_t result;
-            try {
-                result = text_result(core->run(tool, arguments));
-            } catch (const json_t::exception& error) {
-                result = text_result({
-                    .text = std::format("Its arguments aren't what it takes: {}", error.what()),
-                    .error = true,
-                });
-            } catch (const std::exception& error) {
-                result = text_result({ .text = error.what(), .error = true });
+        const std::string key = next.key;
+        const std::uint64_t serial = next.serial;
+        try {
+            stack_thread_t([core = shared_from_this(), next = std::move(next)] mutable {
+                core->run_calls(std::move(next));
+            }).detach();
+        } catch (const std::system_error& error) {
+            {
+                const std::scoped_lock lock(mutex);
+                --running;
             }
 
-            core->finish(key, std::move(result));
-        }).detach();
+            finish(key, serial, text_result({ .text = error.what(), .error = true }));
+        }
     }
 
     /// Takes one message, and says whether it's answered, now or once a call is done.

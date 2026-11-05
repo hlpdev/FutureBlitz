@@ -360,6 +360,50 @@ TEST_CASE("fb mcp answers while a call runs, cancels one, and gives up on one at
     CHECK(patient.next().at("id") == 30);
 }
 
+TEST_CASE("fb mcp runs so many calls at once, and the rest wait their turn", "[mcp]") {
+    // One at a time: the quick one, behind the slow, is answered after it, where with a thread of
+    // its own it would be first.
+    client_t one(FB_TEST_OUTPUT, { .deadline = 4min, .most_running = 1 });
+    initialize(one);
+    one.send(call_request("slow", "check", { { "code", slow_code(1) } }).dump());
+    one.send(call_request("quick", "format", { { "code", "Local  y=2\n" } }).dump());
+    // What's asked meanwhile isn't kept waiting.
+    CHECK(ask(one, json_t{ { "jsonrpc", "2.0" }, { "id", "p" }, { "method", "ping" } }).at("id") ==
+          "p");
+    CHECK(one.next().at("id") == "slow");
+    CHECK(one.next().at("id") == "quick");
+
+    // Its deadline counts while it waits, and one cancelled there isn't run or answered.
+    client_t hurried(FB_TEST_OUTPUT, { .deadline = 300ms, .most_running = 1 });
+    initialize(hurried);
+    hurried.send(call_request("first", "check", { { "code", slow_code(3) } }).dump());
+    hurried.send(call_request("second", "format", { { "code", "Local  y=2\n" } }).dump());
+    hurried.send(call_request(20, "format", { { "code", "Local  y=2\n" } }).dump());
+    hurried.send(
+        R"({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":20}})");
+    std::set<json_t> late;
+    late.insert(hurried.next().at("id"));
+    late.insert(hurried.next().at("id"));
+    CHECK(late == std::set<json_t>{ "first", "second" });
+
+    // Far past what can run at once, every one is answered, once.
+    client_t many(FB_TEST_OUTPUT, { .deadline = 4min, .most_running = 2 });
+    initialize(many);
+    constexpr int calls = 100;
+    for (int id = 100; id < 100 + calls; ++id) {
+        many.send(call_request(id, "format", { { "code", "Local  y=2\n" } }).dump());
+    }
+
+    std::set<json_t> answered;
+    for (int i = 0; i < calls; ++i) {
+        answered.insert(many.next().at("id"));
+    }
+
+    CHECK(answered.size() == calls);
+    many.settle();
+    CHECK_FALSE(many.answers_within(100ms));
+}
+
 TEST_CASE("fb mcp's primer is a program that compiles", "[mcp]") {
     const std::string_view primer = fb::agents_primer();
     const std::size_t begin = primer.find("```fb\n");

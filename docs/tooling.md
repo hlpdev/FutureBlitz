@@ -1285,11 +1285,15 @@ next. shutdown waits 3 seconds for the requests before it, and exit, or stdin cl
 process once the message thread gets to it, or once one message has held that thread for 6 seconds,
 longer than shutdown can; without a shutdown before it, what's waiting is dropped, as such a client
 wants no answers to it. A write that fails, as the client closed what it reads, ends the process too,
-and on every system; so does a length no message has, past 1 GiB. Checks and requests run on threads
-with the 64 MiB the main thread has for the compiler's recursion (`stack_thread_t`), as a
-`std::thread` has 512 KiB on macOS. What waits to be written has a limit of
-256 MB, past which the client isn't reading and the process ends, and a document's newer diagnostics
-replace its older ones that haven't gone. Formatting waits for no check. The extension asks `fb/ping` every 10 seconds, which the reader thread answers, unless one message
+and on every system, with code 0 once the client's said shutdown; so does a length no message has,
+past 1 GiB, and a message's memory grows as its bytes come. Checks and requests run on threads with
+64 MiB for the compiler's recursion (`stack_thread_t`), as the executables' main threads have on
+Windows and macOS, where a `std::thread` on macOS has 512 KiB, and with the system's default where
+there isn't the memory for it. What waits to be written has a limit of 256 MB, past which the client
+isn't reading and the process ends, though one message with nothing behind it goes whatever its size,
+and a document's newer diagnostics replace its older ones that haven't gone. A check that throws has
+no result, and `window/logMessage` says what it threw. A file on a Windows share has VS Code's URI, file://server/share/x;
+the compiler doesn't read shares yet (milestones.md's Deferred work). Formatting waits for no check. The extension asks `fb/ping` every 10 seconds, which the reader thread answers, unless one message
 has held the message thread for a minute, so a busy server isn't called stuck, and an
 older fb-lsp's "no such method" is an answer too: 15 seconds without one, or at once when a message
 can't be read, as a reader that's lost its place in the stream never finds it again, it restarts the

@@ -4,6 +4,7 @@
 #include <utility>
 
 #ifndef _WIN32
+#include <cerrno>
 #include <cstddef>
 #include <exception>
 #include <memory>
@@ -50,13 +51,26 @@ extern "C" void* run_stack_thread(void* const work) noexcept {
 
 } // namespace
 
-stack_thread_t::stack_thread_t(std::function<void()> work) {
+stack_thread_t::stack_thread_t(std::function<void()> work)
+    : stack_thread_t(std::move(work), &pthread_create) {}
+
+stack_thread_t::stack_thread_t(std::function<void()> work, const start_t start) {
     auto owned = std::make_unique<std::function<void()>>(std::move(work));
     pthread_attr_t attributes;
-    pthread_attr_init(&attributes);
-    pthread_attr_setstacksize(&attributes, stack_size);
-    const int failed = pthread_create(&m_thread, &attributes, &run_stack_thread, owned.get());
-    pthread_attr_destroy(&attributes);
+    const bool made = pthread_attr_init(&attributes) == 0;
+    const bool sized = made && pthread_attr_setstacksize(&attributes, stack_size) == 0;
+    int failed = sized ? start(&m_thread, &attributes, &run_stack_thread, owned.get()) : EAGAIN;
+    if (made) {
+        pthread_attr_destroy(&attributes);
+    }
+
+    // With memory limited, as under ulimit -v or strict overcommit, a thread with less is better
+    // than none: only code nested very deep needs it, and a server with no threads restarts
+    // forever.
+    if (failed == EAGAIN || failed == ENOMEM) {
+        failed = start(&m_thread, nullptr, &run_stack_thread, owned.get());
+    }
+
     if (failed != 0) {
         throw std::system_error(failed, std::generic_category(), "a thread couldn't start");
     }

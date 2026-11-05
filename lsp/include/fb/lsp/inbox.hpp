@@ -9,6 +9,7 @@
 #include <deque>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string_view>
 
 namespace fb::lsp {
@@ -55,6 +56,9 @@ public:
     /// Whether a $/cancelRequest of `id` is waiting, which it takes out.
     [[nodiscard]] bool take_cancel(const json_t& id);
 
+    /// For the tests, how many take_cancel()s went through what's waiting.
+    [[nodiscard]] std::size_t looked() const;
+
     /// Whether a didChange or didClose of the document at `uri` is waiting.
     [[nodiscard]] bool changes(std::string_view uri) const;
 
@@ -65,8 +69,9 @@ private:
     mutable std::mutex m_mutex;
     std::condition_variable m_ready;
     std::deque<json_t> m_messages;
-    /// How many of them are $/cancelRequests.
-    std::size_t m_cancels = 0;
+    /// The ids their $/cancelRequests cancel.
+    std::multiset<json_t> m_cancels;
+    std::size_t m_looked = 0;
     bool m_closed = false;
 };
 

@@ -19,6 +19,7 @@
 #include <vector>
 
 using fb::lsp::json_t;
+using fb::lsp::test::check_gate_t;
 using fb::lsp::test::client_t;
 using fb::lsp::test::folder_t;
 using fb::lsp::test::place_of;
@@ -710,7 +711,9 @@ TEST_CASE("semantic tokens say what each name is", "[lsp]") {
 TEST_CASE("a save's formatting isn't kept waiting by requests for a check", "[lsp]") {
     const folder_t folder({});
     const std::string uri = folder.uri("waiting.fb");
-    client_t client({ .delay = std::chrono::milliseconds(2000) });
+    check_gate_t gate;
+    gate.close();
+    client_t client({ .gate = &gate });
     client.open(uri, "Import std.core\nLocal   n = 1\nPrint(n)\n");
     const json_t document{ { "uri", uri } };
     const json_t at{ { "textDocument", document }, { "position", client_t::position(2, 6) } };
@@ -722,15 +725,14 @@ TEST_CASE("a save's formatting isn't kept waiting by requests for a check", "[ls
                          { "textDocument", document },
                          { "options", { { "tabSize", 4 }, { "insertSpaces", true } } },
                      });
-    const auto asked = std::chrono::steady_clock::now();
     client.drain();
+    // With the check held.
     const json_t edits = client.response(formatting)["result"];
     REQUIRE(edits.size() == 1);
     CHECK(edits[0]["range"]["start"]["line"] == 1);
     CHECK(edits[0]["newText"] == "Local n = 1\n");
-    // Before the check's delay is up, however slow the machine.
-    CHECK(std::chrono::steady_clock::now() - asked < std::chrono::milliseconds(2000));
     // They come once the check's done, which they asked for.
+    gate.open();
     CHECK(client.response(hover)["result"]["contents"]["value"].get<std::string>().contains(
         "n: Int32"));
     CHECK(client.response(highlights)["result"].size() == 2);
@@ -739,23 +741,23 @@ TEST_CASE("a save's formatting isn't kept waiting by requests for a check", "[ls
 TEST_CASE("semantic tokens before a check are the lexer's, and the client asks again after it",
           "[lsp]") {
     const folder_t folder(geo());
+    check_gate_t gate;
+    gate.close();
     client_t client({
         .folders = { folder.root() },
-        .delay = std::chrono::milliseconds(2000),
         .load_folders = false,
         .tokens_refresh = true,
+        .gate = &gate,
     });
     const std::string main = folder.uri("main.fb");
     client.open(main, main_text);
 
-    // At once, without waiting for the check, which waits for the edit's pause.
-    const auto asked = std::chrono::steady_clock::now();
+    // With the check held, so it's waited for nothing.
     const std::vector<semantic_token_t> lexical = semantic_tokens(client, main);
-    // Before the check's delay is up, however slow the machine.
-    CHECK(std::chrono::steady_clock::now() - asked < std::chrono::milliseconds(2000));
     CHECK(token_at(lexical, 0, 0).type == "keyword");
     CHECK(token_at(lexical, 1, 7).type == "string");
     CHECK(token_at(lexical, 4, 0).type == "none");
+    gate.open();
 
     // Once the check's done, the client's told to ask again, and the names are what they name.
     client.settle();

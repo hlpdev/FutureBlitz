@@ -181,8 +181,16 @@ server_t::server_t(send_t send, const options_t& options)
     : m_send(std::move(send)), m_request_deadline(options.request_deadline) {
     m_toml = std::make_unique<toml_features_t>(
         [this](const json_t& message) { this->send(message); }, m_positions, options.toml);
+    workspace_t::options_t workspace = options.workspace;
+    workspace.log = [this](const std::string& text) {
+        this->send({
+            { "jsonrpc", "2.0" },
+            { "method", "window/logMessage" },
+            { "params", { { "type", 1 }, { "message", text } } },
+        });
+    };
     m_workspace = std::make_unique<workspace_t>(
-        [this](const published_t& published) { publish(published); }, options.workspace);
+        [this](const published_t& published) { publish(published); }, std::move(workspace));
     // The folders of packages the checks found outside the client's, which only a watcher of
     // their own sees.
     m_workspace->on_outside([this](const std::vector<std::filesystem::path>& folders) {

@@ -15,6 +15,10 @@ namespace fb::lsp {
 
 using json_t = nlohmann::json;
 
+/// The longest message read_message() takes, and the most it asks a stream for at once.
+inline constexpr std::size_t most_message = std::size_t{ 1 } << 30U;
+inline constexpr std::size_t most_read = std::size_t{ 1 } << 20U;
+
 /// The body of the next JSON-RPC message on `in`, after its "Content-Length" header. nullopt at
 /// the end of the stream, or after a header without a length, which leaves nothing to read.
 [[nodiscard]] std::optional<std::string> read_message(std::istream& in);

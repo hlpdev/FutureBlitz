@@ -92,6 +92,16 @@ check that throws is one with no result. `path_of` takes `file:/x`; process_test
 Python before 3.14, so Linux's CI ran them with no document open. The tests' time limits that a
 slow machine could miss say what they mean instead.
 
+The last fixes' review. `uri_of` put a Windows share on the current drive, where VS Code has file://server/share, and
+`path_of` read file://localhost/x as a share; the compiler can't read shares yet, which is in
+milestones.md's Deferred work. One waiting $/cancelRequest brought the long scan back, so the inbox keeps the waiting ids.
+One message goes whatever its size, where an answer over 256 MB said the client wasn't reading; a
+wrong length takes no memory for its body; and a client that closes what it reads after shutdown gets
+code 0 (`outbox_t`'s `gone`). `stack_thread_t` starts with the system's stack where 64 MiB won't fit,
+and `fb mcp` runs at most 8 calls at once, the rest waiting their turn. A check that throws says what
+threw in `window/logMessage`. The LSP's tests hold a check with a gate (`check_gate_t`) in place of a
+Const they hoped took long enough.
+
 ## 1.2.2
 
 - **fb mcp at exit** (the 2026-11-02 CI): a server waits for the thread reading std's docs, which a test's program could leave running as it exited, reading the compiler's statics as they were destroyed: a segfault on Linux.

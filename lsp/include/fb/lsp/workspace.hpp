@@ -113,6 +113,8 @@ public:
         bool load_folders = true;
         /// What checks; check_files when not given.
         std::function<std::expected<compilation_t, std::string>(const check_request_t&)> check;
+        /// What's told what a check that threw said, with no lock held.
+        std::function<void(const std::string&)> log;
     };
 
     using publish_t = std::function<void(const published_t&)>;

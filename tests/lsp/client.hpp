@@ -6,8 +6,11 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -46,6 +49,32 @@ private:
     std::filesystem::path m_root;
 };
 
+/// What holds a server's checks, so a test says what comes before a check's done by order, where a
+/// check that takes long may not take long enough on a fast machine.
+class check_gate_t {
+public:
+    /// Whether it holds only the checks requests ask for, a whole package's.
+    explicit check_gate_t(const bool only_asked = false) : m_only_asked(only_asked) {}
+
+    /// Holds the checks from here on.
+    void close();
+    /// Lets them go.
+    void open();
+    /// Waits for a check to be held, since close().
+    void wait_for_one();
+    /// What checks, for the server's workspace.
+    [[nodiscard]] std::function<
+        std::expected<fb::compilation_t, std::string>(const fb::check_request_t&)>
+    check();
+
+private:
+    bool m_only_asked;
+    std::mutex m_mutex;
+    std::condition_variable m_changed;
+    bool m_open = true;
+    std::size_t m_held = 0;
+};
+
 /// What a test's client does with the server: it initializes it, sends it messages as an editor
 /// would, and keeps what it sends back.
 class client_t {
@@ -81,6 +110,8 @@ public:
         /// What project.toml's registries are asked through, and how long what they say is kept.
         fb::http_client_t http = fb::send_http;
         std::chrono::seconds registry_life{ 60 };
+        /// What holds the server's checks, which it opens as it goes.
+        check_gate_t* gate = nullptr;
     };
 
     explicit client_t(options_t options);
@@ -190,6 +221,7 @@ private:
     std::map<std::string, std::int64_t> m_versions;
     std::int64_t m_next_id = 1;
     json_t m_initialized;
+    check_gate_t* m_gate = nullptr;
     inbox_t m_inbox;
     server_t m_server;
 };

@@ -21,10 +21,11 @@ namespace fb::lsp {
 class outbox_t {
 public:
     /// `full` is told when more than `most` bytes wait, and a client that's stopped reading isn't
-    /// coming back: the message past it goes unsent. It's told once too when `out` can't be
-    /// written, as what the client read from is closed.
+    /// coming back: the message past it goes unsent, though one with nothing else waiting always
+    /// goes. `gone` is told once when `out` can't be written, as what the client read from is
+    /// closed.
     explicit outbox_t(std::ostream& out, std::size_t most = std::numeric_limits<std::size_t>::max(),
-                      std::function<void()> full = {});
+                      std::function<void()> full = {}, std::function<void()> gone = {});
     outbox_t(const outbox_t&) = delete;
     outbox_t& operator=(const outbox_t&) = delete;
     /// Writes what's waiting, and stops: a write the client isn't reading keeps it waiting, so a
@@ -50,6 +51,8 @@ private:
     };
     std::size_t m_most;
     std::function<void()> m_full;
+    std::function<void()> m_gone;
+    /// What's in m_waiting, which the one being written has left.
     std::size_t m_bytes = 0;
     std::deque<waiting_t> m_waiting;
     bool m_writing = false;

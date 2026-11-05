@@ -1170,24 +1170,33 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
         // References' and renames' checks aren't published.
         .inspect = !job.examples,
     };
-    // One that throws, as running out of memory does, is one with no result: on this thread it
-    // would end the process.
-    std::expected<compilation_t, std::string> result =
-        [&] -> std::expected<compilation_t, std::string> {
-        try {
-            return m_options.check ? m_options.check(request) : check_files(request);
-        } catch (const std::exception& error) {
-            return std::unexpected(std::string(error.what()));
-        }
-    }();
-    std::shared_ptr<const compilation_t> compilation =
-        result ? std::make_shared<const compilation_t>(std::move(*result)) : nullptr;
-    const auto took =
-        std::chrono::duration_cast<std::chrono::milliseconds>(steady_t::now() - start);
+    const auto since_start = [&start] {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(steady_t::now() - start);
+    };
+    std::shared_ptr<const compilation_t> compilation;
+    std::chrono::milliseconds took{};
     // What its modules declare that others can import, for completion, found unlocked.
     std::vector<std::pair<std::string, std::vector<export_t>>> exported;
-    if (compilation) {
-        exported = exports_of(*compilation);
+    // One that throws, as running out of memory does, is one with no result, and the client's log
+    // says why: on this thread it would end the process.
+    try {
+        std::expected<compilation_t, std::string> result =
+            m_options.check ? m_options.check(request) : check_files(request);
+        if (result) {
+            compilation = std::make_shared<const compilation_t>(std::move(*result));
+        }
+
+        took = since_start();
+        if (compilation) {
+            exported = exports_of(*compilation);
+        }
+    } catch (const std::exception& error) {
+        compilation.reset();
+        exported.clear();
+        took = since_start();
+        if (m_options.log) {
+            m_options.log(std::string("a check failed: ") + error.what());
+        }
     }
 
     lock.lock();

@@ -70,12 +70,16 @@ client_t::client_t(options_t options)
           },
           { .workspace = { .delay = options.delay,
                            .dependents_delay = options.dependents_delay.value_or(options.delay),
-                           .load_folders = options.load_folders, },
+                           .load_folders = options.load_folders,
+                           .check = options.gate != nullptr
+                                        ? options.gate->check()
+                                        : decltype(fb::lsp::workspace_t::options_t::check)(), },
             .toml = { .delay = options.delay,
                       .offline = options.offline,
                       .http = options.http,
                       .registry_life = options.registry_life, },
             .request_deadline = options.request_deadline, }) {
+    m_gate = options.gate;
     m_server.set_inbox(&m_inbox);
     json_t folders = json_t::array();
     for (const std::filesystem::path& folder : options.folders) {
@@ -149,6 +153,11 @@ void client_t::answer_requests() {
 
 // A test fails when what its client says as it goes fails.
 client_t::~client_t() { // NOLINT(bugprone-exception-escape)
+    // A check it's holding would keep the server from going.
+    if (m_gate != nullptr) {
+        m_gate->open();
+    }
+
     // What a client says as it goes.
     static_cast<void>(send("shutdown", nullptr));
     notify("exit", nullptr);
@@ -231,6 +240,42 @@ void client_t::drain() {
     while (const std::optional<json_t> message = m_inbox.try_pop()) {
         m_server.handle(*message);
     }
+}
+
+void check_gate_t::close() {
+    const std::scoped_lock lock(m_mutex);
+    m_open = false;
+    m_held = 0;
+}
+
+void check_gate_t::open() {
+    {
+        const std::scoped_lock lock(m_mutex);
+        m_open = true;
+    }
+
+    m_changed.notify_all();
+}
+
+void check_gate_t::wait_for_one() {
+    std::unique_lock lock(m_mutex);
+    if (!m_changed.wait_for(lock, std::chrono::minutes(2), [this] { return m_held > 0; })) {
+        FAIL("no check came to the gate");
+    }
+}
+
+std::function<std::expected<fb::compilation_t, std::string>(const fb::check_request_t&)>
+check_gate_t::check() {
+    return [this](const fb::check_request_t& request) {
+        if (!m_only_asked || request.examples) {
+            std::unique_lock lock(m_mutex);
+            ++m_held;
+            m_changed.notify_all();
+            m_changed.wait(lock, [this] { return m_open; });
+        }
+
+        return fb::check_files(request);
+    };
 }
 
 json_t client_t::response(const std::int64_t id) const {

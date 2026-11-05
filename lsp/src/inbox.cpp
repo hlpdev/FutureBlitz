@@ -56,12 +56,21 @@ bool is_cancel(const json_t& message) {
     return text_at(message, "method") == "$/cancelRequest";
 }
 
+/// The id a $/cancelRequest cancels, or null for another message, or one with no id.
+json_t cancelled_id(const json_t& message) {
+    const json_t& params = object_in(message, "params");
+    return is_cancel(message) && params.is_object() ? params.value("id", json_t()) : json_t();
+}
+
 } // namespace
 
 void inbox_t::push(json_t message) {
     {
         const std::scoped_lock lock(m_mutex);
-        m_cancels += is_cancel(message) ? 1 : 0;
+        if (json_t id = cancelled_id(message); !id.is_null()) {
+            m_cancels.insert(std::move(id));
+        }
+
         m_messages.push_back(std::move(message));
     }
 
@@ -71,7 +80,7 @@ void inbox_t::push(json_t message) {
 void inbox_t::drop_waiting() {
     const std::scoped_lock lock(m_mutex);
     m_messages.clear();
-    m_cancels = 0;
+    m_cancels.clear();
 }
 
 void inbox_t::close() {
@@ -105,29 +114,33 @@ std::optional<json_t> inbox_t::try_pop() {
 json_t inbox_t::take_first() {
     json_t message = std::move(m_messages.front());
     m_messages.pop_front();
-    m_cancels -= is_cancel(message) ? 1 : 0;
+    if (const json_t id = cancelled_id(message); !id.is_null()) {
+        m_cancels.erase(m_cancels.find(id));
+    }
+
     return message;
 }
 
 bool inbox_t::take_cancel(const json_t& id) {
     const std::scoped_lock lock(m_mutex);
-    // Every request asks, so going through what's waiting only when there's one to find keeps a
-    // long queue of them from taking time by its length's square, with the reader kept out.
-    if (m_cancels == 0) {
+    // Every request asks, so going through what's waiting only when its own is there keeps a long
+    // queue of them from taking time by its length's square, with the reader kept out.
+    const auto waiting = m_cancels.find(id);
+    if (id.is_null() || waiting == m_cancels.end()) {
         return false;
     }
 
-    const auto found = std::ranges::find_if(m_messages, [&](const json_t& message) {
-        const json_t& params = object_in(message, "params");
-        return is_cancel(message) && params.is_object() && params.value("id", json_t()) == id;
-    });
-    if (found == m_messages.end()) {
-        return false;
-    }
-
+    ++m_looked;
+    const auto found = std::ranges::find_if(
+        m_messages, [&](const json_t& message) { return cancelled_id(message) == id; });
     m_messages.erase(found);
-    --m_cancels;
+    m_cancels.erase(waiting);
     return true;
+}
+
+std::size_t inbox_t::looked() const {
+    const std::scoped_lock lock(m_mutex);
+    return m_looked;
 }
 
 bool inbox_t::changes(const std::string_view uri) const {
