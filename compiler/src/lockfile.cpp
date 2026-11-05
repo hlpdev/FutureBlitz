@@ -45,8 +45,9 @@ bool can_write(const std::filesystem::path& path, const std::filesystem::file_st
     // Windows' permissions say only whether it's read-only, and a rename fails on what its ACLs
     // deny.
     (void)path;
-    return (status.permissions() & std::filesystem::perms::owner_write) !=
-           std::filesystem::perms::none;
+    const std::filesystem::perms writable =
+        status.permissions() & std::filesystem::perms::owner_write;
+    return writable != std::filesystem::perms::none;
 #else
     (void)status;
     return access(path.c_str(), W_OK) == 0;
