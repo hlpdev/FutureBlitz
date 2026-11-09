@@ -669,9 +669,12 @@ std::expected<prepared_package_t, std::string> prepare_package(const std::filesy
             return std::unexpected(std::format("{} can't depend on itself", manifest.name));
         }
 
+        // One that names no registry is from the registry it's published to, as its index line,
+        // which names none, says.
         index_dependency_t entry{ .name = dependency.name, .req = dependency.range->text };
         const std::optional<std::string> source =
-            registry_index(dependency.registry, manifest.registries, root);
+            dependency.registry ? registry_index(dependency.registry, manifest.registries, root)
+                                : std::optional<std::string>(index);
         if (source && *source != index) {
             if (public_registry) {
                 return std::unexpected(std::format(

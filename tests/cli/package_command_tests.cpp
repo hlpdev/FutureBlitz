@@ -351,6 +351,57 @@ TEST_CASE("fb publish checks a path dependency's version is the registry's, and 
         "`fb yank shapes@0.3.0 --undo`, or give the folder a new version and publish that first"));
 }
 
+TEST_CASE("a published package's dependency that names no registry is the registry's it's "
+          "published to",
+          "[cli-packages]") {
+    // A registry on disk, where shapes is published, isn't futureblitz.dev, which doesn't have it.
+    const fb::testing::sandbox_t sandbox;
+    const std::string index = fb::to_utf8(sandbox / "registry/index");
+    (void)sandbox.registry();
+    const std::string version_code =
+        "Public Function Version(): String\n    Return \"shapes\"\nEnd Function\n";
+    sandbox.library("shapes", "shapes", "0.3.0", "", { { "area.fb", version_code } });
+    REQUIRE(fb_run({ "publish", fb::to_utf8(sandbox / "shapes"), "--registry", index }).exit_code ==
+            0);
+
+    // Built from its folder, and verified as that registry has it.
+    const std::string uses = "Import shapes\nPublic Function Uses(): String => Version()\n";
+    sandbox.library("physics", "physics", "1.2.0",
+                    "shapes = { path = \"../shapes\", version = \"0.3\" }\n",
+                    { { "world.fb", uses } });
+    const fb::process_result_t published =
+        fb_run({ "publish", fb::to_utf8(sandbox / "physics"), "--registry", index });
+    INFO(published.output);
+    REQUIRE(published.exit_code == 0);
+    CHECK(published.output.contains("Verifying physics v1.2.0"));
+    CHECK(published.output.contains("Published physics v1.2.0"));
+
+    // Its index line names no registry, so whoever adds it takes shapes from the same one.
+    CHECK_FALSE(sandbox.read("registry/index/physics").contains("registry"));
+    sandbox.write("game/project.toml",
+                  "[project]\nname = \"game\"\nversion = \"0.1.0\"\n\n[registries]\nlocal = { "
+                  "index = \"../registry/index\" }\n\n[dependencies]\nphysics = { version = "
+                  "\"1.2\", registry = \"local\" }\n");
+    sandbox.write("game/main.fb", "Import std.core\nImport physics\nPrint(Uses())\n");
+    const fb::process_result_t ran = fb_run({ "run", fb::to_utf8(sandbox / "game") });
+    INFO(ran.output);
+    CHECK(ran.exit_code == 0);
+    CHECK(ran.output.contains("shapes\n"));
+
+    // A version that registry doesn't have is said to be missing there.
+    sandbox.library("shapes", "shapes", "0.3.5", "", { { "area.fb", version_code } });
+    sandbox.library("physics", "physics", "1.3.0",
+                    "shapes = { path = \"../shapes\", version = \"0.3\" }\n",
+                    { { "world.fb", uses } });
+    const fb::process_result_t missing =
+        fb_run({ "publish", fb::to_utf8(sandbox / "physics"), "--registry", index });
+    INFO(missing.output);
+    CHECK(missing.exit_code == 1);
+    CHECK(missing.output.contains(
+        "physics builds with shapes v0.3.5 from its folder, '../shapes', which the registry "
+        "doesn't have, so no one could build the published package; publish shapes v0.3.5 first"));
+}
+
 // Against a registry's real API, which FB_TEST_REGISTRY names by its index's URL, like
 // http://index.localhost:8787/ for futureblitz-web's workers/api under `wrangler dev`, and
 // FB_TEST_REGISTRY_TOKEN gives a token of, with the publish scopes: one computer logs in with it,

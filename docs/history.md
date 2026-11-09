@@ -3,6 +3,10 @@
 What each milestone and step added, by name, and each review's fixes, as CLAUDE.md kept
 them while each was built. Newest first.
 
+## After 1.2.3
+
+- **A published package's dependency is its registry's**: `fb publish --registry X` checked a path dependency that names no registry against futureblitz.dev's index, verified the archive from futureblitz.dev's packages, and wrote futureblitz.dev's index URL into its index line, so fbengine_audio couldn't be published to staging, where fbengine 1.0.0-rc.2 is. A dependency that names no registry is now X's for all three: `published_path_versions` and `prepare_package` take X for it, and `verify_package` reads the unpacked project.toml through `with_own_registry`, which names a registry for X in [registries] and gives each such dependency that name. Tests: a registry on disk with the dependency's version publishes, and another package adds it and builds, taking the dependency from there; without that version, the publish says the registry doesn't have it; `with_own_registry`'s forms of a dependency, its [registries], and what it refuses. A dependency on futureblitz.dev from another registry names `futureblitz` now (docs/decisions.md).
+
 ## 1.2.3
 
 - **fb.lock is replaced at once**: `sync_packages` wrote it through a truncating ofstream, so a second build in the same package could read part of it. `save_lockfile` writes a hidden temporary file beside it, which no walk of the package's files sees, keeps the old file's permissions, and renames it over, trying again while another build has hold of it. On Windows a file being replaced can't be opened for a moment, which a build took for no fb.lock and resolved anew, or a step's stamp for "lock none", so `load_lockfile` tries again too, in both the package manager and the driver. Tests: many writers and readers, where no reader sees part of it or fails to open it, a failed save says why and leaves no temporary file, and permissions are kept.

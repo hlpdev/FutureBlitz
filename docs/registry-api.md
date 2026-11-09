@@ -92,9 +92,10 @@ each a version, in the order they were published, with a `\n` after each.
 | `archives` | each archive's SHA-256 and size: `source` always, and one per target in `targets` |
 | `yanked` | whether new resolutions skip it; a locked one still downloads |
 
-- A dependency from another registry has `"registry": "<that registry's index URL>"` too. The
-  public registry refuses those at publish, so its own lines never have one, but a company's
-  registry might.
+- A dependency from another registry has `"registry": "<that registry's index URL>"` too, and
+  one without it is from the package's own registry, as one that names no registry in the
+  published project.toml is. The public registry refuses those at publish, so its own lines never
+  have one, but a company's registry might.
 - A key fb doesn't know is ignored. A line whose `v` is higher than fb knows is skipped, as if
   the version weren't there.
 - An archive's file name follows from its key: `source` is `<name>-<version>.fbpkg`, and a

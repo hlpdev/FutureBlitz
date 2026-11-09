@@ -13,6 +13,7 @@
 #include <functional>
 #include <optional>
 #include <span>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <toml++/toml.hpp>
@@ -1208,6 +1209,67 @@ std::optional<std::string> published_manifest(const source_file_t& file,
     }
 
     return text;
+}
+
+std::optional<std::string> with_own_registry(const std::string_view text,
+                                             const std::string_view index) {
+    toml::parse_result parsed = toml::parse(text);
+    if (!parsed) {
+        return std::nullopt;
+    }
+
+    toml::table& root = parsed.table();
+    toml::table* dependencies = root["dependencies"].as_table();
+    if (dependencies == nullptr) {
+        return std::string(text);
+    }
+
+    std::vector<std::string> unnamed;
+    for (const auto& [key, value] : *dependencies) {
+        const toml::table* details = value.as_table();
+        if (details == nullptr || !details->contains("registry")) {
+            unnamed.emplace_back(key.str());
+        }
+    }
+
+    if (unnamed.empty()) {
+        return std::string(text);
+    }
+
+    // A name [registries] doesn't have yet.
+    toml::table* registries = root["registries"].as_table();
+    std::string name = "published_to";
+    while (registries != nullptr && registries->contains(name)) {
+        name += '_';
+    }
+
+    for (const std::string& key : unnamed) {
+        toml::node* value = dependencies->get(key);
+        if (toml::table* details = value != nullptr ? value->as_table() : nullptr) {
+            details->insert("registry", name);
+        } else if (const std::optional<std::string> range =
+                       value != nullptr ? value->value<std::string>() : std::nullopt) {
+            dependencies->insert_or_assign(key, toml::table{
+                                                    { "version", *range },
+                                                    { "registry", name },
+                                                });
+        } else {
+            return std::nullopt;
+        }
+    }
+
+    const toml::table entry{ { "index", std::string(index) } };
+    if (registries != nullptr) {
+        registries->insert(name, entry);
+    } else if (root.contains("registries")) {
+        return std::nullopt;
+    } else {
+        root.insert("registries", toml::table{ { name, entry } });
+    }
+
+    std::ostringstream out;
+    out << toml::toml_formatter(root);
+    return std::move(out).str();
 }
 
 std::optional<std::string> package_name_error(const std::string_view text) {

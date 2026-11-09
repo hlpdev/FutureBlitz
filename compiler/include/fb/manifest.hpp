@@ -179,6 +179,13 @@ struct manifest_key_t {
 [[nodiscard]] std::optional<std::string> published_manifest(const source_file_t& file,
                                                             const manifest_t& manifest);
 
+/// The project.toml `text`, as a published package has it, read as though it's on the registry
+/// whose canonical index is `index`: each dependency that names no registry names that one, which
+/// a [registries] name it didn't have gives. Comments and layout aren't kept. nullopt when it isn't
+/// TOML, or its dependencies or [registries] aren't what read_manifest() takes.
+[[nodiscard]] std::optional<std::string> with_own_registry(std::string_view text,
+                                                           std::string_view index);
+
 /// Why `text` isn't an SPDX license expression, like "MIT OR Apache-2.0", or nullopt when it is
 /// one. Only its form is checked; the registry checks its licenses' names against SPDX's list.
 [[nodiscard]] std::optional<std::string> license_error(std::string_view text);

@@ -305,9 +305,13 @@ tools = { version = "2", registry = "company" }
   isn't a folder, is most likely an index's URL without its `https://`, which fb suggests. A
   dependency's registry on an index line is compared as its canonical index, and
   futureblitz.dev's is the mirror [registries] names for it, if there is one.
-- A dependency is from futureblitz.dev unless it names another registry; a package on another
-  registry depends on that one's packages by naming it, and its index lines record that
-  registry's index URL. futureblitz.dev's packages depend only on its own.
+- A dependency is from futureblitz.dev unless it names another registry. A published package's
+  dependency that names none is from the registry it's published to: `fb publish --registry X`
+  checks a path dependency's version on X, verifies the archive with X's packages, and writes an
+  index line without a registry, which the resolver reads as the package's own. One that names a
+  registry other than X has that registry's index URL on its index line, so a package on another
+  registry depends on futureblitz.dev's by naming `futureblitz`. futureblitz.dev's packages depend
+  only on its own.
 - **Credentials:** `fb login` stores a registry's token in the OS's credential store, under
   `futureblitz:<canonical index>`: Windows' Credential Manager, the macOS keychain, or libsecret's
   Secret Service on Linux, which fb loads as it needs it, or in the JSON file
@@ -339,10 +343,11 @@ tools = { version = "2", registry = "company" }
   archive can hold; the size limits, a target's 200 MB only for a registry on disk, since one on the
   network raises it per package, and each archive's 20,000 files and 8 times its limit unpacked; and
   for a prebuilt package each target's debug and release builds and their .fbi agreeing. As Cargo
-  does, a dependency with a path and a version has to have its folder's version on the registry, not
-  yanked ("publish shapes v0.3.9 first"), which `--offline` can't ask; and the archive, unpacked in
-  build/package/<name>-<version>/, has to build from the registry's packages alone, from the cache
-  with `--offline`, which `--no-verify` skips. `--dry-run` stops there and lists each archive's
+  does, a dependency with a path and a version has to have its folder's version on its registry,
+  the one published to unless it names another, not yanked ("publish shapes v0.3.9 first"), which
+  `--offline` can't ask; and the archive, unpacked in build/package/<name>-<version>/, has to build
+  from the registries' packages alone, a dependency that names none from the one published to, from
+  the cache with `--offline`, which `--no-verify` skips. `--dry-run` stops there and lists each archive's
   files; otherwise it checks the version is new, uploads each archive and the docs (in parts when
   they're over 64 MB), and publishes them. Its sizes are in the registry's units, as its limits are,
   a KB a thousand bytes and an MB a million, and Uploading says the size Packaged did. In a GitHub

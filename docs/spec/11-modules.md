@@ -154,7 +154,8 @@ layout = { path = "../layout", version = "0.4" }    # its folder here, 0.4 once 
   packages developed together in one repository are: a build uses its folder, whose version has to
   be in the range, and `fb publish` writes only the range into the published package's
   project.toml, so builds of the published package take the registry's. `registry = "company"`
-  takes it from a registry `[registries]` names rather than futureblitz.dev; a dependency with
+  takes it from a registry `[registries]` names rather than futureblitz.dev, and a published
+  package's dependency that names none is from the registry it's published to; a dependency with
   only a path takes none. `[registries]` names each by its index, `company = { index =
   "https://packages.example.com/index/" }`, or a folder, a registry on disk; its names are
   identifiers, and `futureblitz` is futureblitz.dev's, which it can name again for a mirror. A

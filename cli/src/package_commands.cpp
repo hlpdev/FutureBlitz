@@ -597,9 +597,11 @@ int search_command(const console_t& console, const options_t& options) {
 /// Whether the registry has the version of each of `manifest`'s dependencies with a path and a
 /// version that its folder has, not yanked, which the published package depends on: what the
 /// package builds with here is what another computer gets, so it's published first, as Cargo has
-/// it. Says what isn't.
+/// it. A dependency that names no registry is from `index`'s, the one it's published to. Says
+/// what isn't.
 bool published_path_versions(const console_t& console, const options_t& options,
-                             const std::filesystem::path& root, const manifest_t& manifest) {
+                             const std::filesystem::path& root, const manifest_t& manifest,
+                             const std::string& index) {
     for (const dependency_t& dependency : manifest.dependencies) {
         if (dependency.path.empty() || !dependency.range) {
             continue;
@@ -607,13 +609,14 @@ bool published_path_versions(const console_t& console, const options_t& options,
 
         const std::optional<manifest_t> folder =
             manifest_of(root / path_from_utf8(dependency.path));
-        const std::optional<std::string> index =
-            registry_index(dependency.registry, manifest.registries, root);
-        if (!folder || !index) {
+        const std::optional<std::string> source =
+            dependency.registry ? registry_index(dependency.registry, manifest.registries, root)
+                                : std::optional<std::string>(index);
+        if (!folder || !source) {
             continue;
         }
 
-        registry_t registry(*index, send_http, options.offline, {});
+        registry_t registry(*source, send_http, options.offline, {});
         const std::expected<std::vector<index_entry_t>, std::string> versions =
             registry.versions(dependency.name);
         if (!versions) {
@@ -683,9 +686,11 @@ std::string with_whole_registries(const std::string& text, const std::filesystem
 /// Builds the package as its archives have it, unpacked in build/package/<name>-<version>/,
 /// from the registry's packages alone, as another computer would, so what a path dependency's
 /// folder has that its published version doesn't is found before it's published. Says why it
-/// doesn't build.
+/// doesn't build. A dependency that names no registry is from `index`'s, the one it's published
+/// to, as it is for whoever adds it from there.
 bool verify_package(const console_t& console, const options_t& options,
-                    const std::filesystem::path& root, const prepared_package_t& package) {
+                    const std::filesystem::path& root, const prepared_package_t& package,
+                    const std::string& index) {
     const std::string shown =
         std::format("{} v{}", package.manifest.name, package.manifest.version);
     const std::filesystem::path archives = root / "build" / "package";
@@ -717,7 +722,18 @@ bool verify_package(const console_t& console, const options_t& options,
     }
 
     const std::optional<std::string> text = read_text(folder / "project.toml");
-    if (!text || !write_text(folder / "project.toml", with_whole_registries(*text, root))) {
+    std::optional<std::string> verified =
+        text ? std::optional(with_whole_registries(*text, root)) : std::nullopt;
+    if (verified && index != default_index) {
+        verified = with_own_registry(*verified, index);
+        if (!verified) {
+            console.error(
+                std::format("couldn't read {}'s project.toml as the registry would", shown));
+            return false;
+        }
+    }
+
+    if (!verified || !write_text(folder / "project.toml", *verified)) {
         console.error(std::format("couldn't write {}", to_utf8(folder / "project.toml")));
         return false;
     }
@@ -809,7 +825,8 @@ int publish_command(const console_t& console, const options_t& options) {
 
     // What a path dependency's folder builds with has to be the registry's, which --offline can't
     // ask.
-    if (!options.offline && !published_path_versions(console, options, *root, package->manifest)) {
+    if (!options.offline &&
+        !published_path_versions(console, options, *root, package->manifest, chosen->index)) {
         return compile_errors_exit_code;
     }
 
@@ -839,7 +856,7 @@ int publish_command(const console_t& console, const options_t& options) {
         }
     }
 
-    if (!options.no_verify && !verify_package(console, options, *root, *package)) {
+    if (!options.no_verify && !verify_package(console, options, *root, *package, chosen->index)) {
         return compile_errors_exit_code;
     }
 

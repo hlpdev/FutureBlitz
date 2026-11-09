@@ -262,6 +262,61 @@ TEST_CASE("a published package's project.toml has its dependencies' versions, no
     CHECK(published(project + "# no dependencies\n") == project + "# no dependencies\n");
 }
 
+TEST_CASE("a published package's dependencies that name no registry are its registry's",
+          "[manifest]") {
+    // The manifest as read again, or an empty one.
+    const auto read = [](const std::string_view text) {
+        const std::optional<std::string> verified =
+            fb::with_own_registry(text, "https://staging.example.com/index/");
+        const fb::source_file_t file(fb::file_id_t{}, "project.toml", verified.value_or(""));
+        fb::diagnostic_bag_t bag;
+        return fb::read_manifest(file, bag).value_or(fb::manifest_t{});
+    };
+    const std::string project = "[project]\nname = \"audio\"\nversion = \"0.1.0\"\n\n";
+
+    // A range alone, an inline table, and a table each name the new registry, and one that names
+    // a registry keeps it.
+    const fb::manifest_t forms =
+        read(project + "[registries]\ncompany = { index = \"https://packages.example.com/index/\" "
+                       "}\npublished_to = { index = \"https://other.example.com/index/\" }\n\n"
+                       "[dependencies]\nengine = \"1.0\"\nmath = { version = \"2\", link = "
+                       "\"beside\" }\ntools = { version = \"3\", registry = \"company\" }\n\n"
+                       "[dependencies.shapes]\nversion = \"0.3\"\n");
+    REQUIRE(forms.dependencies.size() == 4);
+    for (const fb::dependency_t& dependency : forms.dependencies) {
+        INFO(dependency.name);
+        CHECK(dependency.registry == (dependency.name == "tools" ? "company" : "published_to_"));
+    }
+
+    const auto math = std::ranges::find(forms.dependencies, "math", &fb::dependency_t::name);
+    REQUIRE(math != forms.dependencies.end());
+    CHECK(math->beside);
+    CHECK(math->range.value_or(fb::version_range_t{}).text == "2");
+    const auto added =
+        std::ranges::find(forms.registries, "published_to_", &fb::registry_entry_t::name);
+    REQUIRE(added != forms.registries.end());
+    CHECK(added->index == "https://staging.example.com/index/");
+    CHECK(forms.registries.size() == 3);
+
+    // Without [registries], it's made.
+    const fb::manifest_t made = read(project + "[dependencies]\nengine = \"1\"\n");
+    REQUIRE(made.registries.size() == 1);
+    REQUIRE(made.dependencies.size() == 1);
+    CHECK(made.registries.front().name == "published_to");
+    CHECK(made.dependencies.front().registry == "published_to");
+
+    // What has nothing to change stays as it was, and what isn't TOML, or isn't what a manifest
+    // has, is nullopt.
+    const std::string own =
+        project + "# its own\n[dependencies]\ntools = { version = \"3\", registry = \"x\" }\n";
+    CHECK(fb::with_own_registry(own, "https://x/") == own);
+    CHECK(fb::with_own_registry(project, "https://x/") == project);
+    CHECK_FALSE(fb::with_own_registry("[project\n", "https://x/"));
+    CHECK_FALSE(fb::with_own_registry("registries = 1\n" + project + "[dependencies]\na = \"1\"\n",
+                                      "https://x/"));
+    CHECK_FALSE(fb::with_own_registry(project + "[dependencies]\na = 1\n", "https://x/"));
+}
+
 TEST_CASE("[build] names the program a package's build step runs, its own or a dependency's",
           "[manifest]") {
     const std::string_view project = "[project]\nname = \"game\"\nversion = \"0.1.0\"\n";
