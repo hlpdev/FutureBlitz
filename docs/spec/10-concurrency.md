@@ -68,7 +68,7 @@ End For
   thread waits for it.
 - The program waits for every Task and Thread when its top-level code ends. A panic in one ends
   the whole program.
-- The work's lambda can't throw, like any function value's. A Task whose Wait throws comes from
+- The work's lambda can't throw. A Task whose Wait throws comes from
   an Async Function with a Throws (see [Async / Await](#async--await)).
 - `Parallel For i = a Until b`, or `To b`, runs its passes on the pool at once, in chunks, with
   the calling thread taking some, and the next statement waits for them all. It counts integers

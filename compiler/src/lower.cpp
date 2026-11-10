@@ -2980,6 +2980,14 @@ private:
             return value;
         }
 
+        // A Func that doesn't throw, made one that does, needs a wrapper that isn't built yet.
+        // One that throws made one that throws more is the same value.
+        if (const type_id_t made = without_nullables(type), given = without_nullables(from);
+            is_func(made) && is_func(given) && !types().get(made).throws.empty() &&
+            types().get(given).throws.empty()) {
+            throwing_func_not_built(span);
+        }
+
         // An array where an Interface is expected, in any T?s, needs its type's tables.
         if (const type_id_t source = without_nullables(from);
             is_array(source) && is_interface(without_nullables(type))) {
@@ -10658,6 +10666,20 @@ private:
         return temporary(std::move(value), attribute, has_references(attribute));
     }
 
+    /// A function value that throws is checked, by the rules docs/throwing-func-values.md has, and
+    /// its code isn't built yet: a build that calls one, or makes one of a Func that doesn't
+    /// throw, says so, once.
+    void throwing_func_not_built(const span_t span) {
+        if (!m_module.error) {
+            m_module.error = mir_error_t{
+                .message = "a function value that throws is checked but can't be built yet: its "
+                           "call, and the wrapper that makes one of a Func that doesn't throw, "
+                           "are the next step",
+                .span = span,
+            };
+        }
+    }
+
     /// Calling a function value runs its object's code.
     std::optional<operand_t> invoke(const call_expr_t& node, const span_t span) {
         std::vector<expr_id_t> operands{ node.callee };
@@ -10667,6 +10689,10 @@ private:
 
         const std::vector<bool> later = changes_after(operands);
         const operand_t callee = settled(lower_value(node.callee), later.front());
+        if (!types().get(type_of(callee)).throws.empty()) {
+            throwing_func_not_built(span);
+        }
+
         invoke_t call{ .callee = callee, .span = span };
         for (std::size_t i = 0; i < node.arguments.size(); ++i) {
             call.arguments.push_back(settled(lower_value(node.arguments[i].value), later[i + 1]));

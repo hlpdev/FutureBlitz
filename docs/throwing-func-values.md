@@ -1,8 +1,14 @@
 # Function values that throw: a design
 
-A design, not built. Asked for by SCP:CB X (2026-11-10): a lambda that throws, held in a function
-value whose type has Throws, and called with Try. It's more than one step, so this says what it
-is, what it costs, and the order to build it in. Nothing here is in the language yet.
+Asked for by SCP:CB X (2026-11-10): a lambda that throws, held in a function value whose type
+has Throws, and called with Try. It's more than one step, so this says what it is, what it
+costs, and the order to build it in. The user said yes to steps 1 to 3 (2026-11-10), with the
+picks below; steps 4 to 6 are Deferred work.
+
+Built so far: step 1, the type's rules, in sema: the type as a value's, a call through one
+needing Try, and the conversions with their errors (rules 1, 2, and 5 below). A build that
+calls one, or makes one of a Func that doesn't throw, says its code isn't built yet. "Today",
+below, is how it was before step 1.
 
 ## Today
 

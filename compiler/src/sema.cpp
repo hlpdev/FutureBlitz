@@ -911,6 +911,8 @@ private:
     struct pending_throws_t {
         std::vector<type_id_t> types;
         std::vector<span_t> spans;
+        /// A Func type's, not a Task's.
+        bool of_func = false;
     };
     std::vector<pending_throws_t> m_pending_throws;
     bool m_throws_checked = false;
@@ -987,8 +989,6 @@ private:
     /// While inferring a call's type arguments: the type parameters not known yet. A lambda
     /// argument doesn't take its types from them.
     std::vector<type_id_t> m_inferring;
-    /// While a For Method loop's Func type is resolved, which can throw, for its Methods.
-    bool m_method_pattern = false;
     bool m_initializing = false; // checking Global and Const initializers
     /// The ThreadLocal Global whose initializer is being checked. It stands for that code in the
     /// thread checks, since the initializer runs on whichever thread uses the Global first.
@@ -7568,8 +7568,9 @@ private:
         return false;
     }
 
-    /// A Task type's Throws lists Classes that extend Error, or type parameters that are errors,
-    /// none covered by another. A T? or T[] of one says the Task's type goes in parentheses.
+    /// A Task type's Throws, or a Func type's, lists Classes that extend Error, or type parameters
+    /// that are errors, none covered by another. A T? or T[] of one says the type goes in
+    /// parentheses.
     void check_task_throws(const pending_throws_t& written) {
         for (std::size_t i = 0; i < written.types.size(); ++i) {
             const type_id_t type = written.types[i];
@@ -7585,10 +7586,11 @@ private:
                 error(span, "{} is already covered by this Throws", shown_name(type));
             } else if (!is_error(type) && inner != type_id_t::INVALID && is_error(inner)) {
                 error(span,
-                      "Throws lists Classes that extend {}, not {}; a Task's type with a Throws "
-                      "goes in parentheses before a '{}', as in (Task<T> Throws {}){}",
+                      "Throws lists Classes that extend {}, not {}; a {}'s type with a Throws "
+                      "goes in parentheses before a '{}', as in ({} Throws {}){}",
                       error_name(type, span), name_of(type, m_analysis.error_class),
-                      is_nullable(type) ? "?" : "[]", shown_name(inner),
+                      written.of_func ? "Func" : "Task", is_nullable(type) ? "?" : "[]",
+                      written.of_func ? "Func(): T" : "Task<T>", shown_name(inner),
                       is_nullable(type) ? "?" : "[]");
             } else if (!is_error(type)) {
                 error(span, "Throws lists Classes that extend {}, not {}", error_name(type, span),
@@ -14827,14 +14829,30 @@ private:
                                        });
         }
 
-        // A Sendable Func is a Func too, which stays on the thread that has it.
-        if (is_sendable_func(from) && is_func(to) && !is_sendable_func(to)) {
-            return m_analysis.types.get(from).parameters == m_analysis.types.get(to).parameters &&
-                   m_analysis.types.get(from).inner == m_analysis.types.get(to).inner;
+        // A Sendable Func is a Func too, which stays on the thread that has it, and a Func that
+        // throws less is one that throws more: nothing, or errors the other's Throws covers.
+        if (is_func(from) && is_func(to)) {
+            return same_shape(from, to) && (is_sendable_func(from) || !is_sendable_func(to)) &&
+                   throws_within(from, to);
         }
 
         return converts_losslessly(from, to) || makes_path(from, to) ||
                (is_class(from) && is_class(to) && m_analysis.types.extends(from, to));
+    }
+
+    /// Whether two Func types take and give the same, whatever each throws and whether it's
+    /// Sendable.
+    [[nodiscard]] bool same_shape(const type_id_t a, const type_id_t b) const {
+        return m_analysis.types.get(a).parameters == m_analysis.types.get(b).parameters &&
+               m_analysis.types.get(a).inner == m_analysis.types.get(b).inner;
+    }
+
+    /// Whether each error the Func type `from` throws is one `to`'s Throws covers, so a call
+    /// through `to` says all that `from` can throw.
+    [[nodiscard]] bool throws_within(const type_id_t from, const type_id_t to) const {
+        return std::ranges::all_of(m_analysis.types.get(from).throws, [&](const type_id_t type) {
+            return covers(m_analysis.types.get(to).throws, type);
+        });
     }
 
     /// Whether an object can be of both types: one Class extends the other, or a Class's object
@@ -14969,9 +14987,6 @@ private:
         }
 
         if (const auto* function = std::get_if<function_type_t>(&type.node)) {
-            // Only a For Method loop's own Func type throws, for its Methods, not one in it: a
-            // function value can't.
-            const bool pattern = std::exchange(m_method_pattern, false);
             std::vector<type_id_t> parameters;
             parameters.reserve(function->parameters.size());
             for (const type_expr_id_t parameter : function->parameters) {
@@ -14983,14 +14998,9 @@ private:
                 return callback_of(*function, parameters, result);
             }
 
-            std::vector<type_id_t> throws;
-            if (!function->throws.empty() && !pattern) {
-                error(type.span,
-                      "a Func value can't throw; only a For Method loop's Func type says that "
-                      "its Methods do");
-                return type_id_t::INVALID;
-            }
-
+            // A Func type's Throws lists Classes as a Function's does, which calling a value of
+            // it can throw.
+            pending_throws_t written{ .of_func = true };
             for (const type_expr_id_t thrown : function->throws) {
                 const type_id_t error_type = part(thrown);
                 if (is_parameter(error_type) && !is_error(error_type)) {
@@ -15001,10 +15011,32 @@ private:
                     return type_id_t::INVALID;
                 }
 
-                throws.push_back(error_type);
+                if (error_type == type_id_t::INVALID) {
+                    return type_id_t::INVALID;
+                }
+
+                written.types.push_back(error_type);
+                written.spans.push_back(m_ast.get(thrown).span);
             }
 
-            return m_analysis.types.function(parameters, result, function->sendable, throws);
+            // As a Task type's: a type parameter here, with the constraints that hold where it's
+            // written, and a Class once Classes know what they extend.
+            for (std::size_t i = 0; i < written.types.size(); ++i) {
+                if (is_parameter(written.types[i]) && covered_in(written.types, i)) {
+                    error(written.spans[i], "{} is already covered by this Throws",
+                          shown_name(written.types[i]));
+                }
+            }
+
+            if (!written.types.empty()) {
+                if (m_throws_checked) {
+                    check_task_throws(written);
+                } else if (m_diagnostics == m_reported) {
+                    m_pending_throws.push_back(written);
+                }
+            }
+
+            return m_analysis.types.function(parameters, result, function->sendable, written.types);
         }
 
         // A Weak<T> belongs in a field, which a check can't narrow.
@@ -20310,10 +20342,7 @@ private:
             m_bounds.push_back(bound);
         }
 
-        // Only this Func type can throw, for the Methods that do.
-        const bool outer_pattern = std::exchange(m_method_pattern, true);
         const type_id_t signature = resolve_type(said->interfaces.front());
-        m_method_pattern = outer_pattern;
         m_bounds = outer_bounds;
         m_type_scope.resize(mark);
         if (signature != type_id_t::INVALID && !is_func(signature)) {
@@ -22093,6 +22122,20 @@ private:
             is_flexible(id)) {
             error(span_of(id), "{} doesn't fit in {}{}", text(id), shown_name(expected),
                   on_windows(non_null(expected)));
+        } else if (is_func(found.type) && is_func(expected) && same_shape(found.type, expected) &&
+                   !throws_within(found.type, expected)) {
+            std::vector<type_id_t> lost;
+            for (const type_id_t type : m_analysis.types.get(found.type).throws) {
+                if (!covers(m_analysis.types.get(expected).throws, type)) {
+                    lost.push_back(type);
+                }
+            }
+
+            error(span_of(id),
+                  "expected {}, found {}, which can throw {}, and a call through the first "
+                  "wouldn't say so; a Func that throws less converts to one that throws more, not "
+                  "the other way",
+                  name_of(expected, found.type), name_of(found.type, expected), names_of(lost));
         } else if (is_nullable(found.type) && converts(non_null(found.type), expected)) {
             diagnostic_t& reported =
                 error(span_of(id),
@@ -27823,6 +27866,11 @@ private:
 
             check(argument.value, parameters[i]);
             expect_type(argument.value, parameters[i]);
+        }
+
+        // A value of a Func type that throws is called as a Function that throws is.
+        if (is_func(type)) {
+            check_throws(id, text(node.callee), m_analysis.types.get(type).throws);
         }
 
         return result;
