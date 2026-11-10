@@ -22,6 +22,13 @@ Local s = Sample(time: 0.5, value: 1.5, weight: 1.0)
   be called on something assignable: a `Local`, a `Global`, a `ByRef` parameter, or a field of
   one, or an element of a fixed array. A `T[]`'s elements can move when the array grows, so not
   one of those.
+- In a type's code, a member's name alone is the member, which hides a top-level name, but for
+  one case: a Field, Static Field, or Property named as a Struct, Class, or alias, like `Field
+  Sounds: Sounds`, doesn't hide it in a call, since it holds no function value to call. So
+  `Sounds = Sounds()` in the Class assigns the Field a new Sounds, and `Sounds` alone is still
+  the Field. A member that does hold a function value, a `Func` or a Callback, nullable or not,
+  is what a call of its name means, and `Self.Sounds()` is always the member. Only a type is
+  found this way: a Field named as an Interface or a Function still hides it.
 
 ```vb
 Struct Counter

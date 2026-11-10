@@ -1204,6 +1204,53 @@ TEST_CASE("member access", "[sema]") {
                     "        Count()\n"
                     "    End Method\n"
                     "End Class") == errors_t{ "Count: 'Count' is a field, not a method" });
+
+    // A Field named as a Struct or Class doesn't hide it in a call, which the Field couldn't
+    // take: the call makes one, with the type's own arguments and their errors.
+    const std::string named = "Class Sounds\n    Field Count: Int = 2\nEnd Class\n"
+                              "Interface Shape\nEnd Interface\n"
+                              "Function Total(): Int => 1\n"
+                              "Class Maybe\nEnd Class\n";
+    CHECK(errors_of(named + "Class Game\n"
+                            "    Field Sounds: Sounds\n"
+                            "    New()\n"
+                            "        Sounds = Sounds()\n"
+                            "    End New\n"
+                            "    Method Reset()\n"
+                            "        Sounds = Sounds()\n"
+                            "    End Method\n"
+                            "End Class")
+              .empty());
+    CHECK(errors_of(named + "Class Game\n"
+                            "    Field Sounds: Sounds? = Null\n"
+                            "    Method Reset()\n"
+                            "        Sounds = Sounds(1, 2)\n"
+                            "    End Method\n"
+                            "End Class") ==
+          errors_t{ "1: too many arguments to 'Sounds'", "2: too many arguments to 'Sounds'" });
+    // Explicitly the Field, an Interface, which can't be made, a Function, and a Field that
+    // does hold a function value, though it may be Null, are as they were.
+    CHECK(errors_of(named + "Class Game\n"
+                            "    Field Sounds: Sounds\n"
+                            "    Field Shape: Int = 0\n"
+                            "    Field Total: Int = 0\n"
+                            "    Field Maybe: (Func(): Int)? = Null\n"
+                            "    New()\n"
+                            "        Sounds = Sounds()\n"
+                            "    End New\n"
+                            "    Method Reset()\n"
+                            "        Local a = Self.Sounds()\n"
+                            "        Local b = Shape()\n"
+                            "        Local c = Total()\n"
+                            "        Local d = Maybe()\n"
+                            "    End Method\n"
+                            "End Class") ==
+          errors_t{
+              "Sounds: 'Sounds' is a field, not a method",
+              "Shape: 'Shape' is a field, not a method",
+              "Total: 'Total' is a field, not a method",
+              "Maybe: 'Maybe' may be Null; check a Local copy of it before calling it",
+          });
     CHECK(errors_of("Local a = 1\nLocal b = a.x") ==
           errors_t{ "x: Int32 has no member named 'x'" });
     CHECK(errors_of("Struct P\nEnd Struct\nLocal p = P") ==

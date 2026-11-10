@@ -1,0 +1,118 @@
+// A Field named as its type, like "Field Sounds: Sounds": in its type's code, "Sounds()" makes a
+// Sounds, since the Field holds no function value to call, while "Sounds" alone is still the
+// Field. A Property and a Static Field are the same, an inherited Field too, and a Field that
+// does hold a function value is still what a call means.
+
+Import std.core
+
+Class Sounds
+    Field Count: Int = 2
+    New(count: Int = 2)
+        Count = count
+    End New
+End Class
+
+Struct Vec
+    Field X: Int = 1
+    Field Y: Int = 1
+End Struct
+
+Struct Box<T>
+    Field Item: T
+End Struct
+
+Alias Point = Vec
+
+Class Maker
+    Field Made: Int = 7
+End Class
+
+Class Game
+    Field Sounds: Sounds
+    Field Vec: Vec
+    Field Box: Box<Int>
+    Field Point: Point
+    Static Field Maker: Maker? = Null
+    // This one holds a function value, so a call of it is the Field's, not the type's.
+    Field Tally: Func(Int): Int
+
+    Property Tracks: Int
+        Get => Sounds.Count
+    End Property
+
+    New()
+        Sounds = Sounds()
+        Vec = Vec(1, 2)
+        Box = Box<Int>(5)
+        Point = Point(8, 9)
+        Tally = Function(n: Int) => n + 100
+    End New
+
+    Method Reset(count: Int)
+        Sounds = Sounds(count)
+        Local other = Vec(3, 4)
+        Vec = Vec(other.X + Vec.X, other.Y)
+        Box = Box<Int>(Box.Item + 1)
+        Point = Point(Vec.X, 0)
+    End Method
+
+    // In a lambda in its code too, which holds Self.
+    Method Later(): Func(): Int => Function() => Sounds(40).Count + Sounds.Count
+
+    Method Called(): Int => Tally(1)
+
+    Static Method Start()
+        Maker = Maker()
+    End Method
+End Class
+
+Class Tally
+    Field Total: Int = 0
+End Class
+
+// A Property named as a type, and a Field a base Class has.
+Class Track
+    Field Length: Int = 3
+End Class
+
+Class Album
+    Field Kept: Track
+
+    Property Track: Track
+        Get => Kept
+    End Property
+
+    New()
+        Kept = Track()
+    End New
+
+    Method Replace()
+        Kept = Track()
+        Kept.Length = 9
+    End Method
+End Class
+
+Class Level Extends Game
+    Method Quiet()
+        Sounds = Sounds(0)
+    End Method
+End Class
+
+Local game = Game()
+Print(game.Sounds.Count, game.Vec.X, game.Vec.Y, game.Box.Item, game.Point.X, game.Tracks)
+game.Reset(5)
+Print(game.Sounds.Count, game.Vec.X, game.Vec.Y, game.Box.Item, game.Point.X, game.Point.Y)
+Print(game.Later()(), game.Called())
+Game.Start()
+Print(Game.Maker?.Made ?? -1)
+
+Local album = Album()
+album.Replace()
+Print(album.Track.Length)
+
+Local level = Level()
+level.Quiet()
+Print(level.Sounds.Count)
+
+// Outside the type, the name is the type.
+Print(Tally().Total)
