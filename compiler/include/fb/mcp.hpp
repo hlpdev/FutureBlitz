@@ -25,6 +25,9 @@ struct mcp_options_t {
     /// How many tool calls run at once, each on a thread with a compiler's stack; those past it
     /// wait their turn, and their deadlines count from when they came.
     std::size_t most_running = 8;
+    /// For the tests: what a call's thread runs before its tool, with the tool's name, so a test
+    /// can hold a call where it is rather than hope it's slow enough.
+    std::function<void(std::string_view tool)> before_tool;
 };
 
 /// The server, for the package at `root`, or the folder of loose files it is: it takes each

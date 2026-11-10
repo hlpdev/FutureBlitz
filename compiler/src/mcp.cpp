@@ -545,10 +545,23 @@ struct mcp_server_t::core_t : std::enable_shared_from_this<core_t> {
     std::condition_variable changed;
     /// The calls running, by their ids' JSON.
     std::map<std::string, call_t> calls;
-    /// The calls past options.most_running, for a thread that ends one to take.
+    /// A thread that runs calls, one after another, and whether it's running one now.
+    struct worker_t {
+        stack_thread_t thread;
+        bool busy = false;
+    };
+
+    /// The calls that wait for a worker, in the order they came.
     std::deque<tool_call_t> queued;
-    /// The threads running calls, and the last call's serial.
-    std::size_t running = 0;
+    /// What a worker waits on for a call, or for the server to close.
+    std::condition_variable work;
+    /// The workers, options.most_running at most, each made when a call comes that none is free
+    /// for, and kept until the server closes: a thread for each call, detached, ran into MinGW's
+    /// winpthreads, where a new thread now and then never got out of its first read of a
+    /// thread_local, so its call was never answered. How many of them wait for a call, and the
+    /// last call's serial.
+    std::vector<std::unique_ptr<worker_t>> workers;
+    std::size_t idle = 0;
     std::uint64_t last_serial = 0;
     /// The answers being sent from a call's thread or the deadlines' thread.
     std::size_t replying = 0;
@@ -985,23 +998,11 @@ struct mcp_server_t::core_t : std::enable_shared_from_this<core_t> {
         changed.notify_all();
     }
 
-    /// Runs `current`, and those that wait behind it, until none's left, on its thread.
-    void run_calls(tool_call_t current) {
+    /// A worker's thread: runs the call that's waited longest, then the next, and waits when
+    /// there's none, until the server closes.
+    void run_calls(worker_t& self) {
+        std::unique_lock lock(mutex);
         while (true) {
-            json_t result;
-            try {
-                result = text_result(run(current.tool, current.arguments));
-            } catch (const json_t::exception& error) {
-                result = text_result({
-                    .text = std::format("Its arguments aren't what it takes: {}", error.what()),
-                    .error = true,
-                });
-            } catch (const std::exception& error) {
-                result = text_result({ .text = error.what(), .error = true });
-            }
-
-            finish(current.key, current.serial, std::move(result));
-            const std::scoped_lock lock(mutex);
             // Not those already answered, at their deadlines, or cancelled.
             while (!queued.empty()) {
                 const auto found = calls.find(queued.front().key);
@@ -1013,16 +1014,43 @@ struct mcp_server_t::core_t : std::enable_shared_from_this<core_t> {
             }
 
             if (queued.empty()) {
-                --running;
-                return;
+                if (closed) {
+                    return;
+                }
+
+                ++idle;
+                work.wait(lock);
+                --idle;
+                continue;
             }
 
-            current = std::move(queued.front());
+            const tool_call_t current = std::move(queued.front());
             queued.pop_front();
+            self.busy = true;
+            lock.unlock();
+            json_t result;
+            try {
+                if (options.before_tool) {
+                    options.before_tool(current.tool);
+                }
+
+                result = text_result(run(current.tool, current.arguments));
+            } catch (const json_t::exception& error) {
+                result = text_result({
+                    .text = std::format("Its arguments aren't what it takes: {}", error.what()),
+                    .error = true,
+                });
+            } catch (const std::exception& error) {
+                result = text_result({ .text = error.what(), .error = true });
+            }
+
+            finish(current.key, current.serial, std::move(result));
+            lock.lock();
+            self.busy = false;
         }
     }
 
-    /// Starts a tool call on a thread of its own, or has it wait for one, past the limit.
+    /// Has a tool call wait for a worker, and makes one when none is free and there's room.
     void call(const json_t& id, const json_t& params, const reply_t& reply) {
         if (!params.contains("name") || !params.at("name").is_string()) {
             reply(failure(id, invalid_params, "tools/call needs the tool's name"));
@@ -1044,53 +1072,50 @@ struct mcp_server_t::core_t : std::enable_shared_from_this<core_t> {
         }
 
         tool_call_t next{ .key = id.dump(), .tool = std::move(tool), .arguments = arguments };
-        bool taken = false;
-        bool waits = false;
+        const std::string key = next.key;
+        std::uint64_t serial = 0;
+        // Why no worker could be made, when none is there to run the call.
+        std::optional<std::string> no_worker;
         {
             const std::scoped_lock lock(mutex);
-            taken = calls.contains(next.key);
-            if (!taken) {
-                next.serial = ++last_serial;
-                calls.emplace(next.key,
+            if (!calls.contains(key)) {
+                serial = next.serial = ++last_serial;
+                calls.emplace(key,
                               call_t{
                                   .reply = reply,
                                   .id = id,
                                   .deadline = std::chrono::steady_clock::now() + options.deadline,
-                                  .serial = next.serial,
+                                  .serial = serial,
                               });
                 changed.notify_all();
-                waits = running >= options.most_running;
-                if (waits) {
-                    queued.push_back(next);
-                } else {
-                    ++running;
+                queued.push_back(std::move(next));
+                // One more worker when the calls that wait are more than the workers free to
+                // take them. A tool can run the compiler, which needs the stack.
+                if (queued.size() > idle && workers.size() < options.most_running) {
+                    try {
+                        auto worker = std::make_unique<worker_t>();
+                        worker_t& made = *worker;
+                        workers.push_back(std::move(worker));
+                        made.thread = stack_thread_t(
+                            [core = shared_from_this(), &made] { core->run_calls(made); });
+                    } catch (const std::system_error& error) {
+                        workers.pop_back();
+                        // With a worker there, the call waits its turn.
+                        if (workers.empty()) {
+                            queued.pop_back();
+                            no_worker = error.what();
+                        }
+                    }
                 }
+
+                work.notify_one();
             }
         }
 
-        if (taken) {
+        if (serial == 0) {
             reply(failure(id, invalid_request, "a call with that id is running already"));
-            return;
-        }
-
-        if (waits) {
-            return;
-        }
-
-        // A tool can run the compiler, which needs the stack.
-        const std::string key = next.key;
-        const std::uint64_t serial = next.serial;
-        try {
-            stack_thread_t([core = shared_from_this(), next = std::move(next)] mutable {
-                core->run_calls(std::move(next));
-            }).detach();
-        } catch (const std::system_error& error) {
-            {
-                const std::scoped_lock lock(mutex);
-                --running;
-            }
-
-            finish(key, serial, text_result({ .text = error.what(), .error = true }));
+        } else if (no_worker) {
+            finish(key, serial, text_result({ .text = *no_worker, .error = true }));
         }
     }
 
@@ -1185,19 +1210,40 @@ mcp_server_t::mcp_server_t(const std::filesystem::path& root, send_t send, mcp_o
     : m_core(std::make_shared<core_t>()) {
     m_core->root = std::filesystem::absolute(root).lexically_normal();
     m_core->send = std::move(send);
-    m_core->options = options;
+    m_core->options = std::move(options);
     m_core->deadlines = std::thread([core = m_core.get()] { core->watch(); });
 }
 
 mcp_server_t::~mcp_server_t() {
     std::shared_future<docs_t> loading;
+    // The workers that aren't running a call end now, as there's none left for them, and the
+    // others are kept, which leaves their places empty.
+    std::vector<std::unique_ptr<core_t::worker_t>> ending;
     {
         std::unique_lock lock(m_core->mutex);
         m_core->closed = true;
         m_core->calls.clear();
         m_core->changed.notify_all();
+        m_core->work.notify_all();
         m_core->changed.wait(lock, [this] { return m_core->replying == 0; });
+        for (std::unique_ptr<core_t::worker_t>& worker : m_core->workers) {
+            // One still running a call runs on, as the call finishes on its own: it's never
+            // joined or detached, and stays until the process ends.
+            if (worker->busy) {
+                const core_t::worker_t* const running = worker.release();
+                static_cast<void>(running);
+            }
+        }
+
+        ending = std::move(m_core->workers);
+        m_core->workers.clear();
         loading = m_core->loading;
+    }
+
+    for (const std::unique_ptr<core_t::worker_t>& worker : ending) {
+        if (worker) {
+            worker->thread.join();
+        }
     }
 
     m_core->deadlines.join();
