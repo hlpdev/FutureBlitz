@@ -59,8 +59,9 @@ Two ways to pass the error out of a closure's code:
   where a throwing Func is expected never pays, since it's made with the parameter.
 
 **My pick: B.** It leaves every existing program's code as it is, keeps prebuilt libraries
-valid, and puts the cost where the feature is used. The wrapper is the same kind lowering
-already makes when a Function's name becomes a value.
+valid, and puts the cost where the feature is used. Lowering already makes small adapters of
+this kind for an Interface's table (its table thunks), though not yet for a function value, so
+the wrapper is new code in step 2.
 
 Converting between two throwing Func types (`Throws ParseError` to `Throws Error`) needs no
 wrapper: the parameter is an `Error?` either way.
