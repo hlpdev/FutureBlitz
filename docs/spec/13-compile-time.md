@@ -336,6 +336,18 @@ Local loaded = Try Load<Settings>(saved)        // and makes a Settings from aga
   flattened. A Field that @Skip leaves at its default has one, a type with a zero or a default of
   its own; two Fields can't have one key, a @Flatten Field's own Fields' keys among them, and a
   Field's old key is no other's.
+- `@RenameAll("snake_case")` on a Struct or Class gives each of its own Fields without a
+  @Rename the one that case makes of its name, so the Fields needn't each have one; a Field's
+  own @Rename wins, and a @Skip or @Flatten Field, which has no key, gets none. The cases are
+  `"snake_case"`, `"SCREAMING_SNAKE_CASE"`, `"kebab-case"`, `"SCREAMING-KEBAB-CASE"`,
+  `"camelCase"`, `"PascalCase"`, `"lowercase"`, and `"UPPERCASE"`, and another is an error. A
+  name's words are what `_`s part, and what starts at a capital after a small letter or a digit,
+  or at the last capital of a run before a small letter: `PlayerName` is `player_name`,
+  `HTTPPort` is `http_port`, and `Level2Boss` is `level2_boss`. Only ASCII letters change case.
+  It's the type's own Fields': a base Class's and a @Flatten Field's type's keep their keys,
+  unless they have a @RenameAll of their own. A Field it renames has that @Rename for
+  reflection too, as `f.Attribute(Rename)` reads it, and two Fields it gives one key are an
+  error, as two with one @Rename are.
 - Load leaves alone a key of the Object that no Field reads, unless the Struct or Class is
   `@Strict`, whose Load refuses the first such key, in the Object's order, with a ParseError of
   kind `UNKNOWN_KEY` whose Path is the key's, so a mistyped key in a file isn't left out unseen.

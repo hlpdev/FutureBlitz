@@ -397,6 +397,77 @@ std::vector<std::string> similar_names(const std::string_view name,
     return found;
 }
 
+} // namespace
+
+std::span<const std::string_view> rename_cases() {
+    static constexpr std::array<std::string_view, 8> cases{
+        "snake_case", "SCREAMING_SNAKE_CASE", "kebab-case", "SCREAMING-KEBAB-CASE",
+        "camelCase",  "PascalCase",           "lowercase",  "UPPERCASE",
+    };
+    return cases;
+}
+
+std::optional<std::string> renamed_as(const std::string_view name, const std::string_view style) {
+    if (!std::ranges::contains(rename_cases(), style)) {
+        return std::nullopt;
+    }
+
+    const auto upper = [](const char c) { return c >= 'A' && c <= 'Z'; };
+    const auto lower = [](const char c) { return c >= 'a' && c <= 'z'; };
+    const auto digit = [](const char c) { return c >= '0' && c <= '9'; };
+    std::vector<std::string> words;
+    bool starts = true;
+    for (std::size_t i = 0; i < name.size(); ++i) {
+        const char c = name[i];
+        if (c == '_') {
+            starts = true;
+            continue;
+        }
+
+        // A capital starts a word after a small letter or a digit, and so does the last of a run
+        // of capitals, before a small letter.
+        if (upper(c) && i > 0 &&
+            (lower(name[i - 1]) || digit(name[i - 1]) ||
+             (upper(name[i - 1]) && i + 1 < name.size() && lower(name[i + 1])))) {
+            starts = true;
+        }
+
+        if (starts || words.empty()) {
+            words.emplace_back();
+            starts = false;
+        }
+
+        words.back() += upper(c) ? static_cast<char>(c - 'A' + 'a') : c;
+    }
+
+    const bool shouts =
+        style == "SCREAMING_SNAKE_CASE" || style == "SCREAMING-KEBAB-CASE" || style == "UPPERCASE";
+    const bool capitals = style == "camelCase" || style == "PascalCase";
+    std::string_view between;
+    if (style == "snake_case" || style == "SCREAMING_SNAKE_CASE") {
+        between = "_";
+    } else if (style == "kebab-case" || style == "SCREAMING-KEBAB-CASE") {
+        between = "-";
+    }
+
+    std::string out;
+    for (std::size_t i = 0; i < words.size(); ++i) {
+        std::string word = words[i];
+        for (std::size_t at = 0; at < word.size(); ++at) {
+            const bool first = at == 0 && capitals && (i > 0 || style == "PascalCase");
+            if (lower(word[at]) && (shouts || first)) {
+                word[at] = static_cast<char>(word[at] - 'a' + 'A');
+            }
+        }
+
+        out += (i == 0 ? std::string() : std::string(between)) + word;
+    }
+
+    return out;
+}
+
+namespace {
+
 /// Checks a program: resolves names, gives every expression a type, and tracks which Locals are
 /// assigned. Expressions whose value is known are folded as they're checked, so Consts, Case
 /// values, and default values can use them. Results go in an analysis_t for lowering.
@@ -1649,6 +1720,7 @@ private:
             .flatten = find("Flatten", true),
             .renamed = find("Renamed", true),
             .strict = find("Strict", true),
+            .rename_all = find("RenameAll", true),
             .loadable = find("Loadable", false),
             .saveable = find("Saveable", false),
         };
@@ -8025,6 +8097,7 @@ private:
 
             symbol(*declared).attributes = std::move(values);
             check_load_attributes(*declared, spans);
+            rename_by_owner(*declared);
         }
 
         if (members != nullptr) {
@@ -8051,6 +8124,26 @@ private:
                     (!is_struct(declared.type) && !is_class(declared.type))) {
                     error(spans[i], "@Strict goes on a Struct or Class, whose Load then refuses a "
                                     "key none of its Fields reads");
+                }
+
+                continue;
+            }
+
+            // @RenameAll is its type's too, with a case that's one of them.
+            if (type != type_id_t::INVALID && type == loading.rename_all) {
+                const std::string style =
+                    attribute_text(id, loading.rename_all).value_or(std::string());
+                if (declared.kind != symbol_kind_t::TYPE ||
+                    (!is_struct(declared.type) && !is_class(declared.type))) {
+                    error(spans[i], "@RenameAll goes on a Struct or Class, each of whose Fields "
+                                    "without a @Rename then has the one its case makes");
+                } else if (!renamed_as("x", style)) {
+                    std::string cases;
+                    for (const std::string_view each : rename_cases()) {
+                        cases += std::format("{}\"{}\"", cases.empty() ? "" : ", ", each);
+                    }
+
+                    error(spans[i], "@RenameAll takes a case, one of {}, not \"{}\"", cases, style);
                 }
 
                 continue;
@@ -8115,6 +8208,36 @@ private:
                       "Class, whose Fields join the others; '{}' is {}",
                       declared.name, shown_name(declared.type));
             }
+        }
+    }
+
+    /// A Field of a Struct or Class with @RenameAll, with no @Rename of its own, gets the @Rename
+    /// its type's case makes of its name, which is all Load, Save, and reflection then see. A
+    /// @Skip or @Flatten Field has no key to rename.
+    void rename_by_owner(const symbol_id_t id) {
+        const load_support_t& loading = m_analysis.loading;
+        const symbol_t& declared = symbol(id);
+        if (declared.kind != symbol_kind_t::FIELD || loading.rename == type_id_t::INVALID ||
+            loading.rename_all == type_id_t::INVALID || has_attribute(id, loading.rename) ||
+            has_attribute(id, loading.skip) || has_attribute(id, loading.flatten)) {
+            return;
+        }
+
+        const auto owner = m_declared_types.find(definition_of(declared.owner));
+        if (owner == m_declared_types.end()) {
+            return;
+        }
+
+        const std::optional<std::string> style = attribute_text(owner->second, loading.rename_all);
+        if (!style) {
+            return;
+        }
+
+        if (std::optional<std::string> key = renamed_as(declared.name, *style)) {
+            symbol(id).attributes.push_back({
+                .type = loading.rename,
+                .values = { { .type = type_id_t::STRING, .data = std::move(*key) } },
+            });
         }
     }
 

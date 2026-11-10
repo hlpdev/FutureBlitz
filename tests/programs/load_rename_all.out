@@ -1,0 +1,25 @@
+{"player_name":"a","max_health":1,"http_port":2,"level2_boss":3,"already_snake":4,"x":5,"url":6,"is3_d":true,"Custom":7,"hit_points":8}
+{"player_name":"a","max_health":1,"http_port":2,"level2_boss":3,"already_snake":4,"x":5,"url":6,"is3_d":true,"Custom":7,"hit_points":8}
+{"PLAYER_NAME":1,"HTTP_PORT":2}
+{"player-name":1,"http-port":2}
+{"PLAYER-NAME":1}
+{"playerName":1,"httpPort":2,"maxHealth":3}
+{"PlayerName":1,"MaxHealth":2,"HttpPort":3}
+{"playername":1}
+{"PLAYERNAME":1}
+{"BaseName":"b","own_name":"o","InnerValue":0,"whole":{"InnerValue":0}}
+z 80 30 70 1
+loaded
+UNKNOWN_KEY OwnName
+PlayerName player_name
+maxHealth max_health
+HTTPPort http_port
+Level2Boss level2_boss
+already_snake already_snake
+X x
+URL url
+Is3D is3_d
+OwnName Custom
+HitPoints hit_points
+NotSaved (none)
+snake_case

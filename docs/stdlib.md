@@ -53,7 +53,7 @@ So far, std/ holds:
 | std/core/parse.fb | `Parse` on each integer type, each Float type, and Bool, in an Extend of each, over the runtime's `fb_parse_int`, `fb_parse_uint`, and `fb_parse_float` |
 | std/core/values.fb | `Min`, `Max`, `Clamp`, `Swap`, and `HashCombine` |
 | std/core/value.fb | `Value`, data of any shape, and `ValueKind`, over the runtime's `fb_value_` functions for its text and paths |
-| std/core/load.fb | The attributes Load<T> and Save read, `Rename`, `Skip`, `Flatten`, `Renamed`, and `Strict`; `Loadable` and `Saveable`, for a type that converts itself; and the Package Functions the compiler's code for each type's Load and Save calls |
+| std/core/load.fb | The attributes Load<T> and Save read, `Rename`, `RenameAll`, `Skip`, `Flatten`, `Renamed`, and `Strict`; `Loadable` and `Saveable`, for a type that converts itself; and the Package Functions the compiler's code for each type's Load and Save calls |
 | std/collections/array.fb | `T[]`'s `Remove`, `Sort`, `SortUnstable`, `SortBy`, `SortByDescending` (with `Sorting<T>`'s `ThenBy` and `ThenByDescending`), `Filter`, `Map`, `Find`, `FindLast`, `FindIndex`, `IndexOf`, `LastIndexOf`, `BinarySearch`, `Any`, `All`, `First`, `Last`, `RemoveLast`, `TryRemoveLast`, `AddAll`, `InsertAll`, `RemoveRange`, `RemoveAll`, `Resize`, `Fill`, `Reverse`, `Swap`, `Distinct`, `Join`, `Fold`, and `Reduce`; `Iterate()`, which makes a `T[]` an `Iterable<T>`, through `ArrayIterator<T>` |
 | std/collections/view.fb | `ArrayView<T>`, which `items.View(a, b)` gives, and `ReadOnlyArray<T>`, `ReadOnlyMap<K, V>`, and `ReadOnlySet<T>`, which `AsReadOnly()` gives |
 | std/collections/map.fb | `Map<K, V>`, which `{key: value}` makes |
@@ -1096,7 +1096,10 @@ Step 18 built `Event<T>`, `Subscription`, and `Subscribe(owner, handler)`, in st
   from the data's value, else its default, else its zero, else a MISSING error naming it, and
   then its `OnLoaded()`. `Defaults<T>()` gives Save's form of a T's Fields at their defaults,
   or zeros, leaving out those with neither, without its New or OnLoaded. std.core's
-  `@Rename("key")`, `@Skip`, `@Flatten`, and `@Renamed("old")` adjust it, `@Strict` on a Struct
+  `@Rename("key")`, `@Skip`, `@Flatten`, and `@Renamed("old")` adjust it,
+  `@RenameAll("snake_case")` on a Struct or Class renames each of its Fields without a @Rename to
+  that case (or SCREAMING_SNAKE_CASE, kebab-case, SCREAMING-KEBAB-CASE, camelCase, PascalCase,
+  lowercase, or UPPERCASE), `@Strict` on a Struct
   or Class has its Load refuse a key none of its Fields reads, with an UNKNOWN_KEY error at that
   key, where Load otherwise leaves such a key alone, and a type can give
   its own conversion as a `Loadable` or `Saveable`. A format is then a Value's reader and
