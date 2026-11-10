@@ -3072,7 +3072,7 @@ private:
             // An instance of a generic Class has its fields' types with its type arguments.
             const type_id_t field_type = types().get(type).fields[field.field].type;
             const bool zero =
-                !field.empty_default &&
+                !field.empty_default && !field.struct_default &&
                 (!field.value || std::holds_alternative<std::nullptr_t>(field.value->data));
             if (zero && !needs_zeroing(field_type)) {
                 continue;
@@ -3092,7 +3092,7 @@ private:
     }
 
     /// A parameter's or field's default: its value known at compile time, a new empty array for
-    /// "[]", or else its type's zero.
+    /// "[]", its Struct type's own defaults for "T()", or else its type's zero.
     operand_t default_of(const symbol_t& symbol, const type_id_t type) {
         if (symbol.value) {
             const_value_t value = *symbol.value;
@@ -3102,6 +3102,10 @@ private:
 
         if (symbol.empty_default) {
             return temporary(array_t{ .type = type }, type, true);
+        }
+
+        if (symbol.struct_default) {
+            return temporary(defaults_of(type), type, has_references(type));
         }
 
         return zero_value(type);
@@ -8556,8 +8560,8 @@ private:
         start(absent);
         // It keeps its default, or its zero, and without either it's missing.
         const symbol_t& written = m_analysis.symbol(field);
-        const bool keeps =
-            written.value || written.empty_default || types().has_zero(declared.type);
+        const bool keeps = written.value || written.empty_default || written.struct_default ||
+                           types().has_zero(declared.type);
         if (!keeps) {
             const symbol_id_t missing = loading.helpers.at("LoadMissing");
             if (old) {
@@ -8889,7 +8893,8 @@ private:
     /// Whether a Field keeps a value when nothing sets it: a default, or its type's zero.
     [[nodiscard]] bool keeps_default(const symbol_id_t field, const type_id_t type) const {
         const symbol_t& written = m_analysis.symbol(field);
-        return written.value || written.empty_default || types().has_zero(type);
+        return written.value || written.empty_default || written.struct_default ||
+               types().has_zero(type);
     }
 
     /// A Struct's or Class's Save: an Object of a Value for each Field by its key, but a @Skip

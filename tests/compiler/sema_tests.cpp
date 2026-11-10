@@ -1145,6 +1145,42 @@ TEST_CASE("fields and their defaults", "[sema]") {
     CHECK(errors_of("Global g = 1\nStruct P\n    Field x: Int = g\nEnd Struct") ==
           errors_t{ "g: a field's default must be known at compile time" });
 
+    // A Struct Field's default can be its type's own, "T()": the New a Struct without one gets,
+    // with no arguments, in a Struct or a Class, typed or not, and for a generic one's instance.
+    const std::string inner = "Struct Inner\n    Field W: Int = 3\n    Field Tags: Int[] = []\n"
+                              "End Struct\n"
+                              "Struct Box<T>\n    Field Count: Int = 1\nEnd Struct\n";
+    CHECK(errors_of(inner + "Struct A\n    Field I: Inner = Inner()\n    Field J = Inner()\n"
+                            "    Field B: Box<Int> = Box<Int>()\nEnd Struct\n"
+                            "Class C\n    Field I: Inner = Inner()\nEnd Class\n"
+                            "Struct G<T>\n    Field B: Box<T> = Box<T>()\nEnd Struct\n"
+                            "Local a = A()\nLocal c = C()\nLocal g = G<Int>()")
+              .empty());
+    // Not with arguments, not a New that's written, which runs code, and not a Class's or a
+    // T?'s, which aren't a Struct's own value.
+    const std::string known = "a field's default must be known at compile time";
+    CHECK(errors_of(inner + "Struct Made\n    Field W: Int\n    New()\n        W = 1\n    End New\n"
+                            "End Struct\n"
+                            "Class Node\nEnd Class\n"
+                            "Function Make(): Inner => Inner()\n"
+                            "Struct A\n"
+                            "    Field I: Inner = Inner(4)\n"
+                            "    Field M: Made = Made()\n"
+                            "    Field N: Node = Node()\n"
+                            "    Field O: Inner? = Inner()\n"
+                            "    Field P: Inner = Make()\n"
+                            "End Struct") ==
+          errors_t{
+              "Inner(4): " + known +
+                  "; a Struct's can be its type's own defaults, Inner(), without arguments",
+              "Made(): " + known +
+                  ", and this runs Made's New; only a Struct without a New of its own can be a "
+                  "default, as its Fields' defaults",
+              "Node(): " + known,
+              "Inner(): " + known,
+              "Make(): " + known,
+          });
+
     // A field without a type takes its default's, which can use Consts declared above.
     CHECK(probe("Const BASE = 5\n"
                 "Struct P\n"

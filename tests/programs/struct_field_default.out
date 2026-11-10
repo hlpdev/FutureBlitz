@@ -1,0 +1,18 @@
+1280 720 game 0
+0.8 none
+settings
+1 [7] hdmi settings
+1280 named
+1 0 1280
+1280 0.8 3 -1
+720 game 3
+0 0
+0 0 10 20
+1280 settings 0.8
+1280 720 0.8
+640 720 game
+4 1280 game 0
+10 20
+{"Video":{"Width":1280,"Height":720,"Title":"game","Modes":[]},"Audio":{"Volume":0.8,"Device":null},"Name":"settings"}
+{"Settings":{"Video":{"Width":1280,"Height":720,"Title":"game","Modes":[]},"Audio":{"Volume":0.8,"Device":null},"Name":"settings"},"Boxed":{"Item":null,"Count":3}}
+True

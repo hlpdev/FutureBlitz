@@ -8182,8 +8182,8 @@ private:
             std::vector<type_id_t> inside;
             parameters_in(declared.type, inside);
             if (type == loading.skip && !declared.value && !declared.empty_default &&
-                inside.empty() && !m_analysis.types.has_zero(declared.type) &&
-                declared.type != type_id_t::INVALID) {
+                !declared.struct_default && inside.empty() &&
+                !m_analysis.types.has_zero(declared.type) && declared.type != type_id_t::INVALID) {
                 error(spans[i],
                       "@{} leaves '{}' at its default when Load makes {}, and {} has no "
                       "zero, so it needs a default of its own",
@@ -13072,7 +13072,8 @@ private:
             const std::optional<stmt_id_t> declaration = symbol(field).declaration;
             const auto* node =
                 declaration ? std::get_if<variable_stmt_t>(&m_ast.get(*declaration).node) : nullptr;
-            return node == nullptr || !node->value || info(*node->value).value.has_value();
+            return node == nullptr || !node->value || info(*node->value).value.has_value() ||
+                   symbol(field).struct_default;
         });
     }
 
@@ -16543,9 +16544,48 @@ private:
             symbol(field).value = info(value).value;
         } else if (is_empty_array(value)) {
             symbol(field).empty_default = true;
+        } else if (is_own_defaults(value, symbol(field).type)) {
+            symbol(field).struct_default = true;
         } else if (info(value).type != type_id_t::INVALID) {
-            error(span_of(value), "a field's default must be known at compile time");
+            // A Struct's New that isn't its type's own defaults says what would be.
+            const auto* call = std::get_if<call_expr_t>(&m_ast.get(value).node);
+            const std::optional<symbol_id_t> made = info(value).symbol;
+            const symbol_t* constructor = call != nullptr && made ? &symbol(*made) : nullptr;
+            if (constructor != nullptr && (constructor->kind != symbol_kind_t::CONSTRUCTOR ||
+                                           !is_struct(constructor->owner))) {
+                constructor = nullptr;
+            }
+
+            if (constructor != nullptr && constructor->declaration) {
+                error(span_of(value),
+                      "a field's default must be known at compile time, and this runs {}'s New; "
+                      "only a Struct without a New of its own can be a default, as its Fields' "
+                      "defaults",
+                      shown_name(constructor->owner));
+            } else if (constructor != nullptr && !call->arguments.empty()) {
+                error(span_of(value),
+                      "a field's default must be known at compile time; a Struct's can be its "
+                      "type's own defaults, {}(), without arguments",
+                      shown_name(constructor->owner));
+            } else {
+                error(span_of(value), "a field's default must be known at compile time");
+            }
         }
+    }
+
+    /// Whether `value` is "T()" for the Struct `type`: the New a Struct without one gets, with
+    /// no arguments, which makes a T of its Fields' defaults and runs none of its code.
+    [[nodiscard]] bool is_own_defaults(const expr_id_t value, const type_id_t type) {
+        const auto* call = std::get_if<call_expr_t>(&m_ast.get(value).node);
+        const std::optional<symbol_id_t> made = info(value).symbol;
+        if (call == nullptr || !call->arguments.empty() || !made || !is_struct(type) ||
+            info(value).type != type) {
+            return false;
+        }
+
+        const symbol_t& constructor = symbol(*made);
+        return constructor.kind == symbol_kind_t::CONSTRUCTOR && !constructor.declaration &&
+               is_struct(constructor.owner);
     }
 
     /// A field without a type gets its default's when its Struct's defaults are checked. Global
@@ -16567,6 +16607,7 @@ private:
         for (const auto& [copy, original] : m_copied_parameters) {
             symbol(copy).value = symbol(original).value;
             symbol(copy).empty_default = symbol(original).empty_default;
+            symbol(copy).struct_default = symbol(original).struct_default;
         }
     }
 
@@ -16786,7 +16827,7 @@ private:
                     // "[]" gives a T[] field its value.
                     if (symbol(member).kind == symbol_kind_t::FIELD &&
                         !m_analysis.types.has_zero(symbol(member).type) &&
-                        !symbol(member).empty_default) {
+                        !symbol(member).empty_default && !symbol(member).struct_default) {
                         m_required.push_back(member);
                     }
 
@@ -30943,7 +30984,8 @@ private:
                                name, m_types.name(declared.type));
         }
 
-        const bool keeps = field.value || field.empty_default || m_types.has_zero(declared.type);
+        const bool keeps = field.value || field.empty_default || field.struct_default ||
+                           m_types.has_zero(declared.type);
         if (m_declared && !m_saving && !keeps && skip) {
             return std::format(", whose @Skip leaves '{}' at its default, and {} has no zero, so "
                                "it needs a default of its own",
