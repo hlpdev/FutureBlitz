@@ -550,6 +550,9 @@ private:
         /// Value from one.
         LOAD,
         SAVE,
+        /// A @Strict Struct's or Class's Load as a @Flatten Field's, from an Object that has the
+        /// other Fields' keys too, so it refuses none.
+        LOAD_FLATTENED,
         /// A Struct's or Class's, for Defaults<T>(): a Value of its Fields' defaults.
         DEFAULTS,
     };
@@ -7682,6 +7685,9 @@ private:
         } else if (kind == generated_kind_t::LOAD) {
             full = std::format("{}.Load(Value, Int32)", name);
             result = type;
+        } else if (kind == generated_kind_t::LOAD_FLATTENED) {
+            full = std::format("{}.LoadFlattened(Value, Int32)", name);
+            result = type;
         } else if (kind == generated_kind_t::SAVE) {
             full = std::format("{}.Save(Int32)", name);
             result = m_analysis.loading.value;
@@ -7709,6 +7715,7 @@ private:
     /// like "[1, 2, 3]".
     void lower_generated(const generated_t& generated) {
         if (generated.kind == generated_kind_t::LOAD || generated.kind == generated_kind_t::SAVE ||
+            generated.kind == generated_kind_t::LOAD_FLATTENED ||
             generated.kind == generated_kind_t::DEFAULTS) {
             lower_conversion(generated);
             return;
@@ -7831,6 +7838,7 @@ private:
             break;
         }
         case generated_kind_t::LOAD:
+        case generated_kind_t::LOAD_FLATTENED:
         case generated_kind_t::SAVE:
         case generated_kind_t::DEFAULTS:
             break; // lower_conversion() lowers these
@@ -8007,6 +8015,7 @@ private:
             .subject = place_t{ subject.value_or(depth) },
             .depth = place_t{ depth },
             .span = generated.span,
+            .flattened = generated.kind == generated_kind_t::LOAD_FLATTENED,
         };
         std::optional<operand_t> made;
         if (defaults) {
@@ -8032,6 +8041,8 @@ private:
         place_t subject;
         place_t depth;
         span_t span;
+        /// A Load of a @Flatten Field's type, whose Object has the other Fields' keys too.
+        bool flattened = false;
     };
 
     /// How deep the next level in is: one deeper.
@@ -8272,11 +8283,15 @@ private:
     /// statement holds. An error in it goes on out, after `within` puts its step before its path.
     template <typename Within>
     operand_t load_part(const type_id_t type, const operand_t& value,
-                        const conversion_t& conversion, const Within& within) {
+                        const conversion_t& conversion, const Within& within,
+                        const bool flattened = false) {
         const local_id_t error = error_variable();
+        const generated_kind_t kind = flattened && is_strict(type)
+                                          ? generated_kind_t::LOAD_FLATTENED
+                                          : generated_kind_t::LOAD;
         const operand_t loaded = temporary(
             call_t{
-                .function = generated(generated_kind_t::LOAD, type, conversion.span),
+                .function = generated(kind, type, conversion.span),
                 .arguments = {
                     { .value = value },
                     { .value = deeper(conversion) },
@@ -8376,6 +8391,47 @@ private:
                                      &attribute_value_t::type);
     }
 
+    /// Whether a Struct or Class is @Strict, whose Load refuses a key none of its Fields reads.
+    [[nodiscard]] bool is_strict(const type_id_t type) const {
+        const auto declared = m_declared_types.find(definition_of(type));
+        return declared != m_declared_types.end() &&
+               has_attribute(declared->second, m_analysis.loading.strict);
+    }
+
+    /// Adds to `keys` each key that a Load of `type` reads from its Object: each Field's, the one
+    /// it had before, and a @Flatten Field's type's own. Gives the name of a @Flatten Field whose
+    /// type makes itself from the Value, whose keys aren't known, or nullopt.
+    [[nodiscard]] std::optional<std::string> known_keys(const type_id_t type, array_t& keys) {
+        const load_support_t& loading = m_analysis.loading;
+        const std::vector<field_t> fields = types().get(type).fields;
+        for (std::uint32_t i = 0; i < fields.size(); ++i) {
+            const symbol_id_t field = expect(field_symbol(type, i));
+            if (has_attribute(field, loading.skip)) {
+                continue;
+            }
+
+            if (has_attribute(field, loading.flatten)) {
+                if (own_conversion(fields[i].type, false)) {
+                    return fields[i].name;
+                }
+
+                if (std::optional<std::string> unknown = known_keys(fields[i].type, keys)) {
+                    return unknown;
+                }
+
+                continue;
+            }
+
+            keys.elements.emplace_back(
+                make_string(attribute_text(field, loading.rename).value_or(fields[i].name)));
+            if (const std::optional<std::string> old = attribute_text(field, loading.renamed)) {
+                keys.elements.emplace_back(make_string(*old));
+            }
+        }
+
+        return std::nullopt;
+    }
+
     /// A Struct's or Class's Load: one made without its New, its Fields at their defaults, then
     /// each from the Object's entry for its key, one level deeper, and a @Flatten one from the
     /// Object itself. A Field without an entry keeps its default, or its zero, and is missing
@@ -8384,6 +8440,28 @@ private:
                                          const operand_t& name) {
         const load_support_t& loading = m_analysis.loading;
         load_helper("LoadObject", { conversion.subject, conversion.depth, name });
+        if (is_strict(type) && !conversion.flattened) {
+            array_t keys{ .type = types().array(type_id_t::STRING) };
+            if (const std::optional<std::string> unknown = known_keys(type, keys)) {
+                if (!m_module.error) {
+                    m_module.error = mir_error_t{
+                        .message = std::format(
+                            "{} is @Strict, but its @Flatten Field '{}' makes itself from the "
+                            "Value, so Load can't tell which keys are its own",
+                            types().name(type), *unknown),
+                        .span = conversion.span,
+                    };
+                }
+
+                return std::nullopt;
+            }
+
+            const operand_t known =
+                temporary(std::move(keys), types().array(type_id_t::STRING), true);
+            load_helper("LoadKnown", { conversion.subject, known, name });
+            finish_statement();
+        }
+
         const local_id_t made = add_local(type);
         initialize(made, is_class(type) ? new_object(type)
                                         : temporary(defaults_of(type), type, has_references(type)));
@@ -8406,8 +8484,9 @@ private:
             place_t target{ made };
             target.steps.push_back({ .field = i });
             if (has_attribute(field, loading.flatten)) {
-                const operand_t loaded = load_part(fields[i].type, conversion.subject, conversion,
-                                                   [](const operand_t& /*thrown*/) {});
+                const operand_t loaded = load_part(
+                    fields[i].type, conversion.subject, conversion,
+                    [](const operand_t& /*thrown*/) {}, true);
                 store(target, loaded);
                 finish_statement();
                 continue;

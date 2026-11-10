@@ -432,6 +432,8 @@ struct load_support_t { // NOLINT(bugprone-exception-escape)
     type_id_t skip = type_id_t::INVALID;
     type_id_t flatten = type_id_t::INVALID;
     type_id_t renamed = type_id_t::INVALID;
+    /// On a Struct or Class: its Load refuses a key none of its Fields reads.
+    type_id_t strict = type_id_t::INVALID;
     type_id_t loadable = type_id_t::INVALID;
     type_id_t saveable = type_id_t::INVALID;
     std::unordered_map<std::string_view, symbol_id_t> helpers;

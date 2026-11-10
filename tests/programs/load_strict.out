@@ -1,0 +1,23 @@
+loaded
+loaded
+loaded
+UNKNOWN_KEY at 'Helth': Helth: Stats is @Strict, and no Field of it reads this key; its keys are Health, move_speed, Armor, armour
+UNKNOWN_KEY at 'Speed': Speed: Stats is @Strict, and no Field of it reads this key; its keys are Health, move_speed, Armor, armour
+UNKNOWN_KEY at 'Cached': Cached: Stats is @Strict, and no Field of it reads this key; its keys are Health, move_speed, Armor, armour
+UNKNOWN_KEY at 'b': b: Stats is @Strict, and no Field of it reads this key; its keys are Health, move_speed, Armor, armour
+WRONG_TYPE at '': expected an Object, for Stats, found an Array
+loaded
+UNKNOWN_KEY at 'Stats.x': Stats.x: Stats is @Strict, and no Field of it reads this key; its keys are Health, move_speed, Armor, armour
+UNKNOWN_KEY at 'Each[1].y': Each[1].y: Stats is @Strict, and no Field of it reads this key; its keys are Health, move_speed, Armor, armour
+UNKNOWN_KEY at 'Named.k["z.w"]': Named.k["z.w"]: Stats is @Strict, and no Field of it reads this key; its keys are Health, move_speed, Armor, armour
+UNKNOWN_KEY at 'Maybe.q': Maybe.q: Stats is @Strict, and no Field of it reads this key; its keys are Health, move_speed, Armor, armour
+loaded
+loaded
+UNKNOWN_KEY at 'Modle': Modle: Npc is @Strict, and no Field of it reads this key; its keys are Id, Model, Scale, Health, move_speed, Armor, armour, Notes
+loaded
+UNKNOWN_KEY at 'Cached': Cached: Npc is @Strict, and no Field of it reads this key; its keys are Id, Model, Scale, Health, move_speed, Armor, armour, Notes
+loaded
+UNKNOWN_KEY at 'a': a: Empty is @Strict, and no Field of it reads this key; it has none
+UNKNOWN_KEY extra
+UNKNOWN_KEY move_sped
+guard 2 3 100 7
