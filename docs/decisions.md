@@ -1134,6 +1134,8 @@ Planned 2026-10-20 with the user; the design is in [stdlib.md](stdlib.md#m6s-des
 
 | Decision | Why |
 |---|---|
+| No thread of fb's is detached as it starts: each is joined, kept for as long as the process runs, or run on workers that are kept, as fb mcp's calls, fb-lsp's reader, the runtime's Async file lock, and the tests' HTTP server now are, and `stack_thread_t` has no detach (2026-11-10). POSIX's one, the waiter of a detached spawn, stays | With MinGW's winpthreads, a std::thread detached right after it's made is now and then never run on a busy machine, whether or not it reads a thread_local: a 40-line program lost one in 36 of 416 runs of 100 to 300 threads beside 48 busy loops, and none when each was joined, or detached once it was done. A lost thread is a call never answered, a server that reads nothing, or a Task that never ends |
+| A test doesn't pass or fail by a clock its machine's load can move: it holds what has to be running (a gate), says when a deadline comes (`expire`), sets a wait itself, or counts the work, as `analysis_t::literal_rechecks` does for overloads (2026-11-10) | Three tests failed a landing's verify beside other verifies and passed alone: a 300 ms deadline that ran out before a busy machine started the call it was for, a 6 second wait a slowed message outlasted, and a 30 second limit on what takes 4 |
 | C++23, CMake, FetchContent, LLVM + lld | |
 | LLVM through its **C API**, linked dynamically (`LLVM-C.dll`, `libLLVM`) | stable ABI; works with the MinGW toolchain and the official Windows installer |
 | A small **MIR** between the AST and LLVM IR, from M1 | strings already need scope-based releases; lowering is testable without LLVM |

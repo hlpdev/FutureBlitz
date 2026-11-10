@@ -31,9 +31,10 @@ public:
     /// One that's still joinable ends the process, as a std::thread's does.
     ~stack_thread_t();
 
+    /// It's joined, or kept for as long as the process runs: there's no detach, as a thread
+    /// detached as it starts is now and then never run with MinGW's winpthreads, on a busy machine.
     [[nodiscard]] bool joinable() const;
     void join();
-    void detach();
 
 private:
 #ifdef _WIN32

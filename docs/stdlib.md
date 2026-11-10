@@ -805,7 +805,9 @@ std/io/.
   `AcquireAsync` and `AcquireSharedAsync`: a lock on a file, made when it isn't there, which other
   FileLocks, in this program or another, wait for or are refused, until `Close` or its last
   reference. It's on one byte far past where files end, so it never keeps anyone from reading
-  or writing the file, on Windows too.
+  or writing the file, on Windows too. An Async one waits on a thread of the runtime's own,
+  which the next such call joins once it's done; it isn't detached, as a thread detached as it
+  starts can be lost on Windows, which left the Task waiting for good.
 - `MappedFile(path, writable)` maps a file into memory whole: `Count`, `[]` and `[]=`,
   `ReadBytes`, `WriteBytes`, `Flush`, `IsOpen`, and `Close`, which unmaps it; misuse panics at the
   caller. `Bytes()` gives its bytes as a `Buffer<UInt8>`, without copying them, which, with each

@@ -33,12 +33,24 @@ constexpr std::size_t most_waiting = std::size_t{ 256 } * 1024 * 1024;
 /// How long one message can hold the message thread, once the client's said exit or gone, before
 /// the reader ends the process for it: longer than shutdown waits, or its answer would be lost. And
 /// how long one can hold it before fb/ping goes unanswered.
-constexpr std::chrono::seconds exit_wait(6);
+constexpr std::chrono::seconds default_exit_wait(6);
 constexpr std::chrono::seconds busy_limit(60);
 
-/// Writes the messages sent so far, for a moment, as a client that's gone reads none of them, and
-/// ends the process with `code`, without waiting for a check that's running, which can take
-/// seconds, as a whole package's does.
+/// default_exit_wait, or for the tests, FB_LSP_EXIT_WAIT's seconds: a test of what's answered
+/// behind a message that holds the thread can't let how busy its machine is decide whether that
+/// message outlasts the wait.
+std::chrono::seconds exit_wait() {
+    static const std::chrono::seconds wait = [] {
+        const char* const given = std::getenv("FB_LSP_EXIT_WAIT");
+        const long seconds = given != nullptr ? std::strtol(given, nullptr, 10) : 0;
+        return seconds > 0 ? std::chrono::seconds(seconds) : default_exit_wait;
+    }();
+    return wait;
+}
+
+/// Writes the messages sent so far, for as long as the client's reading them and a moment past
+/// when it stops, as one that's gone reads none of them, and ends the process with `code`,
+/// without waiting for a check that's running, which can take seconds, as a whole package's does.
 [[noreturn]] void finish(fb::lsp::outbox_t& outbox, const int code) {
     static_cast<void>(outbox.flush(std::chrono::seconds(5)));
     std::_Exit(code);
@@ -78,6 +90,7 @@ void serve() {
             std::fputs("fb-lsp: the client closed what it reads\n", stderr);
             std::_Exit(1);
         });
+    outbox.set_progress([&output] { return output.written(); });
     const auto send = [&outbox](const fb::lsp::json_t& message) {
         std::string replaces;
         if (message.value("method", std::string()) == "textDocument/publishDiagnostics") {
@@ -100,7 +113,7 @@ void serve() {
         // shutdown, which those before it are owed; one that exits or goes without it wants none,
         // and a long queue of quick messages would keep it here with none of them holding it.
         const auto wait_for_it = [&] {
-            while (!liveness.held_for(exit_wait)) {
+            while (!liveness.held_for(exit_wait())) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
             }
         };
@@ -150,7 +163,11 @@ void serve() {
         wait_for_it();
         finish(outbox, 1);
     };
-    fb::stack_thread_t reader([&] {
+    // The reader is never detached, and never joined, as nothing past here returns: what this
+    // has would wait for checks, and for a client to read, and the reader has it all. A thread
+    // detached as it starts is now and then never run with MinGW's winpthreads, on a busy
+    // machine, which would leave the server reading nothing.
+    const fb::stack_thread_t reader([&] {
         try {
             read_all();
         } catch (const std::exception& error) {
@@ -158,9 +175,6 @@ void serve() {
             finish(outbox, 1);
         }
     });
-    reader.detach();
-    // Past here nothing returns: what it has would wait for checks, and for a client to read, and
-    // the reader has it all.
     try {
         while (const std::optional<fb::lsp::json_t> message = inbox.pop()) {
             liveness.handling();

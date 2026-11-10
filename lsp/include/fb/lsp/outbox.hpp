@@ -1,8 +1,10 @@
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <limits>
@@ -37,8 +39,15 @@ public:
     /// diagnostics do of its older ones.
     void push(std::string body, std::string replaces = {});
 
-    /// Waits for what's been pushed to be written, for at most `timeout`, and says whether it was.
+    /// Waits for what's been pushed to be written, and says whether it was: for as long as it's
+    /// going out, and no longer than `timeout` past the last of it that did, a message or, with
+    /// set_progress(), a piece of one. A client that reads slowly, or a machine that's busy, gets
+    /// all of it; one that's stopped reading holds it for `timeout`.
     [[nodiscard]] bool flush(std::chrono::milliseconds timeout);
+
+    /// What says how much of what's written has gone out so far, a count that only grows, as
+    /// fd_buffer_t's written() is, so flush() sees a long message going out piece by piece.
+    void set_progress(std::function<std::uint64_t()> written);
 
 private:
     std::ostream& m_out;
@@ -56,6 +65,9 @@ private:
     std::size_t m_bytes = 0;
     std::deque<waiting_t> m_waiting;
     bool m_writing = false;
+    /// How many messages are written, and what set_progress() gave.
+    std::uint64_t m_done = 0;
+    std::function<std::uint64_t()> m_progress;
     bool m_told_gone = false;
     bool m_stopping = false;
     // Last, so it starts with the rest ready.
@@ -80,12 +92,18 @@ public:
     /// For the tests, what writes in place of a file.
     explicit fd_buffer_t(write_t write) : m_write(std::move(write)) {}
 
+    /// How many bytes the file has taken so far, from any thread.
+    [[nodiscard]] std::uint64_t written() const {
+        return m_written.load(std::memory_order_relaxed);
+    }
+
 protected:
     std::streamsize xsputn(const char* text, std::streamsize count) override;
     int_type overflow(int_type c) override;
 
 private:
     write_t m_write;
+    std::atomic<std::uint64_t> m_written = 0;
 };
 
 /// Takes the process's stdout for the messages alone: a descriptor of it that child processes don't

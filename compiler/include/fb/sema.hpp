@@ -496,6 +496,10 @@ struct analysis_t { // NOLINT(bugprone-exception-escape)
     std::vector<symbol_id_t> globals;
     /// Every type the program uses, the built-ins first.
     type_table_t types;
+    /// How many times an array, tuple, or Map literal that's an argument was checked again as an
+    /// overload's parameter type, with all that's in it: what picking among overloads costs,
+    /// which a test counts where a clock would measure its machine.
+    std::uint64_t literal_rechecks = 0;
     /// The Error Class from std/core/error.fb, which every error extends, and Error?, which
     /// holds the error a call throws, or Null.
     type_id_t error_class = type_id_t::INVALID;

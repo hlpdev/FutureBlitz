@@ -32,10 +32,6 @@ void stack_thread_t::join() {
     m_thread.join();
 }
 
-void stack_thread_t::detach() {
-    m_thread.detach();
-}
-
 #else
 
 namespace {
@@ -104,11 +100,6 @@ bool stack_thread_t::joinable() const {
 
 void stack_thread_t::join() {
     pthread_join(m_thread, nullptr);
-    m_joinable = false;
-}
-
-void stack_thread_t::detach() {
-    pthread_detach(m_thread);
     m_joinable = false;
 }
 

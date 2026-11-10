@@ -19,6 +19,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -1310,9 +1311,29 @@ void run_async(fb_task_t* task, void* request, const work_t work) {
     });
 }
 
+/// A thread run_on_thread() started, and whether its work is done, so it can be joined.
+struct waiter_t {
+    std::thread thread;
+    std::atomic<bool> done = false;
+};
+
+/// The threads run_on_thread() started that aren't joined yet, which stay until the program
+/// ends: one that still waits then is left where it is.
+struct waiters_t {
+    std::mutex mutex;
+    std::vector<std::unique_ptr<waiter_t>> threads;
+};
+
+waiters_t& waiters() {
+    static waiters_t& instance = *new waiters_t(); // NOLINT(cppcoreguidelines-owning-memory)
+    return instance;
+}
+
 /// Runs a request's work on a thread of its own, then finishes `task` with what it gives, for
 /// work that can wait as long as another program likes, like a lock, which would keep one of
-/// libuv's few threads from every other Async call.
+/// libuv's few threads from every other Async call. The thread is joined once it's done, by the
+/// next call, and never detached: a thread detached as it starts is now and then never run with
+/// MinGW's winpthreads, on a busy machine, which would leave its Task waiting for good.
 void run_on_thread(fb_task_t* task, void* request, const work_t work) {
     auto* self = static_cast<request_t*>(request);
     self->work = work;
@@ -1321,10 +1342,22 @@ void run_on_thread(fb_task_t* task, void* request, const work_t work) {
     self->owners.fetch_add(1, std::memory_order_relaxed);
     fb_object_retain(&task->header);
     fb::runtime::start_request(task);
-    std::thread([self] {
+    waiters_t& all = waiters();
+    const std::scoped_lock lock(all.mutex);
+    std::erase_if(all.threads, [](const std::unique_ptr<waiter_t>& waiter) {
+        if (!waiter->done.load(std::memory_order_acquire)) {
+            return false;
+        }
+
+        waiter->thread.join();
+        return true;
+    });
+    waiter_t& started = *all.threads.emplace_back(std::make_unique<waiter_t>());
+    started.thread = std::thread([self, &started] {
         self->result = self->work(*self);
         finish(self);
-    }).detach();
+        started.done.store(true, std::memory_order_release);
+    });
 }
 
 request_t& request_of(void* request) {

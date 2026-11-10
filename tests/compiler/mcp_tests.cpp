@@ -81,6 +81,10 @@ public:
         m_server.settle();
     }
 
+    void expire() {
+        m_server.expire();
+    }
+
 private:
     std::mutex m_mutex;
     std::condition_variable m_arrived;
@@ -386,29 +390,43 @@ TEST_CASE("fb mcp refuses a message nested deeper than MCP's are, and params tha
 // read no more, and ignored its cancellation.
 TEST_CASE("fb mcp answers while a call runs, cancels one, and gives up on one at its deadline",
           "[mcp]") {
-    // Each check is held on its thread, so it's running for as long as the test says.
+    // Each check is held on its thread, so it's running for as long as the test says, and its
+    // deadline comes when the test says: with a clock's 300 ms, a busy machine answered the call
+    // at its deadline before the ping after it, or before the call was started at all.
     const gate_t gate;
-    client_t server(FB_TEST_OUTPUT, { .deadline = 300ms, .before_tool = gate.holds() });
+    client_t server(FB_TEST_OUTPUT, { .deadline = 4min, .before_tool = gate.holds() });
     initialize(server);
     server.send(call_request("slow", "check", held_check()).dump());
     gate.wait_held(1);
     CHECK(
         ask(server, json_t{ { "jsonrpc", "2.0" }, { "id", "p" }, { "method", "ping" } }).at("id") ==
         "p");
+    server.expire();
     const json_t late = server.next();
     CHECK(late.at("id") == "slow");
     CHECK(late.at("result").at("isError") == true);
     CHECK(late.at("result").at("content")[0].at("text").get<std::string>().starts_with(
+        "It didn't finish in 240 s"));
+
+    // A clock's deadline comes too, with nothing else asked that could be answered first: held,
+    // or still waiting to be started, the call is given up on.
+    client_t timed(FB_TEST_OUTPUT, { .deadline = 300ms, .before_tool = gate.holds() });
+    initialize(timed);
+    const json_t given_up = ask(timed, call_request("timed", "check", held_check()));
+    CHECK(given_up.at("id") == "timed");
+    CHECK(given_up.at("result").at("content")[0].at("text").get<std::string>().starts_with(
         "It didn't finish in 0.3 s"));
 
     // A cancelled call isn't answered, when it's done either.
-    client_t cancelled(FB_TEST_OUTPUT, { .deadline = 4min, .before_tool = gate.holds() });
+    const gate_t stopped;
+    client_t cancelled(FB_TEST_OUTPUT, { .deadline = 4min, .before_tool = stopped.holds() });
     initialize(cancelled);
     cancelled.send(call_request(20, "check", held_check()).dump());
-    gate.wait_held(2);
+    stopped.wait_held(1);
     cancelled.send(
         R"({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":20}})");
     cancelled.settle();
+    stopped.release();
     gate.release();
     CHECK_FALSE(cancelled.answers_within(1s));
     CHECK_FALSE(server.answers_within(100ms));
@@ -443,10 +461,12 @@ TEST_CASE("fb mcp runs so many calls at once, and the rest wait their turn", "[m
     CHECK(one.next().at("id") == "slow");
     CHECK(one.next().at("id") == "quick");
 
-    // Its deadline counts while it waits, and one cancelled there isn't run or answered.
+    // Its deadline counts while it waits, and one cancelled there isn't run or answered. The
+    // deadline comes when the test says, once the first is held, not when a clock does, which on
+    // a busy machine ran out before the first was started, so it was never held.
     const gate_t held;
     client_t hurried(FB_TEST_OUTPUT,
-                     { .deadline = 300ms, .most_running = 1, .before_tool = held.holds() });
+                     { .deadline = 4min, .most_running = 1, .before_tool = held.holds() });
     initialize(hurried);
     hurried.send(call_request("first", "check", held_check()).dump());
     held.wait_held(1);
@@ -454,6 +474,7 @@ TEST_CASE("fb mcp runs so many calls at once, and the rest wait their turn", "[m
     hurried.send(call_request(20, "format", { { "code", "Local  y=2\n" } }).dump());
     hurried.send(
         R"({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":20}})");
+    hurried.expire();
     std::set<json_t> late;
     late.insert(hurried.next().at("id"));
     late.insert(hurried.next().at("id"));
