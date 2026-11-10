@@ -1,0 +1,110 @@
+// A Struct Field whose default is its type's own: "= Inner()", the New a Struct without one
+// gets, with no arguments. A New of the outer type, a Class's Field, Load, and Defaults all give
+// the inner type's Fields their defaults, at any depth; a Field without it is still zeros.
+
+Import std.core
+Import std.collections
+Import std.data
+
+Struct Video
+    Field Width: Int = 1280
+    Field Height: Int = 720
+    Field Title: String = "game"
+    Field Modes: Int[] = []
+End Struct
+
+Struct Audio
+    Field Volume: Double = 0.8
+    Field Device: String? = Null
+End Struct
+
+// A type with a zero, whose Field can go without a default.
+Struct Size
+    Field Width: Int = 10
+    Field Height: Int = 20
+End Struct
+
+Struct Sizes
+    Field Zeros: Size
+    Field Own: Size = Size()
+End Struct
+
+Struct Settings
+    Field Video: Video = Video()
+    Field Audio = Audio()
+    Field Name: String = "settings"
+End Struct
+
+// One deeper, and with a type argument.
+Struct Box<T>
+    Field Item: T? = Null
+    Field Count: Int = 3
+End Struct
+
+Struct Profile
+    Field Settings: Settings = Settings()
+    Field Boxed: Box<Int> = Box<Int>()
+End Struct
+
+Class Game
+    Field Settings: Settings = Settings()
+    Field Plain: Size
+    Field Profile: Profile = Profile()
+    Field Score: Int = 0
+End Class
+
+Class Level Extends Game
+    Field Video: Video = Video()
+End Class
+
+// The outer type's own New, with and without the Field given.
+Local settings = Settings()
+Print(settings.Video.Width, settings.Video.Height, settings.Video.Title, settings.Video.Modes.Count)
+Print(settings.Audio.Volume, settings.Audio.Device ?? "none")
+Print(settings.Name)
+Local given = Settings(Video(1, 2, "given", [7]), Audio(0.1, "hdmi"))
+Print(given.Video.Width, given.Video.Modes, given.Audio.Device ?? "none", given.Name)
+Local named = Settings(Name: "named")
+Print(named.Video.Width, named.Name)
+
+// Each use is a value of its own, whose array is its own.
+Local first = Settings()
+Local second = Settings()
+first.Video.Modes.Add(1)
+first.Video.Width = 5
+Print(first.Video.Modes.Count, second.Video.Modes.Count, second.Video.Width)
+
+// One deeper, in a Class, and in a Class that extends it.
+Local profile = Profile()
+Print(profile.Settings.Video.Width, profile.Settings.Audio.Volume, profile.Boxed.Count,
+      profile.Boxed.Item ?? -1)
+Local game = Game()
+Print(game.Settings.Video.Height, game.Profile.Settings.Video.Title, game.Profile.Boxed.Count)
+// A Class's Field without a default is its type's zero, as before.
+Print(game.Plain.Width, game.Plain.Height)
+// And so is a Struct's, which its New needn't be given.
+Local sizes = Sizes()
+Print(sizes.Zeros.Width, sizes.Zeros.Height, sizes.Own.Width, sizes.Own.Height)
+Local level = Level()
+Print(level.Video.Width, level.Settings.Name, level.Profile.Settings.Audio.Volume)
+
+// Load of an Object without the key keeps the inner type's defaults, and one with some of its
+// keys keeps the rest.
+Local empty = Try Json.Read<Settings>("{{}}")
+Print(empty.Video.Width, empty.Video.Height, empty.Audio.Volume)
+Local part = Try Json.Read<Settings>("{{\"Video\": {{\"Width\": 640}}}}")
+Print(part.Video.Width, part.Video.Height, part.Video.Title)
+// A Field without a default that Load doesn't find is its zero, and one it finds empty is its
+// type's defaults, as Load makes any Struct.
+Local loaded = Try Json.Read<Game>("{{\"Score\": 4}}")
+Print(loaded.Score, loaded.Settings.Video.Width, loaded.Profile.Settings.Video.Title,
+      loaded.Plain.Width)
+Local found = Try Json.Read<Game>("{{\"Plain\": {{}}}}")
+Print(found.Plain.Width, found.Plain.Height)
+
+// Defaults and Save show them.
+Print(Json.Write(Defaults<Settings>()))
+Print(Json.Write(Save(Profile())))
+
+// It's still a default like any other: a Struct that has one is made without it.
+Print(Save(Settings()) == Save(Try Load<Settings>(Value.Object())))

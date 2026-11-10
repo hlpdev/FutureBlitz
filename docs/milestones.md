@@ -304,7 +304,6 @@ adds what it leaves out. Checked against all of docs/spec/ on 2026-10-17.
 | Plugins and loading libraries at run time, `Plugin.Load` and `DynamicLibrary`, which game mods would use (the user's call, 2026-10-28) | M7 | open question |
 | The quick fix that `fb add`s the registry package declaring a name nothing in the program does, which needs the registry to keep an index of each published version's Public names, and an API to ask it which packages have a name (the coordinator's call, 2026-11-01) | M11 step 5 | open question |
 | A project on a Windows share: MinGW's std::filesystem has no root name for \\\\server\\share, so the compiler's `absolute`, `lexically_normal`, and `weakly_canonical` lose it, `fb check` says it can't read the file, and fb-lsp, whose URIs are right, publishes no errors. A mapped drive works | 1.2.3's review | open question |
-| A Struct Field of another Struct type has no default but zeros: `= Inner()` is "a field's default must be known at compile time" (02-types.md), though 07-generics.md already counts a Struct's own New as compile-time when its Fields' defaults are, so `Outer().Video.Width` and `Load<Outer>` of an empty TOML give 0, not Inner's 1280. Either allow `= Inner()` there, or make such a Field's zero its type's defaults; nested settings Structs need it (SCP:CB X, 2026-11-09) | phase 1 | open question |
 
 ## Process
 

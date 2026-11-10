@@ -161,6 +161,9 @@ struct symbol_t {
     std::optional<symbol_id_t> base_new;
     /// A parameter or field whose default is "[]", which gives each use a new empty array.
     bool empty_default = false;
+    /// A Field whose default is its Struct type's own, written "T()": the New a Struct without one
+    /// gets, with no arguments, which gives each use T's Fields at their defaults.
+    bool struct_default = false;
     /// An Interface that needs Statics or Operators, or uses Self in its members' types: it's
     /// only a constraint, never a type of its own.
     bool constraint_only = false;

@@ -181,10 +181,17 @@ Print(count)           // ✗ error: count read before assignment
 - A field's default is a value known at compile time, like a parameter's: a number, Bool,
   String, Char, or Enum member, or `Null` for a `T?`, made of literals, Consts known at compile
   time, operators, casts, and Const Function calls (see
-  [13](13-compile-time.md#compile-time-evaluation)). The one other default is `[]`, which gives
-  each object or value a new empty array. Anything else, like `{}`, `[3, 0, 5]`, or a Struct's
-  constructor, is an error, "a field's default must be known at compile time": a Class's `New`
+  [13](13-compile-time.md#compile-time-evaluation)). Two others aren't values but are known all
+  the same: `[]`, which gives each object or value a new empty array, and for a Field of a Struct
+  type, that type's own defaults, written `Inner()`: the New a Struct without one gets, with no
+  arguments, which runs none of its code and gives each object or value an Inner with its Fields
+  at their defaults, to any depth, as `Field Video: Video = Video()` or `Field Video = Video()`.
+  Anything else, like `{}`, `[3, 0, 5]`, a Struct's New with arguments, or one a Struct writes
+  itself, is an error, "a field's default must be known at compile time": a Class's `New`
   assigns such a value instead.
+- A Struct Field without a default is still its type's zero where one is needed, not its type's
+  defaults: in a Class that no New assigns it in, and for Load when the data doesn't have it.
+  `= Inner()` asks for the defaults.
 
 ## Nullability
 
