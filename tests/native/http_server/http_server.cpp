@@ -1106,6 +1106,17 @@ socket_t bound(const bool listening, std::uint16_t& port) {
     return socket;
 }
 
+/// Keeps a thread that runs for as long as it likes, to the server's end, without detaching it:
+/// a thread detached as it starts is now and then never run with MinGW's winpthreads, on a busy
+/// machine, which a test would see as a connection nothing answers.
+void keep(std::thread thread) {
+    static std::mutex guard;
+    static std::vector<std::thread>& kept =
+        *new std::vector<std::thread>(); // NOLINT(cppcoreguidelines-owning-memory)
+    const std::scoped_lock lock(guard);
+    kept.push_back(std::move(thread));
+}
+
 /// Accepts each connection on `listener`, serving each on a thread of its own.
 void accept_all(const socket_t listener, const tls_config_t* tls) {
     while (true) {
@@ -1116,7 +1127,7 @@ void accept_all(const socket_t listener, const tls_config_t* tls) {
         }
 
         trace("accept " + std::to_string(socket) + " on " + std::to_string(listener));
-        std::thread([socket, tls] {
+        keep(std::thread([socket, tls] {
             trace("serve " + std::to_string(socket));
             if (tls == nullptr) {
                 serve(std::make_unique<plain_t>(socket));
@@ -1134,7 +1145,7 @@ void accept_all(const socket_t listener, const tls_config_t* tls) {
             }
 
             serve(std::move(connection));
-        }).detach();
+        }));
     }
 }
 
@@ -1330,9 +1341,9 @@ int main(const int count, char** arguments) {
     close_socket(bound(false, challenge_port));
     acme_ca = std::make_unique<fb::test::acme_ca_t>(
         "http://127.0.0.1:" + std::to_string(plain_port) + "/acme", fetch_challenge);
-    std::thread(accept_all, plain, nullptr).detach();
-    std::thread(accept_all, secure, &tls).detach();
-    std::thread(accept_all, secure1, &tls1).detach();
+    keep(std::thread(accept_all, plain, nullptr));
+    keep(std::thread(accept_all, secure, &tls));
+    keep(std::thread(accept_all, secure1, &tls1));
 
     // The program's input: the URLs, the CA, the challenge port, and then this server's own
     // input.

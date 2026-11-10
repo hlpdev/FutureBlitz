@@ -28720,6 +28720,7 @@ private:
             }
 
             bool clean = false;
+            ++m_analysis.literal_rechecks;
             const type_id_t made = quietly([&] {
                 const type_id_t found = check(argument.value, type);
                 clean = !m_diagnostics->has_errors();

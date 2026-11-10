@@ -78,7 +78,21 @@ void outbox_t::push(std::string body, std::string replaces) {
 
 bool outbox_t::flush(const std::chrono::milliseconds timeout) {
     std::unique_lock lock(m_mutex);
-    return m_written.wait_for(lock, timeout, [this] { return m_waiting.empty() && !m_writing; });
+    const auto done = [this] { return m_waiting.empty() && !m_writing; };
+    // How far it's got: the messages written, and the pieces of the one going out.
+    const auto progress = [this] { return std::pair(m_done, m_progress ? m_progress() : 0); };
+    for (auto before = progress(); !m_written.wait_for(lock, timeout, done); before = progress()) {
+        if (progress() == before) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+void outbox_t::set_progress(std::function<std::uint64_t()> written) {
+    const std::scoped_lock lock(m_mutex);
+    m_progress = std::move(written);
 }
 
 void outbox_t::write_all() {
@@ -99,6 +113,7 @@ void outbox_t::write_all() {
         const bool gone = !m_out.good() && m_gone && !m_told_gone;
         lock.lock();
         m_writing = false;
+        ++m_done;
         m_written.notify_all();
         if (gone) {
             m_told_gone = true;
@@ -146,6 +161,7 @@ std::streamsize fd_buffer_t::xsputn(const char* text, const std::streamsize coun
         const wrote_t wrote = m_write(text + written, static_cast<std::size_t>(size));
         if (wrote.count > 0) {
             written += static_cast<std::streamsize>(wrote.count);
+            m_written.fetch_add(wrote.count, std::memory_order_relaxed);
         } else if (wrote.again) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         } else {

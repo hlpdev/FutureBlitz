@@ -17044,23 +17044,46 @@ TEST_CASE("overloads: a literal is checked as a parameter's type only where it c
     // Overloaded calls nested six deep in array literals: each overload whose parameter no array
     // can be, or that the literal's own type converts to, is settled without checking the
     // literal again, which would check what's inside it again, at every level. That took ten
-    // times as long, about 37 seconds in a debug build, where this takes about 4, and 17 on CI's
-    // Linux runner with three other tests at once, so 30 seconds is room for that and not for it.
-    const auto start = std::chrono::steady_clock::now();
-    CHECK(probe("Import std.core\n"
-                "Class Json\n"
-                "    Field Depth: Int\n"
-                "    New(depth: Int)\n"
-                "        Depth = depth\n"
-                "    End New\n"
-                "End Class\n"
-                "Function Of(n: Int): Json => Json(0)\n"
-                "Function Of(s: String): Json => Json(0)\n"
-                "Function Of(b: Bool): Json => Json(0)\n"
-                "Function Of(values: Json[]): Json => Json(values.Count)\n"
+    // times as long. What it costs is counted, as how many times a literal was checked again,
+    // not timed: a limit of 30 seconds, where this took 4 alone, was 51 on a busy machine.
+    const std::string overloads = "Import std.core\n"
+                                  "Class Json\n"
+                                  "    Field Depth: Int\n"
+                                  "    New(depth: Int)\n"
+                                  "        Depth = depth\n"
+                                  "    End New\n"
+                                  "End Class\n"
+                                  "Function Of(n: Int): Json => Json(0)\n"
+                                  "Function Of(s: String): Json => Json(0)\n"
+                                  "Function Of(b: Bool): Json => Json(0)\n"
+                                  "Function Of(values: Json[]): Json => Json(values.Count)\n";
+    CHECK(probe(overloads +
                 "Local x = Of([Of(5), Of([Of(4), Of([Of(3), Of([Of(2), Of([Of(1), Of([Of(0), "
                 "Of(1)])])])])])])") == "Json");
-    CHECK(std::chrono::steady_clock::now() - start < std::chrono::seconds(30));
+    // A call nested `depth` deep, and how many times its literals were checked again.
+    const auto rechecks = [&overloads](const int depth) {
+        std::string nested = "Of([Of(0), Of(1)])";
+        for (int level = 1; level < depth; ++level) {
+            nested = std::format("Of([Of({}), {}])", level, nested);
+        }
+
+        const fb::compilation_t compilation =
+            fb::compile("test.fb", overloads + "Local x = " + nested + "\n");
+        REQUIRE(compilation.diagnostics.error_count() == 0);
+        return compilation.analysis.literal_rechecks;
+    };
+    // None: each literal's own type, Json[], is its overload's, and no other could take an
+    // array. Checked again for the others, it was 3 one deep, and 199,290 six deep.
+    CHECK(rechecks(1) == 0);
+    CHECK(rechecks(6) == 0);
+    // The count does count: a literal that only becomes a UInt8[] by being checked as one is
+    // checked again for it.
+    const fb::compilation_t narrowed =
+        fb::compile("test.fb", "Function Take(bytes: UInt8[]): Int => 1\n"
+                               "Function Take(text: String): Int => 2\n"
+                               "Local x = Take([1, 2])\n");
+    CHECK(narrowed.diagnostics.error_count() == 0);
+    CHECK(narrowed.analysis.literal_rechecks > 0);
 }
 
 TEST_CASE("overloads that differ in count give an untyped lambda and a literal of Tasks their "

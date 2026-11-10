@@ -59,6 +59,10 @@ public:
     /// Waits until every call taken so far is answered or cancelled, for the tests.
     void settle();
 
+    /// Has the deadline of every call taken so far, running or waiting, come now, for the tests,
+    /// which a clock's deadline would have race how soon a busy machine starts a call.
+    void expire();
+
 private:
     struct core_t;
     std::shared_ptr<core_t> m_core;

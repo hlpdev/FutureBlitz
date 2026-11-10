@@ -34,14 +34,19 @@ ENDS = 60
 
 
 class Client:
-    def __init__(self, folder, text, read=True):
+    def __init__(self, folder, text, read=True, exit_wait=None):
         self.folder = pathlib.Path(folder)
         # Not pathname2url, whose file:/x before Python 3.14 fb-lsp didn't take: Linux's CI checked
         # nothing here, as no document was open.
         self.uri = (self.folder / "main.fb").as_uri()
         (self.folder / "main.fb").write_text(text)
+        # How long one message can hold fb-lsp's message thread at exit, where a test's machine
+        # mustn't decide it: its own 6 seconds otherwise.
+        environment = dict(os.environ)
+        if exit_wait is not None:
+            environment["FB_LSP_EXIT_WAIT"] = str(exit_wait)
         self.process = subprocess.Popen([LSP], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                        stderr=subprocess.DEVNULL, cwd=folder)
+                                        stderr=subprocess.DEVNULL, cwd=folder, env=environment)
         self.answers = {}
         self.arrived = threading.Condition()
         if read:
@@ -233,7 +238,10 @@ class ProcessTests(unittest.TestCase):
         self.assertLess(self._answers_of_the_small_ones(), count)
 
     def test_what_waits_behind_shutdown_is_answered(self):
-        self.client = Client(self.folder.name, QUICK, read=False)
+        # The message that holds the thread takes as long as the machine makes it, which on a busy
+        # one was past the 6 seconds fb-lsp waits for one message at exit, so none behind it was
+        # answered. The wait is the test's here, and long.
+        self.client = Client(self.folder.name, QUICK, read=False, exit_wait=3600)
         count = self._send_behind_a_held_message_thread(
             [{"id": 3, "method": "shutdown"}, {"method": "exit"}])
         # Shutdown's own id is less than theirs: it counts only theirs.

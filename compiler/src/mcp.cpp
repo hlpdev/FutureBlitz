@@ -1316,6 +1316,16 @@ void mcp_server_t::receive(const std::string_view line) {
     counted(std::nullopt, false);
 }
 
+void mcp_server_t::expire() {
+    const std::scoped_lock lock(m_core->mutex);
+    const auto now = std::chrono::steady_clock::now();
+    for (auto& [key, call] : m_core->calls) {
+        call.deadline = now;
+    }
+
+    m_core->changed.notify_all();
+}
+
 void mcp_server_t::settle() {
     std::unique_lock lock(m_core->mutex);
     m_core->changed.wait(lock, [this] { return m_core->calls.empty() && m_core->replying == 0; });

@@ -1029,7 +1029,8 @@ fixes_tests.cpp), and fb-lsp's code actions their own.
 **Steps 4 and 5's review fixes** (2026-10-31): a file's code lenses count their references in one
 check of it and what imports it, kept until a document changes, with the version each lens is
 for, so a resolve of a version that's moved on, or one with a change of its document waiting
-behind it, is ContentModified, and fb-lsp's reader is a thread of its own, whose inbox
+behind it, is ContentModified, and fb-lsp's reader is a thread of its own, never detached, as
+one detached as it starts can be lost on Windows (docs/decisions.md), whose inbox
 (`inbox_t`) lets the server see what waits: a request whose $/cancelRequest waits is
 RequestCancelled. The benchmark times a file's lenses resolved (std's collections/map.fb, against
 the references budget), a syntax error with them waiting (the syntax error's), and highlights.
@@ -1231,7 +1232,8 @@ JSON, isn't a request, or names no method or tool is JSON-RPC's error.
   each call, as it was: with MinGW's winpthreads, such a thread now and then never got out of
   its first read of a thread_local (it spun in pthread_getspecific), so its call, though it had
   nothing to compute, was answered only by its deadline. A test holds a call where it is with
-  `mcp_options_t::before_tool`, which is only the tests'.
+  `mcp_options_t::before_tool`, and has every call's deadline come with `mcp_server_t::expire`,
+  which are only the tests'.
 - **JSON-RPC.** A request has `"jsonrpc": "2.0"` and an id that's a string or a whole number; a
   client's response gets no answer; a message nested more than 64 deep is refused before it's
   parsed; and a batch is answered as one array when 2025-03-26, which has batches, is what the
@@ -1301,7 +1303,11 @@ what it needs is still compiling or not, and that compile goes on, with no limit
 next. shutdown waits 3 seconds for the requests before it, and exit, or stdin closing, ends the
 process once the message thread gets to it, or once one message has held that thread for 6 seconds,
 longer than shutdown can; without a shutdown before it, what's waiting is dropped, as such a client
-wants no answers to it. A write that fails, as the client closed what it reads, ends the process too,
+wants no answers to it. As it ends, what's been sent is written for as long as the client's reading
+it, and for 5 seconds past the last byte it took, not 5 seconds in all, which cut a long answer
+short on a busy machine, and every answer behind it, though the client was reading
+(`outbox_t::flush`, by `fd_buffer_t::written`). The tests set the 6 seconds themselves, with
+`FB_LSP_EXIT_WAIT`'s seconds, where a machine's load mustn't decide whether a message outlasts it. A write that fails, as the client closed what it reads, ends the process too,
 and on every system, with code 0 once the client's said shutdown; so does a length no message has,
 past 1 GiB, and a message's memory grows as its bytes come. Checks and requests run on threads with
 64 MiB for the compiler's recursion (`stack_thread_t`), as the executables' main threads have on

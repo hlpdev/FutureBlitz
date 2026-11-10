@@ -134,6 +134,17 @@ Local shared = Try Await FileLock.AcquireSharedAsync(root / "lock")
 Print("{shared.IsShared} {(Try FileLock.TryAcquireShared(root / "lock")) != Null}")
 shared.Close()
 
+// Many, one after another: each waits on a thread of the runtime's own, which the next one's
+// call joins once it's done.
+Local taken = 0
+For i = 1 To 300
+    Local each = Try Await FileLock.AcquireAsync(root / "lock")
+    If each.IsHeld() Then taken += 1
+    each.Close()
+End For
+
+Print("{taken} locks")
+
 Print("{Try Await Dir.RemoveAllAsync(root / "ä")} {Await Dir.ExistsAsync(root / "ä")}")
 Try temp.Close()
 Print("left {Dir.Exists(root)}")

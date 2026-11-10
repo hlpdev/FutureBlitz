@@ -102,6 +102,60 @@ TEST_CASE("a client that stops reading keeps no one waiting, and gets every mess
     CHECK_FALSE(fb::lsp::read_message(written));
 }
 
+TEST_CASE("a flush waits for a client that's reading, however slowly, and not for one that isn't",
+          "[lsp]") {
+    // A client that takes a piece every quarter of a second: one message of 16 pieces takes 4
+    // seconds, past a flush's 3, which gave up on it, and cut it short, though it was being
+    // read. Each piece comes well within the 3 seconds a flush gives the next.
+    std::string taken;
+    fb::lsp::fd_buffer_t slow([&taken](const char* text, const std::size_t size) {
+        if (size >= 4096) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        }
+
+        taken.append(text, size);
+        return fb::lsp::fd_buffer_t::wrote_t{ .count = size };
+    });
+    std::ostream out(&slow);
+    const std::string body(std::size_t{ 16 } * 4096, 'x');
+    {
+        fb::lsp::outbox_t outbox(out);
+        outbox.set_progress([&slow] { return slow.written(); });
+        outbox.push(body);
+        outbox.push("after");
+        const auto start = std::chrono::steady_clock::now();
+        CHECK(outbox.flush(std::chrono::seconds(3)));
+        CHECK(std::chrono::steady_clock::now() - start >= std::chrono::seconds(4));
+    }
+
+    std::istringstream written(taken);
+    CHECK(fb::lsp::read_message(written) == std::optional(body));
+    CHECK(fb::lsp::read_message(written) == std::optional<std::string>("after"));
+    CHECK(slow.written() == taken.size());
+
+    // Messages going out one after another are progress too, with nothing set to say so.
+    std::string counted;
+    fb::lsp::fd_buffer_t steady([&counted](const char* text, const std::size_t size) {
+        if (size > 1 && text[0] == 'm') {
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        }
+
+        counted.append(text, size);
+        return fb::lsp::fd_buffer_t::wrote_t{ .count = size };
+    });
+    std::ostream each(&steady);
+    {
+        fb::lsp::outbox_t outbox(each);
+        for (int i = 0; i < 16; ++i) {
+            outbox.push("message " + std::to_string(i));
+        }
+
+        CHECK(outbox.flush(std::chrono::seconds(3)));
+    }
+
+    CHECK(counted.ends_with("message 15"));
+}
+
 TEST_CASE("what's waiting is written when the outbox goes", "[lsp]") {
     std::ostringstream out;
     {
