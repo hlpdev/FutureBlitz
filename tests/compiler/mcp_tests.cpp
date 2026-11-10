@@ -35,7 +35,7 @@ using namespace std::chrono_literals;
 class client_t {
 public:
     explicit client_t(const std::filesystem::path& root,
-                      const fb::mcp_options_t options = { .deadline = 4min })
+                      const fb::mcp_options_t& options = { .deadline = 4min })
         : m_server(
               root,
               [this](const std::string& line) {
@@ -188,17 +188,66 @@ bool anywhere(const std::filesystem::path& folder, const std::string_view name) 
     return false;
 }
 
-/// A Const Function that computes for a while, called `count` times by Consts, which a check
-/// computes as it checks them.
-std::string slow_code(const int count) {
-    std::string code = "Import std.core\n\nConst Function Spin(n: Int): Int\n    Local t = 0\n"
-                       "    For i = 1 To n\n        t = t + 1\n    End For\n    Return t\n"
-                       "End Function\n\n";
-    for (int k = 0; k < count; ++k) {
-        code += std::format("Const C{} = Spin(3000000)\n", k);
+/// Holds a server's check calls where they are, each on its thread before its tool runs, until
+/// the test lets them go: a call that's still running for as long as a test needs it to be,
+/// however fast or busy the machine is, where code that computes for a while only hoped to be.
+class gate_t {
+public:
+    /// What a server's before_tool is, to hold its checks. Its state is the calls' too, as one
+    /// can run on after the test.
+    [[nodiscard]] std::function<void(std::string_view)> holds() const {
+        return [state = m_state](const std::string_view tool) {
+            if (tool != "check") {
+                return;
+            }
+
+            std::unique_lock lock(state->mutex);
+            ++state->held;
+            state->changed.notify_all();
+            state->changed.wait(lock, [&state] { return state->open; });
+        };
     }
 
-    return code;
+    /// Waits until `count` checks are held, which has to be within minutes.
+    void wait_held(const std::size_t count) const {
+        std::unique_lock lock(m_state->mutex);
+        REQUIRE(m_state->changed.wait_for(lock, 5min,
+                                          [this, count] { return m_state->held >= count; }));
+    }
+
+    /// Lets the held checks go, and holds none after.
+    void release() const {
+        {
+            const std::scoped_lock lock(m_state->mutex);
+            m_state->open = true;
+        }
+
+        m_state->changed.notify_all();
+    }
+
+    gate_t() = default;
+    gate_t(const gate_t&) = delete;
+    gate_t& operator=(const gate_t&) = delete;
+    gate_t(gate_t&&) = delete;
+    gate_t& operator=(gate_t&&) = delete;
+    ~gate_t() {
+        release();
+    }
+
+private:
+    struct state_t {
+        std::mutex mutex;
+        std::condition_variable changed;
+        bool open = false;
+        std::size_t held = 0;
+    };
+
+    std::shared_ptr<state_t> m_state = std::make_shared<state_t>();
+};
+
+/// A check that has nothing to compute, which a gate holds.
+json_t held_check() {
+    return { { "code", "Local x = 1\n" } };
 }
 
 } // namespace
@@ -292,17 +341,22 @@ TEST_CASE("fb mcp takes JSON-RPC's messages as the version agreed on has them", 
     CHECK(error_of(server, "[]") == std::pair{ json_t(), -32600 });
 
     // From the review: a cancelled call in a batch is one its answer doesn't wait for.
+    const gate_t gate;
+    client_t batched(FB_TEST_OUTPUT, { .deadline = 4min, .before_tool = gate.holds() });
+    initialize(batched, "2025-03-26");
     const json_t calls = json_t::array({
-        call_request("slow", "check", { { "code", slow_code(3) } }),
+        call_request("slow", "check", held_check()),
         call_request("quick", "format", { { "code", "Local  y=2\n" } }),
     });
-    server.send(calls.dump());
-    server.send(
+    batched.send(calls.dump());
+    gate.wait_held(1);
+    batched.send(
         R"({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":"slow"}})");
-    const json_t rest = server.next();
+    const json_t rest = batched.next();
     REQUIRE(rest.is_array());
     REQUIRE(rest.size() == 1);
     CHECK(rest[0].at("id") == "quick");
+    gate.release();
 }
 
 // From the review: nlohmann/json copies a value nested 100,000 deep recursively, which overflowed
@@ -332,9 +386,12 @@ TEST_CASE("fb mcp refuses a message nested deeper than MCP's are, and params tha
 // read no more, and ignored its cancellation.
 TEST_CASE("fb mcp answers while a call runs, cancels one, and gives up on one at its deadline",
           "[mcp]") {
-    client_t server(FB_TEST_OUTPUT, { .deadline = 300ms });
+    // Each check is held on its thread, so it's running for as long as the test says.
+    const gate_t gate;
+    client_t server(FB_TEST_OUTPUT, { .deadline = 300ms, .before_tool = gate.holds() });
     initialize(server);
-    server.send(call_request("slow", "check", { { "code", slow_code(3) } }).dump());
+    server.send(call_request("slow", "check", held_check()).dump());
+    gate.wait_held(1);
     CHECK(
         ask(server, json_t{ { "jsonrpc", "2.0" }, { "id", "p" }, { "method", "ping" } }).at("id") ==
         "p");
@@ -344,39 +401,55 @@ TEST_CASE("fb mcp answers while a call runs, cancels one, and gives up on one at
     CHECK(late.at("result").at("content")[0].at("text").get<std::string>().starts_with(
         "It didn't finish in 0.3 s"));
 
-    // A cancelled call isn't answered.
-    server.send(call_request(20, "check", { { "code", slow_code(3) } }).dump());
-    server.send(
+    // A cancelled call isn't answered, when it's done either.
+    client_t cancelled(FB_TEST_OUTPUT, { .deadline = 4min, .before_tool = gate.holds() });
+    initialize(cancelled);
+    cancelled.send(call_request(20, "check", held_check()).dump());
+    gate.wait_held(2);
+    cancelled.send(
         R"({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":20}})");
-    server.settle();
-    CHECK_FALSE(server.answers_within(1s));
+    cancelled.settle();
+    gate.release();
+    CHECK_FALSE(cancelled.answers_within(1s));
+    CHECK_FALSE(server.answers_within(100ms));
 
     // Two calls of one id at once are a mistake.
-    client_t patient(FB_TEST_OUTPUT);
+    const gate_t waiting;
+    client_t patient(FB_TEST_OUTPUT, { .deadline = 4min, .before_tool = waiting.holds() });
     initialize(patient);
-    patient.send(call_request(30, "check", { { "code", slow_code(1) } }).dump());
+    patient.send(call_request(30, "check", held_check()).dump());
+    waiting.wait_held(1);
     CHECK(error_of(patient, call_request(30, "format", { { "code", "Local x = 1\n" } }).dump()) ==
           std::pair{ json_t(30), -32600 });
+    waiting.release();
     CHECK(patient.next().at("id") == 30);
 }
 
 TEST_CASE("fb mcp runs so many calls at once, and the rest wait their turn", "[mcp]") {
     // One at a time: the quick one, behind the slow, is answered after it, where with a thread of
     // its own it would be first.
-    client_t one(FB_TEST_OUTPUT, { .deadline = 4min, .most_running = 1 });
+    const gate_t gate;
+    client_t one(FB_TEST_OUTPUT,
+                 { .deadline = 4min, .most_running = 1, .before_tool = gate.holds() });
     initialize(one);
-    one.send(call_request("slow", "check", { { "code", slow_code(1) } }).dump());
+    one.send(call_request("slow", "check", held_check()).dump());
+    gate.wait_held(1);
     one.send(call_request("quick", "format", { { "code", "Local  y=2\n" } }).dump());
-    // What's asked meanwhile isn't kept waiting.
+    // What's asked meanwhile isn't kept waiting, and the quick one is, while the slow one runs.
     CHECK(ask(one, json_t{ { "jsonrpc", "2.0" }, { "id", "p" }, { "method", "ping" } }).at("id") ==
           "p");
+    CHECK_FALSE(one.answers_within(300ms));
+    gate.release();
     CHECK(one.next().at("id") == "slow");
     CHECK(one.next().at("id") == "quick");
 
     // Its deadline counts while it waits, and one cancelled there isn't run or answered.
-    client_t hurried(FB_TEST_OUTPUT, { .deadline = 300ms, .most_running = 1 });
+    const gate_t held;
+    client_t hurried(FB_TEST_OUTPUT,
+                     { .deadline = 300ms, .most_running = 1, .before_tool = held.holds() });
     initialize(hurried);
-    hurried.send(call_request("first", "check", { { "code", slow_code(3) } }).dump());
+    hurried.send(call_request("first", "check", held_check()).dump());
+    held.wait_held(1);
     hurried.send(call_request("second", "format", { { "code", "Local  y=2\n" } }).dump());
     hurried.send(call_request(20, "format", { { "code", "Local  y=2\n" } }).dump());
     hurried.send(
@@ -385,6 +458,9 @@ TEST_CASE("fb mcp runs so many calls at once, and the rest wait their turn", "[m
     late.insert(hurried.next().at("id"));
     late.insert(hurried.next().at("id"));
     CHECK(late == std::set<json_t>{ "first", "second" });
+    held.release();
+    hurried.settle();
+    CHECK_FALSE(hurried.answers_within(100ms));
 
     // Far past what can run at once, every one is answered, once.
     client_t many(FB_TEST_OUTPUT, { .deadline = 4min, .most_running = 2 });
@@ -402,6 +478,17 @@ TEST_CASE("fb mcp runs so many calls at once, and the rest wait their turn", "[m
     CHECK(answered.size() == calls);
     many.settle();
     CHECK_FALSE(many.answers_within(100ms));
+
+    // One after another, each answered before the next is asked, as an assistant calls them:
+    // with a new thread for each, one in some hundreds was never run on a busy machine.
+    client_t steady(FB_TEST_OUTPUT);
+    initialize(steady);
+    for (int id = 1000; id < 1400; ++id) {
+        const json_t answer = ask(steady, call_request(id, "format", json_t::object()));
+        REQUIRE(answer.at("id") == id);
+        REQUIRE(answer.at("result").at("content")[0].at("text") ==
+                "format takes 'code' or 'file'.");
+    }
 }
 
 TEST_CASE("fb mcp's primer is a program that compiles", "[mcp]") {

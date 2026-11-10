@@ -1225,6 +1225,13 @@ JSON, isn't a request, or names no method or tool is JSON-RPC's error.
   ping, takes `notifications/cancelled`, which leaves the call's answer unsent, and ends at
   stdin's end, mid-call too. A call that takes longer than 30 seconds, as a check of Consts that
   compute a lot can, is answered with `isError`, and its work finishes on its own, unanswered.
+  The threads are the server's workers, 8 at most, each made when a call comes that none is free
+  for and kept, to take the call that's waited longest, until the server closes; one still
+  running a call then is left to finish, and is never detached. Not a new, detached thread for
+  each call, as it was: with MinGW's winpthreads, such a thread now and then never got out of
+  its first read of a thread_local (it spun in pthread_getspecific), so its call, though it had
+  nothing to compute, was answered only by its deadline. A test holds a call where it is with
+  `mcp_options_t::before_tool`, which is only the tests'.
 - **JSON-RPC.** A request has `"jsonrpc": "2.0"` and an id that's a string or a whole number; a
   client's response gets no answer; a message nested more than 64 deep is refused before it's
   parsed; and a batch is answered as one array when 2025-03-26, which has batches, is what the

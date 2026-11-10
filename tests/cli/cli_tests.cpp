@@ -139,6 +139,24 @@ std::string read_file(const std::filesystem::path& path) {
     return { std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>() };
 }
 
+/// Removes the file of a program that just ended, or one a program that just ended had loaded.
+/// Windows keeps such a file from being removed for a moment after its process is gone, longer
+/// on a busy machine, so a removal that's refused is tried again, for up to `tries` tenths of a
+/// second. Gives whether the file is gone.
+bool remove_ended(const std::filesystem::path& file, const int tries = 300) {
+    for (int tried = 0; tried < tries; ++tried) {
+        std::error_code error;
+        std::filesystem::remove(file, error);
+        if (!error) {
+            return true;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    return false;
+}
+
 void check_usage_error(const std::vector<std::string>& arguments, const std::string_view message) {
     const fb::process_result_t result = fb_run(arguments);
     INFO(result.output);
@@ -5676,7 +5694,8 @@ TEST_CASE("fb names what keeps a library beside the executable from building or 
     CHECK(first.output.contains("lib.dll was built for tool.exe, which it takes its code from, "
                                 "not two.exe; build two.exe again\n"));
     // It says so when that executable is gone too, though then it can't be loaded.
-    std::filesystem::remove(tool);
+    // two.exe just ended, and its lib.dll names tool.exe, so Windows may still hold the file.
+    REQUIRE(remove_ended(tool));
     const fb::process_result_t gone =
         fb::run_process(two, none).value_or(fb::process_result_t{ .exit_code = -1 });
     CHECK(gone.exit_code == 1);
