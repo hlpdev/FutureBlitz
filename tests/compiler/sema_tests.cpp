@@ -11295,6 +11295,57 @@ TEST_CASE("a Func type with Throws is a value's type: it's called with Try, and 
           });
 }
 
+TEST_CASE("a lambda throws what the Func expected of it does, or what its own Throws lists",
+          "[sema]") {
+    const std::string head = "Import std.core\n"
+                             "Class Oops Extends Error\nEnd Class\n"
+                             "Class Other Extends Error\nEnd Class\n"
+                             "Function Risky(n: Int): Int Throws Oops => n\n"
+                             "Function Run(work: Func(Int): Int Throws Oops): Int => 1\n";
+    // Where a Func that throws is expected, Try in the lambda lets its errors out; with its own
+    // Throws, after its result or without one, as an arrow or a block, it needs none expected;
+    // and its type is the Func type with that Throws.
+    CHECK(errors_of(head + "Local a = Run(Function(n) => Try Risky(n))\n"
+                           "Local b = Function(n: Int): Int Throws Oops => Try Risky(n)\n"
+                           "Local c = Function(n: Int) Throws Oops, Other\n"
+                           "    If n == 0 Then Throw Other(\"zero\")\n"
+                           "    Local m = Try Risky(n)\n"
+                           "End Function\n"
+                           "Local d: Func(Int): Int Throws Oops = b\n"
+                           "Local e = Run(b)\n"
+                           "Local f: Func(Int): Int Throws Error = Function(n) => Try Risky(n)\n")
+              .empty());
+    CHECK(probe(head + "Local b = Function(n: Int): Int Throws Oops => Try Risky(n)") ==
+          "Func(Int32): Int32 Throws Oops");
+
+    // Without either it can't throw, as before; one that throws lets out only what it lists;
+    // a call in it still needs Try; and its Throws is checked as a Function's is.
+    const std::string only = "Risky(n): Oops isn't caught, and this lambda throws only Other; "
+                             "catch it in a Try block, or add it to the lambda's Throws";
+    const std::string async = "Oops: an Async lambda can't have a Throws yet; an Async "
+                              "Function's errors go in its Task";
+    CHECK(errors_of(head + "Local a = Function(n: Int): Int => Try Risky(n)\n"
+                           "Local b = Function(n: Int): Int Throws Other => Try Risky(n)\n"
+                           "Local c = Function(n: Int): Int Throws Oops => Risky(n)\n"
+                           "Local d = Function(n: Int): Int Throws Int => n\n"
+                           "Local e = Function(n: Int): Int Throws Oops, Oops => n\n"
+                           "Local f = Async Function(n: Int): Int Throws Oops => n\n") ==
+          errors_t{
+              "Risky(n): a lambda can't throw, so Oops has to be caught in it",
+              only,
+              "Risky(n): 'Risky' can throw Oops, so calling it needs Try, Try?, or a Try block",
+              "Int: Throws lists Classes that extend Error, not Int32",
+              "Oops: Oops is already covered by this Throws",
+              async,
+          });
+
+    // A lambda's Throws after its result is the lambda's, so a Func it gives that throws goes
+    // in parentheses, as in a Function's header.
+    CHECK(probe(head + "Local g = Function(): (Func(Int): Int Throws Oops) Throws Other\n"
+                       "    Throw Other(\"no\")\n"
+                       "End Function") == "Func(): Func(Int32): Int32 Throws Oops Throws Other");
+}
+
 TEST_CASE("a type's own attributes", "[sema]") {
     CHECK(probe("Attribute Saved\n@Saved Struct P\nEnd Struct\nLocal x = P.Has(Saved)") == "Bool");
     CHECK(probe("Attribute Label(Text: String)\nStruct P\nEnd Struct\n"

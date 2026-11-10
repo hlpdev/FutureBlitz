@@ -514,6 +514,11 @@ private:
             arguments += (arguments.empty() ? "" : ", ") + operand(argument);
         }
 
+        if (node.error) {
+            arguments +=
+                (arguments.empty() ? "" : ", ") + std::format("ByRef {}", place(*node.error));
+        }
+
         return std::format("{} {}({})", keyword("invoke"), operand(node.callee), arguments);
     }
 

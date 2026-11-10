@@ -3051,39 +3051,49 @@ TEST_CASE("lowering reports an instance's type that Defaults<T> can't write, and
     CHECK(!mir.contains("call P.OnLoaded()"));
 }
 
-TEST_CASE("a function value that throws is checked, and says its code isn't built yet", "[mir]") {
-    const auto stopped = [](const std::string_view text) {
-        const fb::compilation_t compilation = fb::compile("test.fb", std::string(text));
-        REQUIRE(compilation.diagnostics.diagnostics().empty());
-        const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
-        REQUIRE(module.error);
-        return std::string(
-                   compilation.sources.get(module.error->span.file).slice(module.error->span)) +
-               ": " + module.error->message;
-    };
-    const std::string not_built = ": a function value that throws is checked but can't be built "
-                                  "yet: its call, and the wrapper that makes one of a Func that "
-                                  "doesn't throw, are the next step";
-    const std::string head = "Import std.core\n"
-                             "Class Oops Extends Error\nEnd Class\n"
-                             "Function Twice(n: Int): Int => n * 2\n";
-    // A call through one, and a Func that doesn't throw made one, each once, where it is.
-    CHECK(stopped(head + "Function Run(work: Func(Int): Int Throws Oops): Int Throws Oops\n"
-                         "    Return Try work(1)\n"
-                         "End Function\n") == "work(1)" + not_built);
-    CHECK(stopped(head + "Function Take(work: Func(Int): Int Throws Oops)\nEnd Function\n"
-                         "Take(Twice)\n") == "Twice" + not_built);
-    CHECK(stopped(head + "Function Wide(plain: Func(Int): Int): (Func(Int): Int Throws Oops)? "
-                         "=> plain\n") == "plain" + not_built);
-
-    // What only names the type, or hands a value of it on as it is, builds.
-    const fb::compilation_t compilation =
-        fb::compile("test.fb", head + "Function Same(work: Func(Int): Int Throws Oops): "
-                                      "(Func(Int): Int Throws Oops) => work\n"
-                                      "Function Wider(work: Func(Int): Int Throws Oops): "
-                                      "(Func(Int): Int Throws Error) => work\n");
+TEST_CASE("a function value that throws takes its caller's error last, and one that doesn't is "
+          "wrapped to",
+          "[mir]") {
+    const fb::compilation_t compilation = fb::compile(
+        "test.fb", "Import std.core\n"
+                   "Class Oops Extends Error\nEnd Class\n"
+                   "Function Run(work: Func(Int): Int Throws Oops): Int Throws Oops\n"
+                   "    Return Try work(1)\n"
+                   "End Function\n"
+                   "Function Wider(work: Func(Int): Int Throws Oops): "
+                   "(Func(Int): Int Throws Error) => work\n"
+                   "Function Wide(plain: Func(Int): Int): (Func(Int): Int Throws Oops) => plain\n"
+                   "Function Made(): (Func(Int): Int Throws Oops) => "
+                   "Function(n: Int): Int Throws Oops => n\n");
     REQUIRE(compilation.diagnostics.diagnostics().empty());
-    CHECK_FALSE(fb::lower(compilation.ast, compilation.analysis).error);
+    const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+    REQUIRE(!module.error);
+    const std::string mir = fb::dump(module);
+    // The code of `function`, to the next one's.
+    const auto body = [&mir](const std::string_view function) {
+        const std::size_t begin = mir.find(function);
+        REQUIRE(begin != std::string::npos);
+        const std::size_t end = mir.find("\nfunction ", begin + 1);
+        return mir.substr(begin, end == std::string::npos ? end : end - begin);
+    };
+    // A call through one passes an Error? of its own, last and by reference, as a call of a
+    // Function that throws does.
+    CHECK(body("function Run(").contains("= invoke _0(1, ByRef _"));
+    // One that throws made one that throws more is the same object.
+    const std::string wider = body("function Wider(");
+    CHECK_FALSE(wider.contains(" new "));
+    CHECK_FALSE(wider.contains("invoke"));
+    // One that doesn't throw is held by a new object, whose code takes the error and calls it
+    // without one.
+    const std::string wrapper = "Func(Int32): Int32 as Func(Int32): Int32 Throws Oops";
+    CHECK(body("function Wide(").contains("= new " + wrapper));
+    const std::string code = body("function " + wrapper + " -> Int32");
+    CHECK(code.contains("ByRef error: std.core.error.Error?"));
+    CHECK(code.contains("(_1)"));
+    CHECK_FALSE(code.contains("ByRef _"));
+    // A lambda that throws is made with the parameter, and needs no wrapper.
+    CHECK_FALSE(body("function Made(").contains(" as "));
+    CHECK(mir.find("= new " + wrapper) == mir.rfind("= new " + wrapper));
 }
 
 TEST_CASE("lowering reports an instance's type that Load<T> or Save can't convert", "[mir]") {

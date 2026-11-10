@@ -85,6 +85,11 @@ TEST_CASE("formatting puts one space around binary operators and after commas", 
     CHECK(formatted("If a&&b||!c Then x+=1\n") == "If a && b || !c Then x += 1\n");
     CHECK(formatted("x = a ?? b\ny = c**2\n") == "x = a ?? b\ny = c ** 2\n");
     CHECK(formatted("x = a<<2 | b&3 ^ c\n") == "x = a << 2 | b & 3 ^ c\n");
+    // A lambda's Throws is spaced as a Function's is.
+    CHECK(formatted("Local f = Function(n: Int):Int   Throws Oops,ParseError=>n\n") ==
+          "Local f = Function(n: Int): Int Throws Oops, ParseError => n\n");
+    CHECK(formatted("Local g = Function(n: Int)   Throws   Oops\n    Print(n)\nEnd Function\n") ==
+          "Local g = Function(n: Int) Throws Oops\n    Print(n)\nEnd Function\n");
 }
 
 TEST_CASE("formatting writes prefix operators against what they apply to", "[format]") {

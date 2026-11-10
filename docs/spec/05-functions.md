@@ -164,7 +164,17 @@ Lambdas are always written with `Function`: `Function(x) => expr`, or a block en
 - A lambda returns what its `: Type` says, or else what the Func expected says. Without either,
   `=> value` returns the value's type, and a block returns nothing.
 - `Return` in a lambda leaves the lambda. `Break` and `Continue` can't leave it, and neither can
-  an error: a lambda catches what it calls.
+  an error, unless the lambda throws: one that doesn't catches what it calls.
+- A lambda throws when the Func expected of it does, or when it says so itself. Where a `Func(A):
+  R Throws E` is expected, the lambda's body may let out what that type lists, with `Try`, and
+  anything else is caught in it or an error, as in a Function with that Throws: `Run(Function(n)
+  => Try Risky(n))`. With no Func expected, or to list its own, its Throws comes after its
+  result, or after its parameters when it has none: `Function(text: String): Int Throws
+  ParseError => Try Int.Parse(text)`. Its type is then the Func type with that Throws. A Throws is
+  never worked out from the body: a lambda with neither can't throw. An Async lambda can't have a
+  Throws.
+- A Throws after a lambda's result is the lambda's, as after a Function's, so a lambda that
+  returns a Func that throws writes that type in parentheses.
 - A Func type can have a Throws, `Func(String): Int Throws ParseError`, which lists Classes as a
   Function's does (see [09](09-errors.md)): each extends Error, or is a type parameter that a
   constraint says does, and none is covered by another. It's a type like any Func type, for a
@@ -178,10 +188,10 @@ Lambdas are always written with `Function`: `Function(x) => expr`, or a block en
   R Throws E` for any E, and one that throws ParseError is one that throws Error. The other way
   is an error, which names the errors a call through it wouldn't say it throws. What a Func
   takes and gives matches exactly, as between Func types without a Throws.
-- These are the type's rules, which the compiler checks. The code for them, a call through a
-  value that throws and the wrapper that makes one of a Func that doesn't, is the next step, and
-  until then a program that does either doesn't build, and says so. A lambda still can't let an
-  error out, nor a Function that throws be a value: those come with it.
+- A Func that doesn't throw, made one that does, is wrapped: the conversion allocates a small
+  object that holds it, once, where the conversion is written. A lambda written where a Func that
+  throws is expected is made as one, and converting between two that throw, to a wider Throws,
+  costs nothing. A Function that throws isn't a value by its name yet.
 - A block lambda's body ends statements at line breaks, even inside the brackets of a call.
 - A Function's name alone is a function value: `Local f: Func(Int): Int = Twice`. With
   overloads, the Func expected picks one. Methods, built-in functions, and Functions that throw

@@ -601,6 +601,18 @@ private:
     };
 
     std::vector<table_thunk_t> m_table_thunks;
+    /// What makes a Func that doesn't throw one that does: a Class whose one Field is the Func,
+    /// and whose code, in its Method table as a closure's is, takes the error a throwing Func's
+    /// caller passes, and calls the Func without it. One for each pair of Func types.
+    struct widener_t {
+        type_id_t type;
+        /// The Func that doesn't throw, and the one it's made.
+        type_id_t from;
+        type_id_t to;
+        function_id_t code;
+    };
+
+    std::vector<widener_t> m_wideners;
     /// Each declared type's symbol, a Struct's, Class's, Interface's, or Enum's, by its type.
     std::unordered_map<type_id_t, symbol_id_t> m_declared_types;
     /// Each top-level declaration's place in the order main goes through them, a type's members
@@ -1563,6 +1575,7 @@ private:
         std::size_t instances = 0;
         std::size_t generated = 0;
         std::size_t thunks = 0;
+        std::size_t wideners = 0;
         std::size_t initializers = 0;
         std::size_t debugged = 0;
         std::size_t debugged_arrays = 0;
@@ -1574,7 +1587,8 @@ private:
                (classes < m_used_classes.size() || functions < m_library_functions.size() ||
                 closures < m_closures.size() || instances < m_pending_instances.size() ||
                 generated < m_generated.size() || thunks < m_table_thunks.size() ||
-                initializers < m_thread_initializers.size() || undebugged())) {
+                wideners < m_wideners.size() || initializers < m_thread_initializers.size() ||
+                undebugged())) {
             if (initializers < m_thread_initializers.size()) {
                 const global_id_t global = m_thread_initializers[initializers++];
                 m_parameters.clear();
@@ -1627,6 +1641,15 @@ private:
                 m_parameters.clear();
                 m_arguments.clear();
                 lower_table_thunk(thunk);
+                continue;
+            }
+
+            if (wideners < m_wideners.size()) {
+                const widener_t widener = m_wideners[wideners++];
+                m_parameters.clear();
+                m_arguments.clear();
+                const scoped_value_t<std::optional<std::size_t>> from(m_origin, std::nullopt);
+                lower_widener(widener);
                 continue;
             }
 
@@ -2980,12 +3003,12 @@ private:
             return value;
         }
 
-        // A Func that doesn't throw, made one that does, needs a wrapper that isn't built yet.
-        // One that throws made one that throws more is the same value.
+        // A Func that doesn't throw, made one that does, is wrapped in what takes the error for
+        // it. One that throws made one that throws more is the same value.
         if (const type_id_t made = without_nullables(type), given = without_nullables(from);
             is_func(made) && is_func(given) && !types().get(made).throws.empty() &&
             types().get(given).throws.empty()) {
-            throwing_func_not_built(span);
+            return convert(widened(value, made, span), type, span);
         }
 
         // An array where an Interface is expected, in any T?s, needs its type's tables.
@@ -3014,6 +3037,102 @@ private:
         }
 
         return retype(value, cast_t{ .value = value, .type = type, .span = span }, type);
+    }
+
+    /// A Func that doesn't throw as `to`, one that does: a new object that holds it, whose code
+    /// calls it. A Func? that's Null stays Null.
+    operand_t widened(const operand_t& value, const type_id_t to, const span_t span) {
+        const type_id_t from = type_of(value);
+        if (!is_nullable(from)) {
+            return widened_value(value, to, span);
+        }
+
+        const type_id_t maybe = types().nullable(to);
+        const local_id_t result = add_local(maybe);
+        const operand_t present = has_value(value, span);
+        const block_id_t test = here();
+        m_block.reset();
+        std::vector<block_id_t> exits;
+        const block_id_t holds = new_block();
+        start(holds);
+        const std::size_t mark = m_temporaries.size();
+        const operand_t wrapped = convert(widened_value(unwrap(value), to, span), maybe, span);
+        take(wrapped);
+        emit(assign_t{ .target = result, .value = use_t{ .value = wrapped } });
+        release_temporaries_from(mark);
+        leave(exits);
+        const block_id_t missing = new_block();
+        start(missing);
+        emit(assign_t{ .target = result, .value = use_t{ .value = null_of(maybe) } });
+        leave(exits);
+        block_at(test).terminator =
+            branch_t{ .condition = present, .if_true = holds, .if_false = missing };
+        join(exits);
+        m_temporaries.push_back(result);
+        return place_t{ result };
+    }
+
+    operand_t widened_value(const operand_t& value, const type_id_t to, const span_t span) {
+        const type_id_t from = type_of(value);
+        auto found = std::ranges::find_if(m_wideners, [&](const widener_t& widener) {
+            return widener.from == from && widener.to == to;
+        });
+        if (found == m_wideners.end()) {
+            const type_id_t made =
+                types().add_class(std::format("{} as {}", types().name(from), types().name(to)));
+            types().set_made(made);
+            types().set_fields(made, { { .name = "inner", .type = from } });
+            // A Sendable Func's object counts its owners atomically.
+            if (types().get(to).sendable) {
+                types().set_shared(made);
+            }
+
+            const auto code = static_cast<function_id_t>(m_module.functions.size());
+            m_module.functions.push_back({
+                .name = types().qualified_name(made),
+                .return_type = types().get(to).inner,
+            });
+            add_runtime_class(made, { code });
+            m_wideners.push_back({ .type = made, .from = from, .to = to, .code = code });
+            found = std::prev(m_wideners.end());
+        }
+
+        const type_id_t made = found->type;
+        const operand_t object = temporary(new_t{ .type = made }, made, true);
+        emit(retain_t{ .value = value });
+        emit(assign_t{
+            .target = element_of(std::get<place_t>(object), 0),
+            .value = use_t{ .value = value },
+        });
+        return retype(object, cast_t{ .value = object, .type = to, .span = span }, to);
+    }
+
+    /// A widener's code: the object first, then what the Func takes, then the caller's Error?,
+    /// which nothing sets, as the Func it calls doesn't throw.
+    void lower_widener(const widener_t& widener) {
+        begin_function(widener.code);
+        const local_id_t object = add_local(widener.type, "closure");
+        invoke_t call{ .callee = element_of(place_t{ object }, 0) };
+        for (const type_id_t parameter : types().get(widener.to).parameters) {
+            call.arguments.emplace_back(place_t{ add_local(parameter) });
+        }
+
+        add_local(m_analysis.nullable_error, "error", true);
+        current().parameter_count = current().locals.size();
+        const type_id_t result = types().get(widener.to).inner;
+        if (result == type_id_t::NONE) {
+            emit(evaluate_t{ .value = std::move(call) });
+            finish_statement();
+            release_scopes(0);
+            terminate(return_t{});
+            return;
+        }
+
+        const operand_t given = temporary(std::move(call), result, has_references(result));
+        take(given);
+        finish_statement();
+        release_scopes(0);
+        terminate(return_t{ .value = given });
     }
 
     /// std.io's Path of a String, which its New makes, as a String converts to one.
@@ -6814,6 +6933,12 @@ private:
             const local_id_t local = add_local(concrete(parameter.type), parameter.name);
             m_locals[parameter_id] = local;
             arguments.push_back({ .value = place_t{ local } });
+        }
+
+        // A lambda that throws puts its error where a Function that throws does: in an Error?
+        // its caller passes last, by reference.
+        if (closure.lambda && !function.throws.empty()) {
+            m_error_slot = add_local(m_analysis.nullable_error, "error", true);
         }
 
         current().parameter_count = current().locals.size();
@@ -10666,20 +10791,6 @@ private:
         return temporary(std::move(value), attribute, has_references(attribute));
     }
 
-    /// A function value that throws is checked, by the rules docs/throwing-func-values.md has, and
-    /// its code isn't built yet: a build that calls one, or makes one of a Func that doesn't
-    /// throw, says so, once.
-    void throwing_func_not_built(const span_t span) {
-        if (!m_module.error) {
-            m_module.error = mir_error_t{
-                .message = "a function value that throws is checked but can't be built yet: its "
-                           "call, and the wrapper that makes one of a Func that doesn't throw, "
-                           "are the next step",
-                .span = span,
-            };
-        }
-    }
-
     /// Calling a function value runs its object's code.
     std::optional<operand_t> invoke(const call_expr_t& node, const span_t span) {
         std::vector<expr_id_t> operands{ node.callee };
@@ -10689,22 +10800,34 @@ private:
 
         const std::vector<bool> later = changes_after(operands);
         const operand_t callee = settled(lower_value(node.callee), later.front());
-        if (!types().get(type_of(callee)).throws.empty()) {
-            throwing_func_not_built(span);
-        }
-
         invoke_t call{ .callee = callee, .span = span };
         for (std::size_t i = 0; i < node.arguments.size(); ++i) {
             call.arguments.push_back(settled(lower_value(node.arguments[i].value), later[i + 1]));
         }
 
+        // What a value whose Func type throws puts in its error is raised here, as a call of a
+        // Function that throws raises its own.
+        std::optional<local_id_t> error;
+        if (!types().get(type_of(callee)).throws.empty()) {
+            error = error_variable();
+            call.error = place_t{ *error };
+        }
+
         const type_id_t result = types().get(type_of(callee)).inner;
         if (result == type_id_t::NONE) {
             emit(evaluate_t{ .value = std::move(call) });
+            if (error) {
+                check_error(*error, span);
+            }
+
             return std::nullopt;
         }
 
         operand_t given = temporary(std::move(call), result, has_references(result));
+        if (error) {
+            check_error(*error, span);
+        }
+
         // An Enum C's code gives has to be one of its values, as an Extern Function's does.
         if (types().get(type_of(callee)).kind == type_kind_t::CALLBACK && only_members(result)) {
             return to_enum(given, result, span,

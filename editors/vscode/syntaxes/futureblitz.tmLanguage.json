@@ -650,13 +650,44 @@
           "name": "punctuation.definition.captures.end.futureblitz"
         }
       },
-      "end": "(?<=\\))(?!:\\s)|(?=\\s*(?:=>|$|//|/\\*|[,)\\]}]))",
+      "end": "(?<=\\))(?!:\\s|\\s+Throws\\b)|(?=\\s*(?:=>|$|//|/\\*|[,)\\]}]))",
       "patterns": [
         {
           "include": "#parameters"
         },
         {
-          "include": "#return-type"
+          "name": "meta.type.return.futureblitz",
+          "begin": "(?<=\\))(:)(?=\\s)",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.separator.type.futureblitz"
+            }
+          },
+          "end": "(?==>|\\bThrows\\b|//|/\\*|$|[,)\\]=])",
+          "patterns": [
+            {
+              "include": "#type"
+            }
+          ]
+        },
+        {
+          "name": "meta.throws.futureblitz",
+          "begin": "\\b(Throws)\\b",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.modifier.futureblitz"
+            }
+          },
+          "end": "(?==>|//|/\\*|$|[)\\]}])",
+          "patterns": [
+            {
+              "name": "punctuation.separator.comma.futureblitz",
+              "match": ","
+            },
+            {
+              "include": "#type"
+            }
+          ]
         }
       ]
     },

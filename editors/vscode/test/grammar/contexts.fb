@@ -29,6 +29,15 @@ Local pick = Function(at: Int = Max(1, 2), by: Int): (Int, Double)[] => Pair(at,
 //                                                                           ^^ - variable.parameter
 Local check = Function(f: Func(Int): Bool): Func(): Int => Make(f)
 //                                          ^^^^ meta.type.return.futureblitz storage.type.function.futureblitz
+Local risky = Function(n: Int): Int Throws Oops, Other => Try Risky(n)
+//                                  ^^^^^^ meta.function.lambda.futureblitz meta.throws.futureblitz storage.modifier.futureblitz - meta.type.return
+//                                         ^^^^ meta.throws.futureblitz entity.name.type.futureblitz
+//                                               ^^^^^ meta.function.lambda.futureblitz meta.throws.futureblitz entity.name.type.futureblitz
+//                                                     ^^ storage.type.function.arrow.futureblitz - meta.function.lambda
+Run(Function(n) Throws Oops => Try Risky(n), 2)
+//              ^^^^^^ meta.function.lambda.futureblitz meta.throws.futureblitz storage.modifier.futureblitz
+//                     ^^^^ meta.throws.futureblitz entity.name.type.futureblitz
+//                                           ^ constant.numeric.decimal.futureblitz - meta.function.lambda
 Spawn(Function()
     Work()
 End Function)

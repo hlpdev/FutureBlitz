@@ -6,9 +6,10 @@ costs, and the order to build it in. The user said yes to steps 1 to 3 (2026-11-
 picks below; steps 4 to 6 are Deferred work.
 
 Built so far: step 1, the type's rules, in sema: the type as a value's, a call through one
-needing Try, and the conversions with their errors (rules 1, 2, and 5 below). A build that
-calls one, or makes one of a Func that doesn't throw, says its code isn't built yet. "Today",
-below, is how it was before step 1.
+needing Try, and the conversions with their errors (rules 1, 2, and 5 below); and step 2, the
+code: a lambda that throws, by the Func expected of it or its own Throws (rule 3), the call
+through a value, and the wrapper, by shape B below. A Function's name as a throwing value
+(rule 4) is step 3's. "Today", below, is how it was before step 1.
 
 ## Today
 

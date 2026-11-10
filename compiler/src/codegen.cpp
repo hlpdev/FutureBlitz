@@ -5087,6 +5087,12 @@ private:
             arguments.push_back(value_of(node.arguments[i]));
         }
 
+        // What it throws goes where a Function's does: an Error? passed last, by reference.
+        if (node.error) {
+            parameters.push_back(m_ptr);
+            arguments.push_back(address_of(*node.error));
+        }
+
         const function_ref_t code{
             .type = LLVMFunctionType(llvm_type(func.inner), parameters.data(),
                                      static_cast<unsigned>(parameters.size()), 0),

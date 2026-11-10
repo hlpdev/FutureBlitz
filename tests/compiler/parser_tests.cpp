@@ -1135,6 +1135,16 @@ TEST_CASE("lambdas, written with Function", "[parser]") {
           "(lambda [Weak Self, Weak n] -> Int => (int 1))");
     CHECK(parse_text("Local f = Function()\n    Print(x)\nEnd Function").dump ==
           "(local f = (lambda (block (call Print x))))");
+    // Its own Throws, after its result or its parameters, which a Throws after a Func result
+    // is too, as in a Function's header; and it ends at the '=>' or the line's end.
+    CHECK(expression("Function(x: Int): Int Throws Oops => x") ==
+          "(lambda (x: Int) -> Int throws Oops => x)");
+    CHECK(expression("Function() Throws A, B => Go()") ==
+          "(lambda throws A throws B => (call Go))");
+    CHECK(expression("Function(): Func(): Int Throws A => f") ==
+          "(lambda -> Func(): Int throws A => f)");
+    CHECK(parse_text("Local f = Function(x: Int) Throws Oops\n    Print(x)\nEnd Function").dump ==
+          "(local f = (lambda (x: Int) throws Oops (block (call Print x))))");
 
     // A block lambda's body ends statements at line breaks, even inside a call's brackets.
     CHECK(parse_text("Each(xs, Function(s)\n    Print(s)\n    n++\nEnd Function)\nG()").dump ==
