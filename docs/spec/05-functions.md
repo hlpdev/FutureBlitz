@@ -164,7 +164,24 @@ Lambdas are always written with `Function`: `Function(x) => expr`, or a block en
 - A lambda returns what its `: Type` says, or else what the Func expected says. Without either,
   `=> value` returns the value's type, and a block returns nothing.
 - `Return` in a lambda leaves the lambda. `Break` and `Continue` can't leave it, and neither can
-  an error: a Func doesn't throw, so the lambda catches what it calls.
+  an error: a lambda catches what it calls.
+- A Func type can have a Throws, `Func(String): Int Throws ParseError`, which lists Classes as a
+  Function's does (see [09](09-errors.md)): each extends Error, or is a type parameter that a
+  constraint says does, and none is covered by another. It's a type like any Func type, for a
+  parameter, a Local, a Field, or an array's elements. After a Function's own result a Throws is
+  the Function's, so there a Func type that throws goes in parentheses: `Function Pick(): (Func():
+  Int Throws IOError)`.
+- A call through a value of such a type can throw what the type lists, so it needs `Try`,
+  `Try?`, or a Try block, and each error is caught or in the Throws of the function around it,
+  exactly as a call of a Function with that Throws does: `Local n = Try parse(text)`.
+- A Func that throws less converts to one that throws more: one that doesn't throw is a `Func(A):
+  R Throws E` for any E, and one that throws ParseError is one that throws Error. The other way
+  is an error, which names the errors a call through it wouldn't say it throws. What a Func
+  takes and gives matches exactly, as between Func types without a Throws.
+- These are the type's rules, which the compiler checks. The code for them, a call through a
+  value that throws and the wrapper that makes one of a Func that doesn't, is the next step, and
+  until then a program that does either doesn't build, and says so. A lambda still can't let an
+  error out, nor a Function that throws be a value: those come with it.
 - A block lambda's body ends statements at line breaks, even inside the brackets of a call.
 - A Function's name alone is a function value: `Local f: Func(Int): Int = Twice`. With
   overloads, the Func expected picks one. Methods, built-in functions, and Functions that throw

@@ -11033,9 +11033,9 @@ TEST_CASE("a typed For Method picks Methods by attribute, and takes throwing one
                           "Routes(Api())\n"
                           "Local later = Later(Api())\n")
               .empty());
-    // Without the Where m Has line, Log is checked too; a Func value can't throw; a Throws needs
-    // an error; m.Call of throwing Methods needs Try; an Attribute is named; and only a For
-    // Method loop picks.
+    // Without the Where m Has line, Log is checked too; a Func type with a Throws is a value's
+    // type as well, with no error of its own; a Throws needs an error; m.Call of throwing
+    // Methods needs Try; an Attribute is named; and only a For Method loop picks.
     const errors_t errors = errors_of(api + "Function Routes<T>(api: T)\n"
                                             "    For Method m: M In T\n"
                                             "        Where M: Func(A): String\n"
@@ -11056,18 +11056,16 @@ TEST_CASE("a typed For Method picks Methods by attribute, and takes throwing one
                                             "For Field g: G In Api\n"
                                             "    Where g Has Get\n"
                                             "End For");
-    REQUIRE(errors.size() == 6);
+    REQUIRE(errors.size() == 5);
     CHECK(errors[0] == "Routes: 'Routes' needs what each Method of Api has for A to implement "
                        "Defaultable, but its Method 'Log' has Socket for A, which doesn't");
-    CHECK(errors[1] == "Func(Int): String Throws Missing: a Func value can't throw; only a For "
-                       "Method loop's Func type says that its Methods do");
-    CHECK(errors[2] == "E: E is in a Throws, so it needs a constraint that says it's an error, "
+    CHECK(errors[1] == "E: E is in a Throws, so it needs a constraint that says it's an error, "
                        "like Where E: Error");
-    CHECK(errors[3] ==
+    CHECK(errors[2] ==
           "Gett: 'Gett' isn't an Attribute, which a Where line on 'm' picks its Methods by");
-    CHECK(errors[4] == "m.Call(Api(), Args(1)): 'm.Call' can throw E, so calling it needs Try, "
+    CHECK(errors[3] == "m.Call(Api(), Args(1)): 'm.Call' can throw E, so calling it needs Try, "
                        "Try?, or a Try block");
-    CHECK(errors[5] == "Get: a For Field loop's Where line picks only the ones its code can set, "
+    CHECK(errors[4] == "Get: a For Field loop's Where line picks only the ones its code can set, "
                        "with 'Where g Has Set'; its body tests 'g.Has(A)' for an Attribute");
 }
 
@@ -11128,8 +11126,8 @@ TEST_CASE("a picked or throwing For Method vouches only for its own Methods, and
               "Params<T>: 'Params' needs what each Method of T has for A to implement Error, but "
               "nothing says that of T's Methods",
           });
-    // A Func type in the loop's own can't throw, in a parameter or the result, and the loop's
-    // own still can; one whose Func type has an error doesn't say what m.Call takes.
+    // A Func type in the loop's own can throw too, in a parameter or the result, as a value's
+    // type can: it's a type a Method takes or gives, and Api has no Method that does.
     CHECK(errors_of(api + "For Method m: M In Api\n"
                           "    Where M: Func(Int[], Func(Int): Int Throws E): Int\n"
                           "    Where E: Error\n"
@@ -11142,14 +11140,158 @@ TEST_CASE("a picked or throwing For Method vouches only for its own Methods, and
                           "    Where M: Func(Int): (Func(): Int Throws E)\n"
                           "    Where E: Error\n"
                           "    Local s = m.Call(Api(), 1)\n"
-                          "End For") ==
+                          "End For")
+              .empty());
+}
+
+TEST_CASE("a Func type with Throws is a value's type: it's called with Try, and one that throws "
+          "less converts to one that throws more",
+          "[sema]") {
+    const std::string head = "Import std.core\n"
+                             "Class Oops Extends Error\nEnd Class\n"
+                             "Class Worse Extends Oops\nEnd Class\n"
+                             "Class Other Extends Error\nEnd Class\n";
+    // Anywhere a Func type goes: a parameter, a result, a Local, a Field, an array's elements,
+    // and a T?. A call through one is a call that throws what its type lists: Try lets it out
+    // of a Function whose Throws covers it, Try? makes it Null, and a Try block catches it.
+    CHECK(errors_of(head +
+                    "Struct Jobs\n"
+                    "    Field First: Func(Int): Int Throws Oops\n"
+                    "    Field Rest: (Func(Int): Int Throws Oops)[] = []\n"
+                    "    Field Last: (Func(Int): Int Throws Oops)? = Null\n"
+                    "End Struct\n"
+                    "Function Run(work: Func(Int): Int Throws Oops): Int Throws Oops\n"
+                    "    Return Try work(1)\n"
+                    "End Function\n"
+                    "Function Wider(work: Func(Int): Int Throws Worse): Int Throws Error\n"
+                    "    Return Try work(1)\n"
+                    "End Function\n"
+                    "Function Quiet(work: Func(Int): Int Throws Oops, Other): Int\n"
+                    "    Local first = (Try? work(1)) ?? 0\n"
+                    "    Try\n"
+                    "        Return first + Try work(2)\n"
+                    "    Catch e As Oops\n"
+                    "        Return 1\n"
+                    "    Catch e As Other\n"
+                    "        Return 2\n"
+                    "    End Try\n"
+                    "End Function\n"
+                    "Function All(jobs: Jobs): Int Throws Oops\n"
+                    "    Local total = Try jobs.First(1)\n"
+                    "    For job In jobs.Rest\n"
+                    "        total += Try job(total)\n"
+                    "    End For\n"
+                    "    Local last = jobs.Last\n"
+                    "    If last != Null Then total += Try last(total)\n"
+                    "    Return total\n"
+                    "End Function\n"
+                    // After a Function's result, a Throws is the Function's, so a Func type
+                    // that throws goes in parentheses there.
+                    "Function Same(work: Func(Int): Int Throws Oops): (Func(Int): Int Throws Oops) "
+                    "=> work\n")
+              .empty());
+
+    // Without Try it's the error a Function's call has, by the value's name, and so is an error
+    // that the Function around it doesn't let out, or a Catch doesn't cover.
+    CHECK(errors_of(head + "Function A(work: Func(Int): Int Throws Oops): Int\n"
+                           "    Return work(1)\n"
+                           "End Function\n"
+                           "Function B(work: Func(Int): Int Throws Oops, Other): Int Throws Oops\n"
+                           "    Return Try work(1)\n"
+                           "End Function\n"
+                           "Function C(work: Func(Int): Int Throws Oops): Int\n"
+                           "    Try\n"
+                           "        Return Try work(1)\n"
+                           "    Catch e As Worse\n"
+                           "        Return 0\n"
+                           "    End Try\n"
+                           "End Function\n"
+                           "Function D(work: Func() Throws Oops)\n"
+                           "    work()\n"
+                           "End Function") ==
           errors_t{
-              "Func(Int): Int Throws E: a Func value can't throw; only a For Method loop's Func "
-              "type says that its Methods do",
-              "Func(): Int Throws E: a Func value can't throw; only a For Method loop's Func type "
-              "says that its Methods do",
-              "Func(): Int Throws E: a Func value can't throw; only a For Method loop's Func type "
-              "says that its Methods do",
+              "work(1): 'work' can throw Oops, so calling it needs Try, Try?, or a Try block",
+              "work(1): Other isn't caught; catch it in a Try block, or add it to the Throws of "
+              "'B'",
+              "work(1): Oops isn't caught; catch it in a Try block, or add it to the Throws of 'C'",
+              "work(): 'work' can throw Oops, so calling it needs Try, Try?, or a Try block",
+          });
+
+    // One that throws less is one that throws more: nothing at all, a Class the other's Throws
+    // has, or one that extends it, and a Sendable one where it needn't be.
+    CHECK(errors_of(head + "Function Take(work: Func(Int): Int Throws Oops, Other)\n"
+                           "End Function\n"
+                           "Function Give(plain: Func(Int): Int, one: Func(Int): Int Throws Oops,\n"
+                           "              worse: Func(Int): Int Throws Worse,\n"
+                           "              sent: Sendable Func(Int): Int Throws Other)\n"
+                           "    Take(plain)\n"
+                           "    Take(one)\n"
+                           "    Take(worse)\n"
+                           "    Take(sent)\n"
+                           "    Local any: Func(Int): Int Throws Error = worse\n"
+                           "    Local maybe: (Func(Int): Int Throws Oops)? = plain\n"
+                           "End Function")
+              .empty());
+
+    // Not the other way, which says what a call through it wouldn't say it throws; and the rest
+    // of the type is as it was: what it takes and gives, and Sendable.
+    const std::string lost = ", and a call through the first wouldn't say so; a Func that throws "
+                             "less converts to one that throws more, not the other way";
+    const std::string another = "other: expected Func(Int32): Int32 Throws Oops, found "
+                                "Func(String): Int32 Throws Oops";
+    const std::string unsent =
+        "same: expected Sendable Func(Int32): Int32 Throws Oops, found Func(Int32): Int32 Throws "
+        "Oops, which other threads can't call; a Sendable Func is a lambda or a Function's name, "
+        "written where it's expected";
+    CHECK(errors_of(head + "Function Plain(work: Func(Int): Int)\nEnd Function\n"
+                           "Function Narrow(work: Func(Int): Int Throws Worse)\nEnd Function\n"
+                           "Function Sent(work: Sendable Func(Int): Int Throws Oops)\n"
+                           "End Function\n"
+                           "Function Give(wide: Func(Int): Int Throws Oops, Other,\n"
+                           "              other: Func(String): Int Throws Oops,\n"
+                           "              same: Func(Int): Int Throws Oops)\n"
+                           "    Plain(wide)\n"
+                           "    Narrow(wide)\n"
+                           "    Local one: Func(Int): Int Throws Oops = wide\n"
+                           "    Local two: Func(Int): Int Throws Oops = other\n"
+                           "    Sent(same)\n"
+                           "End Function") ==
+          errors_t{
+              "wide: expected Func(Int32): Int32, found Func(Int32): Int32 Throws Oops, Other, "
+              "which can throw Oops, Other" +
+                  lost,
+              "wide: expected Func(Int32): Int32 Throws Worse, found Func(Int32): Int32 Throws "
+              "Oops, Other, which can throw Oops, Other" +
+                  lost,
+              "wide: expected Func(Int32): Int32 Throws Oops, found Func(Int32): Int32 Throws "
+              "Oops, Other, which can throw Other" +
+                  lost,
+              another,
+              unsent,
+          });
+
+    // Its Throws lists what a Function's does: Classes that extend Error, none covered by
+    // another, and a type parameter that's an error.
+    const std::string in_parentheses =
+        "Oops?: Throws lists Classes that extend Error, not Oops?; a Func's type with a Throws "
+        "goes in parentheses before a '?', as in (Func(): T Throws Oops)?";
+    const std::string unconstrained = "T: T is in a Throws, so it needs a constraint that says "
+                                      "it's an error, like Where T: Error";
+    CHECK(errors_of(head + "Local a: Func() Throws Int\n"
+                           "Local b: Func() Throws Oops, Worse\n"
+                           "Local c: Func(): Int Throws Oops?\n"
+                           "Local d: Func() Throws Missing\n"
+                           "Function E<T>(work: Func() Throws T)\nEnd Function\n"
+                           "Function F<T: Error>(work: Func() Throws T): Int Throws T\n"
+                           "    Try work()\n"
+                           "    Return 1\n"
+                           "End Function\n") ==
+          errors_t{
+              "Int: Throws lists Classes that extend Error, not Int32",
+              "Worse: Worse is already covered by this Throws",
+              in_parentheses,
+              "Missing: 'Missing' isn't a type",
+              unconstrained,
           });
 }
 

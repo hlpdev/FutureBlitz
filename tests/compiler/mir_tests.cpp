@@ -3051,6 +3051,41 @@ TEST_CASE("lowering reports an instance's type that Defaults<T> can't write, and
     CHECK(!mir.contains("call P.OnLoaded()"));
 }
 
+TEST_CASE("a function value that throws is checked, and says its code isn't built yet", "[mir]") {
+    const auto stopped = [](const std::string_view text) {
+        const fb::compilation_t compilation = fb::compile("test.fb", std::string(text));
+        REQUIRE(compilation.diagnostics.diagnostics().empty());
+        const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+        REQUIRE(module.error);
+        return std::string(
+                   compilation.sources.get(module.error->span.file).slice(module.error->span)) +
+               ": " + module.error->message;
+    };
+    const std::string not_built = ": a function value that throws is checked but can't be built "
+                                  "yet: its call, and the wrapper that makes one of a Func that "
+                                  "doesn't throw, are the next step";
+    const std::string head = "Import std.core\n"
+                             "Class Oops Extends Error\nEnd Class\n"
+                             "Function Twice(n: Int): Int => n * 2\n";
+    // A call through one, and a Func that doesn't throw made one, each once, where it is.
+    CHECK(stopped(head + "Function Run(work: Func(Int): Int Throws Oops): Int Throws Oops\n"
+                         "    Return Try work(1)\n"
+                         "End Function\n") == "work(1)" + not_built);
+    CHECK(stopped(head + "Function Take(work: Func(Int): Int Throws Oops)\nEnd Function\n"
+                         "Take(Twice)\n") == "Twice" + not_built);
+    CHECK(stopped(head + "Function Wide(plain: Func(Int): Int): (Func(Int): Int Throws Oops)? "
+                         "=> plain\n") == "plain" + not_built);
+
+    // What only names the type, or hands a value of it on as it is, builds.
+    const fb::compilation_t compilation =
+        fb::compile("test.fb", head + "Function Same(work: Func(Int): Int Throws Oops): "
+                                      "(Func(Int): Int Throws Oops) => work\n"
+                                      "Function Wider(work: Func(Int): Int Throws Oops): "
+                                      "(Func(Int): Int Throws Error) => work\n");
+    REQUIRE(compilation.diagnostics.diagnostics().empty());
+    CHECK_FALSE(fb::lower(compilation.ast, compilation.analysis).error);
+}
+
 TEST_CASE("lowering reports an instance's type that Load<T> or Save can't convert", "[mir]") {
     const auto stopped = [](const std::string_view text) {
         const fb::compilation_t compilation = fb::compile("test.fb", std::string(text));

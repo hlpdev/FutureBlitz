@@ -213,8 +213,9 @@ End Function
   as a header's is, so `Func(A): Func(): R Throws E` goes over Methods that throw and give a
   Func. An Async Method's errors are in its Task, so it's `Func(A): (Task<R> Throws E)`, whose
   Await re-throws them. Without a Throws, the loop goes over Methods that don't throw, and an
-  Override that throws what its base doesn't takes the base's place in neither. Only the loop's
-  own Func type throws, not a Func type in it: a Func value can't, nor a Callback.
+  Override that throws what its base doesn't takes the base's place in neither. A Func type in
+  the loop's own, a parameter's or the result's, can have a Throws too, as any value's type can
+  (see [05](05-functions.md)): it's what a Method takes or gives. A Callback can't.
 - A Where line on the loop's variable picks Methods by attribute: `Where m Has Get Or Post`
   goes over only the Methods with one of those Attributes, so no other Method gets a copy, or
   is checked against the loop's other Where lines. Each such line picks again, and an Override
