@@ -143,7 +143,7 @@ std::string read_file(const std::filesystem::path& path) {
 /// Windows keeps such a file from being removed for a moment after its process is gone, longer
 /// on a busy machine, so a removal that's refused is tried again, for up to `tries` tenths of a
 /// second. Gives whether the file is gone.
-bool remove_ended(const std::filesystem::path& file, const int tries = 300) {
+[[maybe_unused]] bool remove_ended(const std::filesystem::path& file, const int tries = 300) {
     for (int tried = 0; tried < tries; ++tried) {
         std::error_code error;
         std::filesystem::remove(file, error);
@@ -1799,6 +1799,42 @@ TEST_CASE("fb run's program ends when fb does, however fb ends, and its folder g
         CHECK(folders().empty());
     }
 }
+
+#ifndef _WIN32
+TEST_CASE("fb run passes on a signal that comes as its program starts, and cleans up", "[cli]") {
+    // The program signals fb, what started it, as its first act, which is as soon after its start
+    // as a signal can come: fb took its handlers only once the program was started, so one that
+    // came before them ended fb as any process, with the same code, and its folder stayed. The
+    // test above, which signals fb once the program says it's up, failed that way now and then.
+    // With the signal passed on, the program ends before it writes its marker.
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "early_end";
+    std::filesystem::remove_all(folder);
+    std::filesystem::create_directories(folder);
+    const std::filesystem::path marker = folder / "marker.txt";
+    for (const int end : { SIGTERM, SIGHUP }) {
+        CAPTURE(end);
+        const std::string name = own_name(std::format("early_end_{}", end));
+        const std::filesystem::path source =
+            write_source(std::format("early_end/{}.fb", name),
+                         std::format("Import std.core\nImport std.io\nImport std.time\n"
+                                     "Extern \"C\"\n"
+                                     "    Function getppid(): Int32\n"
+                                     "    Function kill(pid: Int32, signal: Int32): Int32\n"
+                                     "End Extern\n"
+                                     "kill(getppid(), {})\n"
+                                     "Sleep(2.Seconds)\n"
+                                     "Try File.WriteText(Path(\"{}\"), \"not ended\")\n",
+                                     end, marker.generic_string()));
+        for (int round = 0; round < 10; ++round) {
+            CAPTURE(round);
+            running_fb_t running({ "run", fb::to_utf8(source) });
+            CHECK(running.wait() == 128 + end);
+            CHECK(temporary_folders(name).empty());
+            CHECK_FALSE(std::filesystem::exists(marker));
+        }
+    }
+}
+#endif
 
 TEST_CASE("a folder that's held, or just made, isn't swept, and one that can't go yet is later",
           "[cli]") {

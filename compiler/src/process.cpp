@@ -758,6 +758,8 @@ int wait_for(const pid_t pid) {
 std::atomic<pid_t> attached{ 0 };
 /// Whether SIGTERM or SIGHUP came while run_attached() last waited.
 std::atomic<bool> attached_signal{ false };
+/// The one that came before the program was started, which goes on to it once it is, or 0.
+std::atomic<int> attached_early{ 0 };
 
 /// SIGTERM's and SIGHUP's handler while a program runs in this terminal: it gets them, and ends
 /// as it chooses, and this process then cleans up, as it does after Ctrl+C. A closed terminal's
@@ -765,6 +767,11 @@ std::atomic<bool> attached_signal{ false };
 /// looks like any other kill here, reaches it twice.
 void pass_on(const int number, siginfo_t* const info, void* const /*context*/) {
     attached_signal = true;
+    // Before the program's there to get it, the signal waits for it: noted first, then the
+    // program read, as run_attached() sets the program first, then reads the note, so one of
+    // the two passes it on, whichever thread this runs on. The kernel's is noted too, as a
+    // program that wasn't there yet didn't get it.
+    attached_early = number;
 #ifdef SI_KERNEL
     if (info->si_code == SI_KERNEL) {
         return;
@@ -1056,12 +1063,13 @@ std::expected<int, std::string> run_attached(const std::filesystem::path& progra
     struct sigaction quit{};
     sigaction(SIGINT, &ignore, &interrupt);
     sigaction(SIGQUIT, &ignore, &quit);
-    std::unique_lock lock(spawning);
-    const std::expected<pid_t, std::string> pid = spawn(program, arguments, nullptr, environment);
-    const attached_watcher_t watcher = pid ? start_watcher(*pid) : attached_watcher_t{};
-    lock.unlock();
+    // SIGTERM and SIGHUP are this process's to pass on from before the program starts: one that
+    // came between its start and the handlers' ended this process as any other, with the code
+    // that says so, and nothing cleaned up, as a program that says it's up at once and a caller
+    // that ends it at once showed. The program gets them at their defaults, as it's a new image.
     attached_signal = false;
-    attached = pid.value_or(0);
+    attached_early = 0;
+    attached = 0;
     // A signal this process ignores stays ignored, as nohup has it.
     struct sigaction passing{};
     passing.sa_sigaction = pass_on;
@@ -1081,6 +1089,15 @@ std::expected<int, std::string> run_attached(const std::filesystem::path& progra
 
     if (!ignored(hang_up)) {
         sigaction(SIGHUP, &passing, nullptr);
+    }
+
+    std::unique_lock lock(spawning);
+    const std::expected<pid_t, std::string> pid = spawn(program, arguments, nullptr, environment);
+    const attached_watcher_t watcher = pid ? start_watcher(*pid) : attached_watcher_t{};
+    lock.unlock();
+    attached = pid.value_or(0);
+    if (const int early = attached_early.load(); early != 0 && pid) {
+        kill(*pid, early);
     }
 
     std::expected<int, std::string> result = pid.transform(wait_for);
