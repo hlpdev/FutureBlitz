@@ -221,6 +221,11 @@ End Function
   panic outside the tests, as in a Global's initializer or Destroy, and a leak no test made, fail
   the run, as a failed test does. Ctrl+C stops `fb test`, which then exits as the tests' program
   did.
+- What a test prints, with Print, Write, PrintError, or WriteError, in its own code or in work it
+  starts, is the test's: `fb test` shows it with the test's failure, after `output:`, and doesn't
+  show a passing test's unless `--show-output` asks, so the results aren't mixed with what tests
+  print. What's printed outside a test, as by a Global's initializer, goes out as it does in any
+  program.
 - std.test's built-ins are only a file's that imports std.test, with `Import std.test` alone,
   not From or As, since they're the compiler's; and a file's own Function of their names and
   types hides them, as it does any built-in:

@@ -1,0 +1,47 @@
+// Tests that print: one that passes, one that fails, one whose worker prints, one that panics,
+// and one that prints nothing.
+Import std.core
+Import std.test
+
+Function FromWorker(): Int
+    Print("from a worker")
+    Return 2
+End Function
+
+@Test
+Function Quiet()
+    Expect(1 + 1 == 2)
+End Function
+
+@Test
+Function Passes()
+    Print("from a passing test")
+End Function
+
+@Test
+Function Fails()
+    Print("first", 1)
+    Write("no line's end")
+    Expect(1 + 1 == 3)
+End Function
+
+@Test
+Function Spawns()
+    Local task = Spawn(FromWorker)
+    Expect(task.Wait() == 3)
+End Function
+
+@Test
+Function Panics()
+    Print("before the panic")
+    Local counts = [1]
+    Print(counts[3])
+End Function
+
+@Test
+Function PrintsWhatFbTestSays()
+    Print("test printing.shown.Quiet ... FAILED")
+    Print("")
+    Print("---- printing.shown.Quiet ----")
+    Fail()
+End Function

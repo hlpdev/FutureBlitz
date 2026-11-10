@@ -3015,7 +3015,105 @@ TEST_CASE("fb test runs a package's tests, filters them, and reports each", "[cl
     const std::string help = fb_run({ "test", "--help" }).output;
     CHECK(help.contains("Usage: fb test"));
     CHECK(help.contains("--filter <name>"));
-    CHECK_FALSE(help.contains("--show"));
+    CHECK(help.contains("--show-output"));
+    CHECK_FALSE(help.contains("--show <stages>"));
+}
+
+TEST_CASE("fb test shows what a failing test printed, and every test's with --show-output",
+          "[cli]") {
+    const std::filesystem::path packages = std::filesystem::path(FB_TEST_OUTPUT) / "printing";
+    std::filesystem::remove_all(packages);
+    std::filesystem::create_directories(packages);
+    std::filesystem::copy(std::filesystem::path(FB_TEST_PACKAGES) / "printing",
+                          packages / "printing", std::filesystem::copy_options::recursive);
+    const std::string printing = fb::to_utf8(packages / "printing");
+    const auto shown = [&](const std::string_view file) {
+        std::error_code ignored;
+        const std::filesystem::path path =
+            std::filesystem::weakly_canonical(packages / "printing" / file, ignored);
+        const std::filesystem::path relative =
+            path.lexically_relative(std::filesystem::current_path(ignored));
+        std::string text =
+            fb::to_utf8(relative.empty() || *relative.begin() == ".." ? path : relative);
+        std::ranges::replace(text, '\\', '/');
+        return text;
+    };
+    const std::string file = shown("shown.fb");
+
+    // A failing test's output is with its failure, its last line ended, a worker's too, and what
+    // a test printed before it panicked. A passing test's isn't shown, nor among the results.
+    const std::string failures = std::format(
+        "\nfailures:\n"
+        "\n---- printing.shown.Fails ----\n"
+        "expect failed: 1 + 1 == 3 at {0}:25:5\n"
+        "  left: 2\n"
+        "  right: 3\n"
+        "output:\n"
+        "  first 1\n"
+        "  no line's end\n"
+        "\n---- printing.shown.Spawns ----\n"
+        "expect failed: task.Wait() == 3 at {0}:31:5\n"
+        "  left: 2\n"
+        "  right: 3\n"
+        "output:\n"
+        "  from a worker\n"
+        "\n---- printing.shown.Panics ----\n"
+        "panic: index 3 is out of range for 1 element at {0}:38:11\n"
+        "output:\n"
+        "  before the panic\n"
+        "\n---- printing.shown.PrintsWhatFbTestSays ----\n"
+        "failed at {0}:46:5\n"
+        "output:\n"
+        "  test printing.shown.Quiet ... FAILED\n"
+        "  \n"
+        "  ---- printing.shown.Quiet ----\n"
+        "\ntest result: FAILED. 2 passed; 4 failed; 0 skipped; 0 filtered out; finished in ",
+        file);
+    const fb::process_result_t ran = fb_run({ "test", printing, "--color", "never" });
+    INFO(ran.output);
+    CHECK(ran.exit_code == 1);
+    CHECK(ran.output.contains(failures));
+    CHECK_FALSE(ran.output.contains("from a passing test"));
+    CHECK_FALSE(ran.output.contains("successes:"));
+    CHECK(ran.output.contains("test printing.shown.Passes ... ok\n"));
+    // Each is said once, where it's shown, though the run after a panic runs tests again.
+    const auto count = [](const std::string_view text, const std::string_view part) {
+        std::size_t found = 0;
+        for (std::size_t at = text.find(part); at != std::string_view::npos;
+             at = text.find(part, at + part.size())) {
+            ++found;
+        }
+
+        return found;
+    };
+    CHECK(count(ran.output, "first 1\n") == 1);
+    CHECK(count(ran.output, "from a worker\n") == 1);
+    CHECK(count(ran.output, "before the panic\n") == 1);
+
+    // --show-output shows the passing tests' too, before the failures; one that printed nothing
+    // isn't named.
+    const fb::process_result_t all =
+        fb_run({ "test", printing, "--show-output", "--color", "never" });
+    INFO(all.output);
+    CHECK(all.exit_code == 1);
+    CHECK(all.output.contains("\nsuccesses:\n"
+                              "\n---- printing.shown.Passes ----\n"
+                              "output:\n"
+                              "  from a passing test\n" +
+                              failures));
+    CHECK_FALSE(all.output.contains("\n---- printing.shown.Quiet ----"));
+    CHECK(count(all.output, "from a passing test\n") == 1);
+
+    // In a release build too, whose runs keep what finished.
+    const fb::process_result_t release =
+        fb_run({ "test", printing, "--release", "--filter", "Fails", "--color", "never" });
+    INFO(release.output);
+    CHECK(release.exit_code == 1);
+    CHECK(release.output.contains("output:\n  first 1\n  no line's end\n\ntest result: FAILED."));
+
+    check_usage_error({ "test", "--show-output=yes" }, "'--show-output' takes no value");
+    check_usage_error({ "build", "x.fb", "--show-output" },
+                      "'--show-output' only works with 'fb test'");
 }
 
 TEST_CASE("fb test -o builds the tests' executable without running it, which runs them alone",
@@ -3172,7 +3270,11 @@ TEST_CASE("fb test gives a test the work it starts, and fails a run that fails o
         write_source("testing/twice.fb", "Import std.core\n"
                                          "Import std.test\n"
                                          "Import std.time\n"
-                                         "Global runs = 0\n"
+                                         "Function Started(): Int\n"
+                                         "    Print(\"the program started\")\n"
+                                         "    Return 0\n"
+                                         "End Function\n"
+                                         "Global runs = Started()\n"
                                          "@Test Function Quick()\n"
                                          "    runs += 1\n"
                                          "    Print(\"Quick ran\")\n"
@@ -3184,13 +3286,16 @@ TEST_CASE("fb test gives a test the work it starts, and fails a run that fails o
     for (const bool release : { false, true }) {
         const fb::process_result_t ran = release ? run(twice, { "--release" }) : run(twice);
         INFO(ran.output);
-        std::size_t quick = 0;
-        for (std::size_t at = ran.output.find("Quick ran\n"); at != std::string::npos;
-             at = ran.output.find("Quick ran\n", at + 1)) {
-            ++quick;
+        // What no test prints goes out as it comes, once for each run of the program, whose
+        // second has only Quick. A passing test's own isn't shown.
+        std::size_t started = 0;
+        for (std::size_t at = ran.output.find("the program started\n"); at != std::string::npos;
+             at = ran.output.find("the program started\n", at + 1)) {
+            ++started;
         }
 
-        CHECK(quick == (release ? 1U : 2U));
+        CHECK(started == (release ? 1U : 2U));
+        CHECK_FALSE(ran.output.contains("Quick ran"));
         CHECK(ran.output.contains("test twice.Quick ... ok\n"));
         CHECK(ran.output.contains("test twice.PanicsLater ... FAILED\n"));
     }

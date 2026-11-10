@@ -559,6 +559,14 @@ std::expected<void, std::string> parse_into(const std::span<const std::string_vi
 
             parsed = value().transform(
                 [&](const std::string_view text) { options.filter = std::string(text); });
+        } else if (argument == "--show-output") {
+            if (options.command != command_t::TEST) {
+                return std::unexpected("'--show-output' only works with 'fb test'");
+            }
+
+            options.show_output = true;
+        } else if (name == "--show-output") {
+            return std::unexpected("'--show-output' takes no value");
         } else if (name == "--exact") {
             if (options.command != command_t::TEST) {
                 return std::unexpected("'--exact' only works with 'fb test'");

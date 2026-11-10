@@ -250,6 +250,12 @@ bool fb::runtime::stderr_colors() {
 
 namespace {
 
+/// What at_output() was given.
+std::atomic<bool (*)(std::string_view, bool)>& output_taker() {
+    static std::atomic<bool (*)(std::string_view, bool)> instance = nullptr;
+    return instance;
+}
+
 /// What at_panic() was given.
 std::atomic<void (*)(std::string_view, const fb_location_t*)>& panic_watcher() {
     static std::atomic<void (*)(std::string_view, const fb_location_t*)> instance = nullptr;
@@ -393,6 +399,10 @@ void before_report(void (*leave)()) {
 
 void at_panic(void (*watch)(std::string_view message, const fb_location_t* location)) {
     panic_watcher().store(watch, std::memory_order_release);
+}
+
+void at_output(bool (*take)(std::string_view text, bool to_error)) {
+    output_taker().store(take, std::memory_order_release);
 }
 
 void run_before_report() {
@@ -578,6 +588,25 @@ std::int32_t fb_mem_compare(const void* a, const void* b, const std::uint64_t by
 
 void fb_write(const fb_array_t* texts, const std::int32_t to_error, const std::int32_t line) {
     const auto* const* strings = static_cast<const fb_string_t* const*>(texts->data);
+    if (const auto take = output_taker().load(std::memory_order_acquire); take != nullptr) {
+        std::string text;
+        for (std::int64_t i = 0; i < texts->count; ++i) {
+            if (i > 0) {
+                text += ' ';
+            }
+
+            text += fb::runtime::text_of(strings[i]);
+        }
+
+        if (line != 0) {
+            text += '\n';
+        }
+
+        if (take(text, to_error != 0)) {
+            return;
+        }
+    }
+
     const std::scoped_lock lock(output());
     std::FILE* stream = to_error != 0 ? stderr : stdout;
     if (to_error != 0) {

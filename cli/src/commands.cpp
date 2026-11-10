@@ -361,6 +361,7 @@ std::string help_text(const std::optional<command_t> command, const style_t& sty
         out += entry("    --filter <name>", "Run only the tests whose names have <name> in them");
         out += entry("    --exact <name>", "Run the test named <name>, and each other one --exact "
                                            "names");
+        out += entry("    --show-output", "Show what each test printed, not only a failing one's");
     } else if (command != command_t::DOC) {
         out += entry("    --show <stages>", "Print stages: tokens, ast, types, mir, llvm, or all");
     }
@@ -898,6 +899,8 @@ struct test_result_t {
     std::string reason;
     /// Its failures, a panic's, and its leaks, in order.
     std::vector<std::string> messages;
+    /// What its own code printed, to stdout and stderr, as it came.
+    std::string output;
 };
 
 /// Sets an environment variable of fb's, which the programs it runs get.
@@ -1022,6 +1025,8 @@ runs_t run_tests(const console_t& console, const std::filesystem::path& program,
                 started.push_back(*record.test);
             } else if (record.kind == "end") {
                 result.done = true;
+            } else if (record.kind == "out") {
+                result.output += record.text;
             } else if (record.kind == "skip") {
                 result.skipped = true;
                 result.reason = record.text;
@@ -1203,6 +1208,23 @@ int test_command(const options_t& options) {
         }
     }
 
+    // What a test printed, after a line that says so, each line two spaces in, so none reads as
+    // fb test's own, and the last one ended.
+    const auto output_of = [](const test_result_t& result) {
+        if (result.output.empty()) {
+            return std::string();
+        }
+
+        std::string shown = "output:\n";
+        for (std::size_t at = 0; at < result.output.size();) {
+            const std::size_t end = std::min(result.output.find('\n', at), result.output.size());
+            shown += std::format("  {}\n", std::string_view(result.output).substr(at, end - at));
+            at = end + 1;
+        }
+
+        return shown;
+    };
+    std::string successes;
     for (std::size_t i = 0; i < tests.size(); ++i) {
         const test_result_t& result = results[i];
         if (result.failed) {
@@ -1211,15 +1233,23 @@ int test_command(const options_t& options) {
             for (const std::string& message : result.messages) {
                 failures += message + "\n";
             }
-        } else if (result.skipped) {
-            ++skipped;
-        } else {
-            ++passed;
+
+            failures += output_of(result);
+            continue;
+        }
+
+        ++(result.skipped ? skipped : passed);
+        if (options.show_output && !result.output.empty()) {
+            successes += std::format("\n---- {} ----\n{}", tests[i].name, output_of(result));
         }
     }
 
     const style_t& style = console.out();
     const bool ok = failed == 0 && runs.failures.empty();
+    if (!successes.empty()) {
+        console_t::print(std::format("\nsuccesses:\n{}", successes));
+    }
+
     if (!ok) {
         console_t::print(std::format("\nfailures:\n{}", failures));
     }

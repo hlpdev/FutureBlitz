@@ -1,0 +1,5 @@
+# A library whose tests print, which fb test shows with a failing test's failure, and for every
+# test with --show-output.
+[project]
+name = "printing"
+version = "0.1.0"

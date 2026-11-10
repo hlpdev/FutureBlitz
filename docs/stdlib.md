@@ -2054,7 +2054,9 @@ Built in M8's step 7, with `fb test` (see [tooling.md](tooling.md#testing-step-7
 code of its own: its names are built in, since the compiler writes down what each one checks and
 where, so a file has them with `Import std.test` alone, not From or As; and the runtime's
 runner, in its `fb_test_` functions, runs the tests and reports to fb. Work a test starts on
-another thread, with Spawn, a Thread, or a Parallel For, is the test's, wherever it runs.
+another thread, with Spawn, a Thread, or a Parallel For, is the test's, wherever it runs, and so
+is what the test or that work prints with std.core's Print, Write, PrintError, and WriteError,
+which fb test shows with the test's failure, or for every test with `--show-output`.
 
 - `Expect(condition)` and `Expect(condition, message)`: when the condition is False, the test
   fails, and goes on. The failure says "expect failed: " and the condition as it's written, and

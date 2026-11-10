@@ -169,6 +169,19 @@ std::string error_text(const fb_object_t* error) {
     return text;
 }
 
+/// What a test's own code prints, which fb test shows with its result, rather than among the
+/// others'. What no test prints, like a Global's New's, goes out as it would.
+bool take_output(const std::string_view text, const bool to_error) {
+    (void)to_error;
+    const std::optional<std::size_t> test = running_test();
+    if (!test) {
+        return false;
+    }
+
+    record("out", test, text);
+    return true;
+}
+
 /// A panic ends the program; the test that panicked failed, and fb test runs the rest again.
 void panicked(const std::string_view message, const fb_location_t* location) {
     std::string text = std::format("panic: {}", message);
@@ -346,6 +359,7 @@ void fb_test_begin() {
         }
 
         fb::runtime::at_leak_check(check_leaks);
+        fb::runtime::at_output(take_output);
     }
 }
 

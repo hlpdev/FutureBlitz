@@ -550,7 +550,14 @@ The style, std's own (settled with the user 2026-10-29), which `fb fmt` enforces
   not `fb run`, with what a launch configuration's `env` gives it.
 - `fb test` runs the tests in parallel in one process, and starts it again after a test that
   panics, running the rest, and in a debug build the ones that finished in that run too, whose
-  leaks it didn't check; filters by name, a summary, and leaks reported per test.
+  leaks it didn't check; filters by name, a summary, and leaks reported per test. What a test's
+  own code prints with Print, Write, PrintError, or WriteError, on any thread, isn't among the
+  results: the runner takes it (the runtime's `at_output`) into the report, as "out" records, and
+  fb test shows a failing test's after its failure, under `output:`, each line two spaces in, so
+  none reads as one of fb test's own, to a person or to the Testing panel. `--show-output` shows
+  each passing test's too, under `successes:`, before the failures. What no test prints, as a
+  Global's initializer does, goes out as it comes, and so does everything when the tests'
+  executable runs alone, as under a debugger. A panic's own message and trace are still stderr's.
 - Doc tests: the examples in `///` comments' `# Examples` compile and run as tests, each a test
   named after its declaration, like `game.shapes.Circle.Grow (example)`, in a package of their
   own, `<name>.doctests`, that imports the package and sees its Package names (spec 09). `fb test

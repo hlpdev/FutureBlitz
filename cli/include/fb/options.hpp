@@ -98,6 +98,8 @@ struct options_t {
     /// --check`: checks that every module and every declaration its users see has a doc comment
     /// of its own, and that every link names something, without writing the JSON.
     bool check = false;
+    /// `fb test --show-output`: shows what each test printed, as it shows a failing test's.
+    bool show_output = false;
     /// `--offline`: registry packages come only from the cache.
     bool offline = false;
     /// `--registry`: a registry's name in [registries], or its index's URL or folder. Nullopt for

@@ -93,6 +93,10 @@ void run_before_report();
 /// which test panicked. At most one.
 void at_panic(void (*watch)(std::string_view message, const fb_location_t* location));
 
+/// Print's and Write's text goes to `take` first, `to_error` when it's for stderr, which gives
+/// whether it took it, so it isn't written; fb test's runner takes a test's own.
+void at_output(bool (*take)(std::string_view text, bool to_error));
+
 /// The calling thread's objects belong to `owner` from now on, or to no one for 0, while debug
 /// builds keep track of every object, so a leak can say which test made it. A job the thread
 /// starts on the pool, or on a thread of its own, has its owner while it runs, wherever it runs.

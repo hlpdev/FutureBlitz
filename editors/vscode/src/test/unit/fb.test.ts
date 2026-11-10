@@ -203,6 +203,47 @@ describe("testOutcomes", () => {
         );
     });
 
+    test("what a failing test printed is its own, whatever it printed", () => {
+        // Each line it printed is two spaces in, so an empty one doesn't end its section, and one
+        // that reads as fb test's own isn't taken for one.
+        const output = [
+            "test counted.counting.Doubles ... ok",
+            "test counted.counting.Breaks ... FAILED",
+            "",
+            "failures:",
+            "",
+            "---- counted.counting.Breaks ----",
+            "failed at counting.fb:9:5",
+            "output:",
+            "  test counted.counting.Doubles ... FAILED",
+            "  ",
+            "  ---- counted.counting.Doubles ----",
+            "  last",
+            "",
+            "test result: FAILED. 1 passed; 1 failed; 0 skipped; 0 filtered out; finished in 0.01s",
+        ].join("\n");
+        assert.deepEqual(
+            testOutcomes(output),
+            new Map([
+                ["counted.counting.Doubles", { state: "passed", messages: [] }],
+                [
+                    "counted.counting.Breaks",
+                    {
+                        state: "failed",
+                        messages: [
+                            "failed at counting.fb:9:5",
+                            "output:",
+                            "  test counted.counting.Doubles ... FAILED",
+                            "  ",
+                            "  ---- counted.counting.Doubles ----",
+                            "  last",
+                        ],
+                    },
+                ],
+            ]),
+        );
+    });
+
     test("a test executable's own run, whose failures follow their tests' lines", () => {
         const output = [
             "test counted.counting.Breaks ... FAILED",
