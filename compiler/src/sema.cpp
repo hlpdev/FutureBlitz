@@ -27993,6 +27993,12 @@ private:
 
         if (std::vector<symbol_id_t> members = own_members(name->name); !members.empty()) {
             if (symbol(members.front()).kind != symbol_kind_t::METHOD) {
+                // A Field named as a type, like "Field Sounds: Sounds", can't be called, so
+                // "Sounds()" in its type's code makes one.
+                if (type_behind(members.front(), name->name, span)) {
+                    return callable(callee, top_level(name->name, span), name->name, value);
+                }
+
                 check(callee, type_id_t::NONE);
                 value = true;
                 return {};
@@ -28034,6 +28040,33 @@ private:
         }
 
         return callable(callee, found, name->name, value);
+    }
+
+    /// Whether a call by `name` alone, which is the Field or Property `member` of the type whose
+    /// code it's in, means the type of that name instead: the member holds no function value, so
+    /// it can't be called, and a Struct, Class, or alias of the name is in reach, which a call
+    /// makes. A Field whose type isn't known yet, as its default is still being checked, holds no
+    /// function value that a call there could mean.
+    [[nodiscard]] bool type_behind(const symbol_id_t member, const std::string_view name,
+                                   const span_t span) {
+        const symbol_t& hiding = symbol(member);
+        const bool held =
+            hiding.kind == symbol_kind_t::FIELD || hiding.kind == symbol_kind_t::PROPERTY ||
+            (hiding.kind == symbol_kind_t::GLOBAL && hiding.owner != type_id_t::INVALID);
+        const type_id_t type =
+            hiding.type == type_id_t::INVALID ? hiding.type : non_null(hiding.type);
+        if (!held || (type != type_id_t::INVALID && (is_func(type) || is_callback(type)))) {
+            return false;
+        }
+
+        const std::vector<symbol_id_t> found = quietly([&] { return top_level(name, span); });
+        if (found.empty()) {
+            return false;
+        }
+
+        const symbol_t& first = symbol(found.front());
+        return first.kind == symbol_kind_t::ALIAS ||
+               (first.kind == symbol_kind_t::TYPE && !is_interface(first.type));
     }
 
     /// The top-level Functions a call by name means, where the type's Methods of the name are all
