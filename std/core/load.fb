@@ -34,6 +34,28 @@ End Extern
 /// Expect(loaded.Name == "Ada" && loaded.Level == 3)
 /// ```
 Public Attribute Rename(Name: String)
+/// A Struct or Class each of whose Fields has its name in a case as its key, as though each had
+/// that @Rename: "snake_case", "SCREAMING_SNAKE_CASE", "kebab-case", "SCREAMING-KEBAB-CASE",
+/// "camelCase", "PascalCase", "lowercase", or "UPPERCASE". A Field's own @Rename wins. A name's
+/// words are what `_`s part, and what starts at a capital after a small letter or a digit, or at
+/// the last capital of a run before a small letter, so `HTTPPort` is `http_port`.
+///
+/// # Examples
+///
+/// ```
+/// @RenameAll("snake_case")
+/// Struct Player
+///     Field PlayerName: String
+///     Field MaxHealth: Int
+///     @Rename("lvl") Field Level: Int
+/// End Struct
+///
+/// Local saved = Save(Player("Ada", 100, 3))
+/// Expect(saved.Keys() == ["player_name", "max_health", "lvl"])
+/// Local loaded = Try Load<Player>(saved)
+/// Expect(loaded.PlayerName == "Ada" && loaded.MaxHealth == 100)
+/// ```
+Public Attribute RenameAll(Style: String)
 /// A Field that Load leaves at its default, and Save leaves out.
 Public Attribute Skip
 /// A Struct's or Class's Field whose own Fields go in the Object with the others, not in an Object

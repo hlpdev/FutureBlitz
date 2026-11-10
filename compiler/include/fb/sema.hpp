@@ -434,10 +434,22 @@ struct load_support_t { // NOLINT(bugprone-exception-escape)
     type_id_t renamed = type_id_t::INVALID;
     /// On a Struct or Class: its Load refuses a key none of its Fields reads.
     type_id_t strict = type_id_t::INVALID;
+    /// On a Struct or Class: each of its Fields without a @Rename has the one its case makes.
+    type_id_t rename_all = type_id_t::INVALID;
     type_id_t loadable = type_id_t::INVALID;
     type_id_t saveable = type_id_t::INVALID;
     std::unordered_map<std::string_view, symbol_id_t> helpers;
 };
+
+/// The cases @RenameAll takes, each written in itself: "snake_case", "SCREAMING_SNAKE_CASE",
+/// "kebab-case", "SCREAMING-KEBAB-CASE", "camelCase", "PascalCase", "lowercase", and "UPPERCASE".
+[[nodiscard]] std::span<const std::string_view> rename_cases();
+
+/// A Field's name in one of rename_cases(), or nullopt for a case that isn't one. Its words are
+/// what '_'s part, and what starts at a capital after a small letter or a digit, or at the last
+/// capital of a run of them before a small letter, as "HTTPServer2Port" is HTTP, Server2, Port.
+/// Only ASCII letters change case.
+[[nodiscard]] std::optional<std::string> renamed_as(std::string_view name, std::string_view style);
 
 /// A @Test Function, which fb test runs.
 struct test_function_t {

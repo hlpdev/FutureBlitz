@@ -1,0 +1,113 @@
+// @RenameAll on a Struct or Class: each of its Fields has its name in that case as its key, for
+// Load, Save, and Defaults, as though each had that @Rename. A Field's own @Rename wins, a
+// @Renamed still reads its old key, and a @Flatten Field's type and a base Class keep their own.
+
+Import std.core
+Import std.collections
+Import std.data
+
+@RenameAll("snake_case")
+Struct Snake
+    Field PlayerName: String = "a"
+    Field maxHealth: Int = 1
+    Field HTTPPort: Int = 2
+    Field Level2Boss: Int = 3
+    Field already_snake: Int = 4
+    Field X: Int = 5
+    Field URL: Int = 6
+    Field Is3D: Bool = True
+    @Rename("Custom") Field OwnName: Int = 7
+    @Renamed("old_hp") Field HitPoints: Int = 8
+    @Skip Field NotSaved: Int = 9
+End Struct
+
+@RenameAll("SCREAMING_SNAKE_CASE")
+Struct Screaming
+    Field PlayerName: Int = 1
+    Field HTTPPort: Int = 2
+End Struct
+
+@RenameAll("kebab-case")
+Struct Kebab
+    Field PlayerName: Int = 1
+    Field HTTPPort: Int = 2
+End Struct
+
+@RenameAll("SCREAMING-KEBAB-CASE")
+Struct ScreamingKebab
+    Field PlayerName: Int = 1
+End Struct
+
+@RenameAll("camelCase")
+Struct Camel
+    Field PlayerName: Int = 1
+    Field HTTPPort: Int = 2
+    Field max_health: Int = 3
+End Struct
+
+@RenameAll("PascalCase")
+Struct Pascal
+    Field playerName: Int = 1
+    Field max_health: Int = 2
+    Field HTTPPort: Int = 3
+End Struct
+
+@RenameAll("lowercase")
+Struct Lower
+    Field PlayerName: Int = 1
+End Struct
+
+@RenameAll("UPPERCASE")
+Struct Upper
+    Field PlayerName: Int = 1
+End Struct
+
+// Each type's is its own Fields': a flattened type's and a base Class's keep theirs.
+Struct Inner
+    Field InnerValue: Int = 1
+End Struct
+
+Class Base
+    Field BaseName: String = "b"
+End Class
+
+@RenameAll("snake_case") @Strict
+Class Derived Extends Base
+    Field OwnName: String = "o"
+    @Flatten Field Part: Inner
+    Field Whole: Inner
+End Class
+
+Print(Json.Write(Save(Snake())))
+Print(Json.Write(Defaults<Snake>()))
+Print(Json.Write(Save(Screaming())))
+Print(Json.Write(Save(Kebab())))
+Print(Json.Write(Save(ScreamingKebab())))
+Print(Json.Write(Save(Camel())))
+Print(Json.Write(Save(Pascal())))
+Print(Json.Write(Save(Lower())))
+Print(Json.Write(Save(Upper())))
+Print(Json.Write(Save(Derived())))
+
+// Load reads the same keys, the old one too, and not the Fields' own names.
+Local loaded = Try Json.Read<Snake>(
+    "{{\"player_name\": \"z\", \"http_port\": 80, \"old_hp\": 30, \"Custom\": 70, \"PlayerName\": \"no\"}}")
+Print(loaded.PlayerName, loaded.HTTPPort, loaded.HitPoints, loaded.OwnName, loaded.maxHealth)
+
+// With @Strict, the keys it knows are the renamed ones.
+Try
+    Local _made =
+        Try Json.Read<Derived>("{{\"own_name\": \"x\", \"BaseName\": \"y\", \"InnerValue\": 2}}")
+    Print("loaded")
+    Local _other = Try Json.Read<Derived>("{{\"OwnName\": \"x\"}}")
+    Print("loaded")
+Catch e As ParseError
+    Print(e.Kind, e.Path ?? "(none)")
+End Try
+
+// Reflection sees the @Rename each Field has, written or made.
+For Field f In Snake
+    Print(f.Name, f.Attribute(Rename)?.Name ?? "(none)")
+End For
+
+Print(Snake.Attribute(RenameAll)?.Style ?? "(none)")

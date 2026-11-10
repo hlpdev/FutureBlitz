@@ -8256,6 +8256,33 @@ TEST_CASE("std.core's attributes for Load and Save go on Fields, each where it m
                     "@Strict @Strict Struct G\nEnd Struct") ==
           errors_t{ strict, strict, strict, strict, "Strict: @Strict is written twice" });
 
+    // @RenameAll is a Struct's or a Class's too, with one of its cases, and two Fields whose
+    // names it makes one key of are told, as two with one @Rename are.
+    const std::string rename_all = "RenameAll: @RenameAll goes on a Struct or Class, each of whose "
+                                   "Fields without a @Rename then has the one its case makes";
+    CHECK(errors_of("Import std.core\n"
+                    "@RenameAll(\"snake_case\") Struct A\n"
+                    "    @RenameAll(\"snake_case\") Field X: Int\n"
+                    "End Struct\n"
+                    "@RenameAll(\"camelCase\") Enum C\n    ONE\nEnd Enum\n"
+                    "@RenameAll(\"snake\") Class D\n    Field X: Int\nEnd Class\n"
+                    "@RenameAll Struct E\nEnd Struct\n"
+                    "@RenameAll(\"snake_case\") Struct F\n"
+                    "    Field FooBar: Int\n"
+                    "    Field foo_bar: Int\n"
+                    "End Struct\n"
+                    "Local f = Save(F(1, 2))") ==
+          errors_t{
+              rename_all,
+              rename_all,
+              "RenameAll: @RenameAll takes a case, one of \"snake_case\", "
+              "\"SCREAMING_SNAKE_CASE\", \"kebab-case\", \"SCREAMING-KEBAB-CASE\", \"camelCase\", "
+              "\"PascalCase\", \"lowercase\", \"UPPERCASE\", not \"snake\"",
+              "RenameAll: missing an argument for parameter 'Style'",
+              "F(1, 2): Save can't write F, whose Fields 'FooBar' and 'foo_bar' both have the key "
+              "\"foo_bar\"; @Rename gives one another",
+          });
+
     // Each Field has a key of its own, inherited ones too, and an old key is no other's, which a
     // type that's never loaded or saved needn't have.
     const auto twice = [](const std::string_view made, const std::string_view fields,
