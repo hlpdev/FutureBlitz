@@ -8258,6 +8258,12 @@ TEST_CASE("std.core's attributes for Load and Save go on Fields, each where it m
 
     // @RenameAll is a Struct's or a Class's too, with one of its cases, and two Fields whose
     // names it makes one key of are told, as two with one @Rename are.
+    const std::string no_case =
+        "RenameAll: @RenameAll takes a case, one of \"snake_case\", \"SCREAMING_SNAKE_CASE\", "
+        "\"kebab-case\", \"SCREAMING-KEBAB-CASE\", \"camelCase\", \"PascalCase\", \"lowercase\", "
+        "\"UPPERCASE\", not \"snake\"";
+    const std::string one_key = "F(1, 2): Save can't write F, whose Fields 'FooBar' and 'foo_bar' "
+                                "both have the key \"foo_bar\"; @Rename gives one another";
     const std::string rename_all = "RenameAll: @RenameAll goes on a Struct or Class, each of whose "
                                    "Fields without a @Rename then has the one its case makes";
     CHECK(errors_of("Import std.core\n"
@@ -8275,12 +8281,9 @@ TEST_CASE("std.core's attributes for Load and Save go on Fields, each where it m
           errors_t{
               rename_all,
               rename_all,
-              "RenameAll: @RenameAll takes a case, one of \"snake_case\", "
-              "\"SCREAMING_SNAKE_CASE\", \"kebab-case\", \"SCREAMING-KEBAB-CASE\", \"camelCase\", "
-              "\"PascalCase\", \"lowercase\", \"UPPERCASE\", not \"snake\"",
+              no_case,
               "RenameAll: missing an argument for parameter 'Style'",
-              "F(1, 2): Save can't write F, whose Fields 'FooBar' and 'foo_bar' both have the key "
-              "\"foo_bar\"; @Rename gives one another",
+              one_key,
           });
 
     // Each Field has a key of its own, inherited ones too, and an old key is no other's, which a
