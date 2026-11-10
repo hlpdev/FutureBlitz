@@ -186,6 +186,10 @@ void serve() {
         }
     } catch (const std::exception& error) {
         say_error(error);
+    } catch (...) {
+        // Caught here, as unwinding past the reader, which is never joined, would end the process
+        // with no word of why.
+        std::fputs("fb-lsp: an unknown error\n", stderr);
     }
 
     finish(outbox, 1);
