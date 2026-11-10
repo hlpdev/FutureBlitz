@@ -336,6 +336,17 @@ Local loaded = Try Load<Settings>(saved)        // and makes a Settings from aga
   flattened. A Field that @Skip leaves at its default has one, a type with a zero or a default of
   its own; two Fields can't have one key, a @Flatten Field's own Fields' keys among them, and a
   Field's old key is no other's.
+- Load leaves alone a key of the Object that no Field reads, unless the Struct or Class is
+  `@Strict`, whose Load refuses the first such key, in the Object's order, with a ParseError of
+  kind `UNKNOWN_KEY` whose Path is the key's, so a mistyped key in a file isn't left out unseen.
+  The keys a @Strict type reads are each Field's, by its name or its @Rename, the one a @Renamed
+  gives, and those of a @Flatten Field's type; a @Skip Field's isn't one. Each type decides for
+  itself: a @Strict type's Fields of another type take what that type takes, and a type that
+  isn't @Strict can have @Strict parts. A @Strict type flattened into another shares its Object
+  with that type's Fields, so there it refuses nothing, and the outer type's @Strict covers
+  both. A @Strict type can't have a @Flatten Field whose type is Loadable, whose keys aren't
+  known. It's an attribute, not an argument of Load, so it holds however the Value was read, as
+  through `Json.Read<T>`.
 - A type that converts itself implements std.core's `Loadable`, with `Static Method
   FromValue(value: Value): Self Throws ParseError`, which Load calls in its place, or
   `Saveable`, with `Method ToValue(): Value`, which Save does.
@@ -354,8 +365,9 @@ Local loaded = Try Load<Settings>(saved)        // and makes a Settings from aga
   and Save, an instance's T is checked where it's called, and a module's own Defaults takes the
   name's place.
 - Load throws a ParseError, of `WRONG_TYPE` for a Value of another kind, `OUT_OF_RANGE` for a
-  number too big for its type, and `MISSING` for a Field that the Object has no entry for, and
-  that has no default or zero. Its `Path` says where in the Value it is, like
+  number too big for its type, `MISSING` for a Field that the Object has no entry for, and
+  that has no default or zero, and `UNKNOWN_KEY` for a key that no Field of a @Strict type
+  reads. Its `Path` says where in the Value it is, like
   `"options.sizes[2]"`, or `""` for the Value itself, and its Message starts with it:
   `options.sizes[2]: expected Int32, found "big"`. A Value alone read as a T[] has no index in
   it. A key that a path's steps can't tell apart from the rest, like one with a dot in it, is

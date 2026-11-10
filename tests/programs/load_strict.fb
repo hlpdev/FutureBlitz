@@ -1,0 +1,110 @@
+// @Strict on a Struct or Class: its Load refuses an Object with a key none of its Fields reads,
+// with a ParseError of kind UNKNOWN_KEY whose Path is the key's. A @Rename's and a @Renamed's keys
+// are its own, and a @Flatten Field's type's; a @Skip Field's isn't. A type without it leaves an
+// unknown key alone, as before, and each type decides for itself, wherever it is in the Value.
+
+Import std.core
+Import std.collections
+Import std.data
+
+@Strict
+Struct Stats
+    Field Health: Int = 100
+    @Rename("move_speed") Field Speed: Double = 1
+    @Renamed("armour") Field Armor: Int = 0
+    @Skip Field Cached: Int = 7
+End Struct
+
+// Not @Strict, with a @Strict part, in an array, a Map, and a T?.
+Struct Loose
+    Field Name: String
+    Field Stats: Stats
+    Field Each: Stats[] = []
+    Field Named: Map<String, Stats>?
+    Field Maybe: Stats?
+End Struct
+
+// @Strict, with Fields of a type that isn't, and of one that is, flattened into it.
+Struct Looks
+    Field Model: String = ""
+    Field Scale: Double = 1
+End Struct
+
+@Strict
+Class Npc
+    Field Id: String
+    @Flatten Field Looks: Looks
+    @Flatten Field Stats: Stats
+    Field Notes: Looks
+End Class
+
+@Strict
+Struct Empty
+End Struct
+
+Function Tried<T>(text: String): String
+    Try
+        Local _made = Try Json.Read<T>(text)
+        Return "loaded"
+    Catch e As ParseError
+        Return "{e.Kind} at '{e.Path ?? "(none)"}': {e.Message}"
+    End Try
+End Function
+
+// Every key a Field reads, by its name, its @Rename, or its @Renamed.
+Print(Tried<Stats>("{{\"Health\": 5, \"move_speed\": 2.5, \"armour\": 3}}"))
+Print(Tried<Stats>("{{\"Armor\": 3}}"))
+Print(Tried<Stats>("{{}}"))
+
+// A mistyped key, a renamed Field's own name, and a @Skip Field's.
+Print(Tried<Stats>("{{\"Helth\": 5}}"))
+Print(Tried<Stats>("{{\"Health\": 5, \"Speed\": 2}}"))
+Print(Tried<Stats>("{{\"Cached\": 1}}"))
+
+// The first one in the Object's order, with the others fine.
+Print(Tried<Stats>("{{\"Health\": 1, \"b\": 1, \"a\": 1}}"))
+
+// What isn't an Object is the wrong type, as it was.
+Print(Tried<Stats>("[1]"))
+
+// A type that isn't @Strict leaves its own unknown keys alone, and its @Strict parts refuse
+// theirs, with the path to them.
+Print(Tried<Loose>("{{\"Name\": \"a\", \"Other\": 1, \"Stats\": {{}}}}"))
+Print(Tried<Loose>("{{\"Name\": \"a\", \"Stats\": {{\"x\": 1}}}}"))
+Print(Tried<Loose>("{{\"Name\": \"a\", \"Stats\": {{}}, \"Each\": [{{}}, {{\"y\": 1}}]}}"))
+Print(Tried<Loose>("{{\"Name\": \"a\", \"Stats\": {{}}, \"Named\": {{\"k\": {{\"z.w\": 1}}}}}}"))
+Print(Tried<Loose>("{{\"Name\": \"a\", \"Stats\": {{}}, \"Maybe\": {{\"q\": 1}}}}"))
+Print(Tried<Loose>("{{\"Name\": \"a\", \"Stats\": {{}}, \"Maybe\": null}}"))
+
+// A @Strict type's @Flatten Fields' keys are its own, though one's type is @Strict too, whose
+// own check would refuse the others'. A Field that isn't flattened decides for itself.
+Print(Tried<Npc>("{{\"Id\": \"guard\", \"Model\": \"g.b3d\", \"Health\": 50, \"armour\": 1}}"))
+Print(Tried<Npc>("{{\"Id\": \"guard\", \"Modle\": \"g.b3d\"}}"))
+Print(Tried<Npc>("{{\"Id\": \"guard\", \"Notes\": {{\"anything\": 1}}}}"))
+Print(Tried<Npc>("{{\"Id\": \"guard\", \"Cached\": 1}}"))
+
+// A type with no Fields takes only an empty Object.
+Print(Tried<Empty>("{{}}"))
+Print(Tried<Empty>("{{\"a\": 1}}"))
+
+// Through Load itself, and TOML's reader, as through JSON's.
+Local object = Value.Object()
+object["Health"] = Value(3)
+object["extra"] = Value(True)
+Try
+    Local _stats = Try Load<Stats>(object)
+    Print("loaded")
+Catch e As ParseError
+    Print(e.Kind, e.Path ?? "(none)")
+End Try
+
+Try
+    Local _stats = Try Load<Stats>(Try Toml.Read("Health = 3\nmove_sped = 2.0\n"))
+    Print("loaded")
+Catch e As ParseError
+    Print(e.Kind, e.Path ?? "(none)")
+End Try
+
+// What it loads is what any Load makes.
+Local made = Try Json.Read<Npc>("{{\"Id\": \"guard\", \"Scale\": 2, \"move_speed\": 3}}")
+Print(made.Id, made.Looks.Scale, made.Stats.Speed, made.Stats.Health, made.Stats.Cached)

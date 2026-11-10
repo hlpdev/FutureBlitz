@@ -3085,6 +3085,20 @@ TEST_CASE("lowering reports an instance's type that Load<T> or Save can't conver
     CHECK(stopped(std::format("Import std.core\n{}    @Skip Field Item: T\n{}", held, made)) ==
           "Load<Held<Node>>(Value()): Load can't make Held<Node> here, whose @Skip leaves 'Item' "
           "at its default, and Node has no zero, so it needs a default of its own");
+    // A @Strict type knows each key its Fields read, which it can't of a @Flatten Field whose
+    // type makes itself from the Value.
+    CHECK(stopped("Import std.core\n"
+                  "Struct Own Implements Loadable\n"
+                  "    Field X: Int\n"
+                  "    Static Method FromValue(value: Value): Own Throws ParseError => Own(1)\n"
+                  "End Struct\n"
+                  "@Strict Struct Outer\n"
+                  "    Field Name: String\n"
+                  "    @Flatten Field Part: Own\n"
+                  "End Struct\n"
+                  "Local o = Try Load<Outer>(Value())\n") ==
+          "Load<Outer>(Value()): Outer is @Strict, but its @Flatten Field 'Part' makes itself from "
+          "the Value, so Load can't tell which keys are its own");
     const std::string keys = " here; a Map's keys are an Object's, which are Strings";
     CHECK(stopped("Import std.core\n"
                   "Import std.collections\n"

@@ -169,6 +169,8 @@ Public Enum ParseErrorKind
     MISSING
     /// Something else.
     OTHER
+    /// A key that no Field of a @Strict type reads. After OTHER, so the others keep their values.
+    UNKNOWN_KEY
 End Enum
 
 /// Text that doesn't read as its format, at Line and Column, from 1, or 0 when it isn't known, or

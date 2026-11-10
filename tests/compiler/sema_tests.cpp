@@ -8244,6 +8244,18 @@ TEST_CASE("std.core's attributes for Load and Save go on Fields, each where it m
               "Skip: @Skip leaves 'I' at its default when Load makes A, and Int32[] " + no_zero,
           });
 
+    // @Strict is a Struct's or a Class's, whose Load it changes, and nothing else's.
+    const std::string strict = "Strict: @Strict goes on a Struct or Class, whose Load then refuses "
+                               "a key none of its Fields reads";
+    CHECK(errors_of("Import std.core\n"
+                    "@Strict Struct A\n    Field X: Int\nEnd Struct\n"
+                    "@Strict Class B\n    @Strict Field X: Int\nEnd Class\n"
+                    "@Strict Enum C\n    ONE\nEnd Enum\n"
+                    "@Strict Interface D\nEnd Interface\n"
+                    "@Strict Function F()\nEnd Function\n"
+                    "@Strict @Strict Struct G\nEnd Struct") ==
+          errors_t{ strict, strict, strict, strict, "Strict: @Strict is written twice" });
+
     // Each Field has a key of its own, inherited ones too, and an old key is no other's, which a
     // type that's never loaded or saved needn't have.
     const auto twice = [](const std::string_view made, const std::string_view fields,

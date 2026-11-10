@@ -1648,6 +1648,7 @@ private:
             .skip = find("Skip", true),
             .flatten = find("Flatten", true),
             .renamed = find("Renamed", true),
+            .strict = find("Strict", true),
             .loadable = find("Loadable", false),
             .saveable = find("Saveable", false),
         };
@@ -8044,6 +8045,17 @@ private:
         std::optional<type_id_t> alone;
         for (std::size_t i = 0; i < declared.attributes.size(); ++i) {
             const type_id_t type = declared.attributes[i].type;
+            // @Strict is its type's: Load refuses a key none of its Fields reads.
+            if (type != type_id_t::INVALID && type == loading.strict) {
+                if (declared.kind != symbol_kind_t::TYPE ||
+                    (!is_struct(declared.type) && !is_class(declared.type))) {
+                    error(spans[i], "@Strict goes on a Struct or Class, whose Load then refuses a "
+                                    "key none of its Fields reads");
+                }
+
+                continue;
+            }
+
             const bool own = std::ranges::contains(keyed, type) || type == loading.skip ||
                              type == loading.flatten;
             if (type == type_id_t::INVALID || !own) {

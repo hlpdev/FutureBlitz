@@ -42,6 +42,28 @@ Public Attribute Flatten
 /// The key a Field had before, which Load reads when the Object doesn't have its key, so what an
 /// older version saved still loads.
 Public Attribute Renamed(From: String)
+/// A Struct or Class whose Load refuses an Object with a key none of its Fields reads, with a
+/// ParseError of kind UNKNOWN_KEY at that key, so a mistyped key isn't left out unseen. Without
+/// it, Load leaves such a key alone. A @Skip Field's key is one it refuses, and a @Flatten Field's
+/// type's keys are its own.
+///
+/// # Examples
+///
+/// ```
+/// @Strict
+/// Struct Item
+///     Field Name: String
+///     Field Weight: Double = 1
+/// End Struct
+///
+/// Local object = Value.Object()
+/// object["Name"] = Value("key")
+/// object["Wieght"] = Value(2.5)
+/// Local thrown = ExpectThrows<ParseError>(Load<Item>(object))
+/// Expect(thrown?.Kind == ParseErrorKind.UNKNOWN_KEY)
+/// Expect(thrown?.Path == "Wieght")
+/// ```
+Public Attribute Strict
 
 /// A type that makes itself from a Value, which `Load<T>` calls in place of filling its Fields.
 ///
@@ -415,6 +437,36 @@ Package Function LoadObject(value: Value, depth: Int, type: String, ByRef error:
     If !Deep(depth, ByRef error) && !value.IsObject
         error = Mismatch(value, "an Object, for {type}")
     End If
+End Function
+
+/// For a @Strict type: an error at the first of the Object's keys that isn't one of `known`,
+/// the keys its Fields read, which says which those are, up to 12 of them.
+Package Function LoadKnown(value: Value, known: String[], type: String, ByRef error: Error?)
+    If !value.IsObject Then Return
+    For key In value.Keys()
+        Local found = False
+        For own In known
+            If own == key Then found = True
+        End For
+
+        If !found
+            Local keys = ""
+            For i = 0 To known.Count - 1
+                If i == 12
+                    keys += ", and {known.Count - 12} more"
+                    Break
+                End If
+
+                keys += (i == 0 ? "" : ", ") + known[i]
+            End For
+
+            Local has = known.Count == 0 ? "it has none" : "its keys are {keys}"
+            error = ParseError(ParseErrorKind.UNKNOWN_KEY,
+                               "{type} is @Strict, and no Field of it reads this key; {has}",
+                               path: KeyStep(key))
+            Return
+        End If
+    End For
 End Function
 
 Package Function LoadEntry(value: Value, key: String): Value? => value[key]
