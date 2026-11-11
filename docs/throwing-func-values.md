@@ -47,7 +47,10 @@ type, and a way to call them.
    other way is an error, which says the errors that would be lost. Parameter and result types
    match exactly, as they do between Func types today.
 6. **What can't throw stays so.** A Callback, which C calls. The work of `Parallel For`. A
-   `Sendable` Func may throw. Spawn is the next section's.
+   `Sendable` Func may throw. Spawn is the next section's: until step 5, `Spawn` and
+   `Thread.Start` refuse work that throws, a lambda with a Throws or a Sendable Func whose type
+   has one, since a Task's code calls its work with nowhere for an error to go. std's own Func
+   parameters have no Throws, so a Func that throws doesn't convert to them.
 7. **Generics.** A type parameter can stand for the errors, with the constraint it has today:
    `Function Each<T, E: Error>(items: T[], work: Func(T) Throws E) Throws E`. A lambda that
    doesn't throw needs E to be nothing, which no type is. See the open question.

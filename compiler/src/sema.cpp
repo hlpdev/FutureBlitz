@@ -12297,7 +12297,7 @@ private:
     /// A Func of the same parameters and result as `func`, Sendable or not.
     type_id_t func_like(const type_id_t func, const bool sendable) {
         const type_t& info = m_analysis.types.get(func);
-        return m_analysis.types.function(info.parameters, info.inner, sendable);
+        return m_analysis.types.function(info.parameters, info.inner, sendable, info.throws);
     }
 
     /// A generic type's type parameter, like T.
@@ -22775,10 +22775,10 @@ private:
         // A Func that only an overload the code can't use fits says why it can't.
         if (expected != type_id_t::INVALID && is_func(expected) &&
             std::ranges::none_of(overloads, [&](const symbol_id_t overload) {
-                return func_of(overload) == wanted;
+                return is_func_for(overload, wanted);
             })) {
             for (const dropped_t& unusable : dropped) {
-                if (symbol(unusable.id).name == name && func_of(unusable.id) == wanted) {
+                if (symbol(unusable.id).name == name && is_func_for(unusable.id, wanted)) {
                     report_unusable(unusable.id, span_of(id), unusable.through);
                     return type_id_t::INVALID;
                 }
@@ -22810,7 +22810,7 @@ private:
             fitting = candidates;
         } else {
             for (const symbol_id_t overload : candidates) {
-                if (func_of(overload) == wanted) {
+                if (is_func_for(overload, wanted)) {
                     fitting.push_back(overload);
                 }
             }
@@ -22954,6 +22954,15 @@ private:
         }
 
         return m_analysis.types.function(parameters, symbol(function).type);
+    }
+
+    /// Whether a Function is the one a Func type expected names: its own type, or one that takes
+    /// and gives the same and throws no less, which the Function's value converts to.
+    bool is_func_for(const symbol_id_t function, const type_id_t wanted) {
+        const type_id_t own = func_of(function);
+        return own == wanted ||
+               (own != type_id_t::INVALID && wanted != type_id_t::INVALID && is_func(wanted) &&
+                !is_sendable_func(wanted) && same_shape(own, wanted) && throws_within(own, wanted));
     }
 
     /// The Class of the function values a Function makes when it's used by name, which hold
@@ -25545,6 +25554,17 @@ private:
         if (!m_analysis.types.get(func).parameters.empty()) {
             error(span_of(work), "the work {} runs takes no arguments; a lambda can pass them",
                   what);
+            return type_id_t::INVALID;
+        }
+
+        // The Task's code calls the work with nowhere for an error to go, so work that throws is
+        // refused until a Task can carry what its work throws.
+        if (const std::vector<type_id_t>& thrown = m_analysis.types.get(non_null(func)).throws;
+            !thrown.empty()) {
+            error(span_of(work),
+                  "the work {} runs can't throw yet, and this can throw {}; catch it in the "
+                  "work, or use an Async Function with a Throws, whose Task has its errors",
+                  what, names_of(thrown));
             return type_id_t::INVALID;
         }
 

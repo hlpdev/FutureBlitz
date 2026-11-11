@@ -191,7 +191,9 @@ Lambdas are always written with `Function`: `Function(x) => expr`, or a block en
 - A Func that doesn't throw, made one that does, is wrapped: the conversion allocates a small
   object that holds it, once, where the conversion is written. A lambda written where a Func that
   throws is expected is made as one, and converting between two that throw, to a wider Throws,
-  costs nothing. A Function that throws isn't a value by its name yet.
+  costs nothing. Under `?`s, a `(Func(A): R)??` made a `(Func(A): R Throws E)??`, each Null stays
+  the Null it was. Among overloads that differ only by a Func parameter's Throws, a lambda that
+  writes its types, or a value, picks by them, and a lambda that writes none is ambiguous. A Function that throws isn't a value by its name yet.
 - A block lambda's body ends statements at line breaks, even inside the brackets of a call.
 - A Function's name alone is a function value: `Local f: Func(Int): Int = Twice`. With
   overloads, the Func expected picks one. Methods, built-in functions, and Functions that throw

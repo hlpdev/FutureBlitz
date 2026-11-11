@@ -3040,14 +3040,19 @@ private:
     }
 
     /// A Func that doesn't throw as `to`, one that does: a new object that holds it, whose code
-    /// calls it. A Func? that's Null stays Null.
+    /// calls it. A Func? that's Null stays Null, at each `?` of a Func??, so what comes back is
+    /// `to` under as many as `value` has.
     operand_t widened(const operand_t& value, const type_id_t to, const span_t span) {
         const type_id_t from = type_of(value);
         if (!is_nullable(from)) {
             return widened_value(value, to, span);
         }
 
-        const type_id_t maybe = types().nullable(to);
+        type_id_t maybe = to;
+        for (type_id_t under = from; is_nullable(under); under = types().get(under).inner) {
+            maybe = types().nullable(maybe);
+        }
+
         const local_id_t result = add_local(maybe);
         const operand_t present = has_value(value, span);
         const block_id_t test = here();
@@ -3056,7 +3061,7 @@ private:
         const block_id_t holds = new_block();
         start(holds);
         const std::size_t mark = m_temporaries.size();
-        const operand_t wrapped = convert(widened_value(unwrap(value), to, span), maybe, span);
+        const operand_t wrapped = convert(widened(unwrap(value), to, span), maybe, span);
         take(wrapped);
         emit(assign_t{ .target = result, .value = use_t{ .value = wrapped } });
         release_temporaries_from(mark);

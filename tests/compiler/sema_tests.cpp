@@ -11346,6 +11346,100 @@ TEST_CASE("a lambda throws what the Func expected of it does, or what its own Th
                        "End Function") == "Func(): Func(Int32): Int32 Throws Oops Throws Other");
 }
 
+TEST_CASE("work that throws isn't run where its error has nowhere to go", "[sema]") {
+    const std::string head = "Import std.core\n"
+                             "Class Oops Extends Error\nEnd Class\n"
+                             "Function Risky(n: Int): Int Throws Oops => n\n";
+    // Spawn's and Thread.Start's work is called with no place for an error, so a lambda with a
+    // Throws, and a Sendable Func that throws, are refused there; a Task's errors are an Async
+    // Function's.
+    const std::string spawned = "the work Spawn runs can't throw yet, and this can throw Oops; "
+                                "catch it in the work, or use an Async Function with a Throws, "
+                                "whose Task has its errors";
+    const std::string started = "the work Thread.Start runs can't throw yet, and this can throw "
+                                "Oops; catch it in the work, or use an Async Function with a "
+                                "Throws, whose Task has its errors";
+    CHECK(errors_of(head + "Local a = Spawn(Function(): Int Throws Oops => Try Risky(5))\n"
+                           "Local w: Sendable Func(): Int Throws Oops = Function() => Try "
+                           "Risky(1)\n"
+                           "Local b = Spawn(w)\n"
+                           "Local c: Task<Int> = Spawn(w)\n"
+                           "Local t = Thread.Start(Function() Throws Oops\n"
+                           "    Local x = Try Risky(1)\n"
+                           "End Function)\n") ==
+          errors_t{
+              "Function(): Int Throws Oops => Try Risky(5): " + spawned,
+              "w: " + spawned,
+              "w: " + spawned,
+              "Function() Throws Oops\n    Local x = Try Risky(1)\nEnd Function: " + started,
+          });
+
+    // Work with no Throws still can't let an error out, as before, and runs.
+    CHECK(errors_of(head + "Local a = Spawn(Function(): Int => Try? Risky(5) ?? 0)\n").empty());
+    CHECK(errors_of(head + "Local a = Spawn(Function(): Int => Try Risky(5))\n") ==
+          errors_t{ "Risky(5): a lambda can't throw, so Oops has to be caught in it" });
+
+    // Nor does C call one, or std's own code, whose Func types have no Throws.
+    const std::string lost = "found Func(): Int32 Throws Oops, which can throw Oops, and a call "
+                             "through the first wouldn't say so; a Func that throws less "
+                             "converts to one that throws more, not the other way";
+    const std::string exact = "Function(n: Int32): Int32 Throws Oops => n: this lambda is "
+                              "Func(Int32): Int32 Throws Oops, not Callback(Int32): Int32; a "
+                              "Callback takes a lambda of exactly its types";
+    CHECK(errors_of(head + "Local k: Callback(Int32): Int32 = Function(n: Int32): Int32 Throws "
+                           "Oops => n\n"
+                           "Local n: Int? = Null\n"
+                           "Local thrower = Function(): Int Throws Oops => Try Risky(2)\n"
+                           "Local m = n.OrElse(thrower)\n") ==
+          errors_t{ exact, "thrower: expected Func(): Int32, " + lost });
+}
+
+TEST_CASE("a Func that throws among overloads, and a For Method loop's own", "[sema]") {
+    const std::string head = "Import std.core\n"
+                             "Class Oops Extends Error\nEnd Class\n"
+                             "Function Risky(n: Int): Int Throws Oops => n\n"
+                             "Function Pick(n: Int): Int => n\n"
+                             "Function Pick(s: String): Int => 7\n"
+                             "Function Run(work: Func(Int): Int): Int => 1\n"
+                             "Function Run(work: Func(Int): Int Throws Oops): Int => 2\n"
+                             "Function Each(work: Func(Int): Int Throws Oops): Int => 1\n"
+                             "Function Each(work: Func(String): Int Throws Oops): Int => 2\n";
+    // An overloaded Function's name is picked by what the Func expected takes and gives, whatever
+    // that Func throws. Overloads that differ only by a Throws are told apart by a lambda's own
+    // types or a value's; and a typed lambda with no Throws, whose body uses Try, throws what
+    // the overload it picks expects.
+    CHECK(errors_of(head + "Local a: Func(Int): Int Throws Oops = Pick\n"
+                           "Local b: Sendable Func(String): Int Throws Oops = Pick\n"
+                           "Local c = Run(Function(n: Int): Int => n)\n"
+                           "Local d = Run(Function(n: Int): Int Throws Oops => n)\n"
+                           "Local e = Run(a)\n"
+                           "Local f = Each(Function(n: Int): Int => Try Risky(n))\n")
+              .empty());
+
+    // A lambda that says nothing of its types fits both, so the call says so.
+    const errors_t both = errors_of(head + "Local c = Run(Function(n) => n)\n");
+    REQUIRE(both.size() == 1);
+    CHECK(both.front() == "Run: the call to 'Run' is ambiguous");
+
+    // A For Method loop's Func type picks Methods, and its `m` isn't a value, so nothing of the
+    // loop's leaves it as a function value that throws.
+    CHECK(errors_of("Import std.core\n"
+                    "Class Oops Extends Error\nEnd Class\n"
+                    "Class Tool\n"
+                    "    Method Half(n: Int): Int Throws Oops => n\n"
+                    "End Class\n"
+                    "Function All<T>(value: T)\n"
+                    "    For Method m: M In T\n"
+                    "        Where M: Func(Int): Int Throws Oops\n"
+                    "        Local kept = m\n"
+                    "        Local n = Try? m.Call(value, 3)\n"
+                    "    End For\n"
+                    "End Function\n"
+                    "All(Tool())\n") ==
+          errors_t{ "m: 'm' is a Method of T; it has Name, Has(A), Attribute(A), and "
+                    "Call(value, ...)" });
+}
+
 TEST_CASE("a type's own attributes", "[sema]") {
     CHECK(probe("Attribute Saved\n@Saved Struct P\nEnd Struct\nLocal x = P.Has(Saved)") == "Bool");
     CHECK(probe("Attribute Label(Text: String)\nStruct P\nEnd Struct\n"
