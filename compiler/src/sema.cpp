@@ -136,7 +136,8 @@ struct handler_t {
     /// The Classes of the errors that got here, to tell which Catches can match, and whether a
     /// Try does anything.
     std::vector<type_id_t> reached;
-    /// SEALED: "a Defer" or "a Finally", for errors.
+    /// SEALED: "a Defer" or "a Finally", for errors. FUNCTION: "this lambda", for one that throws,
+    /// and empty for the function itself.
     std::string_view what;
 };
 
@@ -12296,7 +12297,7 @@ private:
     /// A Func of the same parameters and result as `func`, Sendable or not.
     type_id_t func_like(const type_id_t func, const bool sendable) {
         const type_t& info = m_analysis.types.get(func);
-        return m_analysis.types.function(info.parameters, info.inner, sendable);
+        return m_analysis.types.function(info.parameters, info.inner, sendable, info.throws);
     }
 
     /// A generic type's type parameter, like T.
@@ -19531,7 +19532,12 @@ private:
         const span_t before{ .file = call.file, .begin = call.begin, .end = call.begin };
         std::vector<fix_t> fixes{ { .span = before, .replacement = "Try " } };
         std::string title = "Add Try";
-        const std::optional<symbol_id_t> current = m_function;
+        // In a lambda that throws, the Throws to add to would be the lambda's, not the
+        // function's around it, so the fix is the Try alone.
+        const bool in_lambda = !m_handlers.empty() &&
+                               m_handlers.back().kind == handler_kind_t::FUNCTION &&
+                               !m_handlers.back().what.empty();
+        const std::optional<symbol_id_t> current = in_lambda ? std::nullopt : m_function;
         std::optional<std::pair<std::vector<fix_t>, std::string>> fix =
             current ? throws_fix(throws) : std::nullopt;
         if (current && fix) {
@@ -19574,6 +19580,18 @@ private:
             if (handler.kind == handler_kind_t::SEALED) {
                 error(span, "{} can't throw, so {} has to be caught in it", handler.what,
                       shown_name(type));
+                return;
+            }
+
+            // A lambda that throws lets out what its Func type lists, and no more.
+            if (handler.kind == handler_kind_t::FUNCTION && !handler.what.empty()) {
+                if (!covers(handler.types, type)) {
+                    error(span,
+                          "{} isn't caught, and {} throws only {}; catch it in a Try block, or "
+                          "add it to the lambda's Throws",
+                          shown_name(type), handler.what, names_of(handler.types));
+                }
+
                 return;
             }
 
@@ -22757,10 +22775,10 @@ private:
         // A Func that only an overload the code can't use fits says why it can't.
         if (expected != type_id_t::INVALID && is_func(expected) &&
             std::ranges::none_of(overloads, [&](const symbol_id_t overload) {
-                return func_of(overload) == wanted;
+                return is_func_for(overload, wanted);
             })) {
             for (const dropped_t& unusable : dropped) {
-                if (symbol(unusable.id).name == name && func_of(unusable.id) == wanted) {
+                if (symbol(unusable.id).name == name && is_func_for(unusable.id, wanted)) {
                     report_unusable(unusable.id, span_of(id), unusable.through);
                     return type_id_t::INVALID;
                 }
@@ -22792,7 +22810,7 @@ private:
             fitting = candidates;
         } else {
             for (const symbol_id_t overload : candidates) {
-                if (func_of(overload) == wanted) {
+                if (is_func_for(overload, wanted)) {
                     fitting.push_back(overload);
                 }
             }
@@ -22936,6 +22954,15 @@ private:
         }
 
         return m_analysis.types.function(parameters, symbol(function).type);
+    }
+
+    /// Whether a Function is the one a Func type expected names: its own type, or one that takes
+    /// and gives the same and throws no less, which the Function's value converts to.
+    bool is_func_for(const symbol_id_t function, const type_id_t wanted) {
+        const type_id_t own = func_of(function);
+        return own == wanted ||
+               (own != type_id_t::INVALID && wanted != type_id_t::INVALID && is_func(wanted) &&
+                !is_sendable_func(wanted) && same_shape(own, wanted) && throws_within(own, wanted));
     }
 
     /// The Class of the function values a Function makes when it's used by name, which hold
@@ -25527,6 +25554,17 @@ private:
         if (!m_analysis.types.get(func).parameters.empty()) {
             error(span_of(work), "the work {} runs takes no arguments; a lambda can pass them",
                   what);
+            return type_id_t::INVALID;
+        }
+
+        // The Task's code calls the work with nowhere for an error to go, so work that throws is
+        // refused until a Task can carry what its work throws.
+        if (const std::vector<type_id_t>& thrown = m_analysis.types.get(non_null(func)).throws;
+            !thrown.empty()) {
+            error(span_of(work),
+                  "the work {} runs can't throw yet, and this can throw {}; catch it in the "
+                  "work, or use an Async Function with a Throws, whose Task has its errors",
+                  what, names_of(thrown));
             return type_id_t::INVALID;
         }
 
@@ -29612,6 +29650,47 @@ private:
             result = type_id_t::NONE;
         }
 
+        // What its code can let out: what its own Throws lists, or else what the Func expected
+        // here throws. An Async lambda's errors would go in its Task, which isn't built.
+        std::vector<type_id_t> throws;
+        if (!node.throws.empty()) {
+            pending_throws_t written{ .of_func = true };
+            for (const type_expr_id_t thrown : node.throws) {
+                const type_id_t type = resolve_type(thrown);
+                if (type == type_id_t::INVALID) {
+                    continue;
+                }
+
+                if (is_parameter(type) && !is_error(type)) {
+                    error(m_ast.get(thrown).span,
+                          "{} is in a Throws, so it needs a constraint that says it's an error, "
+                          "like <{}: Error>",
+                          shown_name(type), shown_name(type));
+                    continue;
+                }
+
+                written.types.push_back(type);
+                written.spans.push_back(m_ast.get(thrown).span);
+            }
+
+            if (node.is_async) {
+                error(m_ast.get(node.throws.front()).span,
+                      "an Async lambda can't have a Throws yet; an Async Function's errors go in "
+                      "its Task");
+            } else if (!written.types.empty()) {
+                if (m_throws_checked) {
+                    check_task_throws(written);
+                } else if (m_diagnostics == m_reported) {
+                    m_pending_throws.push_back(written);
+                }
+
+                throws = written.types;
+            }
+        } else if (fits && !node.is_async) {
+            throws = m_analysis.types.get(expected).throws;
+            std::erase_if(throws, [&](const type_id_t type) { return !known(type); });
+        }
+
         const span_t span = span_of(id);
         // In generic code, the closure's Class is generic too, with the type parameters here.
         const type_id_t closure = m_analysis.types.add_class(lambda_name(span));
@@ -29625,6 +29704,7 @@ private:
             .span = node.keyword,
             .type = result.value_or(type_id_t::NONE),
             .parameters = parameters,
+            .throws = throws,
             .modifiers = { .is_async = node.is_async },
         });
         // An Async lambda's code runs on the main thread, as an Async Function's does.
@@ -29636,7 +29716,7 @@ private:
                                  });
         }
 
-        lambda_context_t lambda = check_lambda_body(node, function, weak, result);
+        lambda_context_t lambda = check_lambda_body(node, function, weak, result, throws);
         forget_assigned_by(node, lambda.captures);
 
         std::vector<field_t> fields;
@@ -29658,7 +29738,7 @@ private:
         const type_id_t func = m_analysis.types.function(
             types,
             node.is_async ? m_analysis.types.task(symbol(function).type) : symbol(function).type,
-            sendable);
+            sendable, throws);
         info(id).symbol = function;
         info(id).closure = m_analysis.closures.size();
         m_analysis.closures.push_back({
@@ -29765,11 +29845,12 @@ private:
     }
 
     /// A lambda's body, checked like a function's in the scopes around it. Its code runs whenever
-    /// it's called, so it starts with nothing narrowed, and it can't leave by Break, Continue, or
-    /// an error.
+    /// it's called, so it starts with nothing narrowed, and it can't leave by Break or Continue,
+    /// or by an error but one of `throws`, the Classes its Func type lets out.
     lambda_context_t check_lambda_body(const lambda_expr_t& node, const symbol_id_t function,
                                        const std::vector<weak_capture_t>& weak,
-                                       const std::optional<type_id_t> result) {
+                                       const std::optional<type_id_t> result,
+                                       const std::vector<type_id_t>& throws) {
         const std::optional<std::string> unready = unready_self();
         const flow_t outer = m_flow;
         std::vector<loop_t> loops = std::exchange(m_loops, {});
@@ -29780,7 +29861,13 @@ private:
         const bool before_super = std::exchange(m_before_super, false);
         m_flow.narrowed.clear();
         m_flow.reachable = true;
-        m_handlers.push_back({ .kind = handler_kind_t::SEALED, .what = "a lambda" });
+        m_handlers.push_back(throws.empty()
+                                 ? handler_t{ .kind = handler_kind_t::SEALED, .what = "a lambda" }
+                                 : handler_t{
+                                       .kind = handler_kind_t::FUNCTION,
+                                       .types = throws,
+                                       .what = "this lambda",
+                                   });
         if (const std::optional<symbol_id_t> code = current_code()) {
             add_reach(*code, function);
         }

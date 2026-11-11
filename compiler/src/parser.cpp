@@ -4182,15 +4182,28 @@ private:
             report_expected(describe(token_kind_t::LEFT_PAREN));
         }
 
+        // A Throws after its result is the lambda's, as a Function's is its own.
         std::optional<type_expr_id_t> return_type;
         if (accept(token_kind_t::COLON)) {
+            m_function_result = true;
             return_type = parse_type();
+        }
+
+        std::vector<type_expr_id_t> throws;
+        if (accept(token_kind_t::KW_THROWS)) {
+            while (true) {
+                throws.push_back(parse_type());
+                if (!accept(token_kind_t::COMMA)) {
+                    break;
+                }
+            }
         }
 
         lambda_expr_t lambda{
             .weak = std::move(weak),
             .parameters = std::move(parameters),
             .return_type = return_type,
+            .throws = std::move(throws),
             .is_async = async.has_value(),
             .keyword = keyword.span,
         };

@@ -1,0 +1,134 @@
+// A function value whose Func type has a Throws: a lambda that throws, by the Func expected of
+// it or by its own Throws; a call through one with Try, Try?, and a Try block; one in a Field
+// and in an array; and a Func that doesn't throw where one that does is wanted, which is wrapped.
+// Nothing leaks: not the error, nor what a lambda or a wrapper holds.
+
+Import std.core
+
+Class Oops Extends Error
+End Class
+
+Class Worse Extends Oops
+End Class
+
+Class Counter
+    Field Count: Int = 0
+End Class
+
+Function Risky(n: Int): Int Throws Oops
+    If n > 2 Then Throw Oops("too big: {n}")
+    Return n * 10
+End Function
+
+Function Run(work: Func(Int): Int Throws Oops, n: Int): Int Throws Oops
+    Return Try work(n)
+End Function
+
+Function Quiet(work: Func(Int): Int Throws Oops, n: Int): Int
+    Return (Try? work(n)) ?? -1
+End Function
+
+Function Twice(n: Int): Int => n * 2
+
+// A lambda that throws, by the Func expected of it.
+Print(Try Run(Function(n) => Try Risky(n), 1))
+Print(Quiet(Function(n) => Try Risky(n), 5))
+
+// One that says so itself, with what it captures, a number and an object.
+Local base = 100
+Local counter = Counter()
+Local own = Function(n: Int): Int Throws Oops
+    counter.Count += 1
+    If n == 0 Then Throw Worse("zero")
+    Return base + Try Risky(n)
+End Function
+Print(Try own(2), Quiet(own, 0), Quiet(own, 9), counter.Count)
+
+// Caught where it's called, by its Class or one it extends, and let out of a Function.
+Try
+    Print(Try Run(own, 7))
+Catch e As Oops
+    Print("caught {e.Message}")
+End Try
+
+Try
+    Print(Try own(0))
+Catch e As Worse
+    Print("worse {e.Message}")
+Catch e As Oops
+    Print("not here")
+End Try
+
+// One that gives nothing, and throws.
+Local check = Function(n: Int) Throws Oops
+    If n < 0 Then Throw Oops("negative")
+    counter.Count += n
+End Function
+Try check(5)
+Try? check(-1)
+Print(counter.Count)
+
+// A Func that doesn't throw where one that does is wanted: a lambda, a Function's name, and a
+// value, each held by a wrapper that takes the error for it.
+Print(Try Run(Function(n: Int) => n + 1, 1))
+Print(Try Run(Twice, 4))
+Local plain: Func(Int): Int = Function(n: Int) => n - base
+Local wide: Func(Int): Int Throws Oops = plain
+Print(Try wide(10), Quiet(plain, 3))
+
+// One that throws is one that throws more, as it is.
+Local any: Func(Int): Int Throws Error = own
+Print((Try? any(1)) ?? -1, (Try? any(0)) ?? -1)
+
+// A Func? too: Null stays Null.
+Local maybe: (Func(Int): Int)? = plain
+Local wider: (Func(Int): Int Throws Oops)? = maybe
+Local none: (Func(Int): Int)? = Null
+Local nothing: (Func(Int): Int Throws Oops)? = none
+Function Maybe(work: (Func(Int): Int Throws Oops)?): Int
+    If work == Null Then Return -5
+    Return (Try? work(1)) ?? -1
+End Function
+
+Print(Maybe(wider), Maybe(nothing), Maybe(plain), Maybe(own))
+
+// In a Field and an array, called one after another until one throws.
+Struct Step
+    Field Name: String
+    Field Work: Func(Int): Int Throws Oops
+End Struct
+
+Function All(steps: Step[], start: Int): Int Throws Oops
+    Local at = start
+    For step In steps
+        at = Try step.Work(at)
+    End For
+
+    Return at
+End Function
+
+Local steps: Step[] = [
+    Step("add", Function(n: Int) => n + 1),
+    Step("risky", Function(n) => Try Risky(n)),
+    Step("twice", Twice),
+]
+Print(Try All(steps, 0))
+Try
+    Print(Try All(steps, 5))
+Catch e As Oops
+    Print("stopped: {e.Message}")
+End Try
+
+Local works: (Func(Int): Int Throws Oops)[] = [own, wide, Function(n) => Try Risky(n)]
+Local total = 0
+For work In works
+    total += (Try? work(1)) ?? 0
+End For
+Print(total, works.Count)
+
+// A lambda that throws and one that calls it, each letting the error out.
+Local outer = Function(n: Int): Int Throws Oops
+    Local inner = Function(m: Int): Int Throws Oops => Try Risky(m + n)
+    Return Try inner(1)
+End Function
+Print(Quiet(outer, 0), Quiet(outer, 5))

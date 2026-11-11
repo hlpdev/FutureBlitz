@@ -380,6 +380,9 @@ struct invoke_t {
     /// which is called by the C ABI.
     operand_t callee;
     std::vector<operand_t> arguments;
+    /// For a function value whose Func type throws: the Error? its code puts what it throws in,
+    /// passed last, by reference, as a Function that throws takes it.
+    std::optional<place_t> error;
     /// Where a debug build panics on a Null Callback.
     span_t span;
 };

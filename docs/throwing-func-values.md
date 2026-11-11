@@ -6,9 +6,10 @@ costs, and the order to build it in. The user said yes to steps 1 to 3 (2026-11-
 picks below; steps 4 to 6 are Deferred work.
 
 Built so far: step 1, the type's rules, in sema: the type as a value's, a call through one
-needing Try, and the conversions with their errors (rules 1, 2, and 5 below). A build that
-calls one, or makes one of a Func that doesn't throw, says its code isn't built yet. "Today",
-below, is how it was before step 1.
+needing Try, and the conversions with their errors (rules 1, 2, and 5 below); and step 2, the
+code: a lambda that throws, by the Func expected of it or its own Throws (rule 3), the call
+through a value, and the wrapper, by shape B below. A Function's name as a throwing value
+(rule 4) is step 3's. "Today", below, is how it was before step 1.
 
 ## Today
 
@@ -46,7 +47,10 @@ type, and a way to call them.
    other way is an error, which says the errors that would be lost. Parameter and result types
    match exactly, as they do between Func types today.
 6. **What can't throw stays so.** A Callback, which C calls. The work of `Parallel For`. A
-   `Sendable` Func may throw. Spawn is the next section's.
+   `Sendable` Func may throw. Spawn is the next section's: until step 5, `Spawn` and
+   `Thread.Start` refuse work that throws, a lambda with a Throws or a Sendable Func whose type
+   has one, since a Task's code calls its work with nowhere for an error to go. std's own Func
+   parameters have no Throws, so a Func that throws doesn't convert to them.
 7. **Generics.** A type parameter can stand for the errors, with the constraint it has today:
    `Function Each<T, E: Error>(items: T[], work: Func(T) Throws E) Throws E`. A lambda that
    doesn't throw needs E to be nothing, which no type is. See the open question.

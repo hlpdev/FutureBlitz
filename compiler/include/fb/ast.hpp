@@ -279,6 +279,9 @@ struct lambda_expr_t {
     std::vector<name_t> weak;
     std::vector<lambda_parameter_t> parameters;
     std::optional<type_expr_id_t> return_type;
+    /// "Throws ParseError": the Classes its code can let out, as a Function's lists them. Without
+    /// one, it throws what the Func type expected of it does.
+    std::vector<type_expr_id_t> throws;
     /// For "=> value": the value it returns, or the call it makes.
     std::optional<expr_id_t> value;
     /// A block lambda's statements.

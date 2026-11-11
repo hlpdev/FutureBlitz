@@ -598,6 +598,11 @@ private:
             out.items.push_back(type(*node.return_type));
         }
 
+        for (const type_expr_id_t thrown : node.throws) {
+            out.items.push_back(atom("throws"));
+            out.items.push_back(type(thrown));
+        }
+
         if (node.value) {
             out.items.push_back(atom("=>"));
             out.items.push_back(expr(*node.value));

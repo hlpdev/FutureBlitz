@@ -1,0 +1,98 @@
+// Where a Func that doesn't throw becomes one that does: an overloaded Function's name, under
+// more than one `?`, inside generic code, and among overloads that differ only by a Throws.
+// Nothing leaks.
+
+Import std.core
+Import std.collections
+
+Class Oops Extends Error
+End Class
+
+Function Risky(n: Int): Int Throws Oops
+    If n < 0 Then Throw Oops("negative {n}")
+    Return n
+End Function
+
+Function Plain(n: Int): Int => n + 1
+
+// An overloaded Function's name, where a Func that throws is expected, is picked by what it
+// takes and gives, and wrapped; a Sendable one too.
+Function Pick(n: Int): Int => n + 1
+Function Pick(s: String): Int => 7
+
+Local byInt: Func(Int): Int Throws Oops = Pick
+Local byText: Sendable Func(String): Int Throws Oops = Pick
+Print("{Try? byInt(1) ?? -1} {Try? byText("a") ?? -1}")
+
+// Under two `?`s, each Null stays the Null it was, and what's held is wrapped.
+Local plain: Func(Int): Int = Function(n) => n * 3
+Local none: (Func(Int): Int)?? = Null
+Local inner: (Func(Int): Int)? = Null
+Local innerNull: (Func(Int): Int)?? = inner
+Local held: (Func(Int): Int)?? = plain
+Local a: (Func(Int): Int Throws Oops)?? = none
+Local b: (Func(Int): Int Throws Oops)?? = innerNull
+Local c: (Func(Int): Int Throws Oops)?? = held
+Print("{a == Null} {b == Null} {c == Null}")
+If b != Null
+    Local under = b
+    Print("the inner one is Null: {under == Null}")
+End If
+If c != Null
+    Local under = c
+    If under != Null
+        Print(Try? under(4) ?? -1)
+    End If
+End If
+
+// In generic code, the type converted to is the instance's: a Field's, a Method's parameter's,
+// an array's elements, a Map's values, and one whose error is a type argument.
+Class Box<T>
+    Field Value: T
+
+    New(value: T)
+        Self.Value = value
+    End New
+
+    Method Put(value: T)
+        Self.Value = value
+    End Method
+End Class
+
+Function Keep<T>(items: T[], item: T): T[]
+    items.Add(item)
+    Return items
+End Function
+
+Function Wrap<E: Error>(work: Func(Int): Int): (Func(Int): Int Throws E) => work
+
+Local named: Func(Int): Int = Plain
+Local box = Box<Func(Int): Int Throws Oops>(named)
+Print(Try? box.Value(1) ?? -1)
+box.Put(Function(n: Int): Int => n * 5)
+Print(Try? box.Value(2) ?? -1)
+Local list: (Func(Int): Int Throws Oops)[] = []
+Local kept = Keep(list, named)
+Print(Try? kept[0](3) ?? -1)
+Local byName = Map<String, Func(Int): Int Throws Oops>()
+byName["plain"] = named
+Local got = byName.Get("plain")
+If got != Null Then Print(Try? got(4) ?? -1)
+Local wrapped = Wrap<Oops>(named)
+Print(Try? wrapped(5) ?? -1)
+
+// Overloads that differ only by a Throws: a lambda's own types pick, and so does a value's.
+Function Run(work: Func(Int): Int): String => "plain {work(1)}"
+Function Run(work: Func(Int): Int Throws Oops): String => "throws {Try? work(1) ?? -1}"
+
+Print(Run(Function(n: Int): Int => n + 1))
+Print(Run(Function(n: Int): Int Throws Oops => n + 1))
+Print(Run(named))
+
+// A typed lambda with no Throws of its own, whose body uses Try, takes the Throws of the Func
+// the overload it picks expects.
+Function Each(work: Func(Int): Int Throws Oops): String => "number {Try? work(-1) ?? -1}"
+Function Each(work: Func(String): Int Throws Oops): String => "text {Try? work("x") ?? -1}"
+
+Print(Each(Function(n: Int): Int => Try Risky(n)))
+Print(Each(Function(s: String): Int => Try Risky(2)))
