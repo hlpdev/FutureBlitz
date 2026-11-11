@@ -12,8 +12,6 @@
 #include <algorithm>
 #include <array>
 #include <catch2/catch_test_macros.hpp>
-#include <catch2/reporters/catch_reporter_event_listener.hpp>
-#include <catch2/reporters/catch_reporter_registrars.hpp>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -30,17 +28,6 @@ namespace {
 
 /// How long a test waits for a connection, in nanoseconds.
 constexpr std::int64_t wait_nanoseconds = 5'000'000'000;
-
-/// Ends what the runtime started once the tests are done, as a program's end does, so the I/O
-/// thread stops before its std::thread goes.
-class finish_runtime_t : public Catch::EventListenerBase {
-public:
-    using Catch::EventListenerBase::EventListenerBase;
-
-    void testRunEnded(const Catch::TestRunStats& /*stats*/) override {
-        fb::runtime::run_finish();
-    }
-};
 
 /// NetErrorKind's ordinals, as fb_io_net_error_kind gives them, HTTP_STATUS's before OTHER.
 #ifdef __APPLE__
@@ -117,8 +104,6 @@ bool connects(void* listener, const literal_t& name) {
 }
 
 } // namespace
-
-CATCH_REGISTER_LISTENER(finish_runtime_t)
 
 TEST_CASE("a UDP broadcast needs SetBroadcast, and then what listens at its port gets it") {
     void* receiver = fb_io_net_new(4);

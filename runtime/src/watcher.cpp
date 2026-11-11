@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <cstring>
@@ -18,6 +19,7 @@
 #include <iterator>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <ranges>
 #include <set>
 #include <string>
@@ -39,6 +41,17 @@ enum event_kind_t : std::uint8_t {
 struct event_t {
     std::int32_t kind = EVENT_CHANGED;
     std::string path;
+};
+
+/// What a write to a file shows in: its size, and when it was last written. An OS tells of more
+/// than writes, as Windows does of a file whose access time changed, which a read changes, so a
+/// file that's still there has changed only when one of these has.
+struct stamp_t {
+    std::uint64_t size = 0;
+    std::int64_t seconds = 0;
+    std::int64_t nanoseconds = 0;
+
+    bool operator==(const stamp_t&) const = default;
 };
 
 struct watcher_t;
@@ -76,6 +89,9 @@ struct watcher_t {
     /// '/'s, like "art/hero.png", and the last listing of a folder in it, by its key, and the
     /// loop's time it was taken at, which only that thread touches.
     std::set<std::string, std::less<>> known;
+    /// What each known key's file or folder was when it was last looked at, which a change is
+    /// told by, and which goes when the key does. Only the I/O thread touches it.
+    std::map<std::string, stamp_t, std::less<>> stamps;
     std::set<std::string, std::less<>> listing;
     std::string listed_folder;
     std::uint64_t listed_at = 0;
@@ -239,6 +255,63 @@ bool exists(const std::string& path) {
     const int result = uv_fs_lstat(nullptr, &call, fb::runtime::os_path(path).c_str(), nullptr);
     uv_fs_req_cleanup(&call);
     return result == 0;
+}
+
+/// What's at `path` as a change of it shows, or nothing when nothing's there.
+std::optional<stamp_t> stamp_of(const std::string& path) {
+    uv_fs_t call{};
+    std::optional<stamp_t> stamp;
+    if (uv_fs_lstat(nullptr, &call, fb::runtime::os_path(path).c_str(), nullptr) == 0) {
+        stamp = stamp_t{
+            .size = call.statbuf.st_size,
+            .seconds = call.statbuf.st_mtim.tv_sec,
+            .nanoseconds = call.statbuf.st_mtim.tv_nsec,
+        };
+    }
+
+    uv_fs_req_cleanup(&call);
+    return stamp;
+}
+
+/// Where what's at `key` in a watcher's folder is on the disk, or a file's watcher's file.
+std::string place_of(const watcher_t& watcher, const std::string_view key) {
+    return watcher.folder ? real_in(watcher, key) : watcher.real;
+}
+
+/// Keeps what's at `key` as it is now, for the next change of it to be told by.
+void learn(watcher_t& watcher, const std::string_view key) {
+    if (const std::optional<stamp_t> stamp = stamp_of(place_of(watcher, key))) {
+        watcher.stamps.insert_or_assign(std::string(key), *stamp);
+    } else {
+        watcher.stamps.erase(std::string(key));
+    }
+}
+
+/// How long after a file's write time another write may leave it the same, as an OS's clock for
+/// them moves in steps: 15.6 ms on Windows at its coarsest, and a jiffy on Linux.
+constexpr std::chrono::milliseconds write_time_step{ 20 };
+
+/// Whether a file was written so lately that a second write, of as many bytes, could leave its
+/// size and write time as they are. A change of one is told of though nothing shows, so no
+/// write goes untold; one older than that, or of a time yet to come, is told by what shows.
+bool written_lately(const stamp_t& stamp) {
+    const auto written =
+        std::chrono::seconds(stamp.seconds) + std::chrono::nanoseconds(stamp.nanoseconds);
+    const auto age = std::chrono::system_clock::now().time_since_epoch() - written;
+    return age >= std::chrono::nanoseconds::zero() && age < write_time_step;
+}
+
+/// Whether what's at `key`, which is `now`, isn't as it was when it was last looked at, and
+/// keeps it as it is. One never looked at has changed, for all that's known.
+bool changed(watcher_t& watcher, const std::string_view key, const stamp_t& now) {
+    const auto [at, added] = watcher.stamps.try_emplace(std::string(key), now);
+    if (added) {
+        return true;
+    }
+
+    const bool same = at->second == now;
+    at->second = now;
+    return !same || written_lately(now);
 }
 
 /// Whether what's at `path` is a folder, and not a link to one.
@@ -520,8 +593,11 @@ void adopt(watcher_t& watcher, const std::string& key, std::vector<event_t>* fou
         std::vector<std::string> inside;
         for (const std::string& name : names_in(real_in(watcher, folder), &inside)) {
             const std::string entry = key_of(folder, name);
-            if (!name.empty() && watcher.known.emplace(entry).second && found != nullptr) {
-                found->push_back({ .kind = EVENT_CREATED, .path = path_in(watcher, entry) });
+            if (!name.empty() && watcher.known.emplace(entry).second) {
+                learn(watcher, entry);
+                if (found != nullptr) {
+                    found->push_back({ .kind = EVENT_CREATED, .path = path_in(watcher, entry) });
+                }
             }
         }
 
@@ -548,6 +624,13 @@ void forget(watcher_t& watcher, const std::string_view key, std::vector<event_t>
     }
 
     watcher.known.erase(first, last);
+    const auto first_stamp = watcher.stamps.lower_bound(inside);
+    auto last_stamp = first_stamp;
+    while (last_stamp != watcher.stamps.end() && last_stamp->first.starts_with(inside)) {
+        ++last_stamp;
+    }
+
+    watcher.stamps.erase(first_stamp, last_stamp);
 #ifdef __linux__
     unwatch_subfolders(watcher, key);
 #endif
@@ -600,12 +683,14 @@ std::vector<event_t> rescanned(watcher_t& watcher) {
     for (const std::string& key : std::views::reverse(watcher.known)) {
         if (!key.empty() && !keys.contains(key)) {
             events.push_back({ .kind = EVENT_REMOVED, .path = path_in(watcher, key) });
+            watcher.stamps.erase(key);
         }
     }
 
     for (const std::string& key : keys) {
         if (!key.empty() && !watcher.known.contains(key)) {
             events.push_back({ .kind = EVENT_CREATED, .path = path_in(watcher, key) });
+            learn(watcher, key);
         }
     }
 
@@ -638,7 +723,8 @@ bool listed(watcher_t& watcher, const uv_loop_t* loop, const std::string_view ke
 /// takes it.
 void told(watcher_t& watcher, const uv_loop_t* loop, const std::string& key, const int events) {
     event_t event{ .path = watcher.folder ? path_in(watcher, key) : watcher.path };
-    bool there = exists(watcher.folder ? real_in(watcher, key) : watcher.real);
+    const std::optional<stamp_t> now = stamp_of(place_of(watcher, key));
+    bool there = now.has_value();
     const auto known = watcher.known.find(key);
     // A disk that ignores case, as Windows' and macOS's usually do, finds a name by another
     // spelling too, as a rename that changed its case leaves it, so a name that would come, or a
@@ -653,12 +739,14 @@ void told(watcher_t& watcher, const uv_loop_t* loop, const std::string& key, con
     if (there && known == watcher.known.end()) {
         event.kind = EVENT_CREATED;
         watcher.known.emplace(key);
+        watcher.stamps.insert_or_assign(key, *now);
         found.push_back(std::move(event));
         if (watcher.recursive && is_folder(real_in(watcher, key))) {
             adopt(watcher, key, &found);
         }
     } else if (!there && known != watcher.known.end()) {
         watcher.known.erase(known);
+        watcher.stamps.erase(key);
         if (watcher.recursive) {
             forget(watcher, key, found);
         }
@@ -669,6 +757,7 @@ void told(watcher_t& watcher, const uv_loop_t* loop, const std::string& key, con
 #ifdef __linux__
         // One replaced went, with what it had, and the one there came, with what it has.
         if (watcher.recursive && replaced(watcher, key)) {
+            watcher.stamps.insert_or_assign(key, *now);
             forget(watcher, key, found);
             found.push_back({ .kind = EVENT_REMOVED, .path = event.path });
             event.kind = EVENT_CREATED;
@@ -685,13 +774,18 @@ void told(watcher_t& watcher, const uv_loop_t* loop, const std::string& key, con
         // watch before, is watched now, with what it has.
         if (watcher.recursive && !watcher.subfolders.contains(key) &&
             is_folder(real_in(watcher, key))) {
+            watcher.stamps.insert_or_assign(key, *now);
             found.push_back(std::move(event));
             adopt(watcher, key, &found);
             queue(watcher, std::move(found));
             return;
         }
 #endif
-        found.push_back(std::move(event));
+        // What's still there changed only if its size or its write time did: an OS tells of
+        // more, as of a read that set its access time.
+        if (changed(watcher, key, *now)) {
+            found.push_back(std::move(event));
+        }
     }
 
     queue(watcher, std::move(found));
@@ -836,8 +930,12 @@ void start_watching(uv_loop_t* loop, void* context) {
     fb::runtime::at_io_stop(stop_watchers);
     if (watcher.folder && !watcher.recursive) {
         watcher.known = names_in(watcher.real);
+        for (const std::string& key : watcher.known) {
+            learn(watcher, key);
+        }
     } else if (!watcher.folder && exists(watcher.real)) {
         watcher.known.emplace("");
+        learn(watcher, "");
     }
 
     const std::int64_t made = uv_fs_event_init(loop, &watcher.handle);
@@ -865,6 +963,7 @@ void start_watching(uv_loop_t* loop, void* context) {
             // comes meanwhile is told of.
             if (watcher.recursive) {
                 watcher.known.emplace("");
+                learn(watcher, "");
                 adopt(watcher, "", nullptr);
             }
 #ifdef __linux__
