@@ -257,6 +257,24 @@ TEST_CASE("hover shows an inferred lambda parameter's type, and a constraint", "
     CHECK(opened.hover("Max<T", 0).contains("Function Max<T: Comparable>(a: T, b: T): T"));
 }
 
+TEST_CASE("hover shows what a function value throws", "[lsp]") {
+    const folder_t folder{ {} };
+    const std::string uri = folder.uri("throws.fb");
+    client_t client{ {} };
+    client.open(uri, "Import std.core\n"
+                     "Class Oops Extends Error\nEnd Class\n"
+                     "Function Risky(n: Int): Int Throws Oops => n\n"
+                     "Local named = Risky\n"
+                     "Local written = Function(n: Int): Int Throws Oops => Try Risky(n)\n"
+                     "Local both = [Try? named(1), Try? written(2)]\n");
+    const auto hover = [&](const std::string& text) {
+        const json_t found = client.request("textDocument/hover", client.at(uri, text));
+        return found.is_null() ? std::string() : found["contents"]["value"].get<std::string>();
+    };
+    CHECK(hover("named").contains("Local named: Func(Int32): Int32 Throws Oops"));
+    CHECK(hover("written").contains("Local written: Func(Int32): Int32 Throws Oops"));
+}
+
 TEST_CASE("module qualifiers have hovers and definitions, and aren't renamed", "[lsp]") {
     const folder_t folder({
         { "lib.fb", "Public Function Area(): Int => 1\n" },

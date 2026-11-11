@@ -8,8 +8,10 @@ picks below; steps 4 to 6 are Deferred work.
 Built so far: step 1, the type's rules, in sema: the type as a value's, a call through one
 needing Try, and the conversions with their errors (rules 1, 2, and 5 below); and step 2, the
 code: a lambda that throws, by the Func expected of it or its own Throws (rule 3), the call
-through a value, and the wrapper, by shape B below. A Function's name as a throwing value
-(rule 4) is step 3's. "Today", below, is how it was before step 1.
+through a value, and the wrapper, by shape B below; and step 3: a Function's name as a throwing
+value (rule 4), with tests of such values in Fields, Statics, arrays, Maps, Structs, and generic
+instances, in fb doc, hover, and the debug form, and across a prebuilt library's edge both ways.
+Steps 4 to 6 are Deferred work. "Today", below, is how it was before step 1.
 
 ## Today
 

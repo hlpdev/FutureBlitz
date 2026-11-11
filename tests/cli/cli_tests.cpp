@@ -4706,7 +4706,8 @@ TEST_CASE("fb builds a program with a prebuilt library's binary in it", "[cli]")
         std::ofstream(file, std::ios::binary) << text;
     };
 
-    // A library's Classes, generics, Globals, and errors, which a program uses from its binary.
+    // A library's Classes, generics, Globals, and errors, which a program uses from its binary,
+    // and function values that throw, which cross its edge both ways.
     write("geo/project.toml",
           "[project]\nname = \"geo\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
     // Its code calls xxHash's, which a program links for it.
@@ -4747,7 +4748,19 @@ TEST_CASE("fb builds a program with a prebuilt library's binary in it", "[cli]")
                            "        If each > best Then best = each\n"
                            "    End For\n"
                            "    Return best\n"
-                           "End Function\n");
+                           "End Function\n"
+                           "Public Function Count(sizes: Float64[],\n"
+                           "        make: Func(Float64): Shape Throws GeoError): Int Throws "
+                           "GeoError\n"
+                           "    Local count = 0\n"
+                           "    For size In sizes\n"
+                           "        Local shape = Try make(size)\n"
+                           "        count += 1\n"
+                           "    End For\n"
+                           "    Return count\n"
+                           "End Function\n"
+                           "Public Function Maker(): (Func(Float64): Shape Throws GeoError) => "
+                           "Make\n");
     write("app/project.toml", "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n"
                               "[dependencies]\ngeo = { path = \"../geo-prebuilt\" }\n");
     write("app/main.fb",
@@ -4768,6 +4781,20 @@ TEST_CASE("fb builds a program with a prebuilt library's binary in it", "[cli]")
           "    Local bad = Try Make(-1.0)\n"
           "Catch e As GeoError\n"
           "    Print(\"caught {e.Message}\")\n"
+          "End Try\n"
+          // The library calls the program's function values that throw: its own Function by
+          // name, a lambda that throws, and a Func that doesn't, wrapped here. And the program
+          // calls one the library made.
+          "Local plain: Func(Float64): Shape = Function(r) => Square()\n"
+          "Print(\"{Try? Count([1.0, 2.0], Make) ?? -1} \" +\n"
+          "      \"{Try? Count([1.0, -2.0, 3.0], Function(r) => Try Make(r)) ?? -1} \" +\n"
+          "      \"{Try? Count([1.0, 2.0, 3.0], plain) ?? -1}\")\n"
+          "Local maker = Maker()\n"
+          "Try\n"
+          "    Print((Try maker(2.0)).Describe())\n"
+          "    Local bad = Try maker(-1.0)\n"
+          "Catch e As GeoError\n"
+          "    Print(\"maker {e.Message} {Made()}\")\n"
           "End Try\n");
     const std::string geo = fb::to_utf8(folder / "geo");
     const std::string app = fb::to_utf8(folder / "app");
@@ -4799,7 +4826,10 @@ TEST_CASE("fb builds a program with a prebuilt library's binary in it", "[cli]")
                                 "True False 1 2 10\n"
                                 "9 c\n"
                                 "True True\n"
-                                "caught negative\n";
+                                "caught negative\n"
+                                "2 -1 3\n"
+                                "circle 12\n"
+                                "maker negative 5 6\n";
     for (const bool release : { false, true }) {
         std::vector<std::string> arguments{ "run", app };
         if (release) {

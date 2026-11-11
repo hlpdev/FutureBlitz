@@ -336,8 +336,7 @@ public:
     [[nodiscard]] type_id_t tuple(const std::vector<type_id_t>& elements);
 
     /// "Func(A, B): R", with a `result` of NONE for one that returns nothing, or "Sendable Func(A,
-    /// B): R", or with `throws`, "Func(A): R Throws E", which only a For Method loop's Where line
-    /// writes. With an INVALID part, it's INVALID.
+    /// B): R", or with `throws`, "Func(A): R Throws E". With an INVALID part, it's INVALID.
     [[nodiscard]] type_id_t function(const std::vector<type_id_t>& parameters, type_id_t result,
                                      bool sendable = false,
                                      const std::vector<type_id_t>& throws = {});

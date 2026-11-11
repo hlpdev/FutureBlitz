@@ -4060,10 +4060,11 @@ TEST_CASE("a Function's name alone is a function value", "[sema]") {
                                          "Run(Twice)");
     REQUIRE(ambiguous.size() == 1);
     CHECK(ambiguous.front() == "Run: the call to 'Run' is ambiguous");
+    // One that throws is a value too, of a Func type with its Throws.
     CHECK(errors_of("Import std.core\n"
                     "Class Oops Extends Error\nEnd Class\nFunction F() Throws Oops\n"
-                    "End Function\nLocal f = F") ==
-          errors_t{ "F: 'F' can throw, and a function value can't" });
+                    "End Function\nLocal f = F")
+              .empty());
 }
 
 TEST_CASE("a lambda captures Locals through cells, and copies what can't change", "[sema]") {
@@ -11438,6 +11439,59 @@ TEST_CASE("a Func that throws among overloads, and a For Method loop's own", "[s
                     "All(Tool())\n") ==
           errors_t{ "m: 'm' is a Method of T; it has Name, Has(A), Attribute(A), and "
                     "Call(value, ...)" });
+}
+
+TEST_CASE("a Function that throws is a value of its own Func type, by its name", "[sema]") {
+    const std::string head = "Import std.core\n"
+                             "Class Oops Extends Error\nEnd Class\n"
+                             "Class Other Extends Error\nEnd Class\n"
+                             "Function Risky(n: Int): Int Throws Oops => n\n"
+                             "Function Over(n: Int): Int Throws Oops => n\n"
+                             "Function Over(s: String): Int => 7\n"
+                             "Function Same<T>(value: T): T Throws Oops => value\n"
+                             "Function Take(work: Func(Int): Int): Int => work(1)\n"
+                             "Function Wide(work: Func(Int): Int Throws Error): Int => 1\n"
+                             "Function Narrow(work: Func(Int): Int Throws Other): Int => 1\n"
+                             "Function Send(work: Sendable Func(Int): Int Throws Oops): Int => 1\n";
+    // Its name is a value whose type has its Throws, which a Func that throws no less takes: a
+    // Local's, a parameter's, and a Sendable one's. A Func type picks among overloads, one that
+    // throws or one that doesn't, and tells a generic one its type arguments.
+    CHECK(errors_of(head + "Local a = Risky\n"
+                           "Local b: Func(Int): Int Throws Oops = Risky\n"
+                           "Local c = Wide(Risky)\n"
+                           "Local d: Func(Int): Int Throws Oops = Over\n"
+                           "Local e: Func(String): Int Throws Oops = Over\n"
+                           "Local f: Func(String): Int = Over\n"
+                           "Local g: Func(Int): Int Throws Error = Same\n"
+                           "Local h = Send(Risky)\n"
+                           "Local i = Try? a(1)\n")
+              .empty());
+    CHECK(probe(head + "Local a = Risky") == "Func(Int32): Int32 Throws Oops");
+
+    // Where a Func that throws less is expected, it's the error a value of that type gets, and
+    // a call through it needs Try. A Callback, which C calls, takes none.
+    const std::string lost = "found Func(Int32): Int32 Throws Oops, which can throw Oops, and a "
+                             "call through the first wouldn't say so; a Func that throws less "
+                             "converts to one that throws more, not the other way";
+    const std::string spawned = "Later: the work Spawn runs can't throw yet, and this can throw "
+                                "Oops; catch it in the work, or use an Async Function with a "
+                                "Throws, whose Task has its errors";
+    CHECK(errors_of(head + "Local a: Func(Int): Int = Risky\n"
+                           "Local b = Take(Risky)\n"
+                           "Local c = Narrow(Risky)\n"
+                           "Local d = Risky\n"
+                           "Local e = d(1)\n"
+                           "Local f: Callback(Int32): Int32 = Risky\n"
+                           "Function Later(): Int Throws Oops => 1\n"
+                           "Local g = Spawn(Later)\n") ==
+          errors_t{
+              "Risky: expected Func(Int32): Int32, " + lost,
+              "Risky: expected Func(Int32): Int32, " + lost,
+              "Risky: expected Func(Int32): Int32 Throws Other, " + lost,
+              "d(1): 'd' can throw Oops, so calling it needs Try, Try?, or a Try block",
+              "Risky: 'Risky' can throw, so it can't be a Callback, since C has no errors to catch",
+              spawned,
+          });
 }
 
 TEST_CASE("a type's own attributes", "[sema]") {

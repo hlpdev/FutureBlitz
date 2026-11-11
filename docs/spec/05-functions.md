@@ -193,11 +193,14 @@ Lambdas are always written with `Function`: `Function(x) => expr`, or a block en
   throws is expected is made as one, and converting between two that throw, to a wider Throws,
   costs nothing. Under `?`s, a `(Func(A): R)??` made a `(Func(A): R Throws E)??`, each Null stays
   the Null it was. Among overloads that differ only by a Func parameter's Throws, a lambda that
-  writes its types, or a value, picks by them, and a lambda that writes none is ambiguous. A Function that throws isn't a value by its name yet.
+  writes its types, or a value, picks by them, and a lambda that writes none is ambiguous.
 - A block lambda's body ends statements at line breaks, even inside the brackets of a call.
 - A Function's name alone is a function value: `Local f: Func(Int): Int = Twice`. With
-  overloads, the Func expected picks one. Methods, built-in functions, and Functions that throw
-  or take a ByRef parameter aren't values; a lambda can call them.
+  overloads, the Func expected picks one. A Function that throws is a value of a Func type with
+  its Throws, `Local parse: Func(String): Int Throws ParseError = Parse`, and fits where a Func
+  that takes and gives the same and throws no less is expected. Methods, built-in functions,
+  and Functions that are Async or Unsafe or take a ByRef parameter aren't values; a lambda can
+  call them.
 - A function value is called like a function, `f(1)`, with its arguments in order. It has no
   `==`, but a `Func?` compares with `Null`.
 
