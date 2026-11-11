@@ -45,7 +45,8 @@ End Extern
 Public Enum FileEventKind
     /// Something came there, as the new name of a rename does.
     CREATED
-    /// It changed, as a file that another is renamed over does.
+    /// Its size or its write time changed, as a file's that's written, or that another is
+    /// renamed over.
     CHANGED
     /// It went, as the old name of a rename does.
     REMOVED
@@ -66,10 +67,13 @@ Public Struct FileEvent
 End Struct
 
 /// Watches a file, or what's in a folder, and a recursive one what's in the folders in it too,
-/// and theirs, from when it's made until it's closed or its last reference goes. An OS can tell
-/// of one change more than once, as when a write comes in parts, and of a change it makes itself,
-/// as of a folder's times. A watched file or folder that's removed may go unwatched on some OSes,
-/// even once it's back.
+/// and theirs, from when it's made until it's closed or its last reference goes. A file or
+/// folder that's still there has changed when its size or its write time isn't what the watcher
+/// last saw, so reading a file isn't a change of it, on any OS, and neither is a change of its
+/// permissions. A write can still come as more than one change, as when it comes in parts or the
+/// file was written a moment before, and so can a change an OS makes itself, as of a folder's
+/// write time when something comes to it. A watched file or folder that's removed may go
+/// unwatched on some OSes, even once it's back.
 ///
 /// # Examples
 ///

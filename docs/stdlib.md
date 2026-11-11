@@ -842,6 +842,12 @@ std/io/.
   `CHANGED`, or `REMOVED`, and `Path`), Null once it's closed. It tells what came and went by the
   names it knows are there, since OSes call those differently, so a rename is the old name's
   REMOVED and the new name's CREATED, and a file renamed over another is the other's CHANGED.
+  What's still there has CHANGED only when its size or its write time isn't what the watcher
+  last saw, on every OS: a read isn't a change, though Windows tells of the access time a read
+  sets, nor is a change of its permissions or other times. The watcher keeps those two for each
+  name it knows, from when it's made, and drops them when the name goes. A file written within
+  the last 20 ms is told of at each of the OS's notices, since a second write of as many bytes
+  inside one step of the OS's clock leaves both as they were.
   `Close` drops what it hasn't given. `FileWatcher(path, recursive: True)` watches the folders in
   it too, and theirs, the ones that come later as well, not through links, and an event's `Path`
   is the watcher's joined with where it is from there; a folder that comes brings a CREATED for
