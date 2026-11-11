@@ -20,8 +20,8 @@ jobs:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     # macOS's runner takes about an hour for ctest alone now, and half an hour each for the
-    # release builds and the concurrent programs.
-    timeout-minutes: 180
+    # release builds and the concurrent programs; a slow one has run past three hours.
+    timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
