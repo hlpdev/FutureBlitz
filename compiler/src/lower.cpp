@@ -6941,8 +6941,9 @@ private:
         }
 
         // A lambda that throws puts its error where a Function that throws does: in an Error?
-        // its caller passes last, by reference.
-        if (closure.lambda && !function.throws.empty()) {
+        // its caller passes last, by reference. So does the code of a Function that throws, used
+        // by name, which hands on the Function's.
+        if (!function.throws.empty()) {
             m_error_slot = add_local(m_analysis.nullable_error, "error", true);
         }
 
@@ -6963,15 +6964,30 @@ private:
         }
 
         if (!closure.lambda) {
+            std::optional<local_id_t> error;
+            if (takes_error(closure.function)) {
+                error = error_variable();
+                arguments.push_back({ .value = place_t{ *error }, .by_ref = true });
+            }
+
             call_t call{
                 .function = function_of(closure.function, m_arguments),
                 .arguments = std::move(arguments),
             };
             if (result == type_id_t::NONE) {
                 emit(evaluate_t{ .value = std::move(call) });
+                if (error) {
+                    check_error(*error, function.span);
+                }
+
                 terminate(return_t{});
             } else {
-                terminate(return_t{ .value = temporary(std::move(call), result) });
+                const operand_t value = temporary(std::move(call), result);
+                if (error) {
+                    check_error(*error, function.span);
+                }
+
+                terminate(return_t{ .value = value });
             }
 
             return;

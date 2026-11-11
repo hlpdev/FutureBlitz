@@ -15374,9 +15374,13 @@ private:
                                       const type_id_t callback) {
         const type_id_t wanted = func_of_callback(callback);
         std::vector<symbol_id_t> fitting;
-        std::ranges::copy_if(
-            overloads, std::back_inserter(fitting),
-            [&](const symbol_id_t overload) { return func_of(overload) == wanted; });
+        std::ranges::copy_if(overloads, std::back_inserter(fitting),
+                             [&](const symbol_id_t overload) {
+                                 // Whatever it throws, so one that does is told why it can't be
+                                 // one.
+                                 const type_id_t own = func_of(overload);
+                                 return own != type_id_t::INVALID && same_shape(own, wanted);
+                             });
         const span_t span = span_of(id);
         if (fitting.size() > 1) {
             diagnostic_t& diagnostic = error(span, "the Callback '{}' is ambiguous", name);
@@ -22848,11 +22852,6 @@ private:
             return type_id_t::INVALID;
         }
 
-        if (!function.throws.empty()) {
-            error(span, "'{}' can throw, and a function value can't", name);
-            return type_id_t::INVALID;
-        }
-
         if (function.modifiers.is_async) {
             error(span, "'{}' is Async, so it isn't a function value; a lambda can call it", name);
             return type_id_t::INVALID;
@@ -22946,14 +22945,15 @@ private:
         return func;
     }
 
-    /// A Function's Func type: its parameters' types, and the type it returns.
+    /// A Function's Func type: its parameters' types, the type it returns, and what it throws.
     type_id_t func_of(const symbol_id_t function) {
         std::vector<type_id_t> parameters;
         for (const symbol_id_t parameter : symbol(function).parameters) {
             parameters.push_back(symbol(parameter).type);
         }
 
-        return m_analysis.types.function(parameters, symbol(function).type);
+        return m_analysis.types.function(parameters, symbol(function).type, false,
+                                         symbol(function).throws);
     }
 
     /// Whether a Function is the one a Func type expected names: its own type, or one that takes

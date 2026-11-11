@@ -1,0 +1,116 @@
+// A Function that throws, as a value by its name, and function values that throw kept in Fields,
+// Statics, arrays, Maps, and generic instances.
+Import std.core
+Import std.collections
+
+Class Oops Extends Error
+End Class
+
+Function Risky(n: Int): Int Throws Oops
+    If n < 0 Then Throw Oops("negative {n}")
+    Return n * 2
+End Function
+
+Function Over(n: Int): Int Throws Oops => Try Risky(n) + 1
+Function Over(s: String): Int => 7
+
+Function Same<T: Printable>(value: T): T Throws Oops
+    If "{value}" == "bad" Then Throw Oops("same")
+    Return value
+End Function
+
+Function Quiet(n: Int) Throws Oops
+    If n < 0 Then Throw Oops("quiet {n}")
+End Function
+
+Function Wide(work: Func(Int): Int Throws Error, n: Int): String
+    Try
+        Return "{Try work(n)}"
+    Catch e
+        Return "error: {e.Message}"
+    End Try
+End Function
+
+Class Holder
+    Field Work: Func(Int): Int Throws Oops
+    Static Field Common: (Func(Int): Int Throws Oops)? = Null
+
+    New(work: Func(Int): Int Throws Oops)
+        Self.Work = work
+    End New
+
+    Method Run(n: Int): Int Throws Oops => Try Self.Work(n)
+End Class
+
+Struct Pair
+    Field First: Func(Int): Int Throws Oops
+End Struct
+
+Class Box<T>
+    Field Value: T
+
+    New(value: T)
+        Self.Value = value
+    End New
+End Class
+
+Function Sum<T>(items: T[], work: Func(T): Int Throws Oops): Int Throws Oops
+    Local sum = 0
+    For item In items
+        sum += Try work(item)
+    End For
+    Return sum
+End Function
+
+// By its name: with its own type, where one is written, and where a wider one is expected.
+Local named = Risky
+Print("{Try? named(3) ?? -1} {Try? named(-3) ?? -1}")
+Local typed: Func(Int): Int Throws Oops = Risky
+Print("{Try? typed(4) ?? -1} {Try? typed(-4) ?? -1}")
+Print("{Wide(Risky, 5)}, {Wide(Risky, -5)}")
+
+// A Func type picks the overload, throwing or not, and tells a generic one its type.
+Local byInt: Func(Int): Int Throws Oops = Over
+Local byText: Func(String): Int Throws Oops = Over
+Print("{Try? byInt(1) ?? -1} {Try? byInt(-1) ?? -1} {Try? byText("x") ?? -1}")
+Local same: Func(String): String Throws Oops = Same
+Print("{Try? same("good") ?? "none"} {Try? same("bad") ?? "none"}")
+
+// One that gives nothing.
+Local quiet = Quiet
+Try
+    Try quiet(1)
+    Print("quiet passed")
+    Try quiet(-1)
+    Print("not reached")
+Catch e As Oops
+    Print("caught {e.Message}")
+End Try
+
+// Kept: a Field, a Static, an array, a Struct, a generic instance, and a Map.
+Local holder = Holder(Risky)
+Print("{Try? holder.Run(2) ?? -1} {Try? holder.Run(-2) ?? -1}")
+Local works: (Func(Int): Int Throws Oops)[] = [
+    Risky,
+    Function(n) => Try Risky(n) + 100,
+    Function(n) => n + 1,
+]
+For work In works
+    Print("{Try? work(1) ?? -100} {Try? work(-1) ?? -100}")
+End For
+Holder.Common = works[1]
+Local common = Holder.Common
+If common != Null Then Print(Try? common(5) ?? 0)
+Local box = Box<Func(Int): Int Throws Oops>(Risky)
+Print("{Try? box.Value(6) ?? 0} {Try? box.Value(-6) ?? 0}")
+Local pair = Pair(Risky)
+Print(Try? pair.First(7) ?? 0)
+Local byName = Map<String, Func(Int): Int Throws Oops>()
+byName["risky"] = Risky
+byName["over"] = Over
+Local got = byName.Get("over")
+If got != Null Then Print("{Try? got(8) ?? 0} {Try? got(-8) ?? 0}")
+Print("{Try? Sum([1, 2, 3], Risky) ?? -1} {Try? Sum([1, -2, 3], Risky) ?? -1}")
+
+// Its debug form is its type's name, Throws and all.
+Print("{named:?} | {pair:?}")
