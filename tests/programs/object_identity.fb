@@ -1,0 +1,101 @@
+// An Interface's Static default keys what implements it by which object it is: `value As?
+// Object` takes any type parameter's value, and gives the object where the instance's type is a
+// Class's and Null where it isn't, and an Object meets `T: Class`, so it's an Identity's T.
+// Nothing leaks.
+Import std.collections
+Import std.core
+
+Interface Thing
+    Static Method KeyOf(value: Self): Object? => value As? Object
+
+    Method Mine(): Object? => Self As? Object
+End Interface
+
+Class Box Implements Thing
+    Field Size: Int
+
+    New(size: Int)
+        Size = size
+    End New
+
+    Operator ==(a: Box, b: Box): Bool => a.Size == b.Size
+
+    Method Hash(): UInt64 => Size As UInt64
+
+    Method Destroy()
+        Print("box {Size} goes")
+    End Method
+End Class
+
+Struct Coin Implements Thing
+    Field Worth: Int
+End Struct
+
+Interface Named
+End Interface
+
+Class Tag Implements Named
+End Class
+
+Extend Int[] Implements Named
+End Extend
+
+Function Key<T: Thing>(value: T): Object?
+    Return value As? Object
+End Function
+
+Function Any<T>(value: T): Object? => value As? Object
+
+Function Made<T>(make: Func(): T): Object? => make() As? Object
+
+Function Same<T: Class>(a: T, b: T): Bool => a == b
+
+Function Back<T: Class>(value: Object): T? => value As? T
+
+Function Kept<T: Class>(value: T): Weak<T>
+    Local kept: Weak<T> = value
+    Return kept
+End Function
+
+// The luau lane's program: the key an Interface's code finds is the object's own.
+Local ids: Map<Identity<Object>, Int> = {}
+Local box = Box(1)
+Local key = Key(box)
+If key != Null Then ids[Identity(key)] = 1
+Print("{ids.Count} {ids.Get(Identity(Key(box) ?? box)) ?? -1}")
+
+// A Struct that implements the Interface gives Null, from a default's Self too.
+Print("{Key(Coin(1)) == Null} {Coin.KeyOf(Coin(2)) == Null} {Coin(3).Mine() == Null}")
+Print("{RefEquals(Box.KeyOf(box), box)} {RefEquals(box.Mine(), box)}")
+
+// Whatever the instance's type: a T? that's Null, a number, a String, an array, an Object, an
+// Interface's value that's an object, one that's an array, and a Weak's object.
+Local none: Box? = Null
+Local any: Object = box
+Local tag = Tag()
+Local named: Named = tag
+Local numbers: Named = [1, 2]
+Local weak: Weak<Box> = box
+Print("{Any(none) == Null} {Any(5) == Null} {Any("text") == Null} {Any([box]) == Null}")
+Print("{RefEquals(Any(any), box)} {RefEquals(Any(named), tag)} {Any(numbers) == Null}")
+Print(RefEquals(Any(weak), box))
+
+// One made for the call is kept by what's given, and goes with it.
+Local made = Made(Function(): Box => Box(5))
+Print("{made != Null} {Made(Function(): String => "te" + "xt") == Null}")
+made = Null
+Print(Made(Function(): Box? => Null) == Null)
+
+// Two objects that are equal are two keys of an Identity<Object>.
+Local twin = Box(1)
+Print(box == twin)
+ids[Identity<Object>(twin)] = 2
+ids[Identity(any)] = 3
+Print("{ids.Count} {ids[Identity<Object>(box)]} {ids[Identity<Object>(twin)]}")
+
+// And what else asks `T: Class` takes an Object: its == is which object it is, as a Class's
+// without one of its own.
+Print("{Same<Object>(box, box)} {Same<Object>(box, twin)} {Same(box, twin)}")
+Print("{RefEquals(Back<Object>(box), box)} {Kept<Object>(twin) != Null}")
+ids.Clear()
+Print("done")

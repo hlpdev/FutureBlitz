@@ -264,6 +264,26 @@ Print(session.Data<Invoice>() == Null)          // True
   test it. `As?` and `As` convert to and from a type parameter that's a Class's too, checking
   each instance's Class. An Interface's value converts to an Object only with `As?` or `As`,
   since it can be an array's.
+- `x As? Object` takes a value of any type parameter too, one no constraint says is a Class's,
+  and an Interface's `Self` in its defaults: each instance decides it as it's made. Where the
+  instance's type is a Class, it's the object, with nothing checked as the program runs; a `T?`
+  of one, the object or Null; an Interface, the object unless it's an array; a `Weak<C>`, its
+  object while that lives; and anything else, a Struct, number, String, array, or function
+  value, Null. So an Interface's default keeps what implements it by which object it is, where
+  it's an object:
+
+  ```vb
+  Interface Scripted
+      Static Method KeyOf(value: Self): Identity<Object>?
+          Local object = value As? Object
+          If object == Null Then Return Null
+          Return Identity(object)
+      End Method
+  End Interface
+  ```
+
+  Only `As?` does, and only to an Object: `x As Object`, `x Is Object`, and `x As? C` still want
+  a type parameter that's a Class's.
 - Nothing else is an Object: not a Struct, tuple, number, String, array, function value, Task,
   or Channel. A Struct is a value, copied where it goes, so it's never an Object, as it's never
   an Interface's value: one put in an object would be a copy, which the program's changes to
@@ -273,6 +293,9 @@ Print(session.Data<Invoice>() == Null)          // True
   are the same object. Otherwise it's a reference like any: it counts its owners, `Object?` can
   be Null, a `Weak<Object>` refers to one without keeping it, and it isn't Sendable, since a
   Class's objects stay on the thread that made them.
+- It meets `Where T: Class`, as it's always a Class's object (see
+  [07](07-generics.md#class-enum-and-error)): std.collections' `Identity<Object>` is any Class's
+  object as a key.
 - No type lists it, no Interface extends it, an Extend can't add to it, and it isn't a
   constraint: `Where T: Class` says a type is a Class.
 - Object isn't a keyword, nor is any of the language's other types' names: Scheduler, Task,

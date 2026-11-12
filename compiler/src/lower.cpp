@@ -11495,6 +11495,20 @@ private:
         use_class(type);
         // 'As?' can give Null, so it borrows the object, whose temporary keeps its reference.
         if (node.checked) {
+            // A type parameter's value as an Object is decided by each instance: a Class's
+            // object is one as it is, and what isn't an object at all is Null.
+            const type_id_t given = type_of(value);
+            const type_id_t source = is_nullable(given) ? types().get(given).inner : given;
+            if (types().get(type).inner == m_analysis.interfaces.object) {
+                if (is_class(source)) {
+                    return temporary(use_t{ .value = value }, type);
+                }
+
+                if (!is_interface(source)) {
+                    return const_value_t{ .type = type, .data = nullptr };
+                }
+            }
+
             return temporary(
                 downcast_t{ .value = value, .type = type, .span = span_of(id), .or_null = true },
                 type);

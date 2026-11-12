@@ -2460,6 +2460,30 @@ TEST_CASE("every Class's object is an Object, which 'As?' turns back into a Clas
     CHECK(probe(with_family("Function F<T: Class>(t: T): Object => t\nLocal x = F(B())")) ==
           "Object");
     CHECK(probe(with_family("Function F<T: Class>(t: T): A => t As A\nLocal x = F(B())")) == "A");
+    // Any type parameter's value may be one, which 'As?' asks of each instance: an Interface's
+    // Self too, in its defaults, and a T?.
+    CHECK(probe(with_family("Function F<T>(t: T): Object? => t As? Object\nLocal x = F(P())")) ==
+          "Object?");
+    CHECK(errors_of(with_family("Interface K\n"
+                                "    Static Method Key(value: Self): Object? => value As? Object\n"
+                                "    Method Mine(): Object? => Self As? Object\n"
+                                "End Interface\n"
+                                "Function F<T: K>(t: T?): Object? => t As? Object\n"
+                                "Function G<T: I>(t: T): Object? => t As? Object\n"))
+              .empty());
+    // An Object is a Class's object, so it meets `T: Class`, and what asks one takes it.
+    CHECK(probe("Function F<T: Class>(): Int => 0\nLocal x = F<Object>()") == "Int32");
+    CHECK(errors_of("Import std.collections\n" +
+                    with_family("Class Holder<T: Class>\n"
+                                "    Field Kept: Weak<T>\n"
+                                "End Class\n"
+                                "Function Same<T: Class>(a: T, b: T): Bool => a == b\n"
+                                "Local o: Object = B()\n"
+                                "Local holder = Holder<Object>()\n"
+                                "Local same = Same(o, o)\n"
+                                "Local keys: Map<Identity<Object>, Int> = {}\n"
+                                "keys[Identity(o)] = 1\n"))
+              .empty());
     // A type the code declares by the name takes its place.
     CHECK(probe("Class Object\n    Field N: Int\nEnd Class\nLocal x = Object().N") == "Int32");
 
@@ -2474,6 +2498,21 @@ TEST_CASE("every Class's object is an Object, which 'As?' turns back into a Clas
     CHECK(errors_of("Function F<T>(o: Object): T? => o As? T") ==
           errors_t{ "o As? T: 'As?' converts objects between Classes and Interfaces, not Object "
                     "to T; a constraint like <T: Class> says it's one" });
+    // Only 'As?', and only to an Object, takes a type parameter that isn't a Class's.
+    CHECK(
+        errors_of("Import std.core\n" + with_family("Function F<T>(t: T): Object => t As Object\n"
+                                                    "Function G<T>(t: T): A? => t As? A\n"
+                                                    "Function H<T>(t: T): Bool => t Is Object\n"
+                                                    "Function J<T: Class & Hashable>(): Int => 0\n"
+                                                    "Local x = J<Object>()\n")) ==
+        errors_t{
+            "t As Object: 'As' can't convert T to Object",
+            "t As? A: 'As?' converts objects between Classes and Interfaces, not T to A; a "
+            "constraint like <T: Class> says it's one",
+            "t: 'Is' tests objects of Classes, not T; a constraint like <T: Class> says it's "
+            "one",
+            "J<Object>: Object doesn't implement Hashable, which 'J' needs for T",
+        });
     CHECK(errors_of("Local x: Object<Int>") == errors_t{ "Object<Int>: 'Object' isn't generic" });
     const std::string listed = "every Class is an Object already, and nothing else can be one, "
                                "so Object isn't implemented, extended, or a constraint; <T: "
@@ -2506,8 +2545,6 @@ TEST_CASE("every Class's object is an Object, which 'As?' turns back into a Clas
     // "an Object", and no word of arrays where it's not a Class.
     CHECK(errors_of(with_family("Local b = B()\nLocal x = b Is Object")) ==
           errors_t{ "b Is Object: this is always True: every B is an Object" });
-    CHECK(errors_of("Function F<T: Class>(): Int => 0\nLocal x = F<Object>()") ==
-          errors_t{ "F<Object>: Object isn't a Class, which 'F' needs for T" });
 
     // Only a type of its name takes the built-in's place, not a Function's, for Scheduler too.
     CHECK(errors_of(with_family("Function Object(): Int => 1\nLocal x: Object = B()")).empty());

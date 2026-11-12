@@ -11223,8 +11223,9 @@ private:
             return unknown_bounds(type) || std::ranges::contains(bounds_of(type), interface);
         }
 
+        // An Object is always a Class's object, so it's a Class to a constraint.
         if (interface == m_analysis.interfaces.any_class) {
-            return is_class(type);
+            return is_class(type) || type == m_analysis.interfaces.object;
         }
 
         if (interface == m_analysis.interfaces.any_enum) {
@@ -11774,10 +11775,8 @@ private:
                           is_parameter(bound.parameter)
                               ? std::format(" for {}", name_of(bound.parameter, argument))
                               : std::string(),
-                          // An Object is always a Class's.
-                          is_interface(argument) && argument != m_analysis.interfaces.object
-                              ? "; an Interface's value can be an array too"
-                              : "");
+                          is_interface(argument) ? "; an Interface's value can be an array too"
+                                                 : "");
                 }
             } else if (interface == m_analysis.interfaces.any_enum) {
                 if (!implements(argument, interface)) {
@@ -30843,8 +30842,11 @@ private:
             return type_id_t::INVALID;
         }
 
+        // Any type parameter's value may be an Object: each instance says whether its type is a
+        // Class's, and one that isn't gives Null.
         const type_id_t object = non_null(source);
-        if (!is_any_object(object) || !is_any_object(target)) {
+        const bool any = is_parameter(object) && target == m_analysis.interfaces.object;
+        if (!any && (!is_any_object(object) || !is_any_object(target))) {
             error(span_of(id),
                   "'As?' converts objects between Classes and Interfaces, not {} to {}{}",
                   name_of(source, target), name_of(target, source),
@@ -30954,7 +30956,7 @@ public:
         }
 
         if (interface == m_analysis.interfaces.any_class) {
-            return info.kind == type_kind_t::CLASS;
+            return info.kind == type_kind_t::CLASS || type == m_analysis.interfaces.object;
         }
 
         if (interface == m_analysis.interfaces.any_enum) {

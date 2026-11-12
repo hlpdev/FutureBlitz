@@ -188,10 +188,13 @@ End Function
   as each instance's Class, or Null. A T converts to an `Object` (see
   [06](06-user-types.md#object)), which is how a library keeps any Class's object and gives it
   back typed.
-- A Class meets it, an instance of a generic Class, and a Shared Class. Nothing else does: not a
-  Struct, tuple, fixed array, or built-in type, which are values; not a String, a T[], or a
-  function value, which refer to something that isn't a Class's object; not an Interface, whose
-  value can be an array too; and not a `T?`, which can be Null.
+- A Class meets it, an instance of a generic Class, a Shared Class, and `Object`, which is
+  always a Class's object: `Identity<Object>`, or a `Weak<T>` of it. Under it an Object's
+  `==` is RefEquals, whatever the object's own Class's is, `x Is T` is True of every object, and
+  `x As? T` gives the Object. Nothing else does: not a Struct, tuple, fixed array, or built-in
+  type, which are values; not a String, a T[], or a function value, which refer to something
+  that isn't a Class's object; not another Interface, whose value can be an array too; and not
+  a `T?`, which can be Null.
 - It's only a constraint. It gives what every Class has, which is that it's `Equatable`, and `&`
   adds the rest: `Where T: Class & Hashable`. With Sendable, `Where T: Class & Sendable`, the T is
   a Shared Class, so its `Weak<T>` is Sendable too.

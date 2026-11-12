@@ -9,7 +9,8 @@ Import std.core
 
 /// A Class's object as a key by which object it is: equal to another Identity only of the same
 /// object, with RefEquals, and hashed with RefHash, never by the Class's own `==` or Hash. It
-/// holds its object, which lives as long as the Identity does, as a key does in its Map.
+/// holds its object, which lives as long as the Identity does, as a key does in its Map. An
+/// `Identity<Object>` is any Class's object, for a Map whose keys are of more than one Class.
 ///
 /// # Examples
 ///
