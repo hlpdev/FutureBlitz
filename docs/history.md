@@ -3,7 +3,7 @@
 What each milestone and step added, by name, and each review's fixes, as CLAUDE.md kept
 them while each was built. Newest first.
 
-## After 1.3.1
+## 1.3.2
 
 - **A Scheduler's Time, and Scheduler.Current**: a coroutine on a program's Scheduler, whose time is ticked, scaled, and paused, couldn't tell how much of it had passed, so the luau package's own waits couldn't be exact. `s.Time()` is any Scheduler's time as std.time's Duration, the nanoseconds its Waits count against (the runtime's `scheduler_t::time()`, through `fb_scheduler_time`): its Ticks added up from zero, or for the main scheduler the real clock's since the program started. `Scheduler.Current` is the scheduler running the code, beside `Scheduler.Main` (sema's `check_main_scheduler`, `expr_info_t::current_scheduler`, lowering's SCHEDULER_CURRENT): the runtime's `fb_scheduler_current` gives the one being ticked, whose state now knows its object, or else the main one. Both are the main thread's to use, as Main is. Tests: the program scheduler_time (the main scheduler's moves on with the real clock; a Scheduler ticked 0.5 s at a time, read before and after a Wait; paused, it stands still; after Run a coroutine reads the Scheduler's; one started in a tick reads it from its first line; top-level code is the main one's again) and sema's "a Scheduler's Time is a Duration, and Scheduler.Current the one running the code". A program written for 1.3.1 sees nothing change.
 
