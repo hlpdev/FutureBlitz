@@ -3018,8 +3018,9 @@ private:
         }
 
         // Reading a Weak<T> gives a T? with a reference of its own, or Null once the object is
-        // gone.
-        if (is_weak(from)) {
+        // gone. A Weak<T> made a Weak<T>?, as generic code makes a V a V?, isn't read: it's the
+        // same Weak, which may be there.
+        if (is_weak(from) && !is_weak(without_nullables(type))) {
             const type_id_t read = types().find_nullable(types().get(from).inner);
             const operand_t strong =
                 runtime_call(runtime_function_t::WEAK_LOAD, { value }, read, true);

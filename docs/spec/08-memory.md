@@ -42,6 +42,9 @@ so `node.parent?.name` works directly.
   `T?`, or `Null`, which refers to nothing and is also its zero, so a field of one needs no `New`; a
   `Weak<Object>` is assigned any Class's object.
 - What reading it gives holds a reference of its own, so the object stays while it's used.
+- In generic code a Weak is a value like another: where a `V` is a `Weak<T>`, a `V?` holds the
+  Weak itself or Null, as `Map<Int, Weak<Node>>`'s `Get` gives, and making one reads nothing and
+  keeps no object. Checked for Null, it's the Weak, which reads as a `T?`.
 - Its object can go at any time, so a null check doesn't narrow a Weak. Read it into a Local,
   and check that.
 - A Struct that holds a Weak has no `==`, which would compare the references.

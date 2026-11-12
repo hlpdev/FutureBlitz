@@ -1,0 +1,20 @@
+Get: core
+Get of none: True
+Get or: other core
+GetOrAdd: core
+entry 1: core
+entry 2: other
+entry 4: core
+Remove: True 2
+First: core
+Last: other
+Find: core
+TryRemoveLast: other 1
+each: core
+Maybe: core
+Maybe not: True
+Paired: core core
+Twice: True
+Pop: core
+Dequeue: other
+gone: gone

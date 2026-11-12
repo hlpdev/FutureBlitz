@@ -1,0 +1,90 @@
+// A Weak<T> in generic code: where a V is made a V?, or put in a tuple, with V a Weak<T>, the Weak
+// is kept as it is and nothing is read, so no object is kept by it. Nothing leaks.
+Import std.core
+Import std.collections
+
+Class Core
+    Field Name: String
+
+    New(name: String)
+        Self.Name = name
+    End New
+End Class
+
+Function Name(core: Core?): String => core?.Name ?? "gone"
+
+Function Maybe<V>(value: V, there: Bool): V?
+    If there Then Return value
+    Return Null
+End Function
+
+Function Paired<V>(value: V): (V, V?)
+    Return (value, value)
+End Function
+
+Function Twice<V>(value: V?): V??
+    Return value
+End Function
+
+Local core = Core("core")
+Local other = Core("other")
+Local weak: Weak<Core> = core
+
+// A Map's lookups, removal, and entries.
+Local cores: Map<Int, Weak<Core>> = {}
+cores[1] = core
+cores[2] = other
+Local got = cores.Get(1)
+If got != Null Then Print("Get: {Name(got)}")
+Print("Get of none: {cores.Get(3) == Null}")
+Print("Get or: {Name(cores.Get(2, weak))} {Name(cores.Get(3, weak))}")
+Print("GetOrAdd: {Name(cores.GetOrAdd(4, Function() => weak))}")
+For entry In cores
+    Print("entry {entry.0}: {Name(entry.1)}")
+End For
+Print("Remove: {cores.Remove(2)} {cores.Count}")
+
+// An array's: what a lookup, an end, and its iteration give.
+Local list: Weak<Core>[] = [core, other]
+Local first = list.First()
+If first != Null Then Print("First: {Name(first)}")
+Local last = list.Last()
+If last != Null Then Print("Last: {Name(last)}")
+Local found = list.Find(Function(w) => True)
+If found != Null Then Print("Find: {Name(found)}")
+Local removed = list.TryRemoveLast()
+If removed != Null Then Print("TryRemoveLast: {Name(removed)} {list.Count}")
+For each In list
+    Print("each: {Name(each)}")
+End For
+
+// Generic Functions of the program's own: a V?, a tuple with one, and a V??.
+Local maybe = Maybe(weak, True)
+If maybe != Null Then Print("Maybe: {Name(maybe)}")
+Print("Maybe not: {Maybe(weak, False) == Null}")
+Local pair = Paired(weak)
+Local second = pair.1
+If second != Null Then Print("Paired: {Name(pair.0)} {Name(second)}")
+Local twice = Twice<Weak<Core>>(weak)
+Print("Twice: {twice != Null}")
+
+// A Stack and a Queue.
+Local stack = Stack<Weak<Core>>()
+stack.Push(core)
+Local top = stack.Pop()
+If top != Null Then Print("Pop: {Name(top)}")
+Local queue = Queue<Weak<Core>>()
+queue.Enqueue(other)
+Local next = queue.Dequeue()
+If next != Null Then Print("Dequeue: {Name(next)}")
+
+// One whose object has gone is still there in the Map, and reads as Null.
+Function Fill(into: Map<Int, Weak<Core>>)
+    Local brief = Core("brief")
+    into[1] = brief
+End Function
+
+Local late: Map<Int, Weak<Core>> = {}
+Fill(late)
+Local kept = late.Get(1)
+If kept != Null Then Print("gone: {Name(kept)}")
