@@ -3,7 +3,7 @@
 What each milestone and step added, by name, and each review's fixes, as CLAUDE.md kept
 them while each was built. Newest first.
 
-## After 1.3.3
+## 1.3.4
 
 Two bugs the game met (scpcb-x, 2026-11-12), each with a program of its own in tests/programs.
 
