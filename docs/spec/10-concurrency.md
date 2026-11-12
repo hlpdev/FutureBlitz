@@ -233,8 +233,9 @@ Rules:
   is a Tick of no time, and `s.IsIdle()` says whether no coroutine waits on it.
 - An Async call starts on the scheduler running the code: the main scheduler, or a Scheduler
   while it's ticked or stepped. `s.Run(task)` moves its coroutine to `s`, from the scheduler
-  running the code, with the coroutines and timers it waits for. A Task that's done, or a
-  Spawn's, has nothing to move.
+  running the code, with the coroutines and timers it waits for, which keep their order: a tick
+  of `s` that finishes the innermost goes on up through each that waits for it, as a tick of the
+  scheduler they came from would. A Task that's done, or a Spawn's, has nothing to move.
 - `Await NextTick()` resumes at the next tick of the scheduler running the coroutine: for the main
   scheduler, its next Step, or the main thread's next `Wait()` or top-level Await that has to wait;
   for a Scheduler, its next Tick or Step. In top-level code it waits as `Wait()` does, so it runs

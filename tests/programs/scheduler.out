@@ -14,8 +14,8 @@ blink done
 tick 6
 front closes
 gate closes
-tick 7
 sequence done
+tick 7
 tick 8
 loaded 42
 idle True

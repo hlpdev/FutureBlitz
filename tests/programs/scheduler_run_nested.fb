@@ -1,0 +1,44 @@
+// A Scheduler's Run(task) takes the coroutines the task waits for with it, in the order they
+// wait in, so one tick that finishes the innermost goes on up through each that waits for it,
+// as a tick of the scheduler they came from does.
+Import std.core
+Import std.time
+
+Async Function Inner(seconds: Float64): Int
+    Await Wait(seconds.Seconds)
+    Return 1
+End Function
+
+Async Function Middle(seconds: Float64): Int
+    Return Await Inner(seconds)
+End Function
+
+Async Function Outer(seconds: Float64): Int
+    Return Await Middle(seconds)
+End Function
+
+Async Function Looped(seconds: Float64): Int
+    Local n = 0
+    While n < 2
+        n += Await Inner(seconds)
+    End While
+    Return n
+End Function
+
+Local s = Scheduler()
+Local one = Inner(2.0)
+s.Run(one)
+s.Tick(2.5)
+Print("one level: {one.IsDone()}")
+Local three = Outer(2.0)
+s.Run(three)
+s.Tick(1.0)
+Print("three levels, early: {three.IsDone()} {s.IsIdle()}")
+s.Tick(1.5)
+Print("three levels: {three.IsDone()} {s.IsIdle()}")
+Local looped = Looped(1.0)
+s.Run(looped)
+s.Tick(1.5)
+Print("looped, once: {looped.IsDone()}")
+s.Tick(1.5)
+Print("looped: {looped.IsDone()}")

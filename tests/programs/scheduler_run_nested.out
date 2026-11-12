@@ -1,0 +1,5 @@
+one level: True
+three levels, early: False False
+three levels: True True
+looped, once: False
+looped: True

@@ -585,36 +585,43 @@ public:
             return;
         }
 
-        std::vector<const fb_task_t*> tasks{ task };
-        while (!tasks.empty()) {
-            const fb_task_t* const moving = tasks.back();
-            tasks.pop_back();
-            std::erase_if(from.m_waiting, [&](waiting_t& waiting) {
-                if (waiting.own != moving) {
-                    return false;
+        // The Tasks whose coroutines and timers move: `task`, and each one a moving coroutine
+        // waits for, in turn.
+        std::vector<const fb_task_t*> moving{ task };
+        for (std::size_t i = 0; i < moving.size(); ++i) {
+            for (const waiting_t& waiting : from.m_waiting) {
+                if (waiting.own == moving[i] && !std::ranges::contains(moving, waiting.task)) {
+                    moving.push_back(waiting.task);
                 }
-
-                tasks.push_back(waiting.task);
-                waiting.since = m_ticks;
-                m_waiting.push_back(waiting);
-                return true;
-            });
-            std::erase_if(from.m_timers, [&](timer_t& timer) {
-                if (timer.task != moving) {
-                    return false;
-                }
-
-                if (timer.tick != 0) {
-                    timer.tick = m_ticks + 1;
-                } else if (!timer.real) {
-                    timer.due =
-                        later_by(time(), std::max<std::int64_t>(0, timer.due - from.time()));
-                }
-
-                m_timers.push_back(timer);
-                return true;
-            });
+            }
         }
+
+        // The coroutines keep the order they started waiting in, what's waited for before what
+        // waits for it, so a tick that finishes the innermost goes on up through the ones that
+        // waited for it, as a tick of the scheduler they came from does.
+        std::erase_if(from.m_waiting, [&](waiting_t& waiting) {
+            if (!std::ranges::contains(moving, waiting.own)) {
+                return false;
+            }
+
+            waiting.since = m_ticks;
+            m_waiting.push_back(waiting);
+            return true;
+        });
+        std::erase_if(from.m_timers, [&](timer_t& timer) {
+            if (!std::ranges::contains(moving, timer.task)) {
+                return false;
+            }
+
+            if (timer.tick != 0) {
+                timer.tick = m_ticks + 1;
+            } else if (!timer.real) {
+                timer.due = later_by(time(), std::max<std::int64_t>(0, timer.due - from.time()));
+            }
+
+            m_timers.push_back(timer);
+            return true;
+        });
     }
 
     /// Destroys the coroutines waiting here, the newest first, which lets go of what each one
