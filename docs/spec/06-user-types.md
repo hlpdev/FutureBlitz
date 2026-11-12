@@ -166,6 +166,11 @@ End Class
   Method, and one that isn't ByRef by one that isn't. A Property is implemented by a Property of
   its type, which has a Set if the Interface's does. What implements a member doesn't throw.
 - A type that doesn't have a default's Method, its own or one it inherits, gets the default.
+  A Static default is made for each Class that lists the Interface, with that Class for Self:
+  the copy a Class it extends took of the same default doesn't stand in for it, and the Class's
+  own hides it, so `Dog.Name()` is Dog's where `Class Dog Extends Animal Implements Maker` and
+  Animal lists Maker too. A Class that doesn't list the Interface has what it inherits, and a
+  Static the base wrote itself is the Class's as any inherited member is.
   Where its own declaration, or a Class's it extends, lists the Interface, the default is a
   Method of its own, which a Class extending it can override, and which is checked against what
   the Class inherits like a Method written there. Where an Extend lists it, the default is the

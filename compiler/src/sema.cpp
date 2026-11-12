@@ -5724,10 +5724,16 @@ private:
             const bool other_default = found.default_method && !required.modifiers.is_abstract &&
                                        found.owner == type &&
                                        !refines(found.default_interface, interface);
+            // A Static default is made for the Class that lists the Interface, whose Self it
+            // is, so the copy a Class it extends took of this same default isn't this one's:
+            // it gets its own. One the base wrote itself is a Static it has, like any other.
+            const bool base_default = required.modifiers.is_static &&
+                                      found.default_method == required_id &&
+                                      definition_of(found.owner) != definition_of(type);
             if (found.kind != symbol_kind_t::METHOD ||
                 found.modifiers.is_static != required.modifiers.is_static ||
                 is_operator(found) != wants_operator || is_interface(found.owner) ||
-                other_default) {
+                other_default || base_default) {
                 continue;
             }
 
@@ -6732,8 +6738,12 @@ private:
         for (const symbol_id_t other : members_of(base, taken.name, listing)) {
             const symbol_t& inherited = symbol(other);
             const bool usable = can_use(inherited, listing, type);
+            // The copy a Class it extends took of this same Static default is the base's, which
+            // this one's hides, as a Static a Class writes hides its base's.
+            const bool base_copy =
+                inherited.default_method && inherited.default_method == taken.default_method;
             const bool same_static = inherited.kind == symbol_kind_t::METHOD &&
-                                     inherited.modifiers.is_static &&
+                                     inherited.modifiers.is_static && !base_copy &&
                                      same_parameters(taken, inherited, base);
             if (usable && (inherited.kind != symbol_kind_t::METHOD || same_static)) {
                 error(listing, "{} takes {}'s default '{}', but '{}' is already declared in {}",

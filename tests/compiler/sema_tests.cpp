@@ -11494,6 +11494,33 @@ TEST_CASE("a Function that throws is a value of its own Func type, by its name",
           });
 }
 
+TEST_CASE("a Static a base wrote itself is still what a listing Class has", "[sema]") {
+    const std::string head = "Import std.core\n"
+                             "Interface Maker\n"
+                             "    Static Method Name(): String => TypeName<Self>()\n"
+                             "    Static Method Make(): Self\n"
+                             "    Static Method Count(): Int => 0\n"
+                             "End Interface\n"
+                             "Class Animal Implements Maker\n"
+                             "    Static Method Make(): Animal => Animal()\n"
+                             "    Static Method Count(): Int => 7\n"
+                             "End Class\n";
+    // A Class that lists the Interface too gets the default for itself, where the base only
+    // took it; what the base wrote, it has, when that fits, as Count does; and one that doesn't
+    // list the Interface has the base's.
+    CHECK(errors_of(head + "Class Dog Extends Animal Implements Maker\n"
+                           "    Static Method Make(): Dog => Dog()\n"
+                           "End Class\n"
+                           "Class Cat Extends Animal\nEnd Class\n"
+                           "Local names = Dog.Name() + Cat.Name()\n"
+                           "Local counts = Dog.Count() + Cat.Count()\n")
+              .empty());
+
+    // What the base wrote that doesn't fit the Class is the error it was.
+    CHECK(errors_of(head + "Class Dog Extends Animal Implements Maker\nEnd Class\n") ==
+          errors_t{ "Maker: Dog's 'Make' doesn't match Maker's, which takes () and returns Dog" });
+}
+
 TEST_CASE("a type's own attributes", "[sema]") {
     CHECK(probe("Attribute Saved\n@Saved Struct P\nEnd Struct\nLocal x = P.Has(Saved)") == "Bool");
     CHECK(probe("Attribute Label(Text: String)\nStruct P\nEnd Struct\n"

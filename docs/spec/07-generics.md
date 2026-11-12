@@ -247,6 +247,11 @@ Function Sum<T: Numeric>(xs: T[]): T
 End Function
 ```
 
+A Static default, one with a body, is made for each type that lists the Interface, with that
+type for Self, so one that gives `Self`, or reads `TypeName<Self>()`, is right for each. A Class
+that extends one that lists the Interface gets its own copy when it lists the Interface too, and
+has the base's when it doesn't (see [06](06-user-types.md)).
+
 ### Built-in interfaces
 
 `Equatable`, `Comparable`, `Hashable`, `Numeric`, `Printable`, `Cloneable`, and `Defaultable`

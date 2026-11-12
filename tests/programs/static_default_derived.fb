@@ -1,0 +1,79 @@
+// A Class that lists an Interface gets each Static default it doesn't write made for itself,
+// with Self as that Class, though a Class it extends took the same default; one that doesn't
+// list it keeps what it inherits; and a Static a base wrote itself is the Class's own.
+Import std.core
+
+Interface Maker
+    Static Method Name(): String
+        Return TypeName<Self>()
+    End Method
+
+    Static Method Make(): Self
+
+    // A default that gives Self: each Class that lists the Interface has one that gives it.
+    Static Method Again(): Self
+        Return Make()
+    End Method
+End Interface
+
+Class Animal Implements Maker
+    Field Sound: String = "..."
+
+    Static Method Make(): Animal => Animal()
+End Class
+
+Class Dog Extends Animal Implements Maker
+    New()
+        Sound = "woof"
+    End New
+
+    Static Method Make(): Dog => Dog()
+End Class
+
+Class Cat Extends Animal
+End Class
+
+Class Puppy Extends Dog Implements Maker
+    New()
+        Sound = "yip"
+    End New
+
+    Static Method Make(): Puppy => Puppy()
+End Class
+
+Class Stray Extends Puppy
+End Class
+
+// A Static the base wrote itself, not a default, is the derived Class's too.
+Interface Counted
+    Static Method Count(): Int => 0
+End Interface
+
+Class Shelf Implements Counted
+    Static Method Count(): Int => 7
+End Class
+
+Class Rack Extends Shelf Implements Counted
+End Class
+
+// A generic base.
+Class Box<T> Implements Maker
+    Static Method Make(): Box<T> => Box<T>()
+End Class
+
+Class Crate Extends Box<Int> Implements Maker
+    Static Method Make(): Crate => Crate()
+End Class
+
+Function Named<T: Maker>(): String => T.Name()
+Function Again<T: Maker>(): T => T.Again()
+
+Print("{Animal.Name()} {Dog.Name()} {Cat.Name()} {Puppy.Name()} {Stray.Name()}")
+Print("{Named<Animal>()} {Named<Dog>()} {Named<Puppy>()}")
+Print("{Again<Animal>().Sound} {Again<Dog>().Sound} {Again<Puppy>().Sound}")
+Print("{Animal.Again().Sound} {Dog.Again().Sound} {Puppy.Again().Sound} {Stray.Again().Sound}")
+Local dog: Dog = Dog.Again()
+Local puppy: Puppy = Puppy.Again()
+Print("{TypeName<Dog>()} {dog.Sound} {puppy.Sound}")
+Print("{Shelf.Count()} {Rack.Count()}")
+Print("{Box<Int>.Name()} {Box<String>.Name()} {Crate.Name()}")
