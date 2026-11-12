@@ -310,7 +310,8 @@ collection.
   change, so either can be a key.
 - `{key: value, ...}` is a new `Map<K, V>`. K and V are the expected Map type's, or else the
   keys' and the values' common types, as in an array literal. `{}` needs a type from where it's
-  used, like `Local m: Map<String, Int> = {}`. Each entry goes to the Map's `Add`, in order, so
+  used, like `Local m: Map<String, Int> = {}`, or in an `Extend Map<K, V>`, `Local m: Map<K, V> =
+  {}`. Each entry goes to the Map's `Add`, in order, so
   a repeated key keeps its last value.
 - `For key, value In map` takes each entry apart; `For entry In map` gives each as a tuple.
 - `map[key]` of a key that isn't there panics where it's read, unless the Map was made with a

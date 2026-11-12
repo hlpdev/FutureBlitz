@@ -1,0 +1,41 @@
+// A For Method loop whose Func type gives an R of the loop's own goes over the Methods that give
+// something, and skips one that gives nothing, as it skips one that takes another count.
+Import std.core
+
+Attribute Shown
+
+Class Door
+    @Shown Method Opened(): Bool => True
+    @Shown Method Open()
+    End Method
+    @Shown Method Width(): Int => 90
+    @Shown Method Named(name: String): String => name
+End Class
+
+Function Results<T>(value: T): String
+    Local text = ""
+    For Method m: M In T
+        Where m Has Shown
+        Where M: Func(): R
+        Where R: Printable
+        text = text + m.Name + "=" + "{m.Call(value)} "
+    End For
+    Return text
+End Function
+
+Function Quiet<T>(value: T): String
+    Local text = ""
+    For Method m In T
+        Where m Has Shown
+        m.Call(value)
+        text = text + m.Name + " "
+    End For
+    Return text
+End Function
+
+Print(Results(Door()))
+Print(Quiet(Door()))
+For Method m: M In Door
+    Where M: Func(): R
+    Print(m.Name)
+End For

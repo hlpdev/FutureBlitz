@@ -1,0 +1,46 @@
+// Among overloads, a Function's name or a lambda that throws less than a Func parameter's Throws
+// fits it by conversion, as it does where that Function is the only one.
+Import std.core
+
+Class Oops Extends Error
+End Class
+
+Class Worse Extends Oops
+End Class
+
+Function Take(_f: Func()): String => "plain"
+Function Take(f: Func() Throws Oops): String
+    Try
+        Try f()
+        Return "throwing, passed"
+    Catch e
+        Return "throwing, caught {e.Message}"
+    End Try
+End Function
+
+Function Fails() Throws Worse
+    Throw Worse("worse")
+End Function
+
+Function Quiet()
+End Function
+
+Print(Take(Quiet))
+Print(Take(Fails))
+Print(Take(Function() Throws Worse
+    Throw Worse("in a lambda")
+End Function))
+Print(Take(Function() Throws Oops
+End Function))
+Print(Take(Function()
+End Function))
+
+// With a result, which the lambda takes from the Func expected or writes.
+Function Give(f: Func(Int): Int): String => "plain {f(1)}"
+Function Give(f: Func(Int): Int Throws Oops): String => "throwing {Try? f(1) ?? -1}"
+
+Print(Give(Function(n: Int): Int Throws Worse => n + 1))
+Print(Give(Function(n: Int): Int Throws Worse
+    Throw Worse("no")
+End Function))
+Print(Give(Function(n: Int): Int => n + 2))

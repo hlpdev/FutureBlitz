@@ -28423,8 +28423,7 @@ private:
                    m_analysis.types.get(type).fields.size() == tuple->elements.size();
         }
 
-        return is_interface(type) ||
-               (m_map != type_id_t::INVALID && m_analysis.types.get(type).generic == m_map);
+        return is_interface(type) || (m_map != type_id_t::INVALID && definition_of(type) == m_map);
     }
 
     /// An array, tuple, or Map literal, whose type comes from where it goes, as its elements' do:
@@ -28769,8 +28768,9 @@ private:
                 return match_t::ANY;
             }
 
+            // One that throws less than the Func expected, by its own Throws, converts to it.
             if (made != type && made != non_null(type)) {
-                return match_t::NONE;
+                return is_func(made) && converts(made, type) ? match_t::CONVERTIBLE : match_t::NONE;
             }
 
             const bool own =
@@ -30552,11 +30552,13 @@ private:
             return type_id_t::INVALID;
         }
 
+        // In Map's own code, or an Extend of it, "Map<K, V>" is Map itself, whose type arguments
+        // are its parameters.
         const type_id_t expected = non_null(hint);
         std::vector<type_id_t> arguments;
         bool valid = true;
-        if (expected != type_id_t::INVALID && m_analysis.types.get(expected).generic == m_map) {
-            arguments = m_analysis.types.get(expected).arguments;
+        if (expected != type_id_t::INVALID && definition_of(expected) == m_map) {
+            arguments = arguments_of(expected);
             for (const map_entry_t& entry : node.entries) {
                 check(entry.key, arguments[0]);
                 valid = expect_type(entry.key, arguments[0]) && valid;
@@ -30579,7 +30581,8 @@ private:
             check_type_bounds(m_map, arguments, span_of(id));
         }
 
-        const type_id_t type = m_analysis.types.instance(m_map, arguments);
+        const type_id_t type =
+            expected == m_map ? m_map : m_analysis.types.instance(m_map, arguments);
         const std::optional<symbol_id_t> add = map_add(type);
         if (!add) {
             error(span_of(id), "a Map literal needs std's Map to have Add(key, value)");
@@ -31344,6 +31347,12 @@ loop_methods(const ast_t& ast, const analysis_t& analysis, type_table_t& types,
                                                                          &loop_method_t::symbol)
                                                      : methods.end();
             std::optional<std::vector<type_id_t>> bound = types.match(signature, func, fresh);
+            // A Method that gives nothing has no type for a loop's own type parameter to be, so
+            // "Func(): R" isn't its type, as a Func that takes another count isn't.
+            if (bound && std::ranges::contains(*bound, type_id_t::NONE)) {
+                bound.reset();
+            }
+
             if (!bound) {
                 if (overridden != methods.end()) {
                     methods.erase(overridden);

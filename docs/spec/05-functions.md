@@ -193,7 +193,10 @@ Lambdas are always written with `Function`: `Function(x) => expr`, or a block en
   throws is expected is made as one, and converting between two that throw, to a wider Throws,
   costs nothing. Under `?`s, a `(Func(A): R)??` made a `(Func(A): R Throws E)??`, each Null stays
   the Null it was. Among overloads that differ only by a Func parameter's Throws, a lambda that
-  writes its types, or a value, picks by them, and a lambda that writes none is ambiguous.
+  writes its types, or a value, picks by them, and a lambda that writes none is ambiguous. A
+  Function's name or a lambda that throws less than an overload's Func parameter fits it by
+  conversion, as where there's one Function: beside `Take(f: Func())`, `Take(f: Func() Throws
+  Error)` takes a lambda with `Throws IOError`.
 - A block lambda's body ends statements at line breaks, even inside the brackets of a call.
 - A Function's name alone is a function value: `Local f: Func(Int): Int = Twice`. With
   overloads, the Func expected picks one. A Function that throws is a value of a Func type with

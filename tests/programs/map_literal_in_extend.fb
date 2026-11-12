@@ -1,0 +1,36 @@
+// A Map literal takes Map<K, V> for its type in Map's own code and in an Extend of it, where
+// "Map<K, V>" is Map itself and not an instance of it, as it does in other generic code.
+Import std.core
+Import std.collections
+
+Extend Map<K, V>
+    Where K: Hashable
+    Static Method Empty(): Map<K, V>
+        Local made: Map<K, V> = {}
+        Return made
+    End Method
+
+    Method With(key: K, value: V): Map<K, V>
+        Local made: Map<K, V> = {key: value}
+        For entry In Self
+            made[entry.0] = entry.1
+        End For
+        Return made
+    End Method
+
+    Method Cleared(): Map<K, V> => {}
+End Extend
+
+Class Holder<K: Hashable, V>
+    Method Fresh(): Map<K, V>
+        Local made: Map<K, V> = {}
+        Return made
+    End Method
+End Class
+
+Local empty = Map<String, Int>.Empty()
+Print(empty.Count)
+Local more = empty.With("a", 1).With("b", 2)
+Print("{more.Count} {more.Get("a") ?? 0} {more.Get("b") ?? 0}")
+Print(more.Cleared().Count)
+Print(Holder<Int, String>().Fresh().Count)

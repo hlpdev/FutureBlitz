@@ -191,7 +191,8 @@ End Function
 - `For Method m: M In T` with `Where M: Func(Int): String` goes over the Methods of that Func
   type instead, and `m.Call(value, 5)` passes their arguments. Its Where line picks the Methods;
   it isn't a constraint to meet. A Func type has no ByRef, so a Method with a ByRef parameter is
-  never among them.
+  never among them. A Func type that gives something, as `Func(): R` with an R of the loop's own
+  does, isn't the type of a Method that gives nothing, which that loop skips.
 - A name in that Func type that isn't a type is a type parameter of the loop's own, which each
   Method binds: `Where M: Func(A): Task<Response>` goes over the Methods that take one argument,
   of any type, and give a `Task<Response>`, and in each copy `A` is what that Method takes. The
