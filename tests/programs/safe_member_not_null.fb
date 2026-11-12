@@ -1,0 +1,79 @@
+// A '?.' on what can't be Null is the '.' its warning says it could be: what it gives is the
+// member's own type, not a T? of it, so the next '.' of a chain needs no check, in a chain of
+// '&&' that narrowed the object as anywhere. Where the object can be Null, a '?.' is one check.
+Import std.core
+
+Class Node
+    Field Name: String = "node"
+    Field Tags: String[]
+    Field Next: Node?
+
+    New()
+        Tags = ["a", "b"]
+    End New
+
+    Property Loud: String
+        Get => Name + "!"
+    End Property
+
+    Method Showing(): Bool => True
+
+    Method Rename(name: String)
+        Name = name
+    End Method
+
+    Async Method Later(): Int
+        Return 7
+    End Method
+End Class
+
+Class Room
+    Field Open: Bool = True
+    Field Root: Node
+
+    New()
+        Root = Node()
+    End New
+End Class
+
+Interface Shown
+    Method Shows(): String
+End Interface
+
+Extend Node Implements Shown
+    Method Shows(): String => "shown {Name}"
+End Extend
+
+Function Of<T: Shown>(value: T): String? => value?.Shows()
+
+Function Find(found: Bool): Room?
+    If found Then Return Room()
+    Return Null
+End Function
+
+// The game's line: narrowed by the chain, `room?.Root` is a Node, so its Showing is called.
+Local room: Room? = Find(True)
+Print(room != Null && room.Open && (room?.Root.Showing() ?? False))
+
+// A Field, a Property, an array's Count, a String's Chars and Bytes, a Method that gives
+// nothing, one that gives something, an Async one, and an Interface's.
+Local sure = Room()
+Local name: String = sure?.Root.Name
+Local loud: String = sure?.Root?.Loud
+Local count: Int = sure?.Root.Tags?.Count
+Local chars: Char[] = name?.Chars
+Local bytes: Int = name?.Bytes.Count
+sure?.Root.Rename("renamed")
+Local shown: Bool = sure?.Root.Showing()
+Local task: Task<Int> = sure.Root?.Later()
+Local shows: String = sure.Root?.Shows()
+Print("{name} {loud} {count} {chars.Count} {bytes} {sure.Root.Name} {shown} {Await task} {shows}")
+If room != Null
+    Print(room?.Root.Loud)
+End If
+
+// Where it can be Null, each '?.' is one check, and a type parameter's value's gives a T?.
+Local none = Find(False)
+Local missing = none?.Root?.Name
+Print("{missing ?? "none"} {none?.Root?.Showing() ?? False} {sure.Root.Next?.Name ?? "no next"}")
+Print(Of(sure.Root) ?? "none")

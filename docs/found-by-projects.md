@@ -21,8 +21,8 @@ before it are in history.md under the release that fixed them.
 | `Scheduler.Run(task)` moved the coroutines its task awaits out of order, so each level went on a tick late | fb-luau, L7, 2026-11-11 | scheduler_run_nested.fb | fixed, d3adc9b2, in 1.3.1 |
 | A Class that extends one implementing an Interface got the base's Static defaults, and couldn't list the Interface itself when one gives Self | fb-luau's review, 2026-11-11 | derived_static_default.fb | fixed, 23a6498e, in 1.3.1 |
 | futureblitz.dev's std reference and grammar were 1.2.3's under 1.3.0: the release's sync ran with the installed fb, not the release's | the fb lane, 2026-11-11 | source.json's "fb" line | fixed on production (f382737) and staging; the release skill's sync is to check the fb it runs |
-| Two diagnostics that disagree on one expression: with `Local room: Room?`, `room != Null && ... && (room?.Root.Showing() ?? False)` gets a warning that `?.` isn't needed and an error that `room?.Root` may be Null | scpcb-x, 2026-11-11 | scpcb-x's tests/server_test.fb | open, with the fb lane |
-| `Null` can't be assigned straight to a Struct's `T?` Field: `asked.Jump = Null` is "Null needs a type from where it's used", though the Field's type is known | scpcb-x, 2026-11-11 | scpcb-x's sim/person.fb:531 | open, with the fb lane |
+| Two diagnostics that disagree on one expression: with `Local room: Room?`, `room != Null && ... && (room?.Root.Showing() ?? False)` gets a warning that `?.` isn't needed and an error that `room?.Root` may be Null | scpcb-x, 2026-11-11 | scpcb-x's tests/server_test.fb | fixed on dev/game-bugs, for 1.3.4: a `?.` on what can't be Null gives the member's own type |
+| `Null` can't be assigned straight to a Struct's `T?` Field: `asked.Jump = Null` is "Null needs a type from where it's used", though the Field's type is known | scpcb-x, 2026-11-11 | scpcb-x's sim/person.fb:531 | fixed on dev/game-bugs, for 1.3.4: the direct assignment worked; the error was a second one after a target refused for its own reason, and is gone |
 
 ## Wanted: changes and additions
 

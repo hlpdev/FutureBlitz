@@ -280,6 +280,9 @@ struct expr_info_t {
     bool main_scheduler = false;
     /// For "Scheduler.Current": the scheduler running the code, which the runtime gives.
     bool current_scheduler = false;
+    /// For "a?.b", and the "a?.M" a call is of, where `a` can't be Null: the '?.' is the '.' its
+    /// warning says it could be, so what it gives is the member's own type, not a T? of it.
+    bool plain_safe = false;
     /// For "TypeName<T>()" where T has type parameters in it: the type whose name, with the
     /// instance's type arguments, the call gives.
     std::optional<type_id_t> type_name;

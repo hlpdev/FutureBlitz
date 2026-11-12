@@ -18383,8 +18383,26 @@ private:
         // An Atomic or Mutex made for a target that can't take it was reported with the target.
         const std::optional<target_t> target = check_target(node.target);
         if (!target) {
+            // A target that can't be assigned still says what a Null or an empty literal is to
+            // be, where its check got as far as its type, so the value isn't told it has none.
+            // Where it didn't, a Null alone has nothing more to be told. Any other value is
+            // checked by itself, as what doesn't fit a target that's refused is no second error.
+            const expr_node_t& value = m_ast.get(node.value).node;
+            const auto* array = std::get_if<array_expr_t>(&value);
+            const auto* map = std::get_if<map_expr_t>(&value);
+            const bool null = std::holds_alternative<null_expr_t>(value);
+            const bool untyped = null || (array != nullptr && array->elements.empty()) ||
+                                 (map != nullptr && map->entries.empty());
+            const type_id_t known = info(node.target).type;
+            type_id_t hint = type_id_t::NONE;
+            if (untyped && !node.op && known != type_id_t::INVALID) {
+                hint = known;
+            } else if (null && !node.op) {
+                hint = type_id_t::INVALID;
+            }
+
             const std::optional<expr_id_t> outer = std::exchange(m_place_use, node.value);
-            check_any(node.value, type_id_t::NONE);
+            check_any(node.value, hint);
             m_place_use = outer;
             if (!node.op) {
                 suggest_assigned(node.target, info(node.value).type);
@@ -24247,7 +24265,7 @@ private:
             return type_id_t::INVALID;
         }
 
-        if (node.null_safe) {
+        if (gives_null(id, node)) {
             return nullable_of(type_id_t::INT32);
         }
 
@@ -25821,7 +25839,7 @@ private:
             }
 
             const type_id_t task = m_analysis.types.task(type, throws, m_analysis.nullable_error);
-            return method != nullptr && method->null_safe ? nullable_of(task) : task;
+            return method != nullptr && gives_null(node.callee, *method) ? nullable_of(task) : task;
         }
 
         return type;
@@ -26769,7 +26787,7 @@ private:
         // "a?.M()" gives Null when a is Null. An Async Method's gives a Task<T>?, which
         // check_expr() makes.
         const type_id_t type = substituted(symbol(function).type);
-        if (member != nullptr && member->null_safe && type != type_id_t::NONE &&
+        if (member != nullptr && gives_null(node.callee, *member) && type != type_id_t::NONE &&
             !symbol(function).modifiers.is_async) {
             return nullable_of(read_type(type));
         }
@@ -28051,7 +28069,7 @@ private:
             type_id_t type = check(member->object, *hint);
             m_place_use = outer;
             if (member->null_safe) {
-                type = check_safe_object(member->object, member->member.span, type);
+                type = check_safe_object(callee, member->object, member->member.span, type);
                 if (type == type_id_t::INVALID) {
                     return {};
                 }
@@ -29210,9 +29228,19 @@ private:
         return declared;
     }
 
-    /// The object before a '?.', as its T. One that can't be Null works too, though '.' would do,
-    /// but not C's pointers, which aren't T?s. INVALID for one of those.
-    type_id_t check_safe_object(const expr_id_t object, const span_t member, const type_id_t type) {
+    /// Whether the "a?.b" at `id` can give Null: not where `a` can't be Null, which
+    /// check_safe_object() found.
+    [[nodiscard]] bool gives_null(const expr_id_t id, const member_expr_t& node) const {
+        return node.null_safe && !m_analysis.expr(id).plain_safe;
+    }
+
+    /// The object before the '?.' of the member at `id`, as its T. One that can't be Null works
+    /// too, though '.' would do, and its '?.' is then a '.', which gives the member's own type: a
+    /// T? of it would say it may be Null where the warning says it can't. A type parameter's value
+    /// may be a T? in an instance, so its '?.' stays one, without the warning. C's pointers
+    /// aren't T?s; INVALID for one of those.
+    type_id_t check_safe_object(const expr_id_t id, const expr_id_t object, const span_t member,
+                                const type_id_t type) {
         if (is_c_pointer(type)) {
             error(span_of(object),
                   "{} is C's pointer, not a T?, so '?.' doesn't take it; compare it with Null "
@@ -29221,7 +29249,10 @@ private:
             return type_id_t::INVALID;
         }
 
-        if (type != type_id_t::INVALID && !is_nullable(type)) {
+        // An expression can be checked again, as an argument is for each overload.
+        info(id).plain_safe =
+            type != type_id_t::INVALID && !is_nullable(type) && !is_parameter(type);
+        if (info(id).plain_safe) {
             lint(lint_t::REDUNDANT_NULL, span_of(object),
                  "'{}' can't be Null here, so '?.' isn't needed", text(object))
                 .with_suggestion("Change '?.' to '.'",
@@ -29476,7 +29507,7 @@ private:
         }
 
         if (node.null_safe) {
-            object = check_safe_object(node.object, node.member.span, object);
+            object = check_safe_object(id, node.object, node.member.span, object);
             if (object == type_id_t::INVALID) {
                 return type_id_t::INVALID;
             }
@@ -29515,7 +29546,7 @@ private:
 
             const type_id_t type = m_analysis.types.array(
                 node.member.text == "Chars" ? type_id_t::CHAR : type_id_t::UINT8);
-            return node.null_safe ? nullable_of(type) : type;
+            return gives_null(id, node) ? nullable_of(type) : type;
         }
 
         if (is_flags(object) && node.member.text == "Has") {
@@ -29579,7 +29610,7 @@ private:
                 check_self_ready(span_of(id));
             }
 
-            return node.null_safe ? nullable_of(read_type(member_of)) : member_of;
+            return gives_null(id, node) ? nullable_of(read_type(member_of)) : member_of;
         }
 
         if (symbol(member).kind != symbol_kind_t::FIELD) {
@@ -29596,7 +29627,7 @@ private:
             check_read(member, span_of(id));
         }
 
-        if (!node.null_safe) {
+        if (!gives_null(id, node)) {
             return member_of;
         }
 

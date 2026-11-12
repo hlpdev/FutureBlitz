@@ -1,0 +1,78 @@
+// Null assigned straight to a Struct's T? Field: the target gives it its type, wherever the
+// Struct is, a Local, a Class's Field in its Method, an element, a ByRef parameter, and a
+// Struct inside a Struct.
+Import std.core
+
+Struct Place
+    Field X: Float
+End Struct
+
+Struct Asking
+    Field Jump: Place?
+    Field Fly: Bool?
+    Field Give: String?
+    Field Tags: String[]?
+End Struct
+
+Struct Order
+    Field Asked: Asking
+End Struct
+
+Class Person
+    Field asked: Asking
+
+    New()
+        asked = Asking()
+        asked.Jump = Place(2.0)
+        asked.Fly = True
+        asked.Give = "key"
+        asked.Tags = ["a"]
+    End New
+
+    Method Asked(): Asking => asked
+
+    Method Answered()
+        asked.Jump = Null
+        asked.Fly = Null
+        Self.asked.Give = Null
+        asked.Tags = Null
+    End Method
+End Class
+
+Function Show(asking: Asking): String
+    Return "{asking.Jump?.X ?? -1.0} {asking.Fly ?? False} {asking.Give ?? "nothing"} " +
+           "{asking.Tags?.Count ?? 0}"
+End Function
+
+Function Clear(ByRef asking: Asking)
+    asking.Jump = Null
+    asking.Fly = Null
+End Function
+
+Local person = Person()
+Print(Show(person.Asked()))
+person.Answered()
+Print(Show(person.Asked()))
+
+Local asked = Asking()
+asked.Jump = Place(1.0)
+asked.Fly = True
+Print(Show(asked))
+asked.Jump = Null
+Print(Show(asked))
+asked.Fly = True
+Clear(ByRef asked)
+Print(Show(asked))
+
+Local all = [Asking(), Asking()]
+all[1].Give = "card"
+all[1].Jump = Place(3.0)
+Print(Show(all[1]))
+all[1].Give = Null
+all[1].Jump = Null
+Print(Show(all[1]))
+
+Local order = Order()
+order.Asked.Fly = True
+order.Asked.Fly = Null
+Print(Show(order.Asked))

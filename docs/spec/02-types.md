@@ -230,7 +230,13 @@ If owner != Null Then owner.Notify("hi")   // owner is User here
 - Two `T?` values are equal when both are `Null` or both hold equal values. A `T?` and a `T`
   compare the same way, the `T` as a `T?` holding it, with `T`'s `Operator ==` if it has one.
 - A `T?` can't go in a string; give a value for `Null` first: `"{name ?? "nobody"}"`.
-- `?.`, `??`, or comparing with `Null` on something that can't be `Null` is a warning.
+- `?.`, `??`, or comparing with `Null` on something that can't be `Null` is a warning. Such a
+  `?.` is the `.` the warning says it could be: `a?.b` is then a `B`, not a `B?`, so with `room`
+  narrowed, `room != Null && room?.Root.Showing()` needs no second check. A type parameter's
+  value may be a `T?` in an instance, so its `?.` gives a `B?` as written, without the warning.
+- An assignment's target gives its value its type, as a Local's does: `asked.Jump = Null` for a
+  Struct's or a Class's `T?` Field, and `asked.Tags = []`. A target that can't be assigned is
+  the one error; its `Null` isn't also told it has no type.
 
 ## Conversions
 

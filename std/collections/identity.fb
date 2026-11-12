@@ -36,8 +36,7 @@ Import std.core
 /// a.X = 5
 /// Expect(names.Get(Identity(a)) == "first")
 /// ```
-Public Struct Identity<T> Implements Hashable
-    Where T: Class
+Public Struct Identity<T: Class> Implements Hashable
     /// The object it stands for.
     Public ReadOnly Field Value: T
 

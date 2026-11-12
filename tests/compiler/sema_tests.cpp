@@ -1837,6 +1837,94 @@ TEST_CASE("?. and ?? give Null, or a value for it", "[sema]") {
                                                                   "?' always gives it" });
     CHECK(errors_of(with_enemy("Local f = E()\nLocal x = f?.hp")) ==
           errors_t{ "f: 'f' can't be Null here, so '?.' isn't needed" });
+    // Its '?.' is then the '.' the warning says it could be, so what it gives can't be Null
+    // either: a Field, a Method's result, and what's narrowed in a chain of '&&'.
+    const std::string needless = "f: 'f' can't be Null here, so '?.' isn't needed";
+    CHECK(errors_of(with_enemy("Local f = E()\nLocal x: Int = f?.hp + f?.Hp()")) ==
+          errors_t{ needless, needless });
+    CHECK(errors_of(with_enemy("Class Room\n    Field Root: E? = Null\nEnd Class\n"
+                               "Local room: Room? = Null\n"
+                               "Local x = room != Null && room?.Root == Null\n"
+                               "Local y = room?.Root == Null\n")) ==
+          errors_t{ "room: 'room' can't be Null here, so '?.' isn't needed" });
+    CHECK(errors_of("Class Node\n    Method Showing(): Bool => True\nEnd Class\n"
+                    "Class Room\n    Field Root: Node? = Null\n    Field Open: Bool\nEnd Class\n"
+                    "Function Seen(room: Room?, node: Node): Bool\n"
+                    "    Return room != Null && room.Open && (room?.Open ?? False)\n"
+                    "End Function\n"
+                    "Function Shown(room: Room?): Bool => room?.Root.Showing() ?? False\n") ==
+          errors_t{
+              "room: 'room' can't be Null here, so '?.' isn't needed",
+              "room?.Open: 'room?.Open' can't be Null here, so '?"
+              "?' always gives it",
+              "room?.Root: 'room?.Root' may be Null; check a Local copy of it, or use '?.'",
+          });
+    // A type parameter's value may be a T? in an instance, so its '?.' still gives a T?, and
+    // isn't told it's not needed.
+    CHECK(errors_of("Interface Named\n    Method Name(): String\nEnd Interface\n"
+                    "Function Of<T: Named>(value: T): String => value?.Name()\n") ==
+          errors_t{ "value?.Name(): expected String, found String?, which may be Null; check it "
+                    "first, or give a value for Null with '?"
+                    "?'" });
+}
+
+TEST_CASE("a target that can't be assigned still gives its value a type", "[sema]") {
+    constexpr std::string_view asking = "Struct Asking\n"
+                                        "    Field Jump: Int?\n"
+                                        "    Field Tags: String[]?\n"
+                                        "End Struct\n"
+                                        "Class Person\n"
+                                        "    Field asked: Asking\n"
+                                        "    ReadOnly Field Kept: Asking\n"
+                                        "    New()\n"
+                                        "        asked = Asking()\n"
+                                        "        Kept = Asking()\n"
+                                        "    End New\n"
+                                        "    Method Asked(): Asking => asked\n"
+                                        "    Method Answered()\n"
+                                        "        asked.Jump = Null\n"
+                                        "        asked.Tags = []\n"
+                                        "    End Method\n"
+                                        "End Class\n";
+    const auto with_asking = [&](const std::string_view text) {
+        return std::format("{}{}", asking, text);
+    };
+
+    // A Struct's T? Field takes Null, a Local's, a Class's Field's, and an element's.
+    CHECK(errors_of(with_asking("Local a = Asking()\na.Jump = Null\n"
+                                "Local all = [Asking()]\nall[0].Jump = Null\n"))
+              .empty());
+    // What's wrong with a target is the one error: its Null, or an empty literal, isn't told
+    // it has no type, when the target's is known.
+    CHECK(errors_of(with_asking("Function Clear(asking: Asking)\n"
+                                "    asking.Jump = Null\n"
+                                "    asking.Tags = []\n"
+                                "End Function\n")) ==
+          errors_t{
+              "asking.Jump: 'asking' is a parameter and can't be changed; copy it into a Local, "
+              "or make it ByRef",
+              "asking.Tags: 'asking' is a parameter and can't be changed; copy it into a Local, "
+              "or make it ByRef",
+          });
+    CHECK(errors_of(with_asking("Local p = Person()\n"
+                                "p.Asked().Jump = Null\n"
+                                "p.Kept.Jump = Null\n"
+                                "For each In [Asking()]\n"
+                                "    each.Jump = Null\n"
+                                "End For\n"
+                                "Local maybe: Person? = Null\n"
+                                "maybe?.asked.Jump = Null\n"
+                                "nothing = Null\n")) ==
+          errors_t{
+              "p.Asked().Jump: only a variable or one of its fields can be assigned to",
+              "p.Kept: 'Kept' is ReadOnly; only Person's New can change it",
+              "each.Jump: 'each' is a loop variable and can't be changed",
+              "maybe?.asked: 'maybe?.asked' may be Null; check a Local copy of it, or use '?.'",
+              "nothing: 'nothing' isn't declared",
+          });
+    // A value that doesn't fit the target's type is still told so where the target is fine.
+    CHECK(errors_of(with_asking("Local a = Asking()\na.Jump = \"far\"\n")) ==
+          errors_t{ "\"far\": expected Int32?, found String" });
 }
 
 TEST_CASE("T?s nested to different depths meet at the deeper one", "[sema]") {

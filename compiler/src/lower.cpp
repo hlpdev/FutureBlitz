@@ -5784,7 +5784,8 @@ private:
 
         // A member without a symbol, like a String's Bytes, is a value of its own.
         if (const auto* member = std::get_if<member_expr_t>(&node);
-            member != nullptr && !member->null_safe && m_analysis.expr(id).symbol) {
+            member != nullptr && (!member->null_safe || m_analysis.expr(id).plain_safe) &&
+            m_analysis.expr(id).symbol) {
             // A Static Field is a global, and a Property's value comes from its Get.
             const symbol_t& found = m_analysis.symbol(expect(m_analysis.expr(id).symbol));
             if (found.kind == symbol_kind_t::GLOBAL) {
@@ -6008,22 +6009,24 @@ private:
         // An array's Count or Capacity, unless it's a Property an Extend gives it.
         const std::optional<symbol_id_t> found = m_analysis.expr(id).symbol;
         const bool property = found && m_analysis.symbol(*found).kind == symbol_kind_t::PROPERTY;
-        if (!node.null_safe && is_array(converted_type(node.object)) && !property) {
+        // A '?.' on what can't be Null is a '.', as analysis found.
+        const bool safe = node.null_safe && !m_analysis.expr(id).plain_safe;
+        if (!safe && is_array(converted_type(node.object)) && !property) {
             return array_size(lower_value(node.object), node.member.text);
         }
 
         // A fixed array's Count, when its size is a Const type parameter's, is the instance's.
-        if (!node.null_safe && is_fixed_array(converted_type(node.object)) && !property) {
+        if (!safe && is_fixed_array(converted_type(node.object)) && !property) {
             const auto count =
                 static_cast<std::int64_t>(types().element_count(converted_type(node.object)));
             return const_value_t{ .type = type_id_t::INT32, .data = count };
         }
 
-        if (!node.null_safe && converted_type(node.object) == type_id_t::STRING && !property) {
+        if (!safe && converted_type(node.object) == type_id_t::STRING && !property) {
             return string_parts(lower_value(node.object), node.member.text, expr_type(id));
         }
 
-        if (!node.null_safe) {
+        if (!safe) {
             return lower_place(id);
         }
 
@@ -10543,7 +10546,7 @@ private:
         }
 
         if (const auto* member = std::get_if<member_expr_t>(&m_ast.get(node.callee).node);
-            member != nullptr && member->null_safe) {
+            member != nullptr && member->null_safe && !m_analysis.expr(node.callee).plain_safe) {
             return lower_safe(id, member->object,
                               [&](const operand_t& receiver) { return call_on(id, receiver); });
         }

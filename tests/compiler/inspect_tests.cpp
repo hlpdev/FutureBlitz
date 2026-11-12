@@ -612,6 +612,8 @@ TEST_CASE("the warnings about Null and Try have fixes, and every check gives the
     CHECK(lints == std::vector<std::string>{
                        "redundant_null: 'text' can't be Null here, so '?\?' always gives it",
                        "redundant_null: 'text' can't be Null here, so '?.' isn't needed",
+                       "redundant_null: 'text?.ToString()' can't be Null here, so '?\?' always "
+                       "gives it",
                    });
 }
 
