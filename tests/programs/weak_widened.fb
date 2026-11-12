@@ -1,0 +1,39 @@
+// A Weak<Derived> made a Weak<Base> or a Weak<Object> is the same weak reference, unread: it
+// keeps no object, reads as the object while it lives, and as Null once it's gone; in a Map too,
+// whose Get gives a Weak<Base>?.
+Import std.core
+Import std.collections
+
+Class Base
+    Field Name: String = "base"
+End Class
+
+Class Derived Extends Base
+End Class
+
+Function Widened()
+    Local derived = Derived()
+    Local own: Weak<Derived> = derived
+    Local wide: Weak<Base> = own
+    Local any: Weak<Object> = own
+    Local read = wide
+    Print("as its Base: {read?.Name ?? "gone"}")
+    Local object = any
+    Print("as an Object: {object != Null}")
+    Local bases: Map<Int, Weak<Base>> = {}
+    bases[1] = own
+    Local found = bases.Get(1)
+    Print("from a Map: {found != Null}")
+End Function
+
+Widened()
+Local gone: Weak<Base> = Null
+If True
+    Local derived = Derived()
+    Local own: Weak<Derived> = derived
+    gone = own
+    Local now = gone
+    Print("while it lives: {now != Null}")
+End If
+Local after = gone
+Print("once it's gone: {after == Null}")
