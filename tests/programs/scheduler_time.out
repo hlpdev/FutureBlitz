@@ -1,0 +1,14 @@
+main moved on: True True
+new: 0 ms
+after Run: 0 ms False
+tick 1: 500 ms False
+ticked: now 1000 ms
+tick 2: 1000 ms True
+tick 3: 1500 ms True
+paused: True
+moved, early: False 11000 ms
+moved: now 12000 ms
+moved: True 12000 ms
+started in a tick: 12250 ms to 12750 ms
+started in a tick: True 12750 ms
+back on main: True True

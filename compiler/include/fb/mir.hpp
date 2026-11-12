@@ -319,6 +319,10 @@ enum class runtime_function_t : std::uint8_t {
     SCHEDULER_IDLE,
     /// () to the main thread's Scheduler, which the runtime keeps for the whole program.
     SCHEDULER_MAIN,
+    /// () to the Scheduler running the code: the one being ticked, or else the main thread's.
+    SCHEDULER_CURRENT,
+    /// (Scheduler) to an Int64: its time in nanoseconds, which Wait counts against.
+    SCHEDULER_TIME,
 };
 
 struct runtime_call_t {

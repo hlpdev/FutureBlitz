@@ -136,6 +136,10 @@ std::string_view runtime_name(const runtime_function_t function) {
         return "scheduler_idle";
     case runtime_function_t::SCHEDULER_MAIN:
         return "scheduler_main";
+    case runtime_function_t::SCHEDULER_CURRENT:
+        return "scheduler_current";
+    case runtime_function_t::SCHEDULER_TIME:
+        return "scheduler_time";
     }
 
     std::unreachable();

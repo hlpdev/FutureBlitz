@@ -278,6 +278,8 @@ struct expr_info_t {
     bool address_of = false;
     /// For "Scheduler.Main": the main thread's scheduler.
     bool main_scheduler = false;
+    /// For "Scheduler.Current": the scheduler running the code, which the runtime gives.
+    bool current_scheduler = false;
     /// For "TypeName<T>()" where T has type parameters in it: the type whose name, with the
     /// instance's type arguments, the call gives.
     std::optional<type_id_t> type_name;

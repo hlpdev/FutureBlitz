@@ -604,6 +604,8 @@ private:
     function_ref_t m_scheduler_step;
     function_ref_t m_scheduler_idle;
     function_ref_t m_scheduler_main;
+    function_ref_t m_scheduler_current;
+    function_ref_t m_scheduler_time;
     function_ref_t m_scheduler_free;
     function_ref_t m_coroutine_alloc;
     function_ref_t m_coroutine_free;
@@ -1457,6 +1459,8 @@ private:
         m_scheduler_step = declare("fb_scheduler_step", m_void, { m_ptr });
         m_scheduler_idle = declare("fb_scheduler_idle", m_i32, { m_ptr });
         m_scheduler_main = declare("fb_scheduler_main", m_ptr, { m_ptr });
+        m_scheduler_current = declare("fb_scheduler_current", m_ptr, { m_ptr });
+        m_scheduler_time = declare("fb_scheduler_time", m_i64, { m_ptr });
         m_scheduler_free = declare("fb_scheduler_free", m_void, { m_ptr });
         m_coroutine_alloc = declare("fb_coroutine_alloc", m_ptr, { m_i64 });
         m_coroutine_free = declare("fb_coroutine_free", m_void, { m_ptr });
@@ -5389,6 +5393,10 @@ private:
                                  LLVMConstInt(m_i32, 0, 0), "");
         case runtime_function_t::SCHEDULER_MAIN:
             return call(m_scheduler_main, { scheduler_class(m_mir.types->scheduler()) });
+        case runtime_function_t::SCHEDULER_CURRENT:
+            return call(m_scheduler_current, { scheduler_class(m_mir.types->scheduler()) });
+        case runtime_function_t::SCHEDULER_TIME:
+            return call(m_scheduler_time, { value_of(node.arguments[0]) });
         case runtime_function_t::PARALLEL_FOR:
             return call(m_parallel_for, {
                                             value_of(node.arguments[0]),

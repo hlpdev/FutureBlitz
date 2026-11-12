@@ -231,6 +231,14 @@ Rules:
 - `Scheduler()` makes one, only on the main thread, since its coroutines run there, and it isn't
   Sendable. `s.Tick(seconds)` moves its time on by that much and resumes what can go on, `s.Step()`
   is a Tick of no time, and `s.IsIdle()` says whether no coroutine waits on it.
+- `s.Time()` is a Scheduler's time, a `Duration` (so it needs `Import std.time`): what its Ticks
+  have added up to, from zero when it's made, which is the number its `Wait`s count against, so
+  it stands still while nothing ticks it. The main scheduler's is the real clock's since the
+  program started. `Scheduler.Current` is the scheduler running the code: a Scheduler while it's
+  ticked or stepped, in what it resumes and what that calls, and otherwise the main one, as in
+  top-level code. So a coroutine reads how much of its own scheduler's time has passed with
+  `Scheduler.Current.Time()`, before and after an Await, and after `s.Run` moved it, `s`'s. Like
+  `Scheduler.Main`, Current is a value nothing assigns, and only the main thread's code uses it.
 - An Async call starts on the scheduler running the code: the main scheduler, or a Scheduler
   while it's ticked or stepped. `s.Run(task)` moves its coroutine to `s`, from the scheduler
   running the code, with the coroutines and timers it waits for, which keep their order: a tick

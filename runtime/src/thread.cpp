@@ -533,6 +533,11 @@ class scheduler_t {
 public:
     explicit scheduler_t(const bool main) : m_main(main) {}
 
+    /// The program's Scheduler object this is the state of, which Scheduler.Current gives while
+    /// it's ticked, when the object is held by what ticks it. The main scheduler's is the
+    /// runtime's own.
+    fb_scheduler_t* object = nullptr;
+
     scheduler_t(const scheduler_t&) = delete;
     scheduler_t& operator=(const scheduler_t&) = delete;
     scheduler_t(scheduler_t&&) = delete;
@@ -1319,7 +1324,9 @@ void fb_wait_time(fb_task_t* task, const std::int64_t nanoseconds, const std::in
 
 fb_scheduler_t* fb_scheduler_new(fb_class_t* type) {
     auto* scheduler = reinterpret_cast<fb_scheduler_t*>(fb_object_new(type));
-    scheduler->state = new scheduler_t(false);
+    auto* const state = new scheduler_t(false);
+    state->object = scheduler;
+    scheduler->state = state;
     return scheduler;
 }
 
@@ -1356,6 +1363,20 @@ fb_scheduler_t* fb_scheduler_main(fb_class_t* type) {
 
 std::int32_t fb_scheduler_idle(const fb_scheduler_t* scheduler) {
     return state_of(scheduler).empty() ? 1 : 0;
+}
+
+fb_scheduler_t* fb_scheduler_current(fb_class_t* type) {
+    const scheduler_t* const running = current_scheduler();
+    if (running == &main_scheduler() || running->object == nullptr) {
+        return fb_scheduler_main(type);
+    }
+
+    fb_object_retain(&running->object->header);
+    return running->object;
+}
+
+std::int64_t fb_scheduler_time(const fb_scheduler_t* scheduler) {
+    return state_of(scheduler).time();
 }
 
 void fb_scheduler_free(const fb_scheduler_t* scheduler) {

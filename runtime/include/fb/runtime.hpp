@@ -672,6 +672,12 @@ std::int32_t fb_scheduler_idle(const fb_scheduler_t* scheduler);
 /// one reference to it for the whole program, so it's never released, and the first call's
 /// `type`, a Class compiled code makes for Schedulers, is its type.
 fb_scheduler_t* fb_scheduler_main(fb_class_t* type);
+/// The scheduler running the code, for Scheduler.Current, retained for the caller: the one being
+/// ticked or stepped, or else the main thread's, with `type` as fb_scheduler_main() takes it.
+fb_scheduler_t* fb_scheduler_current(fb_class_t* type);
+/// A Scheduler's time in nanoseconds, which Wait counts against: what its Ticks have added up
+/// to, or for the main thread's, the real clock's since the program started.
+std::int64_t fb_scheduler_time(const fb_scheduler_t* scheduler);
 /// For a Scheduler's Class's release: lets go of what it holds. A coroutine still waiting on it
 /// is destroyed, which lets go of what that holds, and its Task is never done.
 void fb_scheduler_free(const fb_scheduler_t* scheduler);

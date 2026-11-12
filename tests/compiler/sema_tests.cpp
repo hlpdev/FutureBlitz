@@ -12691,6 +12691,44 @@ TEST_CASE("NextTick, Wait, and Schedulers time coroutines on the main thread", "
               .empty());
 }
 
+TEST_CASE("a Scheduler's Time is a Duration, and Scheduler.Current the one running the code",
+          "[sema]") {
+    const std::string head = "Import std.core\nImport std.time\n";
+    // Any Scheduler's Time, the main one's too, and Current's, in top-level code and a
+    // coroutine.
+    CHECK(probe(head + "Local s = Scheduler()\nLocal t = s.Time()") == "Duration");
+    CHECK(probe(head + "Local c = Scheduler.Current") == "Scheduler");
+    CHECK(errors_of(head + "Async Function Timed(): Duration\n"
+                           "    Local before = Scheduler.Current.Time()\n"
+                           "    Await Wait(1.Seconds)\n"
+                           "    Return Scheduler.Current.Time() - before\n"
+                           "End Function\n"
+                           "Local main = Scheduler.Main.Time()\n"
+                           "Local now = Scheduler.Current.Time()\n"
+                           "Local passed = now - main\n")
+              .empty());
+
+    // Without std.time there's no Duration for it to give.
+    CHECK(errors_of("Local s = Scheduler()\nLocal t = s.Time()") ==
+          errors_t{ "s.Time: a Scheduler's Time gives a Duration, from std.time; add 'Import "
+                    "std.time'" });
+
+    // Current is a value nothing assigns, and the main thread's to read, as coroutines run
+    // there.
+    const std::string off = "Spawn: this work runs on another thread, but it uses "
+                            "Scheduler.Current, as coroutines run on the main thread";
+    CHECK(errors_of("Scheduler.Current = Scheduler()") ==
+          errors_t{ "Scheduler.Current: Scheduler.Current can't be assigned; it's always the "
+                    "scheduler running the code" });
+    CHECK(errors_of("Local w = Spawn(Function(): Int\n"
+                    "    Local x = Scheduler.Current\n"
+                    "    Return 1\n"
+                    "End Function)") == errors_t{ off });
+    CHECK(errors_of("Local x = Scheduler.Current<Int>") ==
+          errors_t{ "Scheduler.Current<Int>: Scheduler.Current isn't generic, so it takes no "
+                    "type arguments" });
+}
+
 TEST_CASE("Scheduler.Main is the main thread's scheduler, which a program's own loop steps",
           "[sema]") {
     CHECK(probe("Local x = Scheduler.Main") == "Scheduler");
@@ -12709,10 +12747,11 @@ TEST_CASE("Scheduler.Main is the main thread's scheduler, which a program's own 
                     "Advance(Scheduler.Main)")
               .empty());
 
-    // Its one Static member is Main, a value nothing assigns.
-    CHECK(errors_of("Local x = Scheduler.Other") ==
-          errors_t{ "Scheduler.Other: Scheduler's one Static member is Main, the main thread's "
-                    "scheduler, like Scheduler.Main.Step()" });
+    // Its Static members are Main and Current, values nothing assigns.
+    const std::string members = "Scheduler.Other: Scheduler's Static members are Main, the main "
+                                "thread's scheduler, like Scheduler.Main.Step(), and Current, "
+                                "the one running the code, like Scheduler.Current.Time()";
+    CHECK(errors_of("Local x = Scheduler.Other") == errors_t{ members });
     CHECK(errors_of("Local x = Scheduler<Int>.Main") ==
           errors_t{ "Scheduler<Int>: 'Scheduler' isn't generic" });
     CHECK(errors_of("Local x = Scheduler.Main<Int>") ==

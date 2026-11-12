@@ -13874,8 +13874,9 @@ private:
     }
 
     /// A Scheduler's Methods: Run, which moves an Async Function's coroutine to it, Tick, Step,
-    /// and IsIdle. Run takes any Task, so its parameter has no type, and check_special_call()
-    /// checks its argument.
+    /// IsIdle, and Time, which gives std.time's Duration. Run takes any Task, so its parameter
+    /// has no type, and check_special_call() checks its argument, and says where Time has no
+    /// Duration to give.
     const std::vector<symbol_id_t>& scheduler_methods() {
         if (!m_scheduler_methods.empty()) {
             return m_scheduler_methods;
@@ -13912,6 +13913,12 @@ private:
             .kind = symbol_kind_t::METHOD,
             .name = "IsIdle",
             .type = type_id_t::BOOL,
+            .owner = type,
+        }));
+        m_scheduler_methods.push_back(add_symbol({
+            .kind = symbol_kind_t::METHOD,
+            .name = "Time",
+            .type = m_duration,
             .owner = type,
         }));
         return m_scheduler_methods;
@@ -25358,38 +25365,48 @@ private:
             return type_id_t::INVALID;
         }
 
-        if (node.member.text != "Main") {
-            error(span_of(id), "Scheduler's one Static member is Main, the main thread's "
-                               "scheduler, like Scheduler.Main.Step()");
+        const bool current = node.member.text == "Current";
+        if (node.member.text != "Main" && !current) {
+            error(span_of(id), "Scheduler's Static members are Main, the main thread's "
+                               "scheduler, like Scheduler.Main.Step(), and Current, the one "
+                               "running the code, like Scheduler.Current.Time()");
             return type_id_t::INVALID;
         }
 
         if (node.null_safe) {
-            error(span_of(id), "Scheduler is a type, not a value that can be Null, so it takes "
-                               "'.', not '?.': Scheduler.Main");
+            error(span_of(id),
+                  "Scheduler is a type, not a value that can be Null, so it takes '.', not "
+                  "'?.': Scheduler.{}",
+                  node.member.text);
             return type_id_t::INVALID;
         }
 
         if (!node.type_arguments.empty()) {
-            error(span_of(id), "Scheduler.Main isn't generic, so it takes no type arguments");
+            error(span_of(id), "Scheduler.{} isn't generic, so it takes no type arguments",
+                  node.member.text);
             return type_id_t::INVALID;
         }
 
         if (m_partial == id) {
-            error(span_of(id), "Scheduler.Main can't be assigned; it's always the main thread's "
-                               "scheduler");
+            error(span_of(id), "Scheduler.{} can't be assigned; it's always the {}",
+                  node.member.text,
+                  current ? "scheduler running the code" : "main thread's scheduler");
             return type_id_t::INVALID;
         }
 
         if (const std::optional<symbol_id_t> code = current_code()) {
-            add_main_only(*code, main_only_t{
-                                     .what = "uses Scheduler.Main, whose coroutines run on the "
-                                             "main thread",
-                                     .span = span_of(id),
-                                 });
+            add_main_only(*code,
+                          main_only_t{
+                              .what = current ? "uses Scheduler.Current, as coroutines run on the "
+                                                "main thread"
+                                              : "uses Scheduler.Main, whose coroutines run on the "
+                                                "main thread",
+                              .span = span_of(id),
+                          });
         }
 
-        info(id).main_scheduler = true;
+        info(id).main_scheduler = !current;
+        info(id).current_scheduler = current;
         return m_analysis.types.scheduler();
     }
 
@@ -27067,6 +27084,12 @@ private:
         if (function.kind == symbol_kind_t::BUILTIN_FUNCTION &&
             (function.name == "Wait" || function.name == "RealWait")) {
             check_wait_call(node, function);
+        }
+
+        // A Scheduler's time is a Duration, which only a program with std.time has.
+        if (scheduler && function.name == "Time" && m_duration == type_id_t::INVALID) {
+            error(span_of(node.callee), "a Scheduler's Time gives a Duration, from std.time; add "
+                                        "'Import std.time'");
         }
 
         if (function.kind == symbol_kind_t::BUILTIN_FUNCTION && function.name == "RefEquals") {

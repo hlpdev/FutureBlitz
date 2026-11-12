@@ -5978,6 +5978,11 @@ private:
             return runtime_call(runtime_function_t::SCHEDULER_MAIN, {}, types().scheduler(), true);
         }
 
+        if (m_analysis.expr(id).current_scheduler) {
+            return runtime_call(runtime_function_t::SCHEDULER_CURRENT, {}, types().scheduler(),
+                                true);
+        }
+
         if (const std::optional<symbol_id_t> variable = m_analysis.expr(id).symbol;
             variable && m_analysis.symbol(*variable).kind == symbol_kind_t::MEMBER_VARIABLE) {
             const reflected_t& member = m_reflected.at(*variable);
@@ -10383,10 +10388,18 @@ private:
         return task;
     }
 
-    /// A Scheduler's Run, Tick, Step, and IsIdle.
+    /// A Scheduler's Run, Tick, Step, IsIdle, and Time.
     std::optional<operand_t> scheduler_call(const symbol_t& method,
                                             const std::vector<call_argument_t>& arguments) {
         const operand_t& scheduler = arguments.front().value;
+        // Its time is a Duration, std.time's Struct of one Int64 of nanoseconds.
+        if (method.name == "Time") {
+            const operand_t nanoseconds =
+                runtime_call(runtime_function_t::SCHEDULER_TIME, { scheduler }, type_id_t::INT64);
+            return temporary(aggregate_t{ .type = method.type, .fields = { nanoseconds } },
+                             method.type);
+        }
+
         if (method.name == "IsIdle") {
             return temporary(
                 runtime_call_t{

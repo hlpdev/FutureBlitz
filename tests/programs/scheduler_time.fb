@@ -1,0 +1,75 @@
+// A Scheduler's Time, the Duration its Waits count against, and Scheduler.Current, the scheduler
+// running the code: a coroutine reads how much of its own scheduler's time has passed, which is a
+// program's Scheduler's ticks added up, or the real clock's on the main scheduler.
+Import std.core
+Import std.time
+
+Function Shown(time: Duration): String => "{time.TotalMilliseconds} ms"
+
+// Reads its scheduler's time before and after a Wait. One that starts on the main scheduler
+// reads the real clock's first, which is another each run, so only what's read after is shown.
+Async Function Waits(name: String, seconds: Float64, whole: Bool): Int
+    Local before = Scheduler.Current.Time()
+    Await Wait(seconds.Seconds)
+    Local after = Scheduler.Current.Time()
+    If whole
+        Print("{name}: {Shown(before)} to {Shown(after)}")
+    Else
+        Print("{name}: now {Shown(after)}")
+    End If
+
+    Return 1
+End Function
+
+// On the main scheduler, it's the real clock's since the program started: it moves on by itself,
+// and a Wait of real time is at least that much of it.
+Local started = Scheduler.Main.Time()
+Wait(20.Milliseconds).Wait()
+Local later = Scheduler.Current.Time()
+Print("main moved on: {later - started >= 20.Milliseconds} {later >= started}")
+
+// A Scheduler ticked by hand, half a second a tick: its time is its ticks', from zero.
+Local s = Scheduler()
+Print("new: {Shown(s.Time())}")
+Local task = Waits("ticked", 1.0, False)
+s.Run(task)
+Print("after Run: {Shown(s.Time())} {task.IsDone()}")
+For tick = 1 To 3
+    s.Tick(0.5)
+    Print("tick {tick}: {Shown(s.Time())} {task.IsDone()}")
+End For
+
+// Paused, with no ticks, it doesn't move, however long the real clock runs; a Step is no time.
+Local paused = s.Time()
+Wait(20.Milliseconds).Wait()
+s.Step()
+Print("paused: {s.Time() == paused}")
+
+// A coroutine that Run moves reads the Scheduler's time, not the main one's, from then on: it
+// started on the main scheduler, and after Run its Wait and its reading are both the other's.
+Local other = Scheduler()
+other.Tick(10.0)
+Local moved = Waits("moved", 2.0, False)
+other.Run(moved)
+other.Tick(1.0)
+Print("moved, early: {moved.IsDone()} {Shown(other.Time())}")
+other.Tick(1.0)
+Print("moved: {moved.IsDone()} {Shown(other.Time())}")
+
+// One started while its Scheduler is ticked is on it from its first line.
+Async Function Starts(): Int
+    Await NextTick()
+    Return Await Waits("started in a tick", 0.5, True)
+End Function
+
+Local outer = Starts()
+other.Run(outer)
+other.Tick(0.25)
+other.Tick(0.25)
+other.Tick(0.25)
+Print("started in a tick: {outer.IsDone()} {Shown(other.Time())}")
+
+// Top-level code is the main scheduler's again once the ticks are done: the real clock's time,
+// which has moved on, and not the other's.
+Print(
+    "back on main: {Scheduler.Current.Time() >= later} {Scheduler.Current.Time() != other.Time()}")
