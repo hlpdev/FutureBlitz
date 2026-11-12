@@ -291,6 +291,8 @@ sections and [libraries.md](libraries.md)'s package manager.
 
 Everything the spec describes that the compiler doesn't do yet, and where it's planned. Each step
 adds what it leaves out. Checked against all of docs/spec/ on 2026-10-17.
+What projects built on FutureBlitz find, bugs and what they want added, is in
+[found-by-projects.md](found-by-projects.md).
 
 | What | Left out in | Planned for |
 |---|---|---|

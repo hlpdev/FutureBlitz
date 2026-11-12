@@ -14,6 +14,9 @@ Source of truth: docs/spec/
 - You write the tests (tests/) directly, in my code style.
 - When I ask for a review, read my files and point out problems. Fix minor issues yourself
   (formatting, naming, comments, small portability fixes); leave real changes to me.
+- A FutureBlitz, fb, or std bug, or anything a project built on them wants changed or added
+  (fbengine, fb-luau, scpcb-x), is recorded in docs/found-by-projects.md the day it's found, with
+  the program that shows it, and its row is kept current until it's released or decided.
 - Keep explanations short.
 
 ## C++ conventions

@@ -92,6 +92,9 @@ commands for building, checking, and deploying.
 - **A minor:** `production` moves to master (merge master into it), with the site synced to the
   tag: `FUTUREBLITZ_ROOT=<a checkout at vV> FB=<the release's fb> npx pnpm@9.15.0 sync`, then
   `record`.
+- After `sync`, `apps/site/src/generated/source.json`'s `"fb"` line names `V`. If it names
+  another version, the sync ran with the wrong fb and std's reference is that version's (as
+  1.3.0's first deploy had 1.2.3's): set `FB` and sync again.
 - Test, build for production (no `SITE_ENV`), the copy check, the page tests; commit and push
   the branch; then deploy production (`npx wrangler deploy` in apps/site) and staging from
   master.
