@@ -28,7 +28,7 @@ Each waits on the user's yes unless its state says otherwise.
 
 | What | Found by | Shown by | State |
 |---|---|---|---|
-| A way to key by identity: a `RefHash(o)` beside `RefEquals`, or an `IdentityMap<K, V>`. A Map uses a Class's own `==` and `Hash`, and `Weak<T>` isn't Hashable | fb-luau's review, 2026-11-11 | identity_key.fb | RefHash and a by-identity key are being added for 1.3.1 (the fb lane, dev/ref-hash), as fb-luau's finding 2 waits on them |
+| A way to key by identity: a `RefHash(o)` beside `RefEquals`, or an `IdentityMap<K, V>`. A Map uses a Class's own `==` and `Hash`, and `Weak<T>` isn't Hashable | fb-luau's review, 2026-11-11 | identity_key.fb | added, c0506f68, for 1.3.1: `RefHash(o)` and std.collections' `Identity<T>` |
 | A `T?` or a tuple implementing an Interface by an Extend, as `Extend T? Implements I Where T: I` | fb-luau's plan, 2026-11-11 | | the user's to decide |
 | A Func type implementing an Interface | fb-luau's plan, 2026-11-11 | | the user's to decide |
 | Reflection over a type's Operators | fb-luau's plan, 2026-11-11 | | the user's to decide |
@@ -48,3 +48,4 @@ Each waits on the user's yes unless its state says otherwise.
 | A For Method loop that visits a marked Static, ByRef, or Unsafe Method, or says it passed one over: `Register<T>` can't tell that one was marked | fb-luau's second review, 2026-11-11 | fb-luau's tools/gen_arity.py | the user's to decide |
 | Whether a coroutine that's destroyed, as when its Scheduler is dropped mid-wait, should run its Defers; it runs none today | fb-luau's second review, 2026-11-11 | fb-luau's luau/threads.fb | the user's to decide |
 | A wait that can be cut short: a Task or `Wait` a program can cancel, so what waits years needn't be polled each tick | fb-luau's second review, 2026-11-11 | fb-luau's luau/threads.fb | the user's to decide |
+| The time of the scheduler running the code, readable by a coroutine, as `Scheduler.Current.Time`: a library that keeps its own waits can't tell what's due on a program's Scheduler, whose time is scaled and paused | fb-luau, review-2, 2026-11-12 | fb-luau's luau/threads.fb, which wakes each 50 ms instead | the user's to decide |
