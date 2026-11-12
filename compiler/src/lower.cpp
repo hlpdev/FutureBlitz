@@ -11233,6 +11233,12 @@ private:
             return compare(binary_op_t::EQUAL, arguments[0].value, arguments[1].value, span_of(id));
         }
 
+        // RefHash hashes the reference itself, whatever Hash its Class has.
+        if (function.kind == symbol_kind_t::BUILTIN_FUNCTION && function.name == "RefHash") {
+            return runtime_call(runtime_function_t::REF_HASH, { arguments[0].value },
+                                type_id_t::UINT64);
+        }
+
         if (function.kind == symbol_kind_t::BUILTIN_FUNCTION) {
             return timing_call(id, function, arguments);
         }

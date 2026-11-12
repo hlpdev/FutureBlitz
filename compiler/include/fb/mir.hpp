@@ -252,6 +252,9 @@ enum class runtime_function_t : std::uint8_t {
     DEBUG_BUILD,
     /// (Weak<T>) to a T?: a new reference to its object, or Null once the object is gone.
     WEAK_LOAD,
+    /// (a Class's or array's reference, or a T? of one) to a UInt64: a hash of which object it
+    /// is, 0 for Null, which codegen makes of its address.
+    REF_HASH,
     /// (T) to nothing: lets go of an object whose New threw. Its fields are released, and its
     /// Destroy doesn't run.
     OBJECT_DISCARD,

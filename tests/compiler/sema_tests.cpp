@@ -11521,6 +11521,36 @@ TEST_CASE("a Static a base wrote itself is still what a listing Class has", "[se
           errors_t{ "Maker: Dog's 'Make' doesn't match Maker's, which takes () and returns Dog" });
 }
 
+TEST_CASE("RefHash takes what RefEquals does, and gives a UInt64", "[sema]") {
+    const std::string head = "Class Point\nEnd Class\n"
+                             "Struct Pair\n    Field A: Int\nEnd Struct\n"
+                             "Local p = Point()\n"
+                             "Local maybe: Point? = Null\n";
+    // A Class's object, a T? of one, an Object, and an array, as RefEquals takes.
+    CHECK(probe(head + "Local h = RefHash(p)") == "UInt64");
+    CHECK(errors_of(head + "Local any: Object = p\n"
+                           "Local list = [1, 2]\n"
+                           "Local all = [RefHash(p), RefHash(maybe), RefHash(any), "
+                           "RefHash(list)]\n")
+              .empty());
+
+    // Not a value that isn't a reference, nor Null alone, which has no type to be one of.
+    CHECK(errors_of(head + "Local a = RefHash(5)\n"
+                           "Local b = RefHash(Pair())\n"
+                           "Local c = RefHash(Null)\n"
+                           "Local d = RefHash(\"text\")\n") ==
+          errors_t{
+              "5: RefHash hashes a Class reference, not Int32",
+              "Pair(): RefHash hashes a Class reference, not Pair",
+              "Null: RefHash takes a reference, and a Null one's is 0; this is only Null",
+              "\"text\": RefHash hashes a Class reference, not String",
+          });
+
+    // A program's own Function of its name hides it, as one hides RefEquals.
+    CHECK(probe("Function RefHash(n: Int): String => \"mine\"\n"
+                "Local h = RefHash(1)") == "String");
+}
+
 TEST_CASE("a type's own attributes", "[sema]") {
     CHECK(probe("Attribute Saved\n@Saved Struct P\nEnd Struct\nLocal x = P.Has(Saved)") == "Bool");
     CHECK(probe("Attribute Label(Text: String)\nStruct P\nEnd Struct\n"

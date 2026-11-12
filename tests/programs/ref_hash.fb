@@ -1,0 +1,74 @@
+// RefHash, which goes with RefEquals: a number for which object a reference is. And Identity<T>,
+// std.collections' key by which object it is, whatever the Class's own == and Hash say. Nothing
+// leaks when the Map goes.
+Import std.core
+Import std.collections
+
+Class Point
+    Field X: Int
+
+    New(x: Int)
+        X = x
+    End New
+
+    Operator ==(a: Point, b: Point): Bool => a.X == b.X
+
+    Method Hash(): UInt64 => X As UInt64
+
+    Method Destroy()
+        Print("point {X} goes")
+    End Method
+End Class
+
+Local a = Point(1)
+Local b = Point(1)
+Local same = a
+Local maybe: Point? = a
+Local none: Point? = Null
+Local any: Object = a
+
+// The same for one object, by any reference to it, and 0 for Null.
+Print("{RefHash(a) == RefHash(same)} {RefHash(a) == RefHash(maybe)} {RefHash(a) == RefHash(any)}")
+Print("{RefHash(a) == RefHash(b)} {RefHash(none)} {RefHash(a) != 0}")
+Local before = RefHash(a)
+a.X = 9
+Print(RefHash(a) == before)
+a.X = 1
+
+// An array is an object too.
+Local list = [1, 2]
+Local other = [1, 2]
+Print("{RefHash(list) == RefHash(list)} {RefHash(list) == RefHash(other)} {list == other}")
+
+// By the Class's own == and Hash, two equal Points are one key; by Identity, two.
+Local byValue: Map<Point, String> = {}
+byValue[a] = "first"
+byValue[b] = "second"
+Local byObject: Map<Identity<Point>, String> = {}
+byObject[Identity(a)] = "first"
+byObject[Identity(b)] = "second"
+Print("{byValue.Count} {byObject.Count} {byObject.Get(Identity(a)) ?? "none"} {byObject.Get(Identity(b)) ?? "none"}")
+
+// One whose own Hash changes while it's a key is still found, and an equal one isn't it.
+a.X = 5
+Print("{byObject.Get(Identity(a)) ?? "none"} {byObject.Get(Identity(Point(5))) ?? "none"}")
+Print("{Identity(a) == Identity(same)} {Identity(a) == Identity(b)} {Identity(a) != Identity(b)}")
+
+// A Set of them, and its key holds its object for as long as it's there.
+Function Kept(): Set<Identity<Point>>
+    Local seen = Set<Identity<Point>>()
+    Local brief = Point(7)
+    seen.Add(Identity(brief))
+    seen.Add(Identity(brief))
+    seen.Add(Identity(Point(7)))
+    Return seen
+End Function
+
+Function Counted(): Int
+    Local seen = Kept()
+    Print("returned")
+    Return seen.Count
+End Function
+
+Print(Counted())
+Print("done")

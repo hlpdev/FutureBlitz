@@ -5286,6 +5286,19 @@ private:
                                         });
         case runtime_function_t::WEAK_LOAD:
             return call(m_load_weak, { value_of(node.arguments[0]) });
+        // An object stays where it is while it lives, so its address says which it is. Objects
+        // are aligned, so the address is spread over the bits a table takes its slots from:
+        // multiplied by 2^64 over the golden ratio, as Fibonacci hashing does, with the high
+        // half folded into the low one. Null's is 0.
+        case runtime_function_t::REF_HASH: {
+            LLVMValueRef address =
+                LLVMBuildPtrToInt(m_builder.get(), value_of(node.arguments[0]), m_i64, "");
+            LLVMValueRef spread = LLVMBuildMul(m_builder.get(), address,
+                                               LLVMConstInt(m_i64, 0x9E3779B97F4A7C15ULL, 0), "");
+            LLVMValueRef high =
+                LLVMBuildLShr(m_builder.get(), spread, LLVMConstInt(m_i64, 32, 0), "");
+            return LLVMBuildXor(m_builder.get(), spread, high, "");
+        }
         case runtime_function_t::OBJECT_DISCARD:
             return call(m_discard, { value_of(node.arguments[0]) });
         case runtime_function_t::COMPARE:

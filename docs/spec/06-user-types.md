@@ -584,6 +584,11 @@ End Class
 | Array | element-by-element comparison, when the elements have `==` |
 | Interface | nothing: an Interface's objects have no `==`, since their Classes' could differ |
 
-`RefEquals(a, b)` always tests reference identity. `Equatable` makes `==` work in generic code,
+`RefEquals(a, b)` always tests reference identity, and `RefHash(o)` is the hash that goes with
+it: a `UInt64` for which object a reference is, the same for as long as the object lives, equal
+for two references RefEquals says are one, and 0 for a `T?` that's Null. It takes what RefEquals
+does, a Class's object, an `Object`, or an array, and never runs the Class's own Hash.
+std.collections' `Identity<T>` is a key made of the two (see
+[14](14-strings-collections.md)). `Equatable` makes `==` work in generic code,
 and every Class is `Equatable` and `Hashable` without listing them (see
 [07-generics.md](07-generics.md)).

@@ -12,7 +12,7 @@ in M6's 32 steps (see [milestones.md](milestones.md#m6-build-order));
 The console Functions, `Print` and the rest, are std.core's, in std/core/print.fb, over the
 runtime's `fb_write` and its I/O thread's `fb_io_` functions through `Extern "runtime"`, which
 only std/ can use. Panic, Assert, DebugAssert, Unreachable, Todo,
-RefEquals, the timing Functions, and the concurrency types stay built in, since the compiler
+RefEquals and RefHash, the timing Functions, and the concurrency types stay built in, since the compiler
 checks and lowers them itself, and so do std.test's Expect, ExpectThrows, Fail, and Skip, which
 only a file that imports std.test has.
 
@@ -66,6 +66,7 @@ So far, std/ holds:
 | std/collections/grid.fb | `Grid<T>`, `Grid3<T>`, and `GridIterator<T>` |
 | std/collections/bit_set.fb | `BitSet` |
 | std/collections/lru_cache.fb, counter.fb, multi_map.fb | `LruCache<K, V>`, `Counter<T>`, and `MultiMap<K, V>`, over a Map |
+| std/collections/identity.fb | `Identity<T>`, a Class's object as a key by which object it is, over the built-in RefHash and RefEquals |
 | std/collections/trie.fb | `Trie<V>` |
 | std/collections/linked_list.fb | `LinkedList<T>` and `LinkedListNode<T>` |
 | std/collections/interval_tree.fb | `IntervalTree<K, V>` |
@@ -422,7 +423,8 @@ file or URL in the default app.
 - Pool: `IterateHandles()` (handle and value), `Capacity`, `Reserve`.
 - More: `SortedMap` and `SortedSet` (B-trees: `First`, `Last`, `Floor`, `Ceiling`, `Range`),
   `RingBuffer`, `Grid<T>` and `Grid3<T>` (`[x, y]`, `InBounds`, `Neighbors4`, `Neighbors8`),
-  `BitSet`, `LruCache`, `Counter`, `MultiMap`, `Trie`, `LinkedList` (stable nodes),
+  `BitSet`, `LruCache`, `Counter`, `MultiMap`, `Identity` (a key by which object it is), `Trie`,
+  `LinkedList` (stable nodes),
   `IntervalTree`; spatial `SpatialHash`, `QuadTree`, and `Octree`; and `ImmutableArray`,
   `ImmutableMap`, and `ImmutableSet`, which share structure on change and are Sendable.
 

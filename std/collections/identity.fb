@@ -1,0 +1,53 @@
+//! A key that's an object itself, whatever the object equals.
+//!
+//! `Identity<T>`: one Class's object as a key of a Map, or a value in a Set, by which object it is.
+//! A Map finds a key by its Hash and its `==`, which a Class can write to say when two objects are
+//! equal; an Identity's are RefHash's and RefEquals', so two objects that are equal are two keys,
+//! and an object whose own Hash changes while it's a key is still found.
+
+Import std.core
+
+/// A Class's object as a key by which object it is: equal to another Identity only of the same
+/// object, with RefEquals, and hashed with RefHash, never by the Class's own `==` or Hash. It
+/// holds its object, which lives as long as the Identity does, as a key does in its Map.
+///
+/// # Examples
+///
+/// ```
+/// Class Point
+///     Field X: Int
+///
+///     New(x: Int)
+///         X = x
+///     End New
+///
+///     Operator ==(a: Point, b: Point): Bool => a.X == b.X
+///
+///     Method Hash(): UInt64 => X As UInt64
+/// End Class
+///
+/// Local a = Point(1)
+/// Local b = Point(1)
+/// Local names: Map<Identity<Point>, String> = {}
+/// names[Identity(a)] = "first"
+/// names[Identity(b)] = "second"
+/// Expect(names.Count == 2)
+/// a.X = 5
+/// Expect(names.Get(Identity(a)) == "first")
+/// ```
+Public Struct Identity<T> Implements Hashable
+    Where T: Class
+    /// The object it stands for.
+    Public ReadOnly Field Value: T
+
+    /// The `value` as a key by which object it is.
+    Public New(value: T)
+        Value = value
+    End New
+
+    /// RefHash's number for its object.
+    Public Method Hash(): UInt64 => RefHash(Value)
+
+    /// Whether two are of the same object, as RefEquals says.
+    Operator ==(a: Identity<T>, b: Identity<T>): Bool => RefEquals(a.Value, b.Value)
+End Struct

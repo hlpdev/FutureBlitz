@@ -1353,6 +1353,16 @@ private:
             .parameters = { left, right },
         });
         m_builtins["RefEquals"].push_back(ref_equals);
+        // RefHash(o) goes with it: a number for which object a reference is, the same while the
+        // object lives and for two references RefEquals says are one, and 0 for Null.
+        const symbol_id_t hashed = add_symbol({ .kind = symbol_kind_t::PARAMETER, .name = "o" });
+        const symbol_id_t ref_hash = add_symbol({
+            .kind = symbol_kind_t::BUILTIN_FUNCTION,
+            .name = "RefHash",
+            .type = type_id_t::UINT64,
+            .parameters = { hashed },
+        });
+        m_builtins["RefHash"].push_back(ref_hash);
 
         // Panic(message) stops the program. Assert(condition, message) does when the condition
         // is False, and says the assertion failed without a message.
@@ -27068,6 +27078,20 @@ private:
                 } else if (type != type_id_t::INVALID && !is_object(non_null(type)) &&
                            !is_any_class(non_null(type)) && !is_array(non_null(type))) {
                     error(span_of(argument.value), "RefEquals compares Class references, not {}{}",
+                          shown_name(type), class_hint(non_null(type)));
+                }
+            }
+        }
+
+        if (function.kind == symbol_kind_t::BUILTIN_FUNCTION && function.name == "RefHash") {
+            for (const argument_t& argument : node.arguments) {
+                const type_id_t type = info(argument.value).type;
+                if (is_null(argument.value)) {
+                    error(span_of(argument.value),
+                          "RefHash takes a reference, and a Null one's is 0; this is only Null");
+                } else if (type != type_id_t::INVALID && !is_object(non_null(type)) &&
+                           !is_any_class(non_null(type)) && !is_array(non_null(type))) {
+                    error(span_of(argument.value), "RefHash hashes a Class reference, not {}{}",
                           shown_name(type), class_hint(non_null(type)));
                 }
             }

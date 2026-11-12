@@ -80,6 +80,8 @@ std::string_view runtime_name(const runtime_function_t function) {
         return "debug_build";
     case runtime_function_t::WEAK_LOAD:
         return "load_weak";
+    case runtime_function_t::REF_HASH:
+        return "ref_hash";
     case runtime_function_t::OBJECT_DISCARD:
         return "discard";
     case runtime_function_t::COMPARE:

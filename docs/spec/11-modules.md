@@ -20,9 +20,9 @@ Replaces Blitz's `Include` (textual paste) and `.decls` files.
   imported ones, and its Functions hide imported ones that take the same types (with the same
   constraints, for generic ones); otherwise Functions of one name are one overload set, and a
   call that two imported modules' Functions fit equally well is ambiguous. A built-in Function,
-  like Panic, Assert, or RefEquals, is hidden by a type or variable of its name, and by a
-  module's own or imported Function that takes its types; one that takes any type, like
-  RefEquals' Classes, fits a call worse than a Function that names its types. Spawn, Thread,
+  like Panic, Assert, RefEquals, or RefHash, is hidden by a type or variable of its name, and by
+  a module's own or imported Function that takes its types; one that takes any type, like
+  RefEquals' and RefHash's Classes, fits a call worse than a Function that names its types. Spawn, Thread,
   Atomic, Mutex, Channel, and Scheduler, which the compiler checks itself, are hidden by any
   declaration of their name.
 - Only the main module's top-level code runs; the other modules only declare things. Globals
