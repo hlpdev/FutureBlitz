@@ -31,7 +31,7 @@ Each waits on the user's yes unless its state says otherwise.
 | What | Found by | Shown by | State |
 |---|---|---|---|
 | A way to key by identity: a `RefHash(o)` beside `RefEquals`, or an `IdentityMap<K, V>`. A Map uses a Class's own `==` and `Hash`, and `Weak<T>` isn't Hashable | fb-luau's review, 2026-11-11 | identity_key.fb | added, c0506f68, in 1.3.1: `RefHash(o)` and std.collections' `Identity<T>` |
-| A `T?` or a tuple implementing an Interface by an Extend, as `Extend T? Implements I Where T: I` | fb-luau's plan, 2026-11-11 | | the user's to decide |
+| A `T?` or a tuple implementing an Interface by an Extend, as `Extend T? Implements I Where T: I`. fb says "Extend adds to a Struct, Class, Enum, built-in type, or T[], not T?", for `Extend Int?` too. std.db's `Nullable(value)` is there for the same reason, and luau 0.1.1 can't let an exposed Method give "a T or nil", which scpcb-x met | fb-luau's plan, 2026-11-11; scpcb-x through luau, 2026-11-13 | extend_nullable.fb | the user's to decide; luau 0.1.2 gives `LuauValue.Nil` and `LuauValue.Of` meanwhile |
 | A Func type implementing an Interface | fb-luau's plan, 2026-11-11 | | the user's to decide |
 | Reflection over a type's Operators | fb-luau's plan, 2026-11-11 | | the user's to decide |
 | A generic `[]=`, whose value's type is a type parameter | fb-luau's plan, 2026-11-11 | | the user's to decide |
