@@ -17501,6 +17501,21 @@ TEST_CASE("a lambda's own error is said, not that the overloads it's given to ar
     // With the same error under each, the error is what's said.
     CHECK(errors_of(two + "G(Function(x)\n    nope()\nEnd Function)") ==
           errors_t{ "nope: 'nope' isn't declared" });
+    // What's asked of a call's own lambdas isn't asked of the calls in their bodies: a nested
+    // call that one of its overloads fits is that one, and adds nothing to the outer's errors.
+    const std::string nested = "Import std.text\n" + two +
+                               "Function H(f: Func(Int): Int)\nEnd Function\n"
+                               "Function H(f: Func(String): Int)\nEnd Function\n";
+    CHECK(errors_of(nested + "G(Function(x)\n"
+                             "    nope()\n"
+                             "    H(Function(y) => y.Length)\n"
+                             "End Function)") == errors_t{ "nope: 'nope' isn't declared" });
+    CHECK(errors_of(nested + "G(Function(x)\n"
+                             "    H(Function(y) => y.Length)\n"
+                             "End Function)") == errors_t{ "G: the call to 'G' is ambiguous" });
+    CHECK(errors_of(nested + "G(Function(x: Int)\n"
+                             "    H(Function(y) => nope())\n"
+                             "End Function)") == errors_t{ "nope: 'nope' isn't declared" });
     // Only the ones that fit best are asked: a third that fits worse doesn't make it ambiguous.
     CHECK(errors_of(two + "Function G(f: (Func(Bool))?)\nEnd Function\n"
                           "G(Function(x)\n    nope()\nEnd Function)") ==

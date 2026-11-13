@@ -28540,19 +28540,24 @@ private:
         }
     };
 
-    /// Puts m_bodies_as_sound back when a call's overloads are settled.
-    struct sound_bodies_t {
-        sound_bodies_t(bool& flag, const bool outer) : m_flag(&flag), m_outer(outer) {}
-        sound_bodies_t(const sound_bodies_t&) = delete;
-        sound_bodies_t& operator=(const sound_bodies_t&) = delete;
+    /// Keeps m_bodies_as_sound and m_body_flaws as they are, and puts them back when it goes:
+    /// they're for one call's own lambda arguments, not for the calls in those lambdas' bodies.
+    struct own_bodies_t {
+        own_bodies_t(bool& sound, std::vector<std::string>*& flaws)
+            : m_sound(&sound), m_flaws(&flaws), m_outer_sound(sound), m_outer_flaws(flaws) {}
+        own_bodies_t(const own_bodies_t&) = delete;
+        own_bodies_t& operator=(const own_bodies_t&) = delete;
 
-        ~sound_bodies_t() {
-            *m_flag = m_outer;
+        ~own_bodies_t() {
+            *m_sound = m_outer_sound;
+            *m_flaws = m_outer_flaws;
         }
 
     private:
-        bool* m_flag;
-        bool m_outer;
+        bool* m_sound;
+        std::vector<std::string>** m_flaws;
+        bool m_outer_sound;
+        std::vector<std::string>* m_outer_flaws;
     };
 
     /// An overload whose arguments all match exactly beats one that needs conversions. More than
@@ -28576,6 +28581,10 @@ private:
             types.push_back(type);
         }
 
+        // What a call around this one asked of its own lambdas isn't asked of this one's.
+        const own_bodies_t restore(m_bodies_as_sound, m_body_flaws);
+        m_bodies_as_sound = false;
+        m_body_flaws = nullptr;
         fits_t fits;
         for (const symbol_id_t candidate : candidates) {
             fits.add(candidate, on_trial([&] { return rank(candidate, node); }));
@@ -28665,18 +28674,17 @@ private:
         // the one meant, whose call says the body's errors; so is any of those still tied, when
         // the body's errors are the same under each. One whose Func the lambda doesn't check as,
         // errors apart, doesn't fit, here and in what follows.
-        const bool outer_sound = m_bodies_as_sound;
         if (fits.exact.empty() && fits.convertible.empty() && fits.any.size() > 1) {
             fits_t sound;
             std::unordered_map<symbol_id_t, std::vector<std::string>> flaws;
             bool flawed = false;
             for (const symbol_id_t candidate : fits.any) {
                 std::vector<std::string> found;
-                std::vector<std::string>* const outer_flaws = std::exchange(m_body_flaws, &found);
+                m_body_flaws = &found;
                 m_bodies_as_sound = true;
                 const match_t match = on_trial([&] { return rank(candidate, node); });
-                m_bodies_as_sound = outer_sound;
-                m_body_flaws = outer_flaws;
+                m_bodies_as_sound = false;
+                m_body_flaws = nullptr;
                 flawed = flawed || !found.empty();
                 if (match != match_t::NONE) {
                     sound.add(candidate, match);
@@ -28702,7 +28710,6 @@ private:
             }
         }
 
-        const sound_bodies_t restore(m_bodies_as_sound, outer_sound);
         const std::string name = callable_name(symbol(candidates.front()));
         const span_t span = span_of(node.callee);
         const std::vector<symbol_id_t>& tied = fits.tied();
@@ -28850,14 +28857,19 @@ private:
                                                                        : std::min(worst, fit);
         }
 
-        const symbol_t* last =
-            slots.empty() ? nullptr : &symbol(symbol(function).parameters.back());
+        // What's packed goes to the last parameter, which a function that packs any has.
+        const std::vector<symbol_id_t>& parameters = symbol(function).parameters;
         for (const std::size_t slot : bound->packed) {
+            if (parameters.empty()) {
+                break;
+            }
+
+            const symbol_t& last = symbol(parameters.back());
             const argument_t& argument = node.arguments[slot];
-            const type_id_t element = element_of(substituted(last->type));
+            const type_id_t element = element_of(substituted(last.type));
             match_t fit = match_t::NONE;
             // A value a string can show fits a shown one, a String exactly.
-            if (last->shows) {
+            if (last.shows) {
                 const type_id_t type = check(argument.value, type_id_t::NONE);
                 if (type == type_id_t::STRING) {
                     fit = match_t::EXACT;
@@ -28879,6 +28891,11 @@ private:
     /// exactly, and any other type it fits by conversion. Null fits any T? by conversion. A
     /// ByRef argument needs the exact type.
     match_t match(const argument_t& argument, const type_id_t type) {
+        // What the call asked of its own lambda arguments isn't asked of the calls in their
+        // bodies, which are checked here.
+        const own_bodies_t restore(m_bodies_as_sound, m_body_flaws);
+        const bool as_sound = std::exchange(m_bodies_as_sound, false);
+        std::vector<std::string>* const flaws = std::exchange(m_body_flaws, nullptr);
         // A built-in's parameter without a type, like RefEquals', takes any argument, but one
         // that names a type the argument has, or converts to, fits it better.
         if (type == type_id_t::INVALID) {
@@ -28933,17 +28950,16 @@ private:
             }
 
             if (m_diagnostics->error_count() != errors) {
-                if (m_body_flaws != nullptr) {
+                if (flaws != nullptr) {
                     for (const diagnostic_t& flaw :
                          m_diagnostics->diagnostics() | std::views::drop(said)) {
                         if (flaw.severity == severity_t::ERROR) {
-                            m_body_flaws->push_back(
-                                std::format("{}:{}", flaw.span.begin, flaw.message));
+                            flaws->push_back(std::format("{}:{}", flaw.span.begin, flaw.message));
                         }
                     }
                 }
 
-                if (!m_bodies_as_sound) {
+                if (!as_sound) {
                     return match_t::ANY;
                 }
             }
