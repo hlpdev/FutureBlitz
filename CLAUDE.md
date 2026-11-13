@@ -47,7 +47,7 @@ v1.0.0 is released (2026-10-30), 1.0.1 on 2026-10-31, and 1.1.0 and 1.2.1 (M11, 
 on 2026-11-01, 1.2.2, the editor's speed, on 2026-11-02, 1.2.3, the editor's save hang, on 2026-11-04, 1.3.0, function values that throw and loading's @Strict and @RenameAll, on 2026-11-11, and
 1.3.1, six fixes the luau package's work found and RefHash with Identity<T>, 1.3.2, a
 scheduler's time and Scheduler.Current, 1.3.3, `As? Object` on a type parameter's value, and 1.3.4, two fixes the game found, on
-2026-11-12. Phase 2, the engine, is planned
+2026-11-12, and 1.3.5, a lambda's own error said, on 2026-11-13. Phase 2, the engine, is planned
 in docs/engine.md: fbengine's packages, in the public repo hlpdev/fbengine, in milestones E0 to
 E14; E0, its setup, is done (2026-10-31), and E1, app and input, is next. M11, the IDE (errors as
 typed, completion that imports, quick fixes, inspections, refactorings, project.toml in the

@@ -3,7 +3,7 @@
 What each milestone and step added, by name, and each review's fixes, as CLAUDE.md kept
 them while each was built. Newest first.
 
-## After 1.3.4
+## 1.3.5
 
 - **A lambda's own error was said as an ambiguous call**: the game's `lua.SetFunction("send", Function(topic: String, text: String) Throws Error ... End Function)`, with `topic.Length` in a file that doesn't import std.text, got "the call to 'SetFunction' is ambiguous" and nothing of the body's error (scpcb-x, 2026-11-13). `match` ranks a lambda whose body has errors as a Func below every other fit, so the Func it checks as without them wins; with an error that's in the body under every overload, each that took the lambda at all tied there, even one whose Func it isn't. `choose_overload` now ranks those again as if the body had no errors: the best is the one called, whose call says the body's errors, and so is any of those still tied when the errors are the same under each. Errors that differ between them, like `x.Nope` for a `Function(x)` that could take an Int or a String, are still ambiguous, as is a sound lambda two overloads fit. Where no overload takes the lambda, "no overload of 'Set' takes (String, Func(Bool))" is now followed by the body's errors, when the lambda writes its parameters' types. One overload's call is as it was. The second ranking is asked only of the call's own lambda arguments: `match` and `choose_overload` put it aside for the calls inside those lambdas' bodies, which rank theirs as any call does (the review's fix, with rank's packed loop no longer reading the last parameter through a pointer the analyzer couldn't see was set). Sema's "a lambda's own error is said, not that the overloads it's given to are ambiguous".
 

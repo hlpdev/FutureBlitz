@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(FutureBlitz VERSION 1.3.4 LANGUAGES C CXX)
+project(FutureBlitz VERSION 1.3.5 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
