@@ -17516,6 +17516,15 @@ TEST_CASE("a lambda's own error is said, not that the overloads it's given to ar
     CHECK(errors_of(nested + "G(Function(x: Int)\n"
                              "    H(Function(y) => nope())\n"
                              "End Function)") == errors_t{ "nope: 'nope' isn't declared" });
+    // What a nested call's other overload would say of its lambda differs with the outer's
+    // parameter (no 'M' takes an Int and an Int, or a String and an Int), and isn't an error
+    // the program has: the outer's own error is the same under each, and is what's said.
+    CHECK(errors_of(nested + "Function M(a: Int, b: String): Int => 0\n"
+                             "Function M(a: String, b: String): Int => 0\n"
+                             "G(Function(x)\n"
+                             "    nope()\n"
+                             "    H(Function(y) => M(x, y))\n"
+                             "End Function)") == errors_t{ "nope: 'nope' isn't declared" });
     // Only the ones that fit best are asked: a third that fits worse doesn't make it ambiguous.
     CHECK(errors_of(two + "Function G(f: (Func(Bool))?)\nEnd Function\n"
                           "G(Function(x)\n    nope()\nEnd Function)") ==
