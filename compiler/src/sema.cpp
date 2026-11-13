@@ -683,6 +683,11 @@ private:
     std::optional<file_id_t> m_file;
     /// Where report_ambiguous() keeps what it finds inside quietly_keeping_ambiguous(), or null.
     std::vector<ambiguous_use_t>* m_quiet_ambiguous = nullptr;
+    /// Whether a lambda with errors in its body fits a Func as it would without them, which is
+    /// how overloads that all have them are told apart.
+    bool m_bodies_as_sound = false;
+    /// Where match() notes the errors of each lambda's body it checks, when something asks.
+    std::vector<std::string>* m_body_flaws = nullptr;
     /// Pairs of generic Functions declared before every Interface knew the ones it extends
     /// (`m_extends_known`), whose constraints differed then: the later one, and the one it may
     /// be the same as.
@@ -28509,6 +28514,47 @@ private:
                std::holds_alternative<map_expr_t>(node);
     }
 
+    /// The overloads that fit a call, by how well.
+    struct fits_t {
+        std::vector<symbol_id_t> exact;
+        std::vector<symbol_id_t> convertible;
+        std::vector<symbol_id_t> any;
+
+        void add(const symbol_id_t candidate, const match_t match) {
+            if (match == match_t::EXACT) {
+                exact.push_back(candidate);
+            } else if (match == match_t::CONVERTIBLE) {
+                convertible.push_back(candidate);
+            } else if (match == match_t::ANY) {
+                any.push_back(candidate);
+            }
+        }
+
+        /// The ones that fit best.
+        [[nodiscard]] const std::vector<symbol_id_t>& tied() const {
+            if (!exact.empty()) {
+                return exact;
+            }
+
+            return convertible.empty() ? any : convertible;
+        }
+    };
+
+    /// Puts m_bodies_as_sound back when a call's overloads are settled.
+    struct sound_bodies_t {
+        sound_bodies_t(bool& flag, const bool outer) : m_flag(&flag), m_outer(outer) {}
+        sound_bodies_t(const sound_bodies_t&) = delete;
+        sound_bodies_t& operator=(const sound_bodies_t&) = delete;
+
+        ~sound_bodies_t() {
+            *m_flag = m_outer;
+        }
+
+    private:
+        bool* m_flag;
+        bool m_outer;
+    };
+
     /// An overload whose arguments all match exactly beats one that needs conversions. More than
     /// one at the same level is ambiguous. Candidates are tried quietly; only the outcome is
     /// reported.
@@ -28530,18 +28576,9 @@ private:
             types.push_back(type);
         }
 
-        std::vector<symbol_id_t> exact;
-        std::vector<symbol_id_t> convertible;
-        std::vector<symbol_id_t> any;
+        fits_t fits;
         for (const symbol_id_t candidate : candidates) {
-            const match_t match = on_trial([&] { return rank(candidate, node); });
-            if (match == match_t::EXACT) {
-                exact.push_back(candidate);
-            } else if (match == match_t::CONVERTIBLE) {
-                convertible.push_back(candidate);
-            } else if (match == match_t::ANY) {
-                any.push_back(candidate);
-            }
+            fits.add(candidate, on_trial([&] { return rank(candidate, node); }));
         }
 
         // A function that isn't generic beats generic ones that fit as well, exactly or with
@@ -28562,10 +28599,6 @@ private:
 
             return found;
         };
-        if (const std::optional<symbol_id_t> kept =
-                exact.size() > 1 ? plain(exact) : std::nullopt) {
-            return kept;
-        }
 
         // One that takes the arguments as they are beats one that packs them into its variadic
         // parameter, as C#'s overloads do.
@@ -28585,43 +28618,94 @@ private:
             return kept.size() == 1 ? std::optional(kept.front()) : std::nullopt;
         };
 
-        if (exact.size() == 1) {
-            return exact.front();
-        }
+        // The one of `found` that's meant, if they say.
+        const auto settled = [&](const fits_t& found) -> std::optional<symbol_id_t> {
+            if (const std::optional<symbol_id_t> kept =
+                    found.exact.size() > 1 ? plain(found.exact) : std::nullopt) {
+                return kept;
+            }
 
-        if (const std::optional<symbol_id_t> kept =
-                exact.size() > 1 ? unpacked(exact) : std::nullopt) {
+            if (found.exact.size() == 1) {
+                return found.exact.front();
+            }
+
+            if (const std::optional<symbol_id_t> kept =
+                    found.exact.size() > 1 ? unpacked(found.exact) : std::nullopt) {
+                return kept;
+            }
+
+            if (!found.exact.empty()) {
+                return std::nullopt;
+            }
+
+            if (found.convertible.size() == 1) {
+                return found.convertible.front();
+            }
+
+            if (const std::optional<symbol_id_t> kept =
+                    found.convertible.size() > 1 ? plain(found.convertible) : std::nullopt) {
+                return kept;
+            }
+
+            if (const std::optional<symbol_id_t> kept =
+                    found.convertible.size() > 1 ? unpacked(found.convertible) : std::nullopt) {
+                return kept;
+            }
+
+            return found.convertible.empty() && found.any.size() == 1
+                       ? std::optional(found.any.front())
+                       : std::nullopt;
+        };
+        if (const std::optional<symbol_id_t> kept = settled(fits)) {
             return kept;
         }
 
-        if (exact.empty() && convertible.size() == 1) {
-            return convertible.front();
+        // Several that fit only with errors in a lambda's body: what's wrong in the body is wrong
+        // whichever was meant, so they're ranked again as if it had none. The best of them is
+        // the one meant, whose call says the body's errors; so is any of those still tied, when
+        // the body's errors are the same under each. One whose Func the lambda doesn't check as,
+        // errors apart, doesn't fit, here and in what follows.
+        const bool outer_sound = m_bodies_as_sound;
+        if (fits.exact.empty() && fits.convertible.empty() && fits.any.size() > 1) {
+            fits_t sound;
+            std::unordered_map<symbol_id_t, std::vector<std::string>> flaws;
+            bool flawed = false;
+            for (const symbol_id_t candidate : fits.any) {
+                std::vector<std::string> found;
+                std::vector<std::string>* const outer_flaws = std::exchange(m_body_flaws, &found);
+                m_bodies_as_sound = true;
+                const match_t match = on_trial([&] { return rank(candidate, node); });
+                m_bodies_as_sound = outer_sound;
+                m_body_flaws = outer_flaws;
+                flawed = flawed || !found.empty();
+                if (match != match_t::NONE) {
+                    sound.add(candidate, match);
+                    flaws.emplace(candidate, std::move(found));
+                }
+            }
+
+            if (flawed) {
+                if (const std::optional<symbol_id_t> kept = settled(sound)) {
+                    return kept;
+                }
+
+                const std::vector<symbol_id_t>& tied = sound.tied();
+                if (!tied.empty() && std::ranges::all_of(tied, [&](const symbol_id_t candidate) {
+                        const std::vector<std::string>& found = flaws.at(candidate);
+                        return !found.empty() && found == flaws.at(tied.front());
+                    })) {
+                    return tied.front();
+                }
+
+                fits = std::move(sound);
+                m_bodies_as_sound = true;
+            }
         }
 
-        if (const std::optional<symbol_id_t> kept =
-                exact.empty() && convertible.size() > 1 ? plain(convertible) : std::nullopt) {
-            return kept;
-        }
-
-        if (const std::optional<symbol_id_t> kept =
-                exact.empty() && convertible.size() > 1 ? unpacked(convertible) : std::nullopt) {
-            return kept;
-        }
-
-        if (exact.empty() && convertible.empty() && any.size() == 1) {
-            return any.front();
-        }
-
+        const sound_bodies_t restore(m_bodies_as_sound, outer_sound);
         const std::string name = callable_name(symbol(candidates.front()));
         const span_t span = span_of(node.callee);
-        const std::vector<symbol_id_t>* fitting = &any;
-        if (!exact.empty()) {
-            fitting = &exact;
-        } else if (!convertible.empty()) {
-            fitting = &convertible;
-        }
-
-        const std::vector<symbol_id_t>& tied = *fitting;
+        const std::vector<symbol_id_t>& tied = fits.tied();
         if (tied.empty()) {
             // The one overload that fits but for its Where lines is the one meant, and its call
             // says which type doesn't meet them.
@@ -28694,6 +28778,15 @@ private:
             }
 
             error(span, "no overload of '{}' takes ({})", name, list);
+            // A lambda that has its type without a parameter's still says its body's errors.
+            for (std::size_t i = 0; i < types.size(); ++i) {
+                const expr_id_t value = node.arguments[i].value;
+                if (types[i] != type_id_t::INVALID &&
+                    std::holds_alternative<lambda_expr_t>(m_ast.get(value).node)) {
+                    check(value, type_id_t::NONE);
+                }
+            }
+
             return std::nullopt;
         }
 
@@ -28832,6 +28925,7 @@ private:
         // meant.
         if (takes_func_type(argument.value)) {
             const std::size_t errors = m_diagnostics->error_count();
+            const std::size_t said = m_diagnostics->diagnostics().size();
             const type_id_t made =
                 argument.by_ref ? type_id_t::INVALID : check(argument.value, type);
             if (made == type_id_t::INVALID) {
@@ -28839,7 +28933,19 @@ private:
             }
 
             if (m_diagnostics->error_count() != errors) {
-                return match_t::ANY;
+                if (m_body_flaws != nullptr) {
+                    for (const diagnostic_t& flaw :
+                         m_diagnostics->diagnostics() | std::views::drop(said)) {
+                        if (flaw.severity == severity_t::ERROR) {
+                            m_body_flaws->push_back(
+                                std::format("{}:{}", flaw.span.begin, flaw.message));
+                        }
+                    }
+                }
+
+                if (!m_bodies_as_sound) {
+                    return match_t::ANY;
+                }
             }
 
             // One that throws less than the Func expected, by its own Throws, converts to it.

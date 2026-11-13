@@ -17434,6 +17434,79 @@ TEST_CASE("a lambda without its parameters' types takes them from the overload w
     CHECK(probe(two + "Local x = Own(Function(n: Int): Int64 => n)") == "Int8");
 }
 
+TEST_CASE("a lambda's own error is said, not that the overloads it's given to are ambiguous",
+          "[sema]") {
+    const std::string set = "Import std.core\n"
+                            "Class Lua\n"
+                            "    Method Set(name: String, f: Func(String, String))\n"
+                            "    End Method\n"
+                            "    Method Set(name: String, f: Func(String, String) Throws Error)\n"
+                            "    End Method\n"
+                            "    Method Set(name: String, f: Func(Int) Throws Error)\n"
+                            "    End Method\n"
+                            "    Method Set<A, B, R>(name: String, f: Func(A, B): R Throws Error)\n"
+                            "    End Method\n"
+                            "End Class\n"
+                            "Function One(f: Func(String))\nEnd Function\n"
+                            "Local lua = Lua()\n";
+
+    // What's wrong in the body is wrong under every overload that takes the lambda, so it's the
+    // error: a member of a module that isn't imported, and a name that isn't declared, with the
+    // parameters' types written or not.
+    CHECK(errors_of(set + "lua.Set(\"send\", Function(topic: String, text: String) Throws Error\n"
+                          "    Local n = topic.Length\n"
+                          "End Function)") ==
+          errors_t{ "Length: 'Length' is in std.text, which this file doesn't import" });
+    CHECK(errors_of(set + "lua.Set(\"send\", Function(topic: String, text: String) Throws Error\n"
+                          "    nope()\n"
+                          "End Function)\n"
+                          "lua.Set(\"send\", Function(topic, text)\n"
+                          "    nope()\n"
+                          "End Function)\n"
+                          "lua.Set(\"send\", Function(count: Int) => nope())") ==
+          errors_t{ "nope: 'nope' isn't declared", "nope: 'nope' isn't declared",
+                    "nope: 'nope' isn't declared" });
+    // As it is with one overload.
+    CHECK(errors_of(set + "One(Function(topic: String)\n    nope()\nEnd Function)\n"
+                          "One(Function(topic) => nope())") ==
+          errors_t{ "nope: 'nope' isn't declared", "nope: 'nope' isn't declared" });
+
+    // The best fit of them, errors apart, is the one called, as its result says.
+    CHECK(errors_of("Import std.core\n"
+                    "Function P(f: Func(Int)): Bool => True\n"
+                    "Function P(f: Func(Int) Throws Error): String => \"\"\n"
+                    "Local a: Bool = P(Function(n: Int) => nope())\n"
+                    "Local b: String = P(Function(n: Int) Throws Error => nope())\n"
+                    "Local c: Int = P(Function(n: Int) => nope())") ==
+          errors_t{ "nope: 'nope' isn't declared", "nope: 'nope' isn't declared",
+                    "P(Function(n: Int) => nope()): expected Int32, found Bool",
+                    "nope: 'nope' isn't declared" });
+
+    // A lambda that no overload takes says so, and its body's errors too, when it has its type
+    // without a parameter's.
+    CHECK(errors_of(set + "lua.Set(\"send\", Function(flag: Bool)\n    nope()\nEnd Function)") ==
+          errors_t{ "lua.Set: no overload of 'Set' takes (String, Func(Bool))",
+                    "nope: 'nope' isn't declared" });
+    CHECK(errors_of(set + "lua.Set(\"send\", Function(a, b, c) => nope())") ==
+          errors_t{ "lua.Set: no overload of 'Set' takes (String, a lambda)" });
+
+    // A call that two overloads fit as well is still ambiguous, with a sound lambda, and with
+    // one whose errors aren't the same under each: which was meant says which error it is.
+    const std::string two = "Function G(f: Func(Int))\nEnd Function\n"
+                            "Function G(f: Func(String))\nEnd Function\n";
+    CHECK(errors_of(two + "G(Function(x)\nEnd Function)") ==
+          errors_t{ "G: the call to 'G' is ambiguous" });
+    CHECK(errors_of(two + "G(Function(x)\n    Local n = x.Nope\nEnd Function)") ==
+          errors_t{ "G: the call to 'G' is ambiguous" });
+    // With the same error under each, the error is what's said.
+    CHECK(errors_of(two + "G(Function(x)\n    nope()\nEnd Function)") ==
+          errors_t{ "nope: 'nope' isn't declared" });
+    // Only the ones that fit best are asked: a third that fits worse doesn't make it ambiguous.
+    CHECK(errors_of(two + "Function G(f: (Func(Bool))?)\nEnd Function\n"
+                          "G(Function(x)\n    nope()\nEnd Function)") ==
+          errors_t{ "nope: 'nope' isn't declared" });
+}
+
 TEST_CASE("a call with an error doesn't also warn that its Try isn't needed", "[sema]") {
     CHECK(errors_of("Function F(x: Int)\nEnd Function\nTry F(\"a\")") ==
           errors_t{ "\"a\": expected Int32, found String" });

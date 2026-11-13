@@ -86,6 +86,12 @@ When several overloads fit a call, one that matches every argument's type exactl
 that needs a lossless conversion. If that still leaves more than one, the call is ambiguous and
 an error.
 
+An error in the body of a lambda argument is that error, whatever the overloads: one whose Func
+the lambda checks as without errors is the one called, and where every overload that takes the
+lambda finds errors in its body, they're ranked as if it had none, and the one called says them.
+The call is ambiguous then only if they still tie and the body's errors differ between them,
+as `x.Nope` does for a `Function(x)` given to `G(f: Func(Int))` and `G(f: Func(String))`.
+
 A literal argument matches its default type (`Int` or `Float`) exactly, and any other type it
 fits by conversion. So with `Show(v: Long)` and `Show(v: Double)`, `Show(5_000_000_000)` is
 ambiguous; write `5_000_000_000 As Long`.
