@@ -68,6 +68,7 @@ Each waits on the user's yes unless its state says otherwise.
 | A file nothing imports being checked, and a name from one saying where it is | scpcb-x, 2026-11-11 |  | the user's to decide |
 | An `Extend`'s Methods without importing its file, or fewer imports for a test of one Class | scpcb-x, 2026-11-11 |  | the user's to decide |
 | A failing test's `Print` shown without `--show-output` | scpcb-x, 2026-11-11 |  | the user's to decide |
+| A packed `@CLayout` Struct, as C's `#pragma pack(4)`, and a union. The Steamworks SDK packs its structs to 4 bytes on Linux and macOS, so one with a 64-bit field after a 32-bit one (a connection's status, a lobby's callbacks) isn't what fb lays out there, and is read by its bytes; fb-bindgen skips packed structs and unions | scpcb-x, M13, 2026-11-15 | scpcb-x's docs/engine.md and docs/m13-coop.md | the user's to decide |
 
 ## fbengine
 
