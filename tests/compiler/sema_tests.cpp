@@ -7972,6 +7972,181 @@ TEST_CASE("a @CLayout Struct sized by SizeOf of one declared later is laid out w
                     "by value" });
 }
 
+TEST_CASE("a packed @CLayout Struct and a @CUnion are laid out as C has them", "[sema]") {
+    // Its packing is an integer known at compile time, which a Const can choose by the target,
+    // and SizeOf measures it, one declared later too.
+    CHECK(probe("#If PLATFORM_WINDOWS\nConst PACK = 4\n#Else\nConst PACK = 2 * 2\n#End If\n"
+                "@CLayout(Pack: PACK) Struct Status\n"
+                "    Field handle: UInt32\n"
+                "    Field id: Int64\n"
+                "End Struct\n"
+                "Local size = SizeOf<Status>()") == "Int64 12");
+    CHECK(probe("@CLayout Struct Header\n"
+                "    Field raw: UInt8[SizeOf<Body>()]\n"
+                "End Struct\n"
+                "@CLayout(Pack: 1) Struct Body\n"
+                "    Field a: UInt8\n"
+                "    Field b: Int64\n"
+                "End Struct\n"
+                "Local size = SizeOf<Header>()") == "Int64 9");
+    CHECK(probe("@CUnion(Pack: 2) Struct Bytes\n"
+                "    Field raw: UInt8[5]\n"
+                "    Field value: Int32\n"
+                "End Struct\n"
+                "Local size = SizeOf<Bytes>()") == "Int64 6");
+    // A union's New makes its zero, which code then sets a Field of.
+    CHECK(errors_of("@CUnion Struct Address\n"
+                    "    Field id: UInt64\n"
+                    "    Field ip: UInt8[16]\n"
+                    "End Struct\n"
+                    "Local address = Address()\n"
+                    "address.id = 1\n"
+                    "Local first = address.ip[0]\n")
+              .empty());
+}
+
+TEST_CASE("@CLayout's packing and @CUnion's mistakes", "[sema]") {
+    const std::string field = "    Field a: Int32\nEnd Struct\n";
+    CHECK(errors_of("@CLayout(4) Struct A\n" + field) ==
+          errors_t{ "(4): @CLayout takes its packing by name: @CLayout(Pack: 4)" });
+    CHECK(errors_of("@CUnion(Align: 4) Struct A\n" + field) ==
+          errors_t{ "(Align: 4): @CUnion takes one argument, its packing, as Pack: N, like "
+                    "#pragma pack(N)" });
+    CHECK(errors_of("@CLayout(Pack: 4, Pack: 2) Struct A\n" + field) ==
+          errors_t{ "(Pack: 4, Pack: 2): @CLayout takes one argument, its packing, as Pack: N, "
+                    "like #pragma pack(N)" });
+    CHECK(errors_of("@CLayout(Pack: 3) Struct A\n" + field) ==
+          errors_t{ "3: a packing is 1, 2, 4, 8, or 16, as #pragma pack's is, not 3" });
+    CHECK(errors_of("@CLayout(Pack: 32) Struct A\n" + field) ==
+          errors_t{ "32: a packing is 1, 2, 4, 8, or 16, as #pragma pack's is, not 32" });
+    CHECK(
+        errors_of("Global size = 4\n@CLayout(Pack: size) Struct A\n" + field) ==
+        errors_t{ "size: a packing must be an integer known at compile time, like 4 or a Const" });
+    CHECK(errors_of("@CLayout(Pack: \"4\") Struct A\n" + field) ==
+          errors_t{ "\"4\": a packing must be an integer known at compile time, like 4 or a "
+                    "Const, not String" });
+    CHECK(errors_of("@CLayout @CUnion Struct A\n" + field) ==
+          errors_t{ "CUnion: a @CUnion Struct is laid out as C does already, so it isn't @CLayout "
+                    "too" });
+    CHECK(errors_of("@CUnion @CUnion Struct A\n" + field) ==
+          errors_t{ "CUnion: @CUnion is written twice" });
+    CHECK(errors_of("@CUnion Function F()\nEnd Function\n") ==
+          errors_t{ "CUnion: @CUnion only goes before a Struct, whose Fields it puts each at 0, as "
+                    "a C union's are" });
+    CHECK(errors_of("@CUnion Struct Empty\nEnd Struct\n") ==
+          errors_t{ "Empty: a @CUnion Struct needs a Field, since C has no empty unions" });
+    CHECK(errors_of("@CUnion Struct G<T>\n" + field) ==
+          errors_t{ "G: a @CUnion Struct can't be generic, since C lays out each type it has "
+                    "once" });
+
+    // A union's Fields share their bytes: they have no defaults, its New takes nothing, and it
+    // has no == or Hash, and nothing for Load or Save to fill or write, but what it's given.
+    const std::string number = "Import std.collections\n"
+                               "@CUnion Struct Number\n"
+                               "    Field f: Float32\n"
+                               "    Field i: Int32\n"
+                               "End Struct\n"
+                               "@CLayout Struct Holder\n"
+                               "    Field kind: Int32\n"
+                               "    Field value: Number\n"
+                               "End Struct\n";
+    CHECK(
+        errors_of("@CUnion Struct U\n    Field a: Int32 = 1\n    Field b: Float64\nEnd Struct\n") ==
+        errors_t{ "1: a @CUnion Struct's Fields share their bytes, so they have no defaults: its "
+                  "zero is all zero bytes" });
+    CHECK(errors_of(number + "Local n = Number(1.5, 2)\n") ==
+          errors_t{ "1.5: a @CUnion Struct's New takes nothing and makes its zero; set the Field "
+                    "it holds after" });
+    CHECK(errors_of(number + "Local n = Number()\nLocal same = n == n\n"
+                             "Local h = Holder()\nLocal held = h != h\n") ==
+          errors_t{
+              "n == n: '==' can't be used on Number; Number is a @CUnion Struct, whose Fields "
+              "share their bytes, so it has no == but an Operator == of its own",
+              "h != h: '!=' can't be used on Holder; Number is a @CUnion Struct, whose Fields "
+              "share their bytes, so it has no == but an Operator == of its own",
+          });
+    CHECK(errors_of(number + "Local keys: Map<Number, Int> = {}\n") ==
+          errors_t{ "Map<Number, Int>: Number doesn't implement Hashable, which Map<K, V> needs "
+                    "for K" });
+    CHECK(errors_of(number + "Local saved = Save(Holder())\n"
+                             "Local loaded = Try? Load<Number>(saved)\n") ==
+          errors_t{
+              "Holder(): Save can't write Number, in Holder's value, a @CUnion Struct, whose "
+              "Fields share their bytes, so which one to write isn't known",
+              "Number: Load can't make Number, a @CUnion Struct, whose Fields share their bytes, "
+              "so which one to fill isn't known",
+          });
+    // One with an Operator == of its own has ==.
+    CHECK(errors_of(number + "Extend Number\n"
+                             "    Operator ==(a: Number, b: Number): Bool => a.i == b.i\n"
+                             "End Extend\n"
+                             "Local n = Number()\nLocal same = n == n\n")
+              .empty());
+}
+
+TEST_CASE("a packed Struct's Field off its alignment isn't passed ByRef or to AddressOf",
+          "[sema]") {
+    // In a Struct packed to 4, an Int64 may be at 4, wherever it is in it, and a Struct packed to
+    // 1 inside one holds an Int32 that may be anywhere.
+    const std::string status = "@CLayout(Pack: 4) Struct Status\n"
+                               "    Field handle: Int32\n"
+                               "    Field id: Int64\n"
+                               "    Field ids: Int64[2]\n"
+                               "    Field first: Int32[2]\n"
+                               "    ByRef Method Bump()\n"
+                               "        id += 1\n"
+                               "    End Method\n"
+                               "End Struct\n"
+                               "@CLayout(Pack: 1) Struct Outer\n"
+                               "    Field flag: UInt8\n"
+                               "    Field inner: Status\n"
+                               "End Struct\n"
+                               "Function Take(ByRef n: Int64)\nEnd Function\n"
+                               "Function Count(ByRef n: Int32)\nEnd Function\n"
+                               "Function Keep(ByRef s: Status)\nEnd Function\n";
+    const auto message = [](const std::string_view place, const std::string_view type,
+                            const int bytes, const std::string_view in,
+                            const std::string_view use) {
+        return std::format("{0}: '{0}' may not be at the {1}-byte alignment {2} has, in the packed "
+                           "Struct {3}, so it can't be {4}; copy it into a Local, and back",
+                           place, bytes, type, in, use);
+    };
+    CHECK(errors_of(status + "Local s = Status()\n"
+                             "Take(ByRef s.id)\n"
+                             "Local o = Outer()\n"
+                             "Count(ByRef o.inner.handle)\n"
+                             "Keep(ByRef o.inner)\n"
+                             "o.inner.Bump()\n"
+                             "Unsafe\n"
+                             "    Local p = AddressOf(s.id)\n"
+                             "    Local q = AddressOf(s.ids[1])\n"
+                             "End Unsafe\n") ==
+          errors_t{
+              message("s.id", "Int64", 8, "Status", "passed ByRef"),
+              message("o.inner.handle", "Int32", 4, "Outer", "passed ByRef"),
+              message("o.inner", "Status", 4, "Outer", "passed ByRef"),
+              message("o.inner", "Status", 4, "Outer", "changed by 'Bump'"),
+              message("s.id", "Int64", 8, "Status", "given to AddressOf"),
+              message("s.ids[1]", "Int64", 8, "Status", "given to AddressOf"),
+          });
+    // What's at its own alignment is passed and pointed at, and a copy of the rest is; a ByRef
+    // Method changes its own Struct, which is at its alignment, and Fields are read and set.
+    CHECK(errors_of(status + "Local s = Status()\n"
+                             "Count(ByRef s.handle)\n"
+                             "Keep(ByRef s)\n"
+                             "s.Bump()\n"
+                             "Local id = s.id\n"
+                             "Take(ByRef id)\n"
+                             "s.id = id\n"
+                             "s.ids[0] += 1\n"
+                             "Unsafe\n"
+                             "    Local p = AddressOf(s.handle)\n"
+                             "    Local r = AddressOf(s.first[1])\n"
+                             "    Local q = AddressOf(s)\n"
+                             "End Unsafe\n")
+              .empty());
+}
+
 TEST_CASE("a @CLayout Struct that contains itself is an error, not a crash", "[sema]") {
     CHECK(errors_of("@CLayout Struct R\n"
                     "    Field r: R\n"

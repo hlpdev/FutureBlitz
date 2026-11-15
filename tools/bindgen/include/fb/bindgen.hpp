@@ -38,11 +38,12 @@ struct bindings_t {
 };
 
 /// The header's own declarations, not those of what it #includes, as a module: its structs as
-/// @CLayout Structs, its enums as Enums, or Consts when their values repeat, its number macros
-/// as Consts of the types and values C gives them after the header, each in the header's
-/// order, then its functions in one `Public Extern "C" Lib` block. C's names stay where they
-/// can, and one that's a keyword, a type's, or taken gets a '_'. What can't map, like a union
-/// or a varargs function, is a `// skipped:` comment. Fails, with clang's errors a line each,
+/// @CLayout Structs and its unions as @CUnion ones, packed as C packs them, its enums as Enums,
+/// or Consts when their values repeat, its number macros as Consts of the types and values C
+/// gives them after the header, each in the header's order, then its functions in one
+/// `Public Extern "C" Lib` block. C's names stay where they can, and one that's a keyword, a
+/// type's, or taken gets a '_'. What can't map, like a bit field or a varargs function, is a
+/// `// skipped:` comment. Fails, with clang's errors a line each,
 /// when the header doesn't parse.
 [[nodiscard]] std::expected<bindings_t, std::string>
 generate_bindings(const bindgen_options_t& options);

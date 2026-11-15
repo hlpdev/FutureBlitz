@@ -228,6 +228,11 @@ struct type_t {
     bool shared = false;
     /// STRUCT: a @CLayout Struct, which C code sees.
     bool c_layout = false;
+    /// STRUCT: a @CUnion Struct, a @CLayout one whose Fields are each at 0.
+    bool c_union = false;
+    /// STRUCT: a @CLayout Struct's packing, `Pack: N`, as #pragma pack(N) has it: its Fields'
+    /// alignment is N at most. 0 for none.
+    std::uint8_t c_pack = 0;
     /// Made by the compiler, not declared: the Cell<T> a captured Local lives in, and a lambda's
     /// Class. It belongs to no module, so its qualified name has none, though its parts may.
     bool made = false;
@@ -420,6 +425,10 @@ public:
 
     /// Makes a Struct without type parameters a @CLayout Struct.
     void set_c_layout(type_id_t type);
+    /// Makes a @CLayout Struct a @CUnion one.
+    void set_c_union(type_id_t type);
+    /// Packs a @CLayout Struct to `pack`: 1, 2, 4, 8, or 16.
+    void set_c_pack(type_id_t type, std::uint8_t pack);
 
     /// Whether `type` is the Class `base`, or extends it directly or through others. For an
     /// Interface, whether it's `base`, or extends that Interface.

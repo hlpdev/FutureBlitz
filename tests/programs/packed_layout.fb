@@ -1,0 +1,47 @@
+// Packed @CLayout Structs and unions held by what fb has of its own: a Class's Field, a T?, a
+// Global, a Map's key, which hashes its Fields where they are, a T[]'s elements, and std.ffi's
+// Buffer.
+
+Import std.core
+Import std.collections
+Import std.ffi
+
+@CLayout(Pack: 4) Struct Status Implements Hashable
+    Field handle: UInt32
+    Field id: Int64
+End Struct
+
+@CUnion Struct Address
+    Field id: UInt64
+    Field ip: UInt8[16]
+End Struct
+
+Class Holder
+    Field status: Status
+    Field maybe: Status?
+End Class
+
+Global kept = Status(5, 6)
+
+Local h = Holder()
+h.status = Status(1, 1 << 40)
+h.status.id += 1
+h.maybe = h.status
+Local m: Map<Status, Int> = {}
+m[h.status] = 3
+Local all = [Status(1, 2), Status(3, 4)]
+all[1].id *= 10
+kept.id -= 1
+Print("{h.status.id} {(h.maybe ?? Status(0, 0)).id} {m[Status(1, (1 << 40) + 1)]} {all[1].id} {kept.id}")
+
+Local address = Address()
+address.ip[7] = 1
+Local addresses = [address, Address()]
+Print("{addresses[0].id} {addresses[1].id} {SizeOf<Status>()}")
+
+// std.ffi's Buffer keeps them C's size apart, and reads and writes each where it is.
+Local buffer = Buffer<Status>(3)
+buffer[2] = Status(9, -7)
+buffer[1] = buffer[2]
+Local copied = buffer.Slice(1, 3).ToArray()
+Print("{buffer.Count} {buffer[1].id} {copied[1].handle} {copied.Count}")

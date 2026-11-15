@@ -524,9 +524,9 @@ public:
     /// After '@': the attributes the language has, and the Attributes code declares, which go
     /// before a declaration.
     json_t attributes() {
-        constexpr std::array<std::string_view, 8> built_in{
-            "CLayout",    "Deprecated", "Flags",          "Inline",
-            "MainThread", "Open",       "PanicsAtCaller", "Test",
+        constexpr std::array<std::string_view, 9> built_in{
+            "CLayout",    "CUnion", "Deprecated",     "Flags", "Inline",
+            "MainThread", "Open",   "PanicsAtCaller", "Test",
         };
         for (const std::string_view name : built_in) {
             m_items.add(std::string(name), item_kind_t::KEYWORD, "attribute", rank_t::BUILT_IN);

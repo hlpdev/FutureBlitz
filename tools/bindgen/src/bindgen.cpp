@@ -284,16 +284,27 @@ std::string float_literal(const bool single, const double value) {
     return text;
 }
 
-/// A C struct the header defines, by its USR.
+/// A C struct or union the header defines, by its USR.
 struct record_t {
     CXCursor definition = clang_getNullCursor();
     /// Its FutureBlitz name: a typedef's for it, or else its tag. Empty when it has neither.
     std::string name;
     /// Its C name, the same way.
     std::string c_name;
+    /// A union, which is a @CUnion Struct.
+    bool united = false;
     bool checked = false;
-    /// Why it can't be a @CLayout Struct, once checked.
+    /// Why it can't be a @CLayout or @CUnion Struct, once checked.
     std::optional<std::string> problem;
+    /// Its packing, as #pragma pack or __attribute__((packed)) gives it, once checked: what
+    /// `Pack: N` says, or 0 when its fields are where they'd be anyway.
+    std::uint8_t pack = 0;
+
+    /// "struct name" or "union name", or "a struct" or "a union" without one.
+    [[nodiscard]] std::string described() const {
+        const std::string_view kind = united ? "union" : "struct";
+        return c_name.empty() ? std::format("a {}", kind) : std::format("{} {}", kind, c_name);
+    }
 };
 
 /// A C enum the header defines: an Enum named `name`, or Consts when `name` is empty.
@@ -955,9 +966,12 @@ private:
     void add_type(const CXCursor definition) {
         const std::string usr = usr_of(definition);
         const CXCursorKind kind = clang_getCursorKind(definition);
-        if (kind == CXCursor_StructDecl) {
-            m_records.try_emplace(
-                usr, record_t{ .definition = definition, .c_name = c_name_of(definition) });
+        if (kind == CXCursor_StructDecl || kind == CXCursor_UnionDecl) {
+            m_records.try_emplace(usr, record_t{
+                                           .definition = definition,
+                                           .c_name = c_name_of(definition),
+                                           .united = kind == CXCursor_UnionDecl,
+                                       });
             return;
         }
 
@@ -1420,10 +1434,6 @@ private:
 
     mapped_t map_record(const CXType type) {
         const CXCursor declaration = clang_getTypeDeclaration(type);
-        if (clang_getCursorKind(declaration) == CXCursor_UnionDecl) {
-            return std::unexpected("a union");
-        }
-
         record_t* record = record_of(type);
         if (record == nullptr) {
             const std::string name = text_of(clang_getTypeSpelling(type));
@@ -1435,8 +1445,8 @@ private:
         if (!usable(*record)) {
             return std::unexpected(
                 record->c_name.empty()
-                    ? std::string("a struct without a name")
-                    : std::format("struct {}, which is skipped", record->c_name));
+                    ? std::format("a {} without a name", record->united ? "union" : "struct")
+                    : std::format("{}, which is skipped", record->described()));
         }
 
         return record->name;
@@ -1481,17 +1491,22 @@ private:
         return text + "]";
     }
 
-    /// Why a struct can't be a @CLayout Struct: it has no name, no fields, a field without a
-    /// FutureBlitz type, or a layout other than its fields' types give, as a packed one has.
-    std::optional<std::string> problem_of(const record_t& record) {
+    /// Why a struct or union can't be a @CLayout or @CUnion Struct: it has no name, no fields,
+    /// a field without a FutureBlitz type, or a layout that no packing of its fields' types
+    /// gives, as an over-aligned one has. Sets its packing.
+    std::optional<std::string> problem_of(record_t& record) {
         if (record.c_name.empty()) {
             return "it has no name";
         }
 
+        // Each field's size, alignment, and offset in bits, as clang has them.
+        struct field_layout_t {
+            std::uint64_t size = 0;
+            std::uint64_t align = 1;
+            long long offset = 0;
+        };
+        std::vector<field_layout_t> layouts;
         std::optional<std::string> problem;
-        const std::string_view moved = "it's packed or aligned unlike its fields";
-        std::uint64_t offset = 0;
-        std::uint64_t align = 1;
         std::size_t fields = 0;
         each_child(record.definition, [&](const CXCursor field) {
             // A union or struct inside without a name puts its fields in this one's.
@@ -1524,16 +1539,11 @@ private:
                 return;
             }
 
-            const auto size = static_cast<std::uint64_t>(clang_Type_getSizeOf(type));
-            const auto field_align = static_cast<std::uint64_t>(clang_Type_getAlignOf(type));
-            offset = (offset + field_align - 1) / field_align * field_align;
-            if (clang_Cursor_getOffsetOfField(field) != static_cast<long long>(offset * 8)) {
-                problem = moved;
-                return;
-            }
-
-            offset += size;
-            align = std::max(align, field_align);
+            layouts.push_back({
+                .size = static_cast<std::uint64_t>(clang_Type_getSizeOf(type)),
+                .align = static_cast<std::uint64_t>(clang_Type_getAlignOf(type)),
+                .offset = clang_Cursor_getOffsetOfField(field),
+            });
         });
         if (problem) {
             return problem;
@@ -1543,14 +1553,37 @@ private:
             return "it has no fields";
         }
 
-        const std::uint64_t size = (offset + align - 1) / align * align;
+        // The packing, if any, that puts each field where clang has it, as #pragma pack(N) or
+        // __attribute__((packed)), which is a packing of 1, would.
         const CXType type = clang_getCursorType(record.definition);
-        if (clang_Type_getSizeOf(type) != static_cast<long long>(size) ||
-            clang_Type_getAlignOf(type) != static_cast<long long>(align)) {
-            return std::string(moved);
+        const auto fits = [&](const std::uint64_t pack) {
+            std::uint64_t offset = 0;
+            std::uint64_t align = 1;
+            for (const field_layout_t& field : layouts) {
+                const std::uint64_t field_align =
+                    pack != 0 ? std::min(field.align, pack) : field.align;
+                const std::uint64_t at =
+                    record.united ? 0 : (offset + field_align - 1) / field_align * field_align;
+                if (std::cmp_not_equal(field.offset, at * 8)) {
+                    return false;
+                }
+
+                offset = record.united ? std::max(offset, field.size) : at + field.size;
+                align = std::max(align, field_align);
+            }
+
+            const std::uint64_t size = (offset + align - 1) / align * align;
+            return clang_Type_getSizeOf(type) == static_cast<long long>(size) &&
+                   clang_Type_getAlignOf(type) == static_cast<long long>(align);
+        };
+        for (const std::uint8_t pack : std::array<std::uint8_t, 5>{ 0, 1, 2, 4, 8 }) {
+            if (fits(pack)) {
+                record.pack = pack;
+                return std::nullopt;
+            }
         }
 
-        return std::nullopt;
+        return "no packing puts its fields where C has them, as _Alignas can";
     }
 
     // Declarations
@@ -1629,18 +1662,9 @@ private:
         });
         switch (clang_getCursorKind(definition)) {
         case CXCursor_StructDecl:
+        case CXCursor_UnionDecl:
             emit_struct(m_records.at(usr), nested);
             break;
-        case CXCursor_UnionDecl: {
-            const std::string name = c_name_of(definition);
-            if (!name.empty()) {
-                skip(definition, std::format("union {}, a union, which FutureBlitz hasn't", name));
-            } else if (!nested) {
-                skip(definition, "a union, which FutureBlitz hasn't");
-            }
-
-            break;
-        }
         default:
             emit_enum(definition);
             break;
@@ -1650,11 +1674,8 @@ private:
     void emit_struct(record_t& record, const bool nested) {
         if (!usable(record)) {
             if (!record.c_name.empty() || !nested) {
-                const std::string name = record.c_name.empty()
-                                             ? std::string("a struct")
-                                             : std::format("struct {}", record.c_name);
                 skip(record.definition,
-                     std::format("{}, since {}", name, record.problem.value_or("")));
+                     std::format("{}, since {}", record.described(), record.problem.value_or("")));
             }
 
             return;
@@ -1681,7 +1702,10 @@ private:
             c_names.push_back(spelling_of(field));
         });
         block_t block;
-        block.lines.push_back(std::format("@CLayout Public Struct {}", record.name));
+        const std::string pack =
+            record.pack != 0 ? std::format("(Pack: {})", record.pack) : std::string();
+        block.lines.push_back(std::format("@{}{} Public Struct {}",
+                                          record.united ? "CUnion" : "CLayout", pack, record.name));
         const std::vector<std::string> names = namer_t().name(c_names);
         for (std::size_t i = 0; i < fields.size(); ++i) {
             // usable() mapped each field's type already, so each maps.

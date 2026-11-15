@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -1214,6 +1215,16 @@ void type_table_t::set_shared(const type_id_t type) {
 void type_table_t::set_c_layout(const type_id_t type) {
     assert(get(type).kind == type_kind_t::STRUCT && get(type).parameters.empty());
     m_entries[std::to_underlying(type)].type->c_layout = true;
+}
+
+void type_table_t::set_c_union(const type_id_t type) {
+    assert(get(type).c_layout);
+    m_entries[std::to_underlying(type)].type->c_union = true;
+}
+
+void type_table_t::set_c_pack(const type_id_t type, const std::uint8_t pack) {
+    assert(get(type).c_layout && std::has_single_bit(pack));
+    m_entries[std::to_underlying(type)].type->c_pack = pack;
 }
 
 void type_table_t::set_base(const type_id_t type, const type_id_t base) {

@@ -25,17 +25,28 @@ namespace {
 }
 
 /// AArch64's homogeneous floating-point aggregate: one to four floats, or one to four doubles,
-/// and nothing else, which go in that many vector registers. The part, and how many.
+/// and nothing else, which go in that many vector registers. The part, and how many. A union's
+/// Fields at one offset count once, as clang counts the most any of them has.
 [[nodiscard]] std::optional<std::pair<c_part_t, std::size_t>>
 homogeneous_floats(const c_layout_t& layout) {
-    const std::size_t count = layout.fields.size();
+    std::vector<c_field_t> fields;
+    for (const c_field_t& field : layout.fields) {
+        if (std::ranges::none_of(fields, [&](const c_field_t& seen) {
+                return seen.offset == field.offset && seen.size == field.size &&
+                       seen.kind == field.kind;
+            })) {
+            fields.push_back(field);
+        }
+    }
+
+    const std::size_t count = fields.size();
     if (count == 0 || count > 4) {
         return std::nullopt;
     }
 
-    const c_scalar_t kind = layout.fields.front().kind;
-    const bool alike = std::ranges::all_of(
-        layout.fields, [&](const c_field_t& field) { return field.kind == kind; });
+    const c_scalar_t kind = fields.front().kind;
+    const bool alike =
+        std::ranges::all_of(fields, [&](const c_field_t& field) { return field.kind == kind; });
     const std::uint64_t size = kind == c_scalar_t::DOUBLE ? 8 : 4;
     if (kind == c_scalar_t::INTEGER || !alike || layout.size != count * size) {
         return std::nullopt;
@@ -71,14 +82,18 @@ homogeneous_floats(const c_layout_t& layout) {
     };
 }
 
-/// The piece an SSE eightbyte goes in: a double, a float, or two floats.
-[[nodiscard]] c_piece_t sse_piece(const std::vector<c_field_t>& fields) {
-    if (fields.size() == 2) {
-        return { .part = c_part_t::TWO_FLOATS };
+/// The piece an SSE eightbyte from `begin` goes in, as clang has it: a double when it has one,
+/// as a union of a double and floats does, or else two floats when one starts 4 bytes in, or else
+/// a float.
+[[nodiscard]] c_piece_t sse_piece(const std::vector<c_field_t>& fields, const std::uint64_t begin) {
+    if (std::ranges::any_of(
+            fields, [](const c_field_t& field) { return field.kind == c_scalar_t::DOUBLE; })) {
+        return { .part = c_part_t::DOUBLE };
     }
 
-    return fields.front().kind == c_scalar_t::DOUBLE ? c_piece_t{ .part = c_part_t::DOUBLE }
-                                                     : c_piece_t{ .part = c_part_t::FLOAT };
+    const bool high = std::ranges::any_of(
+        fields, [&](const c_field_t& field) { return field.offset == begin + 4; });
+    return { .part = high ? c_part_t::TWO_FLOATS : c_part_t::FLOAT };
 }
 
 /// Whether a triple is Windows', MSVC's, MinGW's, or Cygwin's.
@@ -150,22 +165,34 @@ c_layout_t c_layout(const type_table_t& types, const type_id_t type, const c_int
     }
 
     // A Struct's fields each at its own alignment after the last, and its size a multiple of
-    // its largest field's.
+    // its largest field's. Packed, as #pragma pack(N) has it, a field's alignment is N at most,
+    // so the Struct's is too; one packed Struct inside another keeps its own. A union's fields
+    // are each at 0, and its size its largest's.
     c_layout_t layout;
+    const std::uint64_t pack = info.c_pack;
     for (const field_t& part : info.fields) {
         const c_layout_t inner = c_layout(types, part.type, integers);
         if (layout.size > UINT64_MAX / 4 || inner.size > UINT64_MAX / 4) {
             return { .size = UINT64_MAX, .align = std::max(layout.align, inner.align) };
         }
 
-        const std::uint64_t offset = aligned(layout.size, inner.align);
+        const std::uint64_t align = pack != 0 ? std::min(inner.align, pack) : inner.align;
+        const std::uint64_t offset = info.c_union ? 0 : aligned(layout.size, align);
+        layout.offsets.push_back(offset);
+        layout.unaligned = layout.unaligned || inner.unaligned;
         for (c_field_t field : inner.fields) {
             field.offset += offset;
+            layout.unaligned = layout.unaligned || field.offset % field.size != 0;
             layout.fields.push_back(field);
         }
 
-        layout.size = offset + inner.size;
-        layout.align = std::max(layout.align, inner.align);
+        layout.size = info.c_union ? std::max(layout.size, inner.size) : offset + inner.size;
+        layout.align = std::max(layout.align, align);
+    }
+
+    // A union's scalars go by where they start, as each eightbyte is classified by them.
+    if (info.c_union) {
+        std::ranges::stable_sort(layout.fields, {}, &c_field_t::offset);
     }
 
     layout.size = aligned(layout.size, layout.align);
@@ -224,12 +251,14 @@ c_passing_t classify(const c_layout_t& layout, const c_abi_t abi, const bool res
         return aapcs64(layout, result);
     }
 
-    if (abi == c_abi_t::OTHER || layout.size == 0 || layout.size > 16) {
+    // One with a scalar that isn't at its own alignment, as a packed Struct can have, goes in
+    // memory, as clang has it.
+    if (abi == c_abi_t::OTHER || layout.size == 0 || layout.size > 16 || layout.unaligned) {
         return { .pass = c_pass_t::MEMORY };
     }
 
     // SysV classifies each eightbyte: INTEGER when anything in it is, and SSE when it has only
-    // floats. An INTEGER piece covers the bytes up to its last field's end.
+    // floats. An INTEGER piece covers the bytes up to where its fields end, a union's furthest.
     c_passing_t passing;
     unsigned integers = 0;
     unsigned sse = 0;
@@ -245,12 +274,15 @@ c_passing_t classify(const c_layout_t& layout, const c_abi_t abi, const bool res
         const bool integer = std::ranges::any_of(
             inside, [](const c_field_t& f) { return f.kind == c_scalar_t::INTEGER; });
         if (integer) {
-            const c_field_t& last = inside.back();
-            passing.pieces.push_back(
-                { .part = c_part_t::INTEGER, .size = last.offset + last.size - begin });
+            std::uint64_t end = begin;
+            for (const c_field_t& field : inside) {
+                end = std::max(end, field.offset + field.size);
+            }
+
+            passing.pieces.push_back({ .part = c_part_t::INTEGER, .size = end - begin });
             ++integers;
         } else {
-            passing.pieces.push_back(sse_piece(inside));
+            passing.pieces.push_back(sse_piece(inside, begin));
             ++sse;
         }
     }

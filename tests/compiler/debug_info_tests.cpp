@@ -323,3 +323,27 @@ TEST_CASE("each Class has its struct, by its full name, though no variable has i
     CHECK(ir.contains("DW_TAG_structure_type, name: \"fb.lib.b.Cat\""));
     CHECK(ir.contains("c\"main.Circle\\00\""));
 }
+
+TEST_CASE("a packed Struct's Fields are where C has them, and a union is one, to a debugger",
+          "[codegen][debug]") {
+    const std::string ir = debug_ir("@CLayout(Pack: 4) Struct Status\n"
+                                    "    Field handle: UInt32\n"
+                                    "    Field id: Int64\n"
+                                    "End Struct\n"
+                                    "@CUnion Struct Address\n"
+                                    "    Field id: UInt64\n"
+                                    "    Field ip: UInt8[16]\n"
+                                    "End Struct\n"
+                                    "Local s = Status(1, 2)\n"
+                                    "Local a = Address()\n");
+    CHECK(std::regex_search(ir, std::regex(R"(DW_TAG_structure_type, name: "Status", )"
+                                           R"(file: ![0-9]+, size: 96, align: 32)")));
+    CHECK(std::regex_search(ir, std::regex(R"(DW_TAG_member, name: "id", scope: ![0-9]+, )"
+                                           R"(file: ![0-9]+, baseType: ![0-9]+, size: 64, )"
+                                           R"(align: 32, offset: 32\))")));
+    CHECK(std::regex_search(ir, std::regex(R"(DW_TAG_union_type, name: "Address", )"
+                                           R"(file: ![0-9]+, size: 128, align: 64)")));
+    CHECK(std::regex_search(ir, std::regex(R"(DW_TAG_member, name: "ip", scope: ![0-9]+, )"
+                                           R"(file: ![0-9]+, baseType: ![0-9]+, size: 128, )"
+                                           R"(align: 64\))")));
+}

@@ -17,6 +17,7 @@
 #include <cctype>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <expected>
 #include <filesystem>
@@ -24,6 +25,7 @@
 #include <fstream>
 #include <ios>
 #include <iterator>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <ranges>
@@ -32,6 +34,7 @@
 #include <system_error>
 #include <thread>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #ifdef _WIN32
@@ -4605,6 +4608,62 @@ TEST_CASE("an interface file keeps what its kept code refers to, written as it p
         fb::compile_file(packages / "prebuilt");
     REQUIRE(checked);
     CHECK(packages.messages(*checked).empty());
+    packages.remove();
+}
+
+TEST_CASE("an interface file keeps a packed Struct's packing and a union, as programs lay them "
+          "out",
+          "[driver]") {
+    const packages_t packages;
+    packages.write("steam/project.toml",
+                   "[project]\nname = \"steam\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    // The packing is a Private Const that #If chooses by the target, which the interface file
+    // keeps with what names it.
+    packages.write("steam/steam.fb", "#If PLATFORM_WINDOWS\n"
+                                     "Const PACK = 8\n"
+                                     "#Else\n"
+                                     "Const PACK = 4\n"
+                                     "#End If\n"
+                                     "@CLayout(Pack: PACK) Public Struct Status\n"
+                                     "    Public Field handle: UInt32\n"
+                                     "    Public Field id: Int64\n"
+                                     "End Struct\n"
+                                     "@CUnion(Pack: 2) Public Struct Bytes\n"
+                                     "    Public Field raw: UInt8[5]\n"
+                                     "    Public Field value: Int32\n"
+                                     "End Struct\n");
+    const std::expected<fb::compilation_t, std::string> steam =
+        fb::compile_file(packages / "steam");
+    REQUIRE(steam);
+    CHECK(packages.messages(*steam).empty());
+    fb::diagnostic_bag_t diagnostics;
+    const std::string text =
+        fb::write_interface(*steam, fb::build_mode_t::DEBUG, diagnostics).value_or("");
+    REQUIRE_FALSE(text.empty());
+    CHECK(text.contains("@CLayout(Pack: PACK) Public Struct Status\n"));
+    CHECK(text.contains("@CUnion(Pack: 2) Public Struct Bytes\n"));
+    packages.write("prebuilt/project.toml",
+                   "[project]\nname = \"steam\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    packages.write(std::format("prebuilt/lib/{}/debug/steam.fbi", fb::build_target()), text);
+    packages.write("game/project.toml", "[project]\nname = \"game\"\nversion = \"0.1.0\"\n\n"
+                                        "[dependencies]\nsteam = { path = \"../prebuilt\" }\n");
+    packages.write("game/main.fb", "Import steam\n"
+                                   "Const STATUS = SizeOf<Status>()\n"
+                                   "Const BYTES = SizeOf<Bytes>()\n");
+    const std::expected<fb::compilation_t, std::string> game = fb::compile_file(packages / "game");
+    REQUIRE(game);
+    CHECK(packages.messages(*game).empty());
+    // Measured as the library lays them out, for the target it's built for.
+    std::map<std::string, std::int64_t> sizes;
+    for (const fb::symbol_t& symbol : game->analysis.symbols) {
+        if (symbol.kind == fb::symbol_kind_t::CONSTANT && symbol.value &&
+            std::holds_alternative<std::int64_t>(symbol.value->data)) {
+            sizes[std::string(symbol.name)] = std::get<std::int64_t>(symbol.value->data);
+        }
+    }
+
+    CHECK(sizes["STATUS"] == (fb::build_target().contains("windows") ? 16 : 12));
+    CHECK(sizes["BYTES"] == 6);
     packages.remove();
 }
 

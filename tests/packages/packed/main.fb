@@ -1,0 +1,189 @@
+// Packed @CLayout Structs and @CUnion Structs against the C that tests/native/vecmath/packed.c
+// compiles: each one's size and alignment are C's, and C reads and writes each Field where fb
+// does, by value both ways and through a Ptr.
+
+Import std.core
+Import std.ffi
+
+@CLayout(Pack: 4) Struct Status
+    Field handle: UInt32
+    Field id: Int64
+    Field state: Int32
+End Struct
+
+@CLayout(Pack: 4) Struct Late
+    Field a: Int32
+    Field b: Int64
+End Struct
+
+@CLayout(Pack: 1) Struct Tight
+    Field a: UInt8
+    Field b: Int32
+    Field c: Float64
+    Field d: UInt16
+End Struct
+
+@CLayout(Pack: 2) Struct Half
+    Field a: UInt8
+    Field b: Int32
+    Field c: Int8
+    Field d: Int64
+End Struct
+
+@CLayout(Pack: 8) Struct Eight
+    Field a: Int32
+    Field b: Int64
+End Struct
+
+@CUnion Struct Address
+    Field id: UInt64
+    Field ip: UInt8[16]
+End Struct
+
+// Steam's headers pack to 8 on Windows and to 4 elsewhere; this one is 4 everywhere, as the C
+// is, but a Const would choose it by the target the same way.
+#If PLATFORM_WINDOWS
+Const IDENTITY_PACK = 4
+#Else
+Const IDENTITY_PACK = 2 * 2
+#End If
+
+@CLayout(Pack: IDENTITY_PACK) Struct Identity
+    Field kind: Int32
+    Field value: Address
+    Field steam: Int64
+End Struct
+
+@CLayout(Pack: 4) Struct Nested
+    Field flag: UInt8
+    Field inner: Eight
+    Field many: Tight[2]
+End Struct
+
+@CUnion Struct Number
+    Field f: Float32
+    Field d: Float64
+    Field i: Int32
+End Struct
+
+@CLayout Struct Pair
+    Field x: Float32
+    Field y: Float32
+End Struct
+
+@CUnion Struct Floats
+    Field f: Float32
+    Field pair: Pair
+End Struct
+
+@CUnion(Pack: 2) Struct PackedUnion
+    Field bytes: UInt8[5]
+    Field value: Int32
+End Struct
+
+Extern "C" Lib "vecmath"
+    Function vm_packed_size(which: Int32): Int64
+    Function vm_packed_align(which: Int32): Int64
+    Function vm_status_make(handle: UInt32, id: Int64, state: Int32): Status
+    Function vm_status_next(status: Status): Status
+    Function vm_status_sum(status: Ptr<Status>): Int64
+    Function vm_late_next(late: Late): Late
+    Function vm_tight_next(tight: Tight): Tight
+    Function vm_tight_sum(tight: Ptr<Tight>): Float64
+    Function vm_half_next(half: Half): Half
+    Function vm_eight_next(eight: Eight): Eight
+    Function vm_address_next(address: Address): Address
+    Function vm_identity_next(identity: Identity): Identity
+    Function vm_identity_sum(identity: Ptr<Identity>): Int64
+    Function vm_nested_next(nested: Nested): Nested
+    Function vm_nested_sum(nested: Ptr<Nested>): Float64
+    Function vm_number_double(number: Number): Number
+    Function vm_floats_swap(floats: Floats): Floats
+    Function vm_packed_union_next(packed: PackedUnion): PackedUnion
+    Function vm_status_fill(status: Ptr<Status>)
+End Extern
+
+// fb's sizes are C's, and so is how each one lines up in a Struct.
+Local sizes = [
+    SizeOf<Status>(), SizeOf<Late>(), SizeOf<Tight>(), SizeOf<Half>(), SizeOf<Eight>(),
+    SizeOf<Address>(), SizeOf<Identity>(), SizeOf<Nested>(), SizeOf<Number>(), SizeOf<Floats>(),
+    SizeOf<PackedUnion>(),
+]
+For i = 0 Until sizes.Count
+    Print("{i}: {sizes[i]} {sizes[i] == vm_packed_size(i As Int32)} {vm_packed_align(i As Int32)}")
+End For
+
+// By value from C and back, and through a Ptr.
+Local status = vm_status_make(7, 1234567890123, -5)
+Print("{status.handle} {status.id} {status.state}")
+status = vm_status_next(status)
+Print("{status.handle} {status.id} {status.state}")
+status.id += 1
+Unsafe
+    Print("{vm_status_sum(AddressOf(status))}")
+    vm_status_fill(AddressOf(status))
+End Unsafe
+Print("{status.handle} {status.id} {status.state}")
+
+Local late = vm_late_next(Late(1, 1 << 40))
+Print("{late.a} {late.b}")
+
+Local tight = vm_tight_next(Tight(254, 21, 7.5, 1000))
+Print("{tight.a} {tight.b} {tight.c} {tight.d}")
+Unsafe
+    Print("{vm_tight_sum(AddressOf(tight))}")
+End Unsafe
+
+Local half = vm_half_next(Half(1, 100000, -128, 3000000000))
+Print("{half.a} {half.b} {half.c} {half.d}")
+
+Local eight = vm_eight_next(Eight(-1, 5))
+Print("{eight.a} {eight.b}")
+
+// A union's Fields are the same bytes, on every target little-endian.
+Local address = Address()
+address.id = 0x0807060504030201
+address = vm_address_next(address)
+Print("{address.ip[0]} {address.ip[7]} {address.ip[8]} {address.ip[15]} {address.id}")
+
+Local identity = Identity(kind: 3, value: address, steam: 76561197960265728)
+identity = vm_identity_next(identity)
+Print("{identity.kind} {identity.value.id} {identity.steam}")
+Unsafe
+    Print("{vm_identity_sum(AddressOf(identity))}")
+End Unsafe
+
+Local nested = Nested()
+nested.flag = 9
+nested.inner = Eight(2, 3)
+nested.many[0] = Tight(1, 2, 3.0, 4)
+nested.many[1] = Tight(5, 6, 7.0, 8)
+nested.many[1].c *= 2.0
+nested = vm_nested_next(nested)
+Print("{nested.flag} {nested.inner.a} {nested.inner.b} {nested.many[0].b} {nested.many[1].c}")
+Unsafe
+    Print("{vm_nested_sum(AddressOf(nested))}")
+End Unsafe
+
+Local number = Number()
+number.d = 1.25
+number = vm_number_double(number)
+Print("{number.d}")
+
+Local floats = Floats()
+floats.pair = Pair(1.5, -2.5)
+floats = vm_floats_swap(floats)
+Print("{floats.pair.x} {floats.pair.y} {floats.f}")
+
+Local packed = PackedUnion()
+packed.value = 0x01020304
+packed = vm_packed_union_next(packed)
+Print("{packed.bytes[0]} {packed.bytes[3]} {packed.bytes[4]} {packed.value}")
+
+// Copies, ==, and a Field changed in place all keep the bytes where they are.
+Local copy = status
+copy.id -= 1
+Print("{copy == status} {copy.id + 1 == status.id} {Tight(1, 2, 3.0, 4) == Tight(1, 2, 3.0, 4)}")
+Local statuses = [status, copy]
+statuses[1].state = 99
+Print("{statuses[0].state} {statuses[1].state} {statuses[1].id}")

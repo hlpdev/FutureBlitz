@@ -2001,8 +2001,10 @@ private:
         }
 
         if (modifiers.is_c_layout && !node->type_parameters.empty()) {
-            error(node->name.span, "a @CLayout Struct can't be generic, since C lays out each "
-                                   "type it has once");
+            error(node->name.span,
+                  "a {} Struct can't be generic, since C lays out each type it "
+                  "has once",
+                  modifiers.is_c_union ? "@CUnion" : "@CLayout");
         }
 
         check_not_protected(modifiers);
@@ -2025,6 +2027,9 @@ private:
             m_analysis.types.set_parameters(type, parameters);
         } else if (!node->is_class && modifiers.is_c_layout) {
             m_analysis.types.set_c_layout(type);
+            if (modifiers.is_c_union) {
+                m_analysis.types.set_c_union(type);
+            }
         }
         const symbol_id_t declared = add_symbol({
             .kind = symbol_kind_t::TYPE,
@@ -3488,6 +3493,14 @@ private:
         m_type_scope.resize(mark);
         m_bounds = outer_bounds;
         m_analysis.types.set_fields(owner, std::move(fields));
+        // Its packing is known once the Consts it can name are, as its Fields' types are.
+        if (node.modifiers.c_pack) {
+            const std::optional<std::uint8_t> pack = packing_of(*node.modifiers.c_pack);
+            if (pack && m_analysis.types.get(owner).c_layout) {
+                m_analysis.types.set_c_pack(owner, *pack);
+            }
+        }
+
         m_member_types.insert(owner);
         std::erase(m_declaring, owner);
         // An Abstract member is what the Classes extending its Class have to give, as an
@@ -3513,7 +3526,9 @@ private:
             std::vector<symbol_id_t> parameters;
             visibility_t visibility = symbol(owner_id).modifiers.visibility;
             for (const symbol_id_t member : members) {
-                if (symbol(member).kind == symbol_kind_t::FIELD && !node.is_class) {
+                // A union's New makes its zero: its Fields are one place, which one sets.
+                if (symbol(member).kind == symbol_kind_t::FIELD && !node.is_class &&
+                    !node.modifiers.is_c_union) {
                     parameters.push_back(member);
                     visibility = std::min(visibility, symbol(member).modifiers.visibility);
                 }
@@ -14283,6 +14298,11 @@ private:
             return true;
         }
 
+        // A union's Fields are one place, so which would its == compare?
+        if (m_analysis.types.get(type).c_union) {
+            return false;
+        }
+
         const std::vector<field_t>& fields = m_analysis.types.get(type).fields;
         if (is_instance(type)) {
             const std::vector<field_t>& written = m_analysis.types.get(definition_of(type)).fields;
@@ -15320,6 +15340,46 @@ private:
         }
     }
 
+    /// A @CLayout Struct's packing, "Pack: N": an integer known at compile time, 1, 2, 4, 8, or
+    /// 16, as #pragma pack's is, which a Const can choose by the target.
+    std::optional<std::uint8_t> packing_of(const expr_id_t expression) {
+        const std::size_t errors = m_diagnostics->error_count();
+        m_run_refused = false;
+        m_read_failed_const = false;
+        const type_id_t type = check(expression, type_id_t::INT64);
+        if (m_run_refused && !integer_value(expression)) {
+            error(span_of(expression), "this Const Function can't run here, since its code needs "
+                                       "types that aren't declared yet");
+            return std::nullopt;
+        }
+
+        if (type == type_id_t::INVALID) {
+            if (m_diagnostics->error_count() == errors && !m_read_failed_const) {
+                error(span_of(expression), "a packing must be an integer known at compile time, "
+                                           "like 4 or a Const");
+            }
+
+            return std::nullopt;
+        }
+
+        const std::optional<std::int64_t> pack =
+            is_integer(type) ? integer_value(expression) : std::nullopt;
+        if (!pack) {
+            error(span_of(expression),
+                  "a packing must be an integer known at compile time, like 4 or a Const{}",
+                  is_integer(type) ? "" : std::format(", not {}", shown_name(type)));
+            return std::nullopt;
+        }
+
+        if (*pack != 1 && *pack != 2 && *pack != 4 && *pack != 8 && *pack != 16) {
+            error(span_of(expression),
+                  "a packing is 1, 2, 4, 8, or 16, as #pragma pack's is, not {}", *pack);
+            return std::nullopt;
+        }
+
+        return static_cast<std::uint8_t>(*pack);
+    }
+
     /// A @CLayout Struct holds what C can: numbers, Bools, Enums, CStrings, Ptrs, other @CLayout
     /// Structs, and fixed arrays of these, one Field at least.
     void check_c_layout(const stmt_id_t id) {
@@ -15336,9 +15396,24 @@ private:
 
         const type_id_t type = symbol(*declared).type;
         const std::vector<field_t>& fields = m_analysis.types.get(type).fields;
+        const bool united = node->modifiers.is_c_union;
         if (fields.empty()) {
-            error(node->name.span, "a @CLayout Struct needs a Field, since C has no empty structs");
+            error(node->name.span, "a {} Struct needs a Field, since C has no empty {}s",
+                  united ? "@CUnion" : "@CLayout", united ? "union" : "struct");
             return;
+        }
+
+        // A union's Fields share their bytes, whose zero is all zero bytes.
+        if (united) {
+            for (const stmt_id_t member : node->members) {
+                const auto* field = std::get_if<variable_stmt_t>(&m_ast.get(member).node);
+                if (field != nullptr && field->kind == variable_kind_t::FIELD &&
+                    !field->modifiers.is_static && field->value) {
+                    error(span_of(*field->value),
+                          "a @CUnion Struct's Fields share their bytes, so they have no defaults: "
+                          "its zero is all zero bytes");
+                }
+            }
         }
 
         for (const symbol_id_t member : symbol(*declared).members) {
@@ -21782,6 +21857,139 @@ private:
     /// The variable a place starts from, after it's checked: "p" in "p.pos.x", and Self for a
     /// field used by name. nullopt for anything else, like a call's result, or a field after a
     /// '?.', which may not be there.
+    /// How a place is aligned: to `align` bytes at least, UINT64_MAX when that's its type's own,
+    /// and `packed` the packed Struct or union whose Field it's in where it may be less.
+    struct place_align_t {
+        std::uint64_t align = UINT64_MAX;
+        type_id_t packed = type_id_t::INVALID;
+    };
+
+    /// The first @CUnion Struct a value of `type` holds, in a Field or a fixed array, maybe
+    /// itself, or INVALID.
+    [[nodiscard]] type_id_t union_in(const type_id_t type) const {
+        const type_t& info = m_analysis.types.get(type);
+        if (info.kind == type_kind_t::FIXED_ARRAY) {
+            return union_in(info.inner);
+        }
+
+        if (info.kind != type_kind_t::STRUCT || !info.c_layout) {
+            return type_id_t::INVALID;
+        }
+
+        if (info.c_union) {
+            return type;
+        }
+
+        for (const field_t& field : info.fields) {
+            if (const type_id_t found = union_in(field.type); found != type_id_t::INVALID) {
+                return found;
+            }
+        }
+
+        return type_id_t::INVALID;
+    }
+
+    /// The alignment C data's value of `type` has, or UINT64_MAX for what isn't C data, which is
+    /// always at its own.
+    [[nodiscard]] std::uint64_t c_align_of(const type_id_t type) const {
+        if (type == type_id_t::INVALID || not_c_data(type)) {
+            return UINT64_MAX;
+        }
+
+        return fb::c_layout(m_analysis.types, type, build_c_integers()).align;
+    }
+
+    /// The packed Struct or union `type` is, or INVALID.
+    [[nodiscard]] type_id_t packed_struct(const type_id_t type) const {
+        if (type == type_id_t::INVALID || !is_struct(type)) {
+            return type_id_t::INVALID;
+        }
+
+        const type_t& info = m_analysis.types.get(type);
+        return info.c_pack != 0 || info.c_union ? type : type_id_t::INVALID;
+    }
+
+    /// A value's alignment, its type's own, which its packing may make less than its Fields'.
+    [[nodiscard]] place_align_t own_align(const type_id_t type) const {
+        return { .align = c_align_of(type), .packed = packed_struct(non_null(type)) };
+    }
+
+    /// The alignment a place is sure to have: a variable's, Self's, or any other value's is its
+    /// type's; a @CLayout Struct's Field is at its offset in it, and a fixed array's element at a
+    /// multiple of its size, which a packed Struct can put off their own. `packed` is the packed
+    /// one that made it less.
+    [[nodiscard]] place_align_t place_align(const expr_id_t id) {
+        const expr_node_t& node = m_ast.get(id).node;
+        const std::optional<symbol_id_t> found = info(id).symbol;
+        const bool field = found && symbol(*found).kind == symbol_kind_t::FIELD &&
+                           !symbol(*found).modifiers.is_static;
+        type_id_t owner = type_id_t::INVALID;
+        place_align_t outer;
+        if (const auto* member = std::get_if<member_expr_t>(&node); member != nullptr && field) {
+            owner = non_null(info(member->object).type);
+            outer = place_align(member->object);
+        } else if (std::holds_alternative<name_expr_t>(node) && field) {
+            // A Field by its name alone is Self's.
+            owner = symbol(*found).owner;
+            outer = own_align(owner);
+        } else if (const auto* element = std::get_if<index_expr_t>(&node)) {
+            const type_id_t array = info(element->object).type;
+            if (!is_fixed_array(array)) {
+                return own_align(info(id).type);
+            }
+
+            outer = place_align(element->object);
+            const std::uint64_t size =
+                fb::c_layout(m_analysis.types, element_of(array), build_c_integers()).size;
+            if (size != 0 && outer.align != UINT64_MAX) {
+                outer.align = std::min(outer.align, size & (~size + 1));
+            }
+
+            return outer;
+        } else {
+            return own_align(info(id).type);
+        }
+
+        if (!is_struct(owner) || !m_analysis.types.get(owner).c_layout) {
+            return own_align(info(id).type);
+        }
+
+        const type_t& layout_of = m_analysis.types.get(owner);
+        const fb::c_layout_t layout = fb::c_layout(m_analysis.types, owner, build_c_integers());
+        const std::uint32_t index = symbol(*found).field;
+        if (index >= layout.offsets.size()) {
+            return outer;
+        }
+
+        std::uint64_t align = std::min(outer.align, layout.align);
+        if (const std::uint64_t offset = layout.offsets[index]; offset != 0) {
+            align = std::min(align, offset & (~offset + 1));
+        }
+
+        // The packed Struct that puts its Field at less than what holds it was at is the one
+        // that made it less.
+        const bool packed = layout_of.c_pack != 0 || layout_of.c_union;
+        return { .align = align, .packed = packed && align < outer.align ? owner : outer.packed };
+    }
+
+    /// A ByRef argument, an AddressOf's, or a ByRef Method's place, which code reaches at its
+    /// type's own alignment: a packed Struct's Field may not be at it. Reports that, saying what
+    /// takes it.
+    bool check_aligned(const expr_id_t id, const std::string_view use) {
+        const type_id_t type = info(id).type;
+        const std::uint64_t needed = c_align_of(type);
+        const place_align_t found = place_align(id);
+        if (needed == UINT64_MAX || found.align >= needed) {
+            return true;
+        }
+
+        error(span_of(id),
+              "'{}' may not be at the {}-byte alignment {} has, in the packed Struct {}, so it "
+              "can't be {}; copy it into a Local, and back",
+              text(id), needed, shown_name(type), shown_name(found.packed), use);
+        return false;
+    }
+
     std::optional<symbol_id_t> root_of(const expr_id_t id) {
         const expr_node_t& node = m_ast.get(id).node;
         // "Enemy.count" is a whole variable, and so is "game.score".
@@ -25146,6 +25354,11 @@ private:
                 same = "; RefEquals tells whether two are the same object";
             } else if (non_null(*common) == type_id_t::CSTRING) {
                 same = "; compare the Strings ToString() gives, in Unsafe code";
+            } else if (const type_id_t united = union_in(non_null(*common));
+                       united != type_id_t::INVALID) {
+                same = std::format("; {} is a @CUnion Struct, whose Fields share their bytes, so "
+                                   "it has no == but an Operator == of its own",
+                                   shown_name(united));
             }
 
             error(span, "'{}' can't be used on {}{}", spelling(op), shown_name(*common), same);
@@ -25914,6 +26127,11 @@ private:
             return type_id_t::INVALID;
         }
 
+        // Code reads what a Ptr points at as aligned.
+        if (!self && !check_aligned(value, "given to AddressOf")) {
+            return type_id_t::INVALID;
+        }
+
         if (!self && !in_object(value)) {
             const std::optional<symbol_id_t> root = root_of(value);
             if (!root) {
@@ -26434,6 +26652,13 @@ private:
             if (!saving &&
                 symbol(m_declared_types.at(definition_of(part.type))).modifiers.is_abstract) {
                 return report(part, ", which is Abstract, so there's no object of it to make");
+            }
+
+            // A union's Fields are one place, so which would it write, or fill?
+            if (info.c_union) {
+                return report(part, std::format(", a @CUnion Struct, whose Fields share their "
+                                                "bytes, so which one to {} isn't known",
+                                                saving ? "write" : "fill"));
             }
 
             if (const std::optional<std::string> clash =
@@ -27212,6 +27437,10 @@ private:
                   "'{}' is a ByRef Method, and an element of a T[] can move when the array grows; "
                   "change a Local copy, then store it back",
                   function.name);
+            return;
+        }
+
+        if (!check_aligned(member->object, std::format("changed by '{}'", function.name))) {
             return;
         }
 
@@ -29054,6 +29283,13 @@ private:
                 continue;
             } else if (position < count) {
                 parameter = position++;
+            } else if (function.kind == symbol_kind_t::CONSTRUCTOR && !function.declaration &&
+                       is_struct(function.owner) && m_analysis.types.get(function.owner).c_union) {
+                // A union's New makes its zero, whose one Field the code sets after.
+                error(span, "a @CUnion Struct's New takes nothing and makes its zero; set the "
+                            "Field it holds after");
+                valid = false;
+                break;
             } else {
                 error(span, "too many arguments to '{}'", callable_name(function));
                 valid = false;
@@ -29283,7 +29519,7 @@ private:
             return;
         }
 
-        if (!check_changeable(value)) {
+        if (!check_changeable(value) || !check_aligned(value, "passed ByRef")) {
             return;
         }
 

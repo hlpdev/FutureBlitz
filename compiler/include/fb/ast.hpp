@@ -457,7 +457,12 @@ struct modifiers_t {
     /// calls it.
     bool is_unsafe = false;
     /// "@CLayout Struct": a Struct laid out as C lays it out, which C code takes and gives.
+    /// "@CUnion Struct" is one too.
     bool is_c_layout = false;
+    /// "@CUnion Struct": a @CLayout Struct whose Fields are each at 0, as a C union's are.
+    bool is_c_union = false;
+    /// "@CLayout(Pack: N)" or "@CUnion(Pack: N)": the packing, an integer known at compile time.
+    std::optional<expr_id_t> c_pack;
     /// "@Deprecated", with its message, which may be empty: each use gets a warning.
     std::optional<std::string> deprecated;
     /// The attributes that Attribute declarations declare, which reflection reads.

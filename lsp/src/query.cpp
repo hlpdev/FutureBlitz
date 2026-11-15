@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <format>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -375,7 +376,17 @@ std::string query_t::signature(const symbol_id_t id) const {
 
             break;
         default:
-            text = "Struct " + type_name(symbol.type);
+            // A Struct laid out as C does says how: "@CLayout(Pack: 4) Struct Status".
+            if (type.c_layout) {
+                text = type.c_union ? "@CUnion" : "@CLayout";
+                if (type.c_pack != 0) {
+                    text += std::format("(Pack: {})", type.c_pack);
+                }
+
+                text += ' ';
+            }
+
+            text += "Struct " + type_name(symbol.type);
             break;
         }
 

@@ -280,6 +280,40 @@ Local shown = Next(Light.GREEN)
     CHECK_FALSE(next["contents"]["value"].get<std::string>().contains("Not a doc comment"));
 }
 
+TEST_CASE("hover says how C lays out a packed Struct or a union", "[lsp]") {
+    constexpr std::string_view text = R"(@CLayout(Pack: 4) Struct Status
+    Field handle: UInt32
+    Field id: Int64
+End Struct
+
+@CUnion Struct Address
+    Field id: UInt64
+    Field ip: UInt8[16]
+End Struct
+
+@CLayout Struct Plain
+    Field a: Int32
+End Struct
+
+Local status = Status(1, 2)
+Local address = Address()
+Local plain = Plain(3)
+)";
+    const folder_t folder({ { "steam.fb", std::string(text) } });
+    client_t client({ .folders = { folder.root() } });
+    const std::string uri = folder.uri("steam.fb");
+    client.open(uri, text);
+    const auto shown = [&](const std::string_view at) {
+        const json_t found =
+            client.request("textDocument/hover", client.at(uri, std::string(at), 2));
+        REQUIRE(found.is_object());
+        return found["contents"]["value"].get<std::string>();
+    };
+    CHECK(shown("= Status(").contains("@CLayout(Pack: 4) Struct Status"));
+    CHECK(shown("= Address(").contains("@CUnion Struct Address"));
+    CHECK(shown("= Plain(").contains("@CLayout Struct Plain"));
+}
+
 TEST_CASE("go to definition finds declarations in other modules, and Imports' files", "[lsp]") {
     const folder_t folder(geo());
     client_t client({ .folders = { folder.root() } });

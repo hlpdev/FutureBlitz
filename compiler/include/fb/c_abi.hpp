@@ -24,12 +24,16 @@ struct c_field_t {
 };
 
 /// A value of a C type as C lays it out, on a 64-bit target: its size, its alignment, and its
-/// scalars in order, a fixed array's and a Struct's included. It's LLVM's natural layout of the
-/// type too, where a Bool is a byte.
+/// scalars in order, a fixed array's and a Struct's included, a union's each at 0. It's LLVM's
+/// natural layout of the type too, where a Bool is a byte, but for a packed Struct's or a union's.
 struct c_layout_t {
     std::uint64_t size = 0;
     std::uint64_t align = 1;
     std::vector<c_field_t> fields;
+    /// A Struct's: where each of its Fields starts, in order.
+    std::vector<std::uint64_t> offsets;
+    /// Whether a scalar in it isn't at its own alignment, as a packed Struct's can be.
+    bool unaligned = false;
 };
 
 /// The layout of `type`, which is C data: a number, Bool, Enum, CString, Ptr, Callback, or a

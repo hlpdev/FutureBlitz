@@ -71,6 +71,8 @@ Local table: Int[Fib(10)]          // usable in types
 @Flags Enum Access ...
 @Open Enum Kind ...
 @CLayout Struct Point3 ...
+@CLayout(Pack: 4) Struct Status ...
+@CUnion Struct Address ...
 @MainThread Function ShowWindow()
 @PanicsAtCaller Method Pop(): T
 @Test Function ParsesAConfig()
@@ -83,6 +85,8 @@ Local table: Int[Fib(10)]          // usable in types
 | `@Flags` | enum values are powers of two |
 | `@Open` | an enum holds any value of its integer type |
 | `@CLayout` | C-compatible struct layout |
+| `@CLayout(Pack: N)` | packed, as `#pragma pack(N)` |
+| `@CUnion` | a C union: each Field at 0 |
 | `@MainThread` | callable only from the main thread |
 | `@PanicsAtCaller` | its panics report where it's called |
 | `@Test` | a test, which `fb test` runs, and builds leave out |
@@ -102,8 +106,11 @@ Local table: Int[Fib(10)]          // usable in types
   a call runs directly.
 - `@Test` goes before a top-level Function that takes nothing and gives nothing back, though it
   can throw, which `fb test` runs (see [09-errors.md](09-errors.md#tests)).
-- `@CLayout` lays a Struct out as C does (see [12-ffi.md](12-ffi.md)). `@Serialize` isn't
-  needed: Load and Save (below) convert every Struct and Class, so it's an error that says so.
+- `@CLayout` lays a Struct out as C does (see [12-ffi.md](12-ffi.md)), and `@CUnion` as a C union
+  does, a `@CLayout` Struct whose Fields are each at 0, so the two aren't written together. Each
+  takes one argument, its packing, by name: `@CLayout(Pack: 4)`, an integer known at compile time,
+  1, 2, 4, 8, or 16. `@Serialize` isn't needed: Load and Save (below) convert every Struct and
+  Class, so it's an error that says so.
 
 ### Declaring attributes
 

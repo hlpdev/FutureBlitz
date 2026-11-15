@@ -1730,6 +1730,7 @@ private:
         bool open = false;
         span_t open_span;
         span_t c_layout_span;
+        std::string_view c_layout_name;
         span_t test_span;
         while (at(token_kind_t::AT)) {
             advance();
@@ -1746,16 +1747,18 @@ private:
             const bool builtin =
                 !qualifier &&
                 (name.text == "Flags" || name.text == "Open" || name.text == "Inline" ||
-                 name.text == "Deprecated" || name.text == "CLayout" ||
+                 name.text == "Deprecated" || name.text == "CLayout" || name.text == "CUnion" ||
                  name.text == "PanicsAtCaller" || name.text == "MainThread" || name.text == "Test");
             const bool repeated =
-                !qualifier && ((name.text == "Flags" && flags) || (name.text == "Open" && open) ||
-                               (name.text == "Inline" && modifiers.is_inline) ||
-                               (name.text == "Test" && modifiers.is_test) ||
-                               (name.text == "CLayout" && modifiers.is_c_layout) ||
-                               (name.text == "MainThread" && modifiers.is_main_thread) ||
-                               (name.text == "PanicsAtCaller" && modifiers.panics_at_caller) ||
-                               (name.text == "Deprecated" && modifiers.deprecated));
+                !qualifier &&
+                ((name.text == "Flags" && flags) || (name.text == "Open" && open) ||
+                 (name.text == "Inline" && modifiers.is_inline) ||
+                 (name.text == "Test" && modifiers.is_test) ||
+                 (name.text == "CLayout" && modifiers.is_c_layout && !modifiers.is_c_union) ||
+                 (name.text == "CUnion" && modifiers.is_c_union) ||
+                 (name.text == "MainThread" && modifiers.is_main_thread) ||
+                 (name.text == "PanicsAtCaller" && modifiers.panics_at_caller) ||
+                 (name.text == "Deprecated" && modifiers.deprecated));
             if (qualifier) {
                 modifiers.attributes.push_back({
                     .qualifier = qualifier,
@@ -1781,9 +1784,20 @@ private:
                 test_span = name.span;
             } else if (name.text == "Deprecated") {
                 modifiers.deprecated = deprecation(arguments, span);
-            } else if (name.text == "CLayout") {
-                modifiers.is_c_layout = true;
-                c_layout_span = name.span;
+            } else if (name.text == "CLayout" || name.text == "CUnion") {
+                // A @CUnion Struct is a @CLayout one already, so the two aren't written together.
+                if (modifiers.is_c_layout) {
+                    error(name.span, "a @CUnion Struct is laid out as C does already, so it isn't "
+                                     "@CLayout too");
+                } else {
+                    modifiers.is_c_layout = true;
+                    modifiers.is_c_union = name.text == "CUnion";
+                    c_layout_span = name.span;
+                    c_layout_name = name.text;
+                    modifiers.c_pack = packing(name.text, arguments, span);
+                }
+
+                span.reset();
             } else if (name.text == "MainThreadOnly" && m_interface_file) {
                 read_main_thread_only(arguments, span.value_or(name.span), modifiers);
                 span.reset();
@@ -1813,8 +1827,17 @@ private:
             at(token_kind_t::KW_STRUCT) ||
             (at(token_kind_t::KW_SHARED) && peek(1).kind == token_kind_t::KW_STRUCT);
         if (modifiers.is_c_layout && !before_struct) {
-            error(c_layout_span, "@CLayout only goes before a Struct, which it lays out as C does");
+            if (modifiers.is_c_union) {
+                error(c_layout_span, "@CUnion only goes before a Struct, whose Fields it puts each "
+                                     "at 0, as a C union's are");
+            } else {
+                error(c_layout_span,
+                      "@CLayout only goes before a Struct, which it lays out as C does");
+            }
+
             modifiers.is_c_layout = false;
+            modifiers.is_c_union = false;
+            modifiers.c_pack.reset();
         }
 
         // A test is a plain Function, not an Async, Const, or Unsafe one, which fb test runs.
@@ -1893,6 +1916,32 @@ private:
         --m_bracket_depth;
         span = span_from(open.span.begin);
         return arguments;
+    }
+
+    /// @CLayout's or @CUnion's packing, "Pack: N", its one argument, which is named.
+    std::optional<expr_id_t> packing(const std::string_view attribute,
+                                     const std::vector<argument_t>& arguments,
+                                     const std::optional<span_t> span) {
+        if (!span) {
+            return std::nullopt;
+        }
+
+        const bool named = arguments.size() == 1 && arguments.front().name &&
+                           arguments.front().name->text == "Pack" && !arguments.front().by_ref;
+        if (named) {
+            return arguments.front().value;
+        }
+
+        // "@CLayout(4)": the number is the packing, which is named.
+        if (arguments.size() == 1 && !arguments.front().name && !arguments.front().by_ref) {
+            error(*span, "@{0} takes its packing by name: @{0}(Pack: {1})", attribute,
+                  m_file.slice(m_ast.get(arguments.front().value).span));
+        } else {
+            error(*span, "@{} takes one argument, its packing, as Pack: N, like #pragma pack(N)",
+                  attribute);
+        }
+
+        return std::nullopt;
     }
 
     /// @Deprecated's message: a string without interpolation, or nothing.

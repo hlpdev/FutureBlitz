@@ -343,10 +343,20 @@ TEST_CASE("what can't map is a skipped comment and a warning", "[bindgen]") {
     CHECK(diagnostics_of(made->text).empty());
     const std::string module = made->text.substr(made->text.find("\n\n") + 2);
     CHECK(module ==
-          "// skipped: union both, a union, which FutureBlitz hasn't\n"
+          "@CUnion Public Struct both\n"
+          "    Public Field i: Int32\n"
+          "    Public Field f: Float32\n"
+          "End Struct\n"
+          "\n"
           "// skipped: struct bits, since its field a is a bit field\n"
-          "// skipped: struct packed, since it's packed or aligned unlike its fields\n"
-          "// skipped: struct aligned, since it's packed or aligned unlike its fields\n"
+          "\n"
+          "@CLayout(Pack: 1) Public Struct packed\n"
+          "    Public Field c: Int8\n"
+          "    Public Field i: Int32\n"
+          "End Struct\n"
+          "\n"
+          "// skipped: struct aligned, since no packing puts its fields where C has them, as "
+          "_Alignas can\n"
           "// skipped: struct empty, since it has no fields\n"
           "// skipped: struct flexible, since its field items is an array without a size\n"
           "// skipped: struct anonymous, since it holds a union or struct without a name\n"
@@ -367,7 +377,7 @@ TEST_CASE("what can't map is a skipped comment and a warning", "[bindgen]") {
           "    // skipped: thrice, an inline function, which no library has\n"
           "    // skipped: precise, which gives a long double\n"
           "    // skipped: wide, which gives a 128-bit integer\n"
-          "    // skipped: take, which takes a union\n"
+          "    Function take(b: both)\n"
           "    // skipped: show, which takes struct tm, which another header defines\n"
           "    Function later(when: Ptr<Void>): Int64\n"
           "    // skipped: main, a symbol the program defines itself\n"
@@ -375,10 +385,9 @@ TEST_CASE("what can't map is a skipped comment and a warning", "[bindgen]") {
           "End Extern\n");
     CHECK(made->warnings ==
           errors_t{
-              "test.h:3:7: skipped union both, a union, which FutureBlitz hasn't",
               "test.h:4:8: skipped struct bits, since its field a is a bit field",
-              "test.h:5:32: skipped struct packed, since it's packed or aligned unlike its fields",
-              "test.h:6:8: skipped struct aligned, since it's packed or aligned unlike its fields",
+              std::string("test.h:6:8: skipped struct aligned, since no packing puts its fields "
+                          "where C has them, as _Alignas can"),
               "test.h:7:8: skipped struct empty, since it has no fields",
               std::string("test.h:8:8: skipped struct flexible, since its field items is an array "
                           "without a size"),
@@ -395,7 +404,6 @@ TEST_CASE("what can't map is a skipped comment and a warning", "[bindgen]") {
               "test.h:15:12: skipped thrice, an inline function, which no library has",
               "test.h:16:13: skipped precise, which gives a long double",
               "test.h:17:10: skipped wide, which gives a 128-bit integer",
-              "test.h:18:6: skipped take, which takes a union",
               "test.h:19:9: skipped show, which takes struct tm, which another header defines",
               "test.h:21:5: skipped main, a symbol the program defines itself",
               "test.h:22:5: skipped fb_print, a symbol the program defines itself",
@@ -843,7 +851,10 @@ TEST_CASE("what a struct or union defines inside it is the header's, bound or no
           "    Public Field a: Int32\n"
           "End Struct\n"
           "\n"
-          "// skipped: union u, a union, which FutureBlitz hasn't\n"
+          "@CUnion Public Struct u\n"
+          "    Public Field s: in_union\n"
+          "    Public Field b: Int32\n"
+          "End Struct\n"
           "\n"
           "Public Extern \"C\"\n"
           "    Function use_inner(p: Ptr<inner>)\n"
@@ -890,6 +901,61 @@ TEST_CASE("a struct without a name that a field has is named after the struct an
           "Public Extern \"C\"\n"
           "    Function use_holder(h: holder)\n"
           "    Function use_sprite(s: Ptr<sprite_t>)\n"
+          "End Extern\n");
+}
+
+TEST_CASE("packed structs and unions become packed @CLayout and @CUnion Structs", "[bindgen]") {
+    // An SDK's shapes: a 32-bit handle before a 64-bit id, packed to 4, a struct that holds a
+    // union without a name as a field, and one packed to 1 by an attribute. One whose fields
+    // are where they'd be anyway needs no packing.
+    CHECK(module_of("#include <stdint.h>\n"
+                    "#pragma pack(push, 4)\n"
+                    "typedef struct status { uint32_t handle; int64_t id; } status;\n"
+                    "typedef struct identity {\n"
+                    "    int32_t kind;\n"
+                    "    union { uint64_t id; uint8_t ip[16]; } value;\n"
+                    "    int64_t steam;\n"
+                    "} identity;\n"
+                    "typedef struct even { int32_t a; int32_t b; } even;\n"
+                    "#pragma pack(pop)\n"
+                    "#pragma pack(push, 2)\n"
+                    "typedef union bytes { uint8_t raw[5]; int32_t value; } bytes;\n"
+                    "#pragma pack(pop)\n"
+                    "struct __attribute__((packed)) tight { uint8_t a; double b; };\n"
+                    "status poll(identity who, struct tight* tight, bytes raw);\n") ==
+          "@CLayout(Pack: 4) Public Struct status\n"
+          "    Public Field handle: UInt32\n"
+          "    Public Field id: Int64\n"
+          "End Struct\n"
+          "\n"
+          "@CUnion(Pack: 4) Public Struct identity_value\n"
+          "    Public Field id: UInt64\n"
+          "    Public Field ip: UInt8[16]\n"
+          "End Struct\n"
+          "\n"
+          "@CLayout(Pack: 4) Public Struct identity\n"
+          "    Public Field kind: Int32\n"
+          "    Public Field value: identity_value\n"
+          "    Public Field steam: Int64\n"
+          "End Struct\n"
+          "\n"
+          "@CLayout Public Struct even\n"
+          "    Public Field a: Int32\n"
+          "    Public Field b: Int32\n"
+          "End Struct\n"
+          "\n"
+          "@CUnion(Pack: 2) Public Struct bytes\n"
+          "    Public Field raw: UInt8[5]\n"
+          "    Public Field value: Int32\n"
+          "End Struct\n"
+          "\n"
+          "@CLayout(Pack: 1) Public Struct tight\n"
+          "    Public Field a: UInt8\n"
+          "    Public Field b: Float64\n"
+          "End Struct\n"
+          "\n"
+          "Public Extern \"C\"\n"
+          "    Function poll(who: identity, tight: Ptr<tight>, raw: bytes): status\n"
           "End Extern\n");
 }
 

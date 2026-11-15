@@ -58,6 +58,50 @@ End Struct
   which `SizeOf` gives: a number's alignment is its size, a fixed array's its element's, and a
   Struct's its largest Field's, so a `UInt8[6]` and a `UInt8` take 7 bytes. It keeps a Struct's
   constructor, zero, `==`, and Methods.
+- `@CLayout(Pack: N)` packs it as C's `#pragma pack(N)` does: a Field's alignment is the smaller of
+  its own and N, the Struct's the smaller of its largest Field's and N, and its size a multiple of
+  that, so `@CLayout(Pack: 4)` with an `Int32` and then an `Int64` takes 12 bytes, the `Int64` at
+  4. A packed Struct inside another keeps its own alignment, and one that isn't packed inside a
+  packed one is at the smaller of its alignment and N, its inside as it is.
+  `__attribute__((packed))` is `Pack: 1`. N is 1, 2, 4, 8, or 16, an integer known at compile
+  time, as a fixed array's size is, so a Const can choose it by the target, as an SDK packed
+  differently on Windows needs:
+
+  ```vb
+  #If PLATFORM_WINDOWS
+  Const STEAM_PACK = 8
+  #Else
+  Const STEAM_PACK = 4
+  #End If
+
+  @CLayout(Pack: STEAM_PACK) Struct Status
+      Field handle: UInt32
+      Field id: Int64
+  End Struct
+  ```
+
+- A packed Struct's Fields are read, written, copied, and compared where they are, at the
+  alignment they have, on every target. One that may not be at its type's own alignment, as any
+  `Int64` of a Struct packed to 4 may not be, since the Struct itself may be at 4, can't be passed
+  `ByRef`, given to `AddressOf`, or changed by a `ByRef` Method, whose code reads it as aligned:
+  that's an error that says to copy it into a Local and back.
+- `@CUnion Struct` is a C union: a `@CLayout` Struct whose Fields are each at 0, so its size is its
+  largest Field's, rounded to its largest alignment, and it takes `Pack: N` too. Its Fields are
+  `@CLayout`'s, and it's C data wherever a `@CLayout` Struct is: a Field of one, by value, through
+  a `Ptr`, and in a fixed array. Its zero is all zero bytes, which its New makes, taking nothing,
+  so its Fields have no defaults; reading a Field reads those bytes as that type, as C does, and
+  writing one writes its own. It has no `==` or Hash but an `Operator ==` of its own, and Load and
+  Save don't take it, since which Field they'd write or fill isn't known.
+
+  ```vb
+  @CUnion Struct Address
+      Field id: UInt64
+      Field ip: UInt8[16]
+  End Struct
+
+  Local address = Address()
+  address.id = 1
+  ```
 - A Struct that C code sees is `@CLayout`: one an Extern Function takes or gives by value, takes
   `ByRef`, or reaches through a `Ptr` or a fixed array.
 - By value, a Struct goes as the target's C ABI passes it, as clang does. On Windows, one of 1,
@@ -69,7 +113,11 @@ End Struct
   to four `Float`s, or one to four `Double`s, and nothing else goes in that many floating-point
   registers; any other of 16 bytes or less goes in one or two integer registers; and a bigger one
   goes as a pointer to a copy the caller makes, or for a result, memory the caller passes. No
-  target takes one of 4 GiB or more by value; a `Ptr` to one works everywhere.
+  target takes one of 4 GiB or more by value; a `Ptr` to one works everywhere. A packed Struct and
+  a union go as clang passes C's: on System V, one with a number off its own alignment goes in
+  memory, and a union's eightbyte is in an SSE register only when everything in it is a float, as
+  a double when it has one; on AArch64, a union's floats at one place count once, so a union of
+  two `Float`s goes in one floating-point register.
 
 ## CData
 
@@ -145,6 +193,8 @@ Print("{values[0]} {values.Slice(1, 3).ToArray()}")
 | `CString` | `const char*` |
 | `Callback(A, B): R` | function pointer, `R (*)(A, B)` |
 | `@CLayout Struct` | struct, by value or through a `Ptr` |
+| `@CLayout(Pack: N) Struct` | struct under `#pragma pack(N)` |
+| `@CUnion Struct` | union |
 
 - An Enum goes as its integer type, and one C gives back, as a result or through ByRef, or in a
   Struct it gives or sets ByRef, in its Fields or their fixed arrays, has to be one of its
@@ -263,9 +313,11 @@ fb bindgen vecmath.h [-o vecmath.fb] [--lib vecmath] [--target <triple>] [--std 
   standard libclang doesn't know, which the error names.
 - The module holds the header's own declarations, those its macros make too, not what it
   `#include`s, each `Public`, after a comment saying what it was generated from and for which
-  target, in the header's order: a struct is a `@CLayout` Struct, after what it defines inside it,
-  which C names as if it were outside, and one without a name that a field has is named after the
-  struct and the field, like `holder_inner`; an enum is an Enum of its integer type, or Consts of
+  target, in the header's order: a struct is a `@CLayout` Struct, and a union a `@CUnion` one, with
+  the packing (`Pack: N`) that puts its fields where C has them, from `#pragma pack` or
+  `__attribute__((packed))`, after what it defines inside it, which C names as if it were outside,
+  and one without a name that a field has is named after the struct and the field, like
+  `holder_inner`; an enum is an Enum of its integer type, or Consts of
   that type when its values repeat or it's a flag enum (`__attribute__((flag_enum))`), whose values
   are combined, or of C's type for each constant when it has no name, and a macro that's a number a
   Const of the type and value C gives it after the header, as clang works it out: its last
@@ -294,8 +346,10 @@ fb bindgen vecmath.h [-o vecmath.fb] [--lib vecmath] [--target <triple>] [--std 
   apart), as do names in one scope that are alike after that, while a C name that's a fine name
   already keeps it. A function whose name changed says its C symbol with `= "symbol"`. A
   parameter without a name is `arg1`, `arg2`, and so on.
-- What can't map is a `// skipped:` comment where it was, saying why, and a warning: unions, bit
-  fields, packed or aligned structs, flexible array members and arrays without elements,
+- What can't map is a `// skipped:` comment where it was, saying why, and a warning: bit fields, a
+  struct or union no packing lays out as C does, as `_Alignas` over a field's alignment does, a
+  union or struct without a name as a member, whose fields C puts in what holds it, flexible array
+  members and arrays without elements,
   varargs, inline, and static functions, a function that doesn't say what it takes (`f()`
   before C23), functions and callbacks of a calling convention other than the target's C one,
   like `__vectorcall` or `__regcall`, C globals, `long double`, 128-bit integers, `main`

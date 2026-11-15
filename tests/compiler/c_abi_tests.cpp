@@ -243,6 +243,226 @@ TEST_CASE("a Callback in a Struct takes 8 bytes, as C's function pointer does", 
                                    }));
 }
 
+namespace {
+
+using fb::type_id_t;
+
+/// A @CLayout Struct of `fields`, packed to `pack` when it isn't 0, or a union.
+type_id_t c_struct(fb::type_table_t& types, const std::string& name,
+                   const std::vector<type_id_t>& fields, const std::uint8_t pack = 0,
+                   const bool united = false) {
+    const type_id_t made = types.add_struct(name);
+    std::vector<fb::field_t> list;
+    list.reserve(fields.size());
+    for (std::size_t i = 0; i < fields.size(); ++i) {
+        list.push_back({ .name = std::format("f{}", i), .type = fields[i] });
+    }
+
+    types.set_fields(made, std::move(list));
+    types.set_c_layout(made);
+    if (united) {
+        types.set_c_union(made);
+    }
+
+    if (pack != 0) {
+        types.set_c_pack(made, pack);
+    }
+
+    return made;
+}
+
+/// A layout's size, alignment, and Fields' offsets.
+struct shape_t {
+    std::uint64_t size = 0;
+    std::uint64_t align = 0;
+    std::vector<std::uint64_t> offsets;
+
+    bool operator==(const shape_t&) const = default;
+};
+
+shape_t shape_of(const fb::type_table_t& types, const type_id_t type) {
+    const c_layout_t found = fb::c_layout(types, type, fb::c_integers_t());
+    return { .size = found.size, .align = found.align, .offsets = found.offsets };
+}
+
+} // namespace
+
+// Each layout is clang's, for x86-64 Linux and Windows, MSVC's too, and AArch64 Linux and Apple.
+TEST_CASE("a packed Struct is laid out as #pragma pack has it", "[c_abi]") {
+    fb::type_table_t types;
+    constexpr type_id_t u8 = type_id_t::UINT8;
+    constexpr type_id_t i16 = type_id_t::INT16;
+    constexpr type_id_t i32 = type_id_t::INT32;
+    constexpr type_id_t i64 = type_id_t::INT64;
+    const std::vector<type_id_t> mixed{ u8, i16, i32, i64 };
+
+    // A Field's alignment is the smaller of its own and the packing, and so is the Struct's.
+    CHECK(shape_of(types, c_struct(types, "P1", mixed, 1)) ==
+          shape_t{ .size = 15, .align = 1, .offsets = { 0, 1, 3, 7 } });
+    CHECK(shape_of(types, c_struct(types, "P2", mixed, 2)) ==
+          shape_t{ .size = 16, .align = 2, .offsets = { 0, 2, 4, 8 } });
+    CHECK(shape_of(types, c_struct(types, "P2b", { u8, i64, u8 }, 2)) ==
+          shape_t{ .size = 12, .align = 2, .offsets = { 0, 2, 10 } });
+    CHECK(shape_of(types, c_struct(types, "P4", mixed, 4)) ==
+          shape_t{ .size = 16, .align = 4, .offsets = { 0, 2, 4, 8 } });
+    const type_id_t late = c_struct(types, "P4b", { i32, i64 }, 4);
+    CHECK(shape_of(types, late) == shape_t{ .size = 12, .align = 4, .offsets = { 0, 4 } });
+    CHECK(shape_of(types, c_struct(types, "P4c", { u8, i16 }, 4)) ==
+          shape_t{ .size = 4, .align = 2, .offsets = { 0, 2 } });
+    // Packed to its largest alignment or more, it's as it would be anyway.
+    CHECK(shape_of(types, c_struct(types, "P8", { i32, i64 }, 8)) ==
+          shape_t{ .size = 16, .align = 8, .offsets = { 0, 8 } });
+    CHECK(shape_of(types, c_struct(types, "P16", { i32, i64 }, 16)) ==
+          shape_t{ .size = 16, .align = 8, .offsets = { 0, 8 } });
+
+    // A plain Struct in a packed one is at the packing, its inside as it is; a packed one in a
+    // plain one keeps its own alignment, as each of an array of them does.
+    const type_id_t plain = c_struct(types, "Plain", { i32, i64 });
+    CHECK(shape_of(types, c_struct(types, "HoldsPlain", { u8, plain, u8 }, 2)) ==
+          shape_t{ .size = 20, .align = 2, .offsets = { 0, 2, 18 } });
+    CHECK(shape_of(types, c_struct(types, "HoldsPacked", { u8, late })) ==
+          shape_t{ .size = 16, .align = 4, .offsets = { 0, 4 } });
+    CHECK(shape_of(types,
+                   c_struct(types, "HoldsArray", { u8, types.fixed_array(late, { 2 }), u8 })) ==
+          shape_t{ .size = 32, .align = 4, .offsets = { 0, 4, 28 } });
+
+    // A union's Fields are each at 0, and its size its largest's, rounded to its alignment, which
+    // a packing takes down too.
+    const type_id_t nine = types.fixed_array(u8, { 9 });
+    CHECK(shape_of(types, c_struct(types, "U1", { u8, i32, i64 }, 0, true)) ==
+          shape_t{ .size = 8, .align = 8, .offsets = { 0, 0, 0 } });
+    const type_id_t bytes = c_struct(types, "U2", { nine, i32 }, 0, true);
+    CHECK(shape_of(types, bytes) == shape_t{ .size = 12, .align = 4, .offsets = { 0, 0 } });
+    CHECK(shape_of(types, c_struct(types, "U3", { nine, i32 }, 1, true)) ==
+          shape_t{ .size = 9, .align = 1, .offsets = { 0, 0 } });
+    CHECK(shape_of(types, c_struct(types, "HoldsUnion", { type_id_t::INT8, bytes })) ==
+          shape_t{ .size = 16, .align = 4, .offsets = { 0, 4 } });
+}
+
+TEST_CASE("a packed Struct or union is passed as clang passes it", "[c_abi]") {
+    fb::type_table_t types;
+    constexpr type_id_t i32 = type_id_t::INT32;
+    constexpr type_id_t i64 = type_id_t::INT64;
+    constexpr type_id_t f32 = type_id_t::FLOAT32;
+    constexpr type_id_t f64 = type_id_t::FLOAT64;
+    const auto of = [&](const type_id_t type) {
+        return fb::c_layout(types, type, fb::c_integers_t());
+    };
+
+    // SysV: one with a scalar off its own alignment goes in memory, and one without by its
+    // eightbytes, wherever its Fields are.
+    const c_layout_t late = of(c_struct(types, "Late", { i32, i64 }, 4));
+    CHECK(argument(late, sysv).pass == c_pass_t::MEMORY);
+    CHECK(result(late, sysv).pass == c_pass_t::MEMORY);
+    const c_layout_t early = of(c_struct(types, "Early", { i64, i32 }, 4));
+    CHECK(argument(early, sysv) == direct({
+                                       { .part = c_part_t::INTEGER, .size = 8 },
+                                       { .part = c_part_t::INTEGER, .size = 4 },
+                                   }));
+    const c_layout_t floats = of(c_struct(types, "FloatsDouble", { f32, f32, f64 }, 4));
+    CHECK(argument(floats, sysv) == direct({
+                                        { .part = c_part_t::TWO_FLOATS },
+                                        { .part = c_part_t::DOUBLE },
+                                    }));
+    // Win64 by size alone, and AArch64 by size: 12 bytes as two i64s, and 5 as one, or as an
+    // integer its size for a result.
+    CHECK(argument(late, win64).pass == c_pass_t::INDIRECT);
+    CHECK(argument(late, aapcs64) == together({
+                                         { .part = c_part_t::INTEGER, .size = 8 },
+                                         { .part = c_part_t::INTEGER, .size = 8 },
+                                     }));
+    const c_layout_t five = of(c_struct(types, "Five", { type_id_t::UINT8, i32 }, 1));
+    CHECK(argument(five, sysv).pass == c_pass_t::MEMORY);
+    CHECK(argument(five, aapcs64) == direct({ { .part = c_part_t::INTEGER, .size = 8 } }));
+    CHECK(result(five, aapcs64) == direct({ { .part = c_part_t::INTEGER, .size = 5 } }));
+    const c_layout_t eight =
+        of(c_struct(types, "EightBytes", { type_id_t::UINT8, i32, type_id_t::UINT16 }, 2));
+    CHECK(argument(eight, win64) == direct({ { .part = c_part_t::INTEGER, .size = 8 } }));
+
+    // A union's eightbyte is a double when it has one, two floats for a pair, an integer when
+    // anything is, and as wide as its widest Field.
+    CHECK(argument(of(c_struct(types, "FD", { f32, f64 }, 0, true)), sysv) ==
+          direct({ { .part = c_part_t::DOUBLE } }));
+    CHECK(argument(of(c_struct(types, "FFI", { types.fixed_array(f32, { 2 }), i32 }, 0, true)),
+                   sysv) == direct({ { .part = c_part_t::INTEGER, .size = 8 } }));
+    const c_layout_t same = of(c_struct(types, "FF", { f32, f32 }, 0, true));
+    CHECK(argument(same, sysv) == direct({ { .part = c_part_t::FLOAT } }));
+    const type_id_t pair = c_struct(types, "Pair", { f32, f32 });
+    const c_layout_t paired = of(c_struct(types, "Paired", { f32, pair }, 0, true));
+    CHECK(argument(paired, sysv) == direct({ { .part = c_part_t::TWO_FLOATS } }));
+    CHECK(argument(of(c_struct(types, "PD", { pair, f64 }, 0, true)), sysv) ==
+          direct({ { .part = c_part_t::DOUBLE } }));
+    // AArch64 counts a union's floats at one place once: two floats is one float, and a pair
+    // with a float is two.
+    CHECK(argument(same, aapcs64) == together({ { .part = c_part_t::FLOAT } }));
+    CHECK(argument(paired, aapcs64) ==
+          together({ { .part = c_part_t::FLOAT }, { .part = c_part_t::FLOAT } }));
+    CHECK(argument(of(c_struct(types, "FD2", { f32, f64 }, 0, true)), aapcs64) ==
+          direct({ { .part = c_part_t::INTEGER, .size = 8 } }));
+}
+
+TEST_CASE("an Extern Function's packed Structs and unions go as clang declares them", "[c_abi]") {
+    const std::vector<fb::library_file_t> files =
+        fb::standard_library().value_or(std::vector<fb::library_file_t>{});
+    const fb::compilation_t compilation = fb::compile(
+        "main.fb",
+        "@CLayout(Pack: 4) Struct Late\n    Field a: Int32\n    Field b: Int64\nEnd Struct\n"
+        "@CLayout(Pack: 4) Struct Early\n    Field a: Int64\n    Field b: Int32\nEnd Struct\n"
+        "@CLayout(Pack: 1) Struct Five\n    Field a: UInt8\n    Field b: Int32\nEnd Struct\n"
+        "@CLayout(Pack: 2) Struct Mix\n    Field a: UInt8\n    Field b: Int32\n"
+        "    Field c: UInt16\nEnd Struct\n"
+        "@CUnion Struct FD\n    Field f: Float32\n    Field d: Float64\nEnd Struct\n"
+        "@CUnion Struct FF\n    Field a: Float32\n    Field b: Float32\nEnd Struct\n"
+        "Extern \"C\"\n"
+        "    Function late(v: Late): Late\n"
+        "    Function early(v: Early): Early\n"
+        "    Function five(v: Five): Five\n"
+        "    Function mix(v: Mix): Mix\n"
+        "    Function fd(v: FD): FD\n"
+        "    Function ff(v: FF): FF\n"
+        "End Extern\n"
+        "Local a = late(Late(1, 2))\nLocal b = early(Early(1, 2))\nLocal c = five(Five(1, 2))\n"
+        "Local d = mix(Mix(1, 2, 3))\nLocal e = fd(FD())\nLocal f = ff(FF())\n",
+        files);
+    REQUIRE_FALSE(compilation.diagnostics.has_errors());
+    const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+    const auto ir = [&](const std::string_view triple) {
+        return fb::emit_ir(module, compilation.sources, compilation.file,
+                           { .target_triple = std::string(triple) })
+            .value_or("");
+    };
+
+    // Each as clang declares its C, with the IR types each has.
+    const std::string linux = ir("x86_64-unknown-linux-gnu");
+    CHECK(linux.contains("%fb.Late = type { [0 x i32], <{ i32, i64 }> }"));
+    CHECK(linux.contains("%fb.FD = type { [0 x i64], <{ [8 x i8] }> }"));
+    CHECK(linux.contains("declare void @late(ptr sret(%fb.Late) align 4, ptr byval(%fb.Late) "
+                         "align 8)"));
+    CHECK(linux.contains("declare { i64, i32 } @early(i64, i32)"));
+    CHECK(linux.contains("declare void @five(ptr sret(%fb.Five) align 1, ptr byval(%fb.Five) "
+                         "align 8)"));
+    CHECK(linux.contains("declare void @mix(ptr sret(%fb.Mix) align 2, ptr byval(%fb.Mix) "
+                         "align 8)"));
+    CHECK(linux.contains("declare double @fd(double)"));
+    CHECK(linux.contains("declare float @ff(float)"));
+
+    const std::string windows = ir("x86_64-w64-windows-gnu");
+    CHECK(windows.contains("declare void @late(ptr sret(%fb.Late) align 4, ptr)"));
+    CHECK(windows.contains("declare void @five(ptr sret(%fb.Five) align 1, ptr)"));
+    CHECK(windows.contains("declare i64 @mix(i64)"));
+    CHECK(windows.contains("declare i64 @fd(i64)"));
+    CHECK(windows.contains("declare i32 @ff(i32)"));
+
+    const std::string arm = ir("aarch64-unknown-linux-gnu");
+    CHECK(arm.contains("declare [2 x i64] @late([2 x i64])"));
+    CHECK(arm.contains("declare [2 x i64] @early([2 x i64])"));
+    CHECK(arm.contains("declare i40 @five(i64)"));
+    CHECK(arm.contains("declare i64 @mix(i64)"));
+    CHECK(arm.contains("declare i64 @fd(i64)"));
+    CHECK(arm.contains("declare [1 x float] @ff([1 x float])"));
+    CHECK(ir("arm64-apple-macosx14.0.0").contains("declare i40 @five(i64)"));
+}
+
 TEST_CASE("an Extern Function's Structs go as the target's C ABI has them", "[c_abi]") {
     const std::vector<fb::library_file_t> files =
         fb::standard_library().value_or(std::vector<fb::library_file_t>{});

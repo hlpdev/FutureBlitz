@@ -3,6 +3,44 @@
 What each milestone and step added, by name, and each review's fixes, as CLAUDE.md kept
 them while each was built. Newest first.
 
+## After 1.3.5
+
+Packed `@CLayout` Structs and C unions, for the Steamworks SDK the game binds through the C ABI
+(scpcb-x, 2026-11-15), for 1.4.0.
+
+- **`@CLayout(Pack: N)`** lays a Struct out as `#pragma pack(N)` does, and a Const under
+  `#If PLATFORM_WINDOWS` chooses N by the target, as Steam's 8 on Windows and 4 elsewhere need.
+  c_abi's `c_layout` is the one place that knows a layout, now with each Field's offset and
+  whether a scalar is off its alignment: SizeOf, the C ABI, debug info, codegen, and sema's checks
+  ask it. Codegen gives a Struct whose layout isn't LLVM's own (a packed one, a union, or one that
+  holds either) the IR type `{ [0 x iA], <{ fields and padding }> }`, A its alignment, so LLVM's
+  size and alignment are C's wherever it goes, and every load, store, copy, and zeroing of a place
+  carries the alignment its path guarantees (`address_of`'s `align`, from the root and each
+  step's offset), which is what it was before for every path without one.
+- **`@CUnion Struct`**: each Field at 0, its size the largest's rounded to the alignment, packed or
+  not; its New takes nothing and makes its zero, all zero bytes; no Field defaults, `==`, Hash, or
+  Load and Save, but an `Operator ==` of its own. Debug info says it's a union.
+- **ByRef, AddressOf, and a ByRef Method** of a place that may not be at its type's alignment, as
+  any Int64 in a Struct packed to 4, is an error that says to copy it into a Local; sema's
+  `place_align` works the alignment out the way codegen does.
+- **By value**, as clang passes C's, checked against clang's IR for x86-64 Linux and Windows and
+  AArch64 Linux and Apple: System V puts one with a scalar off its alignment in memory, and a
+  union's eightbyte is a double when it has one; AArch64 counts a union's floats at one offset
+  once.
+- **fb-bindgen** binds a struct or union with the packing that puts its fields where clang has
+  them, as `@CLayout(Pack: N)` or `@CUnion`, and a union without a name that a field has is named
+  after the struct and field; an over-aligned one, a bit field, and a member without a name are
+  still skipped.
+- **The LSP's hover** says `@CLayout(Pack: 4) Struct Status`; `fb doc` lists the attribute, and an
+  interface file keeps it and the Const it names.
+- Tests: tests/packages/packed against tests/native/vecmath/packed.c, which C compiles (each
+  shape's size and alignment from C, by value both ways, through a Ptr, and C filling a Struct fb
+  reads); tests/programs/packed_layout, packed values in a Class's Field, a T?, a Global, a
+  Map's key, a T[], and a Buffer; c_abi's layouts for packings 1 to 16, nested both ways, arrays, and unions, each checked
+  by clang for five targets, how each goes by value, and the IR clang declares; sema's errors and
+  ByRef cases; debug info; an interface file; bindgen over `#pragma pack(push, 4)`, unions, and
+  `__attribute__((packed))`; hover and completion.
+
 ## 1.3.5
 
 - **A lambda's own error was said as an ambiguous call**: the game's `lua.SetFunction("send", Function(topic: String, text: String) Throws Error ... End Function)`, with `topic.Length` in a file that doesn't import std.text, got "the call to 'SetFunction' is ambiguous" and nothing of the body's error (scpcb-x, 2026-11-13). `match` ranks a lambda whose body has errors as a Func below every other fit, so the Func it checks as without them wins; with an error that's in the body under every overload, each that took the lambda at all tied there, even one whose Func it isn't. `choose_overload` now ranks those again as if the body had no errors: the best is the one called, whose call says the body's errors, and so is any of those still tied when the errors are the same under each. Errors that differ between them, like `x.Nope` for a `Function(x)` that could take an Int or a String, are still ambiguous, as is a sound lambda two overloads fit. Where no overload takes the lambda, "no overload of 'Set' takes (String, Func(Bool))" is now followed by the body's errors, when the lambda writes its parameters' types. One overload's call is as it was. The second ranking is asked only of the call's own lambda arguments: `match` and `choose_overload` put it aside for the calls inside those lambdas' bodies, which rank theirs as any call does (the review's fix, with rank's packed loop no longer reading the last parameter through a pointer the analyzer couldn't see was set). Sema's "a lambda's own error is said, not that the overloads it's given to are ambiguous".

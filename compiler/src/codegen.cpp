@@ -659,6 +659,16 @@ private:
     std::unordered_map<std::string, LLVMValueRef> m_c_strings; // C strings for panics
     /// Each Struct's LLVM type, made the first time it's needed.
     std::unordered_map<type_id_t, LLVMTypeRef> m_struct_types;
+    /// A @CLayout Struct's layout where C's isn't LLVM's own: a packed one's, a union's, or one's
+    /// that holds either. Its type is { [0 x iN], <{ ... }> }, the iN for C's alignment and the
+    /// packed body with each Field at C's offset and bytes between, or a union's bytes alone.
+    struct c_struct_layout_t {
+        LLVMTypeRef body = nullptr;
+        /// Each Field's element of the body. A union's Fields have none: each is at its start.
+        std::vector<unsigned> elements;
+        c_layout_t layout;
+    };
+    std::unordered_map<type_id_t, c_struct_layout_t> m_c_structs;
     /// Each Class's object type: the header, then the fields.
     std::unordered_map<type_id_t, LLVMTypeRef> m_object_types;
     /// Each Class's fb_class_t, by its type.
@@ -1316,6 +1326,10 @@ private:
             return m_mir.types->enum_zero(type) == 0;
         }
 
+        if (info.c_union) {
+            return true;
+        }
+
         return std::ranges::all_of(
             info.fields, [this](const field_t& field) { return zero_is_null(field.type); });
     }
@@ -1344,11 +1358,127 @@ private:
         return result;
     }
 
+    /// Whether a type is a @CLayout Struct that C lays out other than as LLVM would: a packed
+    /// one, a union, or one with either in a Field, maybe in a fixed array.
+    [[nodiscard]] bool laid_out_by_c(const type_id_t type) const {
+        const type_t& info = m_mir.types->get(type);
+        if (info.kind == type_kind_t::FIXED_ARRAY) {
+            return laid_out_by_c(info.inner);
+        }
+
+        if (info.kind != type_kind_t::STRUCT || !info.c_layout) {
+            return false;
+        }
+
+        return info.c_pack != 0 || info.c_union ||
+               std::ranges::any_of(
+                   info.fields, [this](const field_t& field) { return laid_out_by_c(field.type); });
+    }
+
+    /// The layout of a Struct laid_out_by_c(), once its type is made.
+    [[nodiscard]] const c_struct_layout_t* c_struct_of(const type_id_t type) {
+        if (!is_struct(type) || !laid_out_by_c(type)) {
+            return nullptr;
+        }
+
+        (void)struct_type(type);
+        return &m_c_structs.at(type);
+    }
+
+    /// A Struct laid_out_by_c()'s type, named as any Struct's is.
+    LLVMTypeRef c_struct_type(const type_id_t type, const std::string& name) {
+        const type_t& info = m_mir.types->get(type);
+        c_struct_layout_t made{ .layout = c_layout(*m_mir.types, type, m_integers) };
+        LLVMTypeRef byte = LLVMInt8TypeInContext(context());
+        std::vector<LLVMTypeRef> body;
+        if (info.c_union) {
+            body.push_back(LLVMArrayType2(byte, made.layout.size));
+        } else {
+            std::uint64_t at = 0;
+            for (std::size_t i = 0; i < info.fields.size(); ++i) {
+                const std::uint64_t offset = made.layout.offsets[i];
+                if (offset > at) {
+                    body.push_back(LLVMArrayType2(byte, offset - at));
+                }
+
+                made.elements.push_back(static_cast<unsigned>(body.size()));
+                body.push_back(llvm_type(info.fields[i].type));
+                at = offset + c_layout(*m_mir.types, info.fields[i].type, m_integers).size;
+            }
+
+            if (made.layout.size > at) {
+                body.push_back(LLVMArrayType2(byte, made.layout.size - at));
+            }
+        }
+
+        made.body =
+            LLVMStructTypeInContext(context(), body.data(), static_cast<unsigned>(body.size()), 1);
+        const auto bits = static_cast<unsigned>(made.layout.align * 8);
+        std::array<LLVMTypeRef, 2> outer{
+            LLVMArrayType2(LLVMIntTypeInContext(context(), bits), 0),
+            made.body,
+        };
+        LLVMTypeRef result = LLVMStructCreateNamed(context(), name.c_str());
+        LLVMStructSetBody(result, outer.data(), static_cast<unsigned>(outer.size()), 0);
+        m_struct_types.emplace(type, result);
+        m_c_structs.emplace(type, std::move(made));
+        return result;
+    }
+
+    /// Where a Struct's Field is, from where the Struct is: at C's offset in one laid_out_by_c().
+    LLVMValueRef field_address(const type_id_t type, LLVMValueRef address, const unsigned field) {
+        const c_struct_layout_t* laid = c_struct_of(type);
+        if (laid == nullptr) {
+            return LLVMBuildStructGEP2(builder(), llvm_type(type), address, field, "");
+        }
+
+        if (laid->elements.empty()) {
+            return address;
+        }
+
+        LLVMValueRef body = LLVMBuildStructGEP2(builder(), llvm_type(type), address, 1, "");
+        return LLVMBuildStructGEP2(builder(), laid->body, body, laid->elements[field], "");
+    }
+
+    /// Where a Field of a value of `type` starts, in bytes.
+    [[nodiscard]] std::uint64_t field_offset(const type_id_t type, const unsigned field) {
+        if (const c_struct_layout_t* laid = c_struct_of(type)) {
+            return laid->layout.offsets[field];
+        }
+
+        return LLVMOffsetOfElement(LLVMGetModuleDataLayout(m_module.get()), llvm_type(type), field);
+    }
+
+    /// The alignment what's at `offset` from an address aligned to `align` has.
+    [[nodiscard]] static std::uint64_t aligned_at(const std::uint64_t align,
+                                                  const std::uint64_t offset) {
+        return offset == 0 ? align : std::min(align, offset & (~offset + 1));
+    }
+
+    /// The alignment a value of `type` has in memory: LLVM's, which is C's for C data.
+    [[nodiscard]] std::uint64_t abi_align(const type_id_t type) {
+        return LLVMABIAlignmentOfType(LLVMGetModuleDataLayout(m_module.get()), llvm_type(type));
+    }
+
+    /// Sets a load's or store's alignment to `align` where that's less than its type's own, as
+    /// a packed Struct's Field's can be.
+    LLVMValueRef with_align(LLVMValueRef access, const type_id_t type, const std::uint64_t align) {
+        if (align < abi_align(type)) {
+            LLVMSetAlignment(access, static_cast<unsigned>(align));
+        }
+
+        return access;
+    }
+
     /// "fb.Point" in the IR, or "fb.(Int32, String)" for a tuple. A Struct never contains itself,
     /// so making its fields' types can't come back to it.
     LLVMTypeRef struct_type(const type_id_t type) {
         if (const auto found = m_struct_types.find(type); found != m_struct_types.end()) {
             return found->second;
+        }
+
+        if (is_struct(type) && laid_out_by_c(type)) {
+            return c_struct_type(type, std::format("fb.{}", m_mir.types->qualified_name(type)));
         }
 
         std::vector<LLVMTypeRef> fields;
@@ -2404,6 +2534,26 @@ private:
             return LLVMConstArray2(llvm_type(info.inner), elements.data(), elements.size());
         }
 
+        // One laid out by C has its Fields' zeros in its body, and zero bytes between them.
+        if (const c_struct_layout_t* laid = c_struct_of(type)) {
+            const unsigned count = LLVMCountStructElementTypes(laid->body);
+            std::vector<LLVMValueRef> body;
+            body.reserve(count);
+            for (unsigned i = 0; i < count; ++i) {
+                body.push_back(LLVMConstNull(LLVMStructGetTypeAtIndex(laid->body, i)));
+            }
+
+            for (std::size_t i = 0; i < info.fields.size(); ++i) {
+                body[laid->elements[i]] = zero_constant(info.fields[i].type);
+            }
+
+            std::array<LLVMValueRef, 2> outer{
+                LLVMConstNull(LLVMStructGetTypeAtIndex(llvm_type(type), 0)),
+                LLVMConstStructInContext(context(), body.data(), count, 1),
+            };
+            return LLVMConstNamedStruct(llvm_type(type), outer.data(), 2);
+        }
+
         std::vector<LLVMValueRef> fields;
         fields.reserve(info.fields.size());
         for (const field_t& field : info.fields) {
@@ -2540,6 +2690,7 @@ private:
     LLVMMetadataRef m_object_debug_type = nullptr;
     // DWARF's numbers for what the C API takes as numbers.
     static constexpr unsigned dwarf_structure = 0x13;
+    static constexpr unsigned dwarf_union = 0x17;
     static constexpr std::uint64_t dwarf_deref = 0x06;
     static constexpr std::uint64_t dwarf_plus = 0x23;
     static constexpr unsigned dwarf_boolean = 0x02;
@@ -2927,31 +3078,47 @@ private:
         LLVMMetadataRef file = debug_file(m_main_file);
         const std::uint64_t size = size_in_bits(layout);
         const std::uint32_t align = align_in_bits(layout);
+        const c_struct_layout_t* laid = reference ? nullptr : c_struct_of(type);
+        const bool united = laid != nullptr && m_mir.types->get(type).c_union;
         // A Class's struct is by its full name, which its fb_class_t has, so the script tells it
         // from another module's of its name.
         const std::string struct_name =
             reference ? "fb." + (is_class(type) ? full_name(type) : name) : name;
         LLVMMetadataRef temporary = LLVMDIBuilderCreateReplaceableCompositeType(
-            type_maker(), dwarf_structure, struct_name.data(), struct_name.size(), nullptr, file, 0,
-            0, size, align, LLVMDIFlagZero, "", 0);
+            type_maker(), united ? dwarf_union : dwarf_structure, struct_name.data(),
+            struct_name.size(), nullptr, file, 0, 0, size, align, LLVMDIFlagZero, "", 0);
         LLVMMetadataRef holder = reference ? named(pointer_to(temporary), name) : temporary;
         m_debug_types[type] = holder;
         LLVMTargetDataRef data = LLVMGetModuleDataLayout(m_module.get());
         std::vector<LLVMMetadataRef> made;
         const std::vector<debug_member_t> list = members();
         for (std::size_t i = 0; i < list.size(); ++i) {
-            LLVMTypeRef element = LLVMStructGetTypeAtIndex(layout, static_cast<unsigned>(i));
+            // One laid out by C has each Field at C's offset, each a union's at 0.
+            LLVMTypeRef element = laid != nullptr
+                                      ? llvm_type(m_mir.types->get(type).fields[i].type)
+                                      : LLVMStructGetTypeAtIndex(layout, static_cast<unsigned>(i));
+            const std::uint64_t offset =
+                laid != nullptr ? laid->layout.offsets[i]
+                                : LLVMOffsetOfElement(data, layout, static_cast<unsigned>(i));
             made.push_back(LLVMDIBuilderCreateMemberType(
                 type_maker(), temporary, list[i].name.data(), list[i].name.size(), file, 0,
-                size_in_bits(element), align_in_bits(element),
-                LLVMOffsetOfElement(data, layout, static_cast<unsigned>(i)) * 8,
-                list[i].artificial ? LLVMDIFlagArtificial : LLVMDIFlagZero, list[i].type));
+                size_in_bits(element),
+                laid != nullptr
+                    ? static_cast<std::uint32_t>(aligned_at(laid->layout.align, offset) * 8)
+                    : align_in_bits(element),
+                offset * 8, list[i].artificial ? LLVMDIFlagArtificial : LLVMDIFlagZero,
+                list[i].type));
         }
 
-        LLVMMetadataRef real = LLVMDIBuilderCreateStructType(
-            type_maker(), nullptr, struct_name.data(), struct_name.size(), file, 0, size, align,
-            LLVMDIFlagZero, nullptr, made.data(), static_cast<unsigned>(made.size()), 0, nullptr,
-            "", 0);
+        LLVMMetadataRef real =
+            united ? LLVMDIBuilderCreateUnionType(type_maker(), nullptr, struct_name.data(),
+                                                  struct_name.size(), file, 0, size, align,
+                                                  LLVMDIFlagZero, made.data(),
+                                                  static_cast<unsigned>(made.size()), 0, "", 0)
+                   : LLVMDIBuilderCreateStructType(
+                         type_maker(), nullptr, struct_name.data(), struct_name.size(), file, 0,
+                         size, align, LLVMDIFlagZero, nullptr, made.data(),
+                         static_cast<unsigned>(made.size()), 0, nullptr, "", 0);
         LLVMMetadataReplaceAllUsesWith(temporary, real);
         if (!reference) {
             m_debug_types[type] = real;
@@ -3469,9 +3636,7 @@ private:
         const std::vector<field_t>& fields = m_mir.types->get(type).fields;
         for (std::uint32_t i = 0; i < fields.size(); ++i) {
             if (holds_objects(fields[i].type)) {
-                LLVMValueRef field =
-                    LLVMBuildStructGEP2(builder(), llvm_type(type), address, i, "");
-                visit_objects(field, fields[i].type, function, name);
+                visit_objects(field_address(type, address, i), fields[i].type, function, name);
             }
         }
     }
@@ -3798,7 +3963,10 @@ private:
     }
 
     /// A local's alloca, a ByRef parameter's pointer, or a global, then a step to each field.
-    [[nodiscard]] LLVMValueRef address_of(const place_t& place) {
+    /// `align`, when given, is set to the alignment the place is sure to have: its type's own but
+    /// in a packed Struct, whose Field may be off it.
+    [[nodiscard]] LLVMValueRef address_of(const place_t& place,
+                                          std::uint64_t* const align = nullptr) {
         LLVMValueRef address = nullptr;
         type_id_t type = type_id_t::INVALID;
         if (const auto* local = std::get_if<local_id_t>(&place.root)) {
@@ -3810,8 +3978,19 @@ private:
             type = m_mir.globals[global].type;
         }
 
+        std::uint64_t known = abi_align(type);
         for (const step_t& step : place.steps) {
             if (!step.indices.empty()) {
+                // A fixed array's element is a multiple of its size on; any other array's or a
+                // Ptr's is at its own alignment.
+                if (is_fixed_array(type)) {
+                    known =
+                        aligned_at(known, LLVMABISizeOfType(LLVMGetModuleDataLayout(m_module.get()),
+                                                            llvm_type(inner_of(type))));
+                } else {
+                    known = abi_align(inner_of(type));
+                }
+
                 address = element_address(address, type, step);
                 type = inner_of(type);
                 continue;
@@ -3821,25 +4000,37 @@ private:
             if (is_pointer(type)) {
                 address = pointee(LLVMBuildLoad2(builder(), m_ptr, address, ""), step.span);
                 type = inner_of(type);
+                known = abi_align(type);
                 continue;
             }
 
             const std::uint32_t field = step.field;
+            const type_id_t inner =
+                is_nullable(type) ? inner_of(type) : m_mir.types->get(type).fields[field].type;
             if (is_class(type) || is_task(type)) {
                 // A Class's variable holds a pointer; the fields are in the object, after the
                 // header's two.
                 LLVMValueRef object = LLVMBuildLoad2(builder(), m_ptr, address, "");
                 address = LLVMBuildStructGEP2(builder(), object_type(type), object, field + 2, "");
+                known = abi_align(inner);
             } else if (is_nullable(type)) {
                 // The T in a T?: the reference itself, or what comes after the flag.
                 if (!is_nullable_reference(type)) {
+                    known = aligned_at(known,
+                                       LLVMOffsetOfElement(LLVMGetModuleDataLayout(m_module.get()),
+                                                           llvm_type(type), 1));
                     address = LLVMBuildStructGEP2(builder(), llvm_type(type), address, 1, "");
                 }
             } else {
-                address = LLVMBuildStructGEP2(builder(), llvm_type(type), address, field, "");
+                known = aligned_at(known, field_offset(type, field));
+                address = field_address(type, address, field);
             }
 
-            type = m_mir.types->get(type).fields[field].type;
+            type = inner;
+        }
+
+        if (align != nullptr) {
+            *align = known;
         }
 
         return address;
@@ -4024,9 +4215,7 @@ private:
         const std::vector<field_t>& fields = m_mir.types->get(type).fields;
         for (std::uint32_t i = 0; i < fields.size(); ++i) {
             if (m_mir.types->has_references(fields[i].type)) {
-                LLVMValueRef field =
-                    LLVMBuildStructGEP2(builder(), llvm_type(type), address, i, "");
-                for_each_reference(field, fields[i].type, retain);
+                for_each_reference(field_address(type, address, i), fields[i].type, retain);
             }
         }
     }
@@ -4070,8 +4259,7 @@ private:
         const std::vector<field_t>& fields = m_mir.types->get(type).fields;
         for (std::uint32_t i = 0; i < fields.size(); ++i) {
             if (m_mir.types->has_references(fields[i].type)) {
-                let_go(LLVMBuildStructGEP2(builder(), llvm_type(type), address, i, ""),
-                       fields[i].type);
+                let_go(field_address(type, address, i), fields[i].type);
             }
         }
     }
@@ -4082,7 +4270,10 @@ private:
         }
 
         const auto& place = std::get<place_t>(operand);
-        return LLVMBuildLoad2(builder(), llvm_type(type_of(place)), address_of(place), "");
+        std::uint64_t align = 0;
+        LLVMValueRef address = address_of(place, &align);
+        const type_id_t type = type_of(place);
+        return with_align(LLVMBuildLoad2(builder(), llvm_type(type), address, ""), type, align);
     }
 
     // Statements
@@ -4091,25 +4282,33 @@ private:
         // A value that holds a fixed array goes in a part at a time, since LLVM handles a large
         // aggregate loaded, built, or stored whole badly, or not at all.
         const type_id_t type = type_of(node.target);
+        std::uint64_t align = 0;
         if (m_mir.types->holds_fixed_array(type)) {
             const auto* use = std::get_if<use_t>(&node.value);
             if (const auto* place = use != nullptr ? std::get_if<place_t>(&use->value) : nullptr) {
-                LLVMValueRef source = address_of(*place);
-                copy_bytes(address_of(node.target), source, type);
+                std::uint64_t from = 0;
+                LLVMValueRef source = address_of(*place, &from);
+                LLVMValueRef target = address_of(node.target, &align);
+                copy_bytes(target, source, type, align, from);
                 return;
             }
 
-            if (std::holds_alternative<zero_t>(node.value)) {
-                put_zero(address_of(node.target), type);
+            // A union's only aggregate is its zero.
+            const auto* aggregate = std::get_if<aggregate_t>(&node.value);
+            const c_struct_layout_t* laid = aggregate != nullptr ? c_struct_of(type) : nullptr;
+            if (std::holds_alternative<zero_t>(node.value) ||
+                (laid != nullptr && laid->elements.empty())) {
+                LLVMValueRef target = address_of(node.target, &align);
+                put_zero(target, type, align);
                 return;
             }
 
-            if (const auto* aggregate = std::get_if<aggregate_t>(&node.value)) {
-                LLVMValueRef address = address_of(node.target);
+            if (aggregate != nullptr) {
+                LLVMValueRef address = address_of(node.target, &align);
                 for (std::size_t i = 0; i < aggregate->fields.size(); ++i) {
-                    put(LLVMBuildStructGEP2(builder(), llvm_type(type), address,
-                                            static_cast<unsigned>(i), ""),
-                        m_mir.types->get(type).fields[i].type, aggregate->fields[i]);
+                    const auto field = static_cast<unsigned>(i);
+                    put(field_address(type, address, field), m_mir.types->get(type).fields[i].type,
+                        aggregate->fields[i], aligned_at(align, field_offset(type, field)));
                 }
 
                 return;
@@ -4118,52 +4317,62 @@ private:
 
         LLVMValueRef value =
             std::visit([this](const auto& rvalue) { return this->value(rvalue); }, node.value);
-        LLVMBuildStore(builder(), value, address_of(node.target));
+        LLVMValueRef target = address_of(node.target, &align);
+        with_align(LLVMBuildStore(builder(), value, target), type, align);
     }
 
-    /// Puts an operand at `address`, as bytes when its type holds a fixed array.
-    void put(LLVMValueRef address, const type_id_t type, const operand_t& operand) {
+    /// Puts an operand at `address`, aligned to `align`, as bytes when its type holds a fixed
+    /// array.
+    void put(LLVMValueRef address, const type_id_t type, const operand_t& operand,
+             const std::uint64_t align) {
         const auto* place = std::get_if<place_t>(&operand);
         if (place != nullptr && m_mir.types->holds_fixed_array(type)) {
-            copy_bytes(address, address_of(*place), type);
+            std::uint64_t from = 0;
+            LLVMValueRef source = address_of(*place, &from);
+            copy_bytes(address, source, type, align, from);
         } else {
-            LLVMBuildStore(builder(), value_of(operand), address);
+            with_align(LLVMBuildStore(builder(), value_of(operand), address), type, align);
         }
     }
 
-    /// Copies a value of `type` from one address to another as bytes. They may be the same.
-    void copy_bytes(LLVMValueRef target, LLVMValueRef source, const type_id_t type) {
+    /// Copies a value of `type` from one address to another as bytes, each aligned as said. They
+    /// may be the same.
+    void copy_bytes(LLVMValueRef target, LLVMValueRef source, const type_id_t type,
+                    const std::uint64_t target_align, const std::uint64_t source_align) {
         LLVMTypeRef llvm = llvm_type(type);
-        const unsigned alignment =
-            LLVMABIAlignmentOfType(LLVMGetModuleDataLayout(m_module.get()), llvm);
-        LLVMBuildMemMove(builder(), target, alignment, source, alignment, LLVMSizeOf(llvm));
+        const std::uint64_t own = abi_align(type);
+        LLVMBuildMemMove(builder(), target, static_cast<unsigned>(std::min(own, target_align)),
+                         source, static_cast<unsigned>(std::min(own, source_align)),
+                         LLVMSizeOf(llvm));
     }
 
-    /// Puts the zero of a type that holds a fixed array at `address`: zero bytes where that's
-    /// what it is, or else each element's and field's zero.
-    void put_zero(LLVMValueRef address, const type_id_t type) {
+    /// Puts the zero of a type that holds a fixed array at `address`, aligned to `align`: zero
+    /// bytes where that's what it is, or else each element's and field's zero.
+    void put_zero(LLVMValueRef address, const type_id_t type, const std::uint64_t align) {
         const type_t& info = m_mir.types->get(type);
         if (zero_is_null(type)) {
             LLVMTypeRef llvm = llvm_type(type);
-            const unsigned alignment =
-                LLVMABIAlignmentOfType(LLVMGetModuleDataLayout(m_module.get()), llvm);
             LLVMBuildMemSet(builder(), address,
                             LLVMConstInt(LLVMInt8TypeInContext(context()), 0, 0), LLVMSizeOf(llvm),
-                            alignment);
+                            static_cast<unsigned>(std::min(abi_align(type), align)));
         } else if (!m_mir.types->holds_fixed_array(type)) {
-            LLVMBuildStore(builder(), zero_constant(type), address);
+            with_align(LLVMBuildStore(builder(), zero_constant(type), address), type, align);
         } else if (info.kind == type_kind_t::FIXED_ARRAY) {
             LLVMValueRef count = LLVMConstInt(m_i64, m_mir.types->element_count(type), 0);
+            const std::uint64_t each =
+                aligned_at(align, LLVMABISizeOfType(LLVMGetModuleDataLayout(m_module.get()),
+                                                    llvm_type(info.inner)));
             for_each_element(address, llvm_type(info.inner), count,
-                             [&](LLVMValueRef item) { put_zero(item, info.inner); });
+                             [&](LLVMValueRef item) { put_zero(item, info.inner, each); });
         } else if (info.kind == type_kind_t::NULLABLE) {
             LLVMBuildStore(builder(), LLVMConstInt(m_bool, 0, 0),
                            LLVMBuildStructGEP2(builder(), llvm_type(type), address, 0, ""));
-            put_zero(LLVMBuildStructGEP2(builder(), llvm_type(type), address, 1, ""), info.inner);
+            put_zero(LLVMBuildStructGEP2(builder(), llvm_type(type), address, 1, ""), info.inner,
+                     abi_align(info.inner));
         } else {
             for (std::uint32_t i = 0; i < info.fields.size(); ++i) {
-                put_zero(LLVMBuildStructGEP2(builder(), llvm_type(type), address, i, ""),
-                         info.fields[i].type);
+                put_zero(field_address(type, address, i), info.fields[i].type,
+                         aligned_at(align, field_offset(type, i)));
             }
         }
     }
@@ -5132,6 +5341,23 @@ private:
     }
 
     LLVMValueRef value(const aggregate_t& node) {
+        // A union's only aggregate is its zero, its Fields' defaults, which are all zero bytes;
+        // another Struct laid out by C has its Fields in its body, and zeros between them.
+        if (const c_struct_layout_t* laid = c_struct_of(node.type)) {
+            if (laid->elements.empty()) {
+                return LLVMConstNull(llvm_type(node.type));
+            }
+
+            LLVMValueRef body = LLVMConstNull(laid->body);
+            for (std::size_t i = 0; i < node.fields.size(); ++i) {
+                body = LLVMBuildInsertValue(builder(), body, value_of(node.fields[i]),
+                                            laid->elements[i], "");
+            }
+
+            return LLVMBuildInsertValue(builder(), LLVMConstNull(llvm_type(node.type)), body, 1,
+                                        "");
+        }
+
         LLVMValueRef result = LLVMGetUndef(llvm_type(node.type));
         for (std::size_t i = 0; i < node.fields.size(); ++i) {
             result = LLVMBuildInsertValue(builder(), result, value_of(node.fields[i]),

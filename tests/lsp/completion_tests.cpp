@@ -432,6 +432,8 @@ TEST_CASE("after '@', completion offers only attributes", "[lsp]") {
     CHECK(labels.contains("MainThread"));
     CHECK(labels.contains("Test"));
     CHECK(labels.contains("Deprecated"));
+    CHECK(labels.contains("CLayout"));
+    CHECK(labels.contains("CUnion"));
     CHECK(labels.contains("Tag"));
     CHECK(!labels.contains("Print"));
     CHECK(!labels.contains("Function"));
