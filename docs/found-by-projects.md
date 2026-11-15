@@ -86,3 +86,6 @@ What a game found in the engine, kept here beside FutureBlitz's so there's one l
 | Mounting over a path forgetting what was loaded from under it | scpcb-x, 2026-11-11 | scpcb-x's content/packs.fb:363 | wanted, minor |
 | One mount's own files, to list or hash a base pack with a mod over it | scpcb-x, 2026-11-11 | scpcb-x's content/packs.fb:160 | wanted |
 | What's in view with no `Camera`, for a server | scpcb-x, 2026-11-11 | scpcb-x's sim/person.fb:1006 | wanted, minor |
+| fbengine_audio reading MP3, as it reads WAV, FLAC, and Ogg Vorbis: a player's own tracks in the original game are whatever FMOD reads, so an MP3 is counted and not played | scpcb-x, M11, 2026-11-15 | scpcb-x's audio/tracks.fb | wanted |
+| A camera's fog beginning behind the eye: `Camera.SetFogRange` panics for a start under 0, where Blitz3D's fog may start there; the game draws black over the frame by as much | scpcb-x, M11, 2026-11-15 | scpcb-x's `MenuRoom.Veil` | wanted, minor |
+| A frame made brighter for a camera that draws in stored values: `SetExposure` and `SetGamma` are an HDR camera's, so the game copies the screen with `Texture.CopyFrom` and adds it over by a canvas | scpcb-x, M11, 2026-11-15 | scpcb-x's app/gamma.fb | wanted, minor |
