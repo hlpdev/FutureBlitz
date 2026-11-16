@@ -1990,6 +1990,23 @@ TEST_CASE("fb run says it couldn't run its program when its watcher ends first",
     CHECK(processes_with(program.source) == 0);
 }
 
+TEST_CASE("a SIGTERM sent to fb run's program while it's held ends it", "[cli]") {
+    // The program, forked after the watcher, gets a SIGTERM of its own while fb holds it: it ends
+    // by it, as a program at its defaults does, and fb gives its code.
+    const tie_program_t program = tie_program("tie_held_term");
+    const environment_variable_t delay("FB_TEST_TIE_DELAY", "3000");
+    running_fb_t running({ "run", program.source, "--color", "never" });
+    const std::vector<pid_t> held = held_by(running.pid());
+    REQUIRE(held.size() == 2);
+    REQUIRE(kill(held.back(), SIGTERM) == 0);
+    CHECK(running.wait() == 128 + SIGTERM);
+    std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+    CHECK_FALSE(std::filesystem::exists(program.started));
+    CHECK_FALSE(std::filesystem::exists(program.marker));
+    CHECK(temporary_folders(program.name).empty());
+    CHECK(processes_with(program.source) == 0);
+}
+
 TEST_CASE("fb run passes on a signal that comes as its program starts, and cleans up", "[cli]") {
     // The program signals fb, what started it, as its first act, which is as soon after its start
     // as a signal can come: fb took its handlers only once the program was started, so one that

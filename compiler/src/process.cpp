@@ -945,14 +945,35 @@ std::expected<watched_t, std::string> spawn_watched(const std::filesystem::path&
             std::format("couldn't run {}: {}", image.path, std::strerror(error)));
     }
 
+    // Every signal waits while the program's fork puts its handlers back, so none comes to one
+    // of this process's handlers there, and is lost.
+    sigset_t all;
+    sigset_t before;
+    sigfillset(&all);
+    pthread_sigmask(SIG_BLOCK, &all, &before);
     const pid_t pid = fork();
     if (pid == 0) {
+        // A signal this process handles is at its default, as an exec puts it, and one it ignores
+        // stays ignored, as nohup has it, but for SIGINT, SIGQUIT, and SIGPIPE, which this
+        // process ignores for itself while it waits.
         struct sigaction defaults{};
         defaults.sa_handler = SIG_DFL;
         sigemptyset(&defaults.sa_mask);
+        for (int number = 1; number < NSIG; ++number) {
+            struct sigaction current{};
+            if (sigaction(number, nullptr, &current) == 0 &&
+                ((static_cast<unsigned>(current.sa_flags) & static_cast<unsigned>(SA_SIGINFO)) !=
+                     0 ||
+                 (current.sa_handler != SIG_DFL && current.sa_handler != SIG_IGN))) {
+                sigaction(number, &defaults, nullptr);
+            }
+        }
+
         for (const int number : { SIGINT, SIGQUIT, SIGPIPE }) {
             sigaction(number, &defaults, nullptr);
         }
+
+        sigprocmask(SIG_SETMASK, &before, nullptr);
 
         // It keeps neither the watcher's pipe, whose end tells the watcher this process has gone,
         // nor the report's read end, before it waits.
@@ -989,6 +1010,7 @@ std::expected<watched_t, std::string> spawn_watched(const std::filesystem::path&
     }
 
     const int forked = errno;
+    pthread_sigmask(SIG_SETMASK, &before, nullptr);
     close(report[1]);
     if (gate[0] >= 0) {
         close(gate[0]);
