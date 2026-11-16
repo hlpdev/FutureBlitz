@@ -4667,6 +4667,51 @@ TEST_CASE("an interface file keeps a packed Struct's packing and a union, as pro
     packages.remove();
 }
 
+TEST_CASE("a library's Const of FB_VERSION is the version of the fb that built it", "[driver]") {
+    const packages_t packages;
+    packages.write("tools/project.toml",
+                   "[project]\nname = \"tools\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    packages.write("tools/tools.fb", "Import std.core\n"
+                                     "Public Const BUILT_WITH = FB_VERSION\n"
+                                     "Public Const BUILT_MAJOR = FB_VERSION_MAJOR\n");
+    const std::expected<fb::compilation_t, std::string> tools =
+        fb::compile_file(packages / "tools");
+    REQUIRE(tools);
+    CHECK(packages.messages(*tools).empty());
+    fb::diagnostic_bag_t diagnostics;
+    const std::string text =
+        fb::write_interface(*tools, fb::build_mode_t::DEBUG, diagnostics).value_or("");
+    REQUIRE_FALSE(text.empty());
+    packages.write("prebuilt/project.toml",
+                   "[project]\nname = \"tools\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    packages.write(std::format("prebuilt/lib/{}/debug/tools.fbi", fb::build_target()), text);
+    packages.write("game/project.toml", "[project]\nname = \"game\"\nversion = \"0.1.0\"\n\n"
+                                        "[dependencies]\ntools = { path = \"../prebuilt\" }\n");
+    packages.write("game/main.fb", "Import std.core\n"
+                                   "Import tools\n"
+                                   "Const SEEN = BUILT_WITH\n"
+                                   "Const SAME = BUILT_WITH == FB_VERSION\n"
+                                   "Const MAJOR = BUILT_MAJOR\n");
+    const std::expected<fb::compilation_t, std::string> game = fb::compile_file(packages / "game");
+    REQUIRE(game);
+    CHECK(packages.messages(*game).empty());
+    // The program compiled against the interface file sees the version the library was built
+    // with, which the same fb says is its own.
+    std::map<std::string, fb::const_value_t> values;
+    for (const fb::symbol_t& symbol : game->analysis.symbols) {
+        if (symbol.kind == fb::symbol_kind_t::CONSTANT && symbol.value) {
+            values.emplace(std::string(symbol.name), *symbol.value);
+        }
+    }
+
+    REQUIRE(values.contains("SEEN"));
+    CHECK(std::get<std::string>(values.at("SEEN").data) == fb::build_config::version);
+    CHECK(std::get<bool>(values.at("SAME").data));
+    CHECK(std::get<std::int64_t>(values.at("MAJOR").data) ==
+          std::stoll(std::string(fb::build_config::version)));
+    packages.remove();
+}
+
 TEST_CASE("an interface file keeps each kind of declaration as programs need it", "[driver]") {
     const packages_t packages;
     packages.write("kinds/project.toml", "[project]\nname = \"kinds\"\nversion = \"1.2.3\"\n");

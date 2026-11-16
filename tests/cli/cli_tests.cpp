@@ -599,6 +599,39 @@ bool is_system_library(std::string name) {
 
 } // namespace
 
+TEST_CASE("a program's FB_VERSION is the version fb --version says", "[cli]") {
+    const std::filesystem::path source =
+        write_source("fb_version/main.fb",
+                     "Import std.core\n"
+                     "Const Function Packed(major: Int, minor: Int, patch: Int): Int\n"
+                     "    Return major * 1000000 + minor * 1000 + patch\n"
+                     "End Function\n"
+                     "Const PACKED = Packed(FB_VERSION_MAJOR, FB_VERSION_MINOR, FB_VERSION_PATCH)\n"
+                     "Print(\"{FB_VERSION} {FB_VERSION_MAJOR} {FB_VERSION_MINOR} "
+                     "{FB_VERSION_PATCH} {PACKED}\")\n");
+    const fb::process_result_t version = fb_run({ "--version" });
+    REQUIRE(version.output.starts_with("fb "));
+    // "fb 1.4.0 (abc1234, windows-x64)": the version is up to the space.
+    const std::string said = version.output.substr(3, version.output.find(' ', 3) - 3);
+    std::vector<int> parts;
+    for (const auto part : std::views::split(said, '.')) {
+        int number = 0;
+        const std::string_view text(part.begin(), part.end());
+        REQUIRE(std::from_chars(text.data(), text.data() + text.size(), number).ec == std::errc{});
+        parts.push_back(number);
+    }
+
+    REQUIRE(parts.size() == 3);
+    const int major = parts[0];
+    const int minor = parts[1];
+    const int patch = parts[2];
+    const fb::process_result_t run = fb_run({ "run", fb::to_utf8(source), "--color", "never" });
+    INFO(run.output);
+    CHECK(run.exit_code == 0);
+    CHECK(run.output.contains(std::format("{} {} {} {} {}\n", said, major, minor, patch,
+                                          (major * 1000000) + (minor * 1000) + patch)));
+}
+
 TEST_CASE("fb --version prints the version, the commit, and the target", "[cli]") {
     const fb::process_result_t result = fb_run({ "--version" });
     CHECK(result.exit_code == 0);

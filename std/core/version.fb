@@ -1,0 +1,22 @@
+//! FB_VERSION, the version of fb that built the program, and its three numbers.
+//!
+//! They're Consts, so compile-time code and other Consts use them too. Each release of fb writes
+//! its own version here, which its build refuses to differ from what `fb --version` says.
+//!
+//! # Examples
+//!
+//! ```
+//! Expect(FB_VERSION == "{FB_VERSION_MAJOR}.{FB_VERSION_MINOR}.{FB_VERSION_PATCH}")
+//! ```
+
+/// The version of fb that built the program, as `fb --version` says it, like "1.4.0".
+Public Const FB_VERSION = "1.3.5"
+
+/// FB_VERSION's first number, which a change that breaks programs raises.
+Public Const FB_VERSION_MAJOR = 1
+
+/// FB_VERSION's second number, which an addition raises.
+Public Const FB_VERSION_MINOR = 3
+
+/// FB_VERSION's third number, which a fix raises.
+Public Const FB_VERSION_PATCH = 5

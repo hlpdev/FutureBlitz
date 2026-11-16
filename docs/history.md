@@ -142,6 +142,13 @@ Packed `@CLayout` Structs and C unions, for the Steamworks SDK the game binds th
   takes or gives a struct by value binds it, packed and unions too", and callback_structs'
   new shapes; each failed on 1349d3ff but the package's Windows run, where Win64 passes its
   Struct by pointer.
+- **`FB_VERSION`** (scpcb-x, 2026-11-15, which kept it by hand in app/app.fb with a test holding it
+  to `fb --version`): std/core/version.fb's Consts `FB_VERSION`, like "1.4.0", and
+  `FB_VERSION_MAJOR`, `FB_VERSION_MINOR`, and `FB_VERSION_PATCH`, which compile-time code and
+  Consts use as any. CMakeLists.txt reads the file and refuses to configure when they aren't
+  `fb_version`. Tests: cli "a program's FB_VERSION is the version fb --version says", with a
+  Const Function of the three; driver "a library's Const of FB_VERSION is the version of the fb
+  that built it", through its interface file; without the file, both fail to compile.
 
 ## 1.3.5
 
