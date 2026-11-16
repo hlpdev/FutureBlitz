@@ -12,6 +12,7 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <expected>
 #include <filesystem>
@@ -1593,6 +1594,8 @@ struct running_options_t {
     bool own_group = false;
     int ignoring = 0;
     bool closed_stdio = false;
+    /// Where its stderr goes, or nowhere when it's empty.
+    std::string errors;
 };
 
 /// A running fb, its output dropped, which a test ends as it likes.
@@ -1621,7 +1624,13 @@ public:
             posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
         }
 
-        posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
+        if (options.errors.empty()) {
+            posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
+        } else {
+            posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, options.errors.c_str(),
+                                             O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        }
+
         posix_spawnattr_t attributes;
         posix_spawnattr_init(&attributes);
         if (options.own_group) {
@@ -1676,6 +1685,10 @@ public:
     }
 
 #ifndef _WIN32
+    [[nodiscard]] pid_t pid() const {
+        return m_pid;
+    }
+
     void send(const int number, const bool to_group = false) {
         REQUIRE(kill(to_group ? -m_pid : m_pid, number) == 0);
     }
@@ -1838,6 +1851,71 @@ int processes_with(const std::string& text) {
     }));
 }
 
+/// The processes `parent` has started, oldest first: fb run's watcher, then its program, which
+/// fb forks after it, as pids only grow until the system's limit wraps them.
+std::vector<pid_t> children_of(const pid_t parent) {
+    const std::vector<std::string> arguments{ "-A", "-o", "pid=,ppid=" };
+    const std::expected<fb::process_result_t, std::string> listed =
+        fb::run_process("/bin/ps", arguments);
+    REQUIRE(listed);
+    std::vector<pid_t> children;
+    for (const auto line : std::views::split(listed->output, '\n')) {
+        long pid = 0;
+        long ppid = 0;
+        if (std::sscanf(std::string(line.begin(), line.end()).c_str(), "%ld %ld", &pid, &ppid) ==
+                2 &&
+            ppid == parent) {
+            children.push_back(static_cast<pid_t>(pid));
+        }
+    }
+
+    std::ranges::sort(children);
+    return children;
+}
+
+/// fb run's watcher and its program once both are there, as fb holds the program for
+/// FB_TEST_TIE_DELAY, or what there is after a minute.
+std::vector<pid_t> held_by(const pid_t fb) {
+    std::vector<pid_t> children = children_of(fb);
+    for (int tries = 0; tries < 600 && children.size() < 2; ++tries) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        children = children_of(fb);
+    }
+
+    return children;
+}
+
+/// A program for fb run that says it started, writes its pid, then writes a marker two seconds
+/// later, unless it's ended first, in a folder of its own named for this process.
+struct tie_program_t {
+    std::string name;
+    std::filesystem::path folder;
+    std::filesystem::path started;
+    std::filesystem::path marker;
+    std::string source;
+};
+
+tie_program_t tie_program(const std::string_view stem, const std::string_view sleep = "2") {
+    const std::string name = own_name(stem);
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / stem;
+    std::filesystem::remove_all(folder);
+    std::filesystem::create_directories(folder);
+    const std::filesystem::path started = folder / "started.txt";
+    const std::filesystem::path marker = folder / "marker.txt";
+    const std::filesystem::path source =
+        write_source(std::format("{}/{}.fb", stem, name),
+                     std::format("Import std.core\nImport std.io\nImport std.os\nImport std.time\n"
+                                 "Try File.WriteText(Path(\"{}\"), \"{{Process.Id}}\")\n"
+                                 "Sleep({}.Seconds)\n"
+                                 "Try File.WriteText(Path(\"{}\"), \"not ended\")\n",
+                                 started.generic_string(), sleep, marker.generic_string()));
+    return { .name = name,
+             .folder = folder,
+             .started = started,
+             .marker = marker,
+             .source = fb::to_utf8(source) };
+}
+
 TEST_CASE("fb run's program doesn't run on when fb is killed as it starts", "[cli]") {
     // FB_TEST_TIE_DELAY holds fb between the program's start and its watcher's having it, which a
     // loaded system can do, so a SIGKILL then finds the program with nothing to end it.
@@ -1889,6 +1967,27 @@ TEST_CASE("fb run's program doesn't run on when fb is killed as it starts", "[cl
     const fb::process_result_t next = fb_run({ "run", source_path, "--color", "never" });
     CHECK(next.exit_code == 0);
     CHECK(temporary_folders(name).empty());
+}
+
+TEST_CASE("fb run says it couldn't run its program when its watcher ends first", "[cli]") {
+    // The watcher, forked first, is killed while fb holds the program before it runs: fb says it
+    // couldn't run the program, which never runs, rather than ending by SIGPIPE.
+    const tie_program_t program = tie_program("tie_watcher_gone");
+    const environment_variable_t delay("FB_TEST_TIE_DELAY", "3000");
+    const std::filesystem::path errors = program.folder / "errors.txt";
+    running_fb_t running({ "run", program.source, "--color", "never" },
+                         { .errors = errors.string() });
+    const std::vector<pid_t> held = held_by(running.pid());
+    REQUIRE(held.size() == 2);
+    REQUIRE(kill(held.front(), SIGKILL) == 0);
+    CHECK(running.wait() == 1);
+    INFO(read_file(errors));
+    CHECK(read_file(errors).contains("couldn't run"));
+    std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+    CHECK_FALSE(std::filesystem::exists(program.started));
+    CHECK_FALSE(std::filesystem::exists(program.marker));
+    CHECK(temporary_folders(program.name).empty());
+    CHECK(processes_with(program.source) == 0);
 }
 
 TEST_CASE("fb run passes on a signal that comes as its program starts, and cleans up", "[cli]") {

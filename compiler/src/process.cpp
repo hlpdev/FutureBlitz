@@ -826,6 +826,10 @@ void stop_watcher(const attached_watcher_t& watcher) {
     }
 }
 
+/// What a held program tells this process on the report pipe when its gate closed without
+/// opening, as the watcher ended before it had the program's pid, in place of an exec's errno.
+constexpr int watcher_gone = -1;
+
 /// A program spawn_watched() started, and its watcher.
 struct watched_t {
     pid_t pid = 0;
@@ -963,7 +967,14 @@ std::expected<watched_t, std::string> spawn_watched(const std::filesystem::path&
             // NOLINTNEXTLINE(clang-analyzer-unix.BlockInCriticalSection): in a fork
             while ((got = read(gate[0], &open, 1)) < 0 && errno == EINTR) {}
 
+            // Only the watcher opens the gate, so the program doesn't run untied, and this process
+            // says it couldn't run it.
             if (got != 1) {
+                const int gone = watcher_gone;
+                if (write(report[1], &gone, sizeof(gone)) != sizeof(gone)) {
+                    _exit(126);
+                }
+
                 _exit(127);
             }
         }
@@ -1026,8 +1037,10 @@ std::expected<watched_t, std::string> spawn_watched(const std::filesystem::path&
     if (got == sizeof(error)) {
         waitpid(pid, nullptr, 0);
         stop_watcher(watcher);
-        return std::unexpected(
-            std::format("couldn't run {}: {}", image.path, std::strerror(error)));
+        return std::unexpected(std::format(
+            "couldn't run {}: {}", image.path,
+            error == watcher_gone ? "the process that ends it with fb ended before it started"
+                                  : std::strerror(error)));
     }
 
     return watched_t{ .pid = pid, .watcher = watcher };
@@ -1246,6 +1259,9 @@ std::expected<int, std::string> run_attached(const std::filesystem::path& progra
     struct sigaction quit{};
     sigaction(SIGINT, &ignore, &interrupt);
     sigaction(SIGQUIT, &ignore, &quit);
+    // A write to a watcher that's gone fails, rather than ending this process.
+    struct sigaction broken{};
+    sigaction(SIGPIPE, &ignore, &broken);
     // SIGTERM and SIGHUP are this process's to pass on from before the program starts: one that
     // came between its start and the handlers' ended this process as any other, with the code
     // that says so, and nothing cleaned up, as a program that says it's up at once and a caller
@@ -1293,6 +1309,7 @@ std::expected<int, std::string> run_attached(const std::filesystem::path& progra
     stop_watcher(watcher);
     sigaction(SIGINT, &interrupt, nullptr);
     sigaction(SIGQUIT, &quit, nullptr);
+    sigaction(SIGPIPE, &broken, nullptr);
     return result;
 }
 
