@@ -61,8 +61,9 @@ End Struct
 - `@CLayout(Pack: N)` packs it as C's `#pragma pack(N)` does: a Field's alignment is the smaller of
   its own and N, the Struct's the smaller of its largest Field's and N, and its size a multiple of
   that, so `@CLayout(Pack: 4)` with an `Int32` and then an `Int64` takes 12 bytes, the `Int64` at
-  4. A packed Struct inside another keeps its own alignment, and one that isn't packed inside a
-  packed one is at the smaller of its alignment and N, its inside as it is.
+  4. A Field's own alignment is its type's, a packed Struct's being its packed one, so a Struct
+  inside a packed one, packed or not, is at the smaller of its alignment and N, its inside as it
+  is, and a packed one inside one that isn't keeps its own.
   `__attribute__((packed))` is `Pack: 1`. N is 1, 2, 4, 8, or 16, an integer known at compile
   time, as a fixed array's size is, so a Const can choose it by the target, as an SDK packed
   differently on Windows needs:
@@ -83,15 +84,21 @@ End Struct
 - A packed Struct's Fields are read, written, copied, and compared where they are, at the
   alignment they have, on every target. One that may not be at its type's own alignment, as any
   `Int64` of a Struct packed to 4 may not be, since the Struct itself may be at 4, can't be passed
-  `ByRef`, given to `AddressOf`, or changed by a `ByRef` Method, whose code reads it as aligned:
-  that's an error that says to copy it into a Local and back.
+  `ByRef`, given to `AddressOf`, or changed by a `ByRef` Method, a Property's Set, or an
+  `Operator []=`, whose code reads it as aligned: that's an error that says to copy it into a
+  Local and back. A Method that isn't ByRef and a Property's Get take a copy, so they work on it.
 - `@CUnion Struct` is a C union: a `@CLayout` Struct whose Fields are each at 0, so its size is its
   largest Field's, rounded to its largest alignment, and it takes `Pack: N` too. Its Fields are
   `@CLayout`'s, and it's C data wherever a `@CLayout` Struct is: a Field of one, by value, through
   a `Ptr`, and in a fixed array. Its zero is all zero bytes, which its New makes, taking nothing,
   so its Fields have no defaults; reading a Field reads those bytes as that type, as C does, and
-  writing one writes its own. It has no `==` or Hash but an `Operator ==` of its own, and Load and
-  Save don't take it, since which Field they'd write or fill isn't known.
+  writing one writes its own. A Field of a type not every pattern of bytes is a value of, a
+  `Bool`, an Enum that isn't `@Open`, a `CString`, a `Callback`, or a Struct or fixed array that
+  holds one, is read only in Unsafe code, where the program vouches it's the Field that was set;
+  numbers, `@Open` Enums, and `Ptr`s are read anywhere, and every Field is written anywhere. What
+  C gives in one isn't checked as any Field, so an Enum's value isn't either. It has no `==` or
+  Hash but an `Operator ==` and a `Hash` of its own, which it needs to implement Equatable or
+  Hashable, and Load and Save don't take it, since which Field they'd write or fill isn't known.
 
   ```vb
   @CUnion Struct Address

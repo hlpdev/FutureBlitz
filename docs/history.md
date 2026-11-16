@@ -31,6 +31,23 @@ Packed `@CLayout` Structs and C unions, for the Steamworks SDK the game binds th
   them, as `@CLayout(Pack: N)` or `@CUnion`, and a union without a name that a field has is named
   after the struct and field; an over-aligned one, a bit field, and a member without a name are
   still skipped.
+- **The review's fixes** (16 findings): what C gives in a union isn't checked as an Enum; a
+  union's Field that can hold bytes that aren't its type's (Bool, a closed Enum, CString,
+  Callback, and what holds one) is read only in Unsafe; a union listing Equatable or Hashable
+  needs its own `==` and Hash; a Property's Set on a Field off its alignment is the ByRef error
+  (a Property's Get and a plain Method take a copy, and `[]=` and an Extend's ByRef Method were
+  checked already); the error names the packed Struct through a fixed array; a Struct too big
+  for an Int64 is an error at it, and c_layout gives every Field an offset, which had crashed
+  `fb build`; debug info gives a member no alignment and a Struct one only where packing lowered
+  it, as clang does; a packing or a fixed array's size whose Const is SizeOf of its own Struct
+  says the size depends on itself; the union's New says it takes nothing for a named argument
+  too; `==` on a tuple, a T?, or an array holding a union names it; a union's Field C can't hold
+  says @CUnion; fb-bindgen says a field packed by itself or an alignment asked for is what no
+  packing gives; `--show ast` prints `@CUnion(Pack: 1)`. Tests: IR lines that hold each access's
+  lowered alignment (eight fail when it isn't lowered), fb's alignment of each of the package's
+  shapes against C's, SysV's two union shapes whose IR types differ from clang's with the same
+  registers, and AArch64's float aggregates past the registers, where clang's alignstack(8)
+  changes no stack store (clang's own IR compiled with and without it is the same).
 - **The LSP's hover** says `@CLayout(Pack: 4) Struct Status`; `fb doc` lists the attribute, and an
   interface file keeps it and the Const it names.
 - Tests: tests/packages/packed against tests/native/vecmath/packed.c, which C compiles (each
