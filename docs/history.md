@@ -74,6 +74,19 @@ Packed `@CLayout` Structs and C unions, for the Steamworks SDK the game binds th
   3 s, kills fb once the program says it's up, then while it's held, and wants no marker, no
   program run, and no fb, watcher, or program left; on 24c8424e with the delay, the program wrote
   its marker after fb's SIGKILL.
+  The review's fixes (findings 19 to 23): a watcher gone before it opens the gate is "couldn't
+  run", exit 1, as the held program says so on the report pipe and fb ignores SIGPIPE while it
+  runs one, where fb had ended by SIGPIPE (141) or said the program exited with 127; the held
+  program's fork, made with every signal blocked, puts each signal fb handles back to its default
+  and keeps those fb ignores, so a SIGTERM sent to it alone ends it (143) where fb's handler had
+  swallowed it; fb waits for the program with `waitid`'s WNOWAIT and reaps it only once the
+  watcher's gone, so the watcher can't kill a pid that's another's (FB_TEST_REAP_DELAY holds fb
+  between the two); and the watcher closes every file of fb's but its two pipes, by close_range
+  where Linux has it, else to the open-file limit. The cli test's `ps` asks for whole lines
+  (`-ww`), as COLUMNS cut them. Tests: cli "fb run says it couldn't run its program when its
+  watcher ends first", "a SIGTERM sent to fb run's program while it's held ends it", "fb run's
+  ended program keeps its pid until its watcher is gone", and, on Linux, "fb run's watcher holds
+  only its own pipes", and the tie-window test at COLUMNS=40; each failed on 47c24dea.
 
 ## 1.3.5
 
