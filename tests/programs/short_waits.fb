@@ -1,0 +1,66 @@
+// A short timed wait lasts about as long as it says, not a tick of Windows's timer, 15.6 ms: 20
+// waits of 1 ms take under 100 ms in all, where ticks are 312, for Sleep with a Cancellation, a
+// Selector's Timeout, Timer.After, and ReceiveAsync; and a 50 ms one still waits all of it. On
+// Linux and macOS it passed before too, as their waits had no ticks.
+Import std.core
+Import std.time
+Import std.net
+Import std.concurrent
+
+Function Quickly(started: Instant): Bool => Instant.Now() - started < 100.Milliseconds
+
+Function All(started: Instant, time: Duration): Bool => Instant.Now() - started >= time
+
+Local cancel = Cancellation()
+Local started = Instant.Now()
+For i = 0 Until 20
+    Try Sleep(1.Milliseconds, cancel)
+End For
+
+Print("Sleep with a Cancellation at 1 ms, 20 times, quickly:", Quickly(started))
+started = Instant.Now()
+Try Sleep(50.Milliseconds, cancel)
+Print("and at 50 ms, all of it:", All(started, 50.Milliseconds))
+
+Local channel = Channel<Int64>(4)
+Local timedOut = 0
+started = Instant.Now()
+For i = 0 Until 20
+    Local _waited = Selector().On(channel, Function(x: Int64)
+    End Function).Timeout(1.Milliseconds, Function()
+        timedOut += 1
+    End Function).Wait()
+End For
+
+Print("a Selector's Timeout at 1 ms, 20 times:", timedOut, "timed out, quickly:",
+      Quickly(started))
+
+Async Function Afters(time: Duration, count: Int): Duration
+    Local started = Instant.Now()
+    For i = 0 Until count
+        Await Timer.After(time)
+    End For
+
+    Return Instant.Now() - started
+End Function
+
+Print("Timer.After at 1 ms, 20 times, quickly:", Await Afters(1.Milliseconds, 20) < 100.Milliseconds)
+Print("and at 50 ms, all of it:", Await Afters(50.Milliseconds, 1) >= 50.Milliseconds)
+
+Async Function Receives(udp: UdpSocket, time: Duration, count: Int): Duration Throws NetError
+    Local started = Instant.Now()
+    For i = 0 Until count
+        Try
+            Local _got = Try Await udp.ReceiveAsync(time)
+        Catch e As TimeoutError
+        End Try
+    End For
+
+    Return Instant.Now() - started
+End Function
+
+Local udp = Try UdpSocket.Bind(SocketAddress(IpAddress.Loopback, 0))
+Print("ReceiveAsync at 1 ms, 20 times, quickly:",
+      (Try Await Receives(udp, 1.Milliseconds, 20)) < 100.Milliseconds)
+Print("and at 50 ms, all of it:", (Try Await Receives(udp, 50.Milliseconds, 1)) >= 50.Milliseconds)
+udp.Close()

@@ -5,7 +5,9 @@
 // so the I/O thread never touches an object of the caller's but a blocking one's memory while
 // it waits. The program's end closes what's still open, before the I/O thread stops.
 
+#include "condition.hpp"
 #include "fb/runtime.hpp"
+#include "fb/time.hpp"
 #include "internal.hpp"
 #include "io_internal.hpp"
 
@@ -105,7 +107,7 @@ struct socket_t {
     };
     uv_connect_t connecting{};
     std::mutex mutex;
-    std::condition_variable changed;
+    fb::runtime::condition_t changed;
     /// The fb object holds it, as an accepted one's doesn't until fb_io_net_accepted takes it.
     bool held = true;
     /// It has a handle, until libuv closed it.
@@ -227,7 +229,8 @@ bool wait_until(std::unique_lock<std::mutex>& lock, socket_t* socket, const std:
         return true;
     }
 
-    return socket->changed.wait_for(lock, std::chrono::nanoseconds(timeout), ready);
+    return socket->changed.wait_until(
+        lock, fb::time::sleep_end(std::chrono::steady_clock::now(), timeout), ready);
 }
 
 /// Holds a new Task<Int32> until finish_task.

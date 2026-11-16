@@ -2,4 +2,8 @@ Receive at 0, 200 times: 200 timed out, quickly: True
 ReceiveAsync at 0, 200 times: 200 timed out, quickly: True
 Accept at 0, 200 times: 200 timed out, quickly: True
 GameHost.Update, 200 times: 0 events, quickly: True
+Receive at 1 ms, 20 times: 20 timed out, quickly: True
+Accept at 1 ms, 20 times: 20 timed out, quickly: True
+GameHost.Service at 1 ms, 20 times: 0 events, quickly: True
+Receive at 50 ms waits it all: True
 there already: [1, 2, 3] True
