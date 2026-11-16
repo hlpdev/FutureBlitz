@@ -13,6 +13,7 @@
 #include <expected>
 #include <filesystem>
 #include <format>
+#include <limits>
 #include <optional>
 #include <span>
 #include <string>
@@ -42,7 +43,9 @@
 #include <signal.h>
 #include <spawn.h>
 #include <sys/file.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -846,12 +849,43 @@ struct watched_t {
     attached_watcher_t watcher;
 };
 
+/// The most files a process may have open, which a fork closes up to, read before the fork.
+int open_limit() {
+    struct rlimit limit{};
+    if (getrlimit(RLIMIT_NOFILE, &limit) == 0 && limit.rlim_cur != RLIM_INFINITY &&
+        limit.rlim_cur <= static_cast<rlim_t>(std::numeric_limits<int>::max())) {
+        return static_cast<int>(limit.rlim_cur);
+    }
+
+    const long most = sysconf(_SC_OPEN_MAX);
+    return most > 0 && most <= std::numeric_limits<int>::max() ? static_cast<int>(most) : 1024;
+}
+
+/// Closes the files from `first` to `last`, in a fork: by close_range where Linux has it, else
+/// one by one, to `limit`.
+void close_files(const int first, const int last, const int limit) {
+    if (first > last) {
+        return;
+    }
+
+#ifdef SYS_close_range
+    if (syscall(SYS_close_range, static_cast<unsigned>(first), static_cast<unsigned>(last), 0) ==
+        0) {
+        return;
+    }
+#endif
+    for (int file = first; file <= std::min(last, limit - 1); ++file) {
+        close(file);
+    }
+}
+
 /// The watcher's side: it gets the program's pid on `watch`, a pipe only this process writes to,
 /// then opens `gate`, which the program waits on before its exec, and once `watch` closes, as this
 /// process has ended, it ends the program. When this process ends before it gives the pid, the
 /// watcher ends, and the gate closes without opening, which ends the program before it runs. It
 /// does only what's safe in a process with threads.
-[[noreturn]] void watch_program(const std::array<int, 2>& watch, const std::array<int, 2>& gate) {
+[[noreturn]] void watch_program(const std::array<int, 2>& watch, const std::array<int, 2>& gate,
+                                const int limit) {
     struct sigaction ignore{};
     ignore.sa_handler = SIG_IGN;
     sigemptyset(&ignore.sa_mask);
@@ -859,16 +893,16 @@ struct watched_t {
         sigaction(number, &ignore, nullptr);
     }
 
-    // It keeps nothing of this process's open, such as a pipe its stdout goes to. The pipes' ends
-    // are above those, as they're among them when this process's stdio was closed.
+    // It keeps nothing of this process's open but its two pipes' ends, not stdio, such as a pipe
+    // this process's stdout goes to, nor a pipe another thread's program has, as it never execs.
+    // The ends are above stdio, as they're among it when this process's stdio was closed.
     const int end = fcntl(watch[0], F_DUPFD_CLOEXEC, STDERR_FILENO + 1);
     const int opening = fcntl(gate[1], F_DUPFD_CLOEXEC, STDERR_FILENO + 1);
-    for (const int other :
-         { STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO, watch[0], watch[1], gate[0], gate[1] }) {
-        if (other != end && other != opening) {
-            close(other);
-        }
-    }
+    const int low = std::min(end, opening);
+    const int high = std::max(end, opening);
+    close_files(0, low - 1, limit);
+    close_files(low + 1, high - 1, limit);
+    close_files(high + 1, std::numeric_limits<int>::max(), limit);
 
     std::array<char, sizeof(pid_t)> bytes{};
     std::size_t have = 0;
@@ -922,9 +956,10 @@ std::expected<watched_t, std::string> spawn_watched(const std::filesystem::path&
     attached_watcher_t watcher;
     if (open_pipe(watch)) {
         if (open_pipe(gate)) {
+            const int limit = open_limit();
             const pid_t pid = fork();
             if (pid == 0) {
-                watch_program(watch, gate);
+                watch_program(watch, gate, limit);
             }
 
             close(gate[1]);

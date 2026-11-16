@@ -2030,6 +2030,32 @@ TEST_CASE("fb run's ended program keeps its pid until its watcher is gone", "[cl
     CHECK(running.wait() == 0);
 }
 
+#ifdef __linux__
+/// How many files a process has open, by /proc.
+std::size_t open_files(const pid_t pid) {
+    std::error_code error;
+    const std::filesystem::directory_iterator files(std::format("/proc/{}/fd", pid), error);
+    REQUIRE_FALSE(error);
+    return static_cast<std::size_t>(
+        std::ranges::distance(files, std::filesystem::directory_iterator()));
+}
+
+TEST_CASE("fb run's watcher holds only its own pipes", "[cli]") {
+    // While fb holds the program, the watcher has its pipe from fb and the gate it opens, and
+    // nothing of fb's, which holds its temporary folder's lock above stdio then; once the program
+    // runs, only the pipe. macOS has no /proc, and this checks Linux's alone.
+    const tie_program_t program = tie_program("tie_watcher_files");
+    const environment_variable_t delay("FB_TEST_TIE_DELAY", "3000");
+    running_fb_t running({ "run", program.source, "--color", "never" });
+    const std::vector<pid_t> held = held_by(running.pid());
+    REQUIRE(held.size() == 2);
+    CHECK(open_files(held.front()) == 2);
+    REQUIRE(appears(program.started));
+    CHECK(open_files(held.front()) == 1);
+    CHECK(running.wait() == 0);
+}
+#endif
+
 TEST_CASE("fb run passes on a signal that comes as its program starts, and cleans up", "[cli]") {
     // The program signals fb, what started it, as its first act, which is as soon after its start
     // as a signal can come: fb took its handlers only once the program was started, so one that
