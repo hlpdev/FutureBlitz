@@ -3,7 +3,7 @@
 What each milestone and step added, by name, and each review's fixes, as CLAUDE.md kept
 them while each was built. Newest first.
 
-## After 1.3.5
+## 1.4.0
 
 Packed `@CLayout` Structs and C unions, for the Steamworks SDK the game binds through the C ABI
 (scpcb-x, 2026-11-15), for 1.4.0.
