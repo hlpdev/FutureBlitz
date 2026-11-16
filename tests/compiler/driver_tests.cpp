@@ -8,6 +8,7 @@
 #include "fb/lockfile.hpp"
 #include "fb/lower.hpp"
 #include "fb/process.hpp"
+#include "fb/toolchain.hpp"
 #include "fb/utf8.hpp"
 
 #include <algorithm>
@@ -4717,6 +4718,38 @@ TEST_CASE("a library's Const of FB_VERSION is the version of the fb that built i
     CHECK(std::get<bool>(values.at("SAME").data));
     CHECK(std::get<std::int64_t>(values.at("MAJOR").data) ==
           std::stoll(std::string(fb::build_config::version)));
+    packages.remove();
+}
+
+TEST_CASE("fb refuses a std whose FB_VERSION isn't its own", "[driver]") {
+    const packages_t packages;
+    packages.write("game/project.toml", "[project]\nname = \"game\"\nversion = \"0.1.0\"\n");
+    packages.write("game/main.fb", "Import std.core\nPrint(FB_VERSION)\n");
+    // A std of another fb's: the files fb looks for first, and another version.fb. The toolchain
+    // is a copy, as use_toolchain replaces what toolchain() refers to.
+    // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
+    const fb::toolchain_t own = fb::toolchain();
+    const std::filesystem::path other = packages / "other_std";
+    std::filesystem::create_directories(other / "core");
+    std::filesystem::create_directories(other / "collections");
+    std::filesystem::copy_file(own.std / "core" / "error.fb", other / "core" / "error.fb");
+    std::filesystem::copy_file(own.std / "collections" / "map.fb",
+                               other / "collections" / "map.fb");
+    fb::toolchain_t elsewhere = own;
+    elsewhere.std = other;
+    fb::use_toolchain(elsewhere);
+    packages.write("other_std/core/version.fb", "Public Const FB_VERSION = \"9.9.9\"\n");
+    const std::expected<fb::compilation_t, std::string> newer = fb::compile_file(packages / "game");
+    std::filesystem::remove(other / "core" / "version.fb");
+    const std::expected<fb::compilation_t, std::string> older = fb::compile_file(packages / "game");
+    fb::use_toolchain(own);
+    REQUIRE_FALSE(newer);
+    CHECK(newer.error() == std::format("this fb is {} but the std it found at '{}' is 9.9.9",
+                                       fb::build_config::version, fb::to_utf8(other)));
+    REQUIRE_FALSE(older);
+    CHECK(older.error().ends_with("is one from before 1.4.0, with no FB_VERSION"));
+    // Its own std is its own.
+    CHECK(fb::compile_file(packages / "game"));
     packages.remove();
 }
 
