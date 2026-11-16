@@ -11552,7 +11552,8 @@ private:
             return holds_checked_enum(types().get(type).inner);
         }
 
-        return is_struct(type) &&
+        // A union's bytes may be any of its Fields', so what C gives in one isn't any one's.
+        return is_struct(type) && !types().get(type).c_union &&
                std::ranges::any_of(types().get(type).fields, [this](const field_t& field) {
                    return holds_checked_enum(field.type);
                });

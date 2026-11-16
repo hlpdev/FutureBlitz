@@ -122,3 +122,20 @@ void vm_status_fill(vm_status* const status) {
     status->id = -1234567890123LL;
     status->state = 42;
 }
+
+vm_with_kind vm_with_kind_give(void) {
+    vm_with_kind with;
+    with.value = 77;
+    return with;
+}
+
+vm_holds_kind vm_holds_kind_give(void) {
+    vm_holds_kind holds;
+    holds.tag = 1;
+    holds.held.value = 99;
+    return holds;
+}
+
+void vm_with_kind_set(vm_with_kind* const with) {
+    with->value = 55;
+}

@@ -114,4 +114,21 @@ vm_packed_union vm_packed_union_next(vm_packed_union packed);
 // Sets each field through a pointer, as a callback's out-parameter does.
 void vm_status_fill(vm_status* status);
 
+// A union whose enum isn't the member C set: its other member holds what isn't one of the enum's
+// values, by value, in a struct, and set through a pointer.
+enum vm_kind { VM_KIND_ONE = 1 };
+typedef union vm_with_kind {
+    enum vm_kind kind;
+    int32_t value;
+} vm_with_kind;
+
+typedef struct vm_holds_kind {
+    int32_t tag;
+    vm_with_kind held;
+} vm_holds_kind;
+
+vm_with_kind vm_with_kind_give(void);
+vm_holds_kind vm_holds_kind_give(void);
+void vm_with_kind_set(vm_with_kind* with);
+
 #endif

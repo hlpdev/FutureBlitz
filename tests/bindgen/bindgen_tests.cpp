@@ -355,8 +355,9 @@ TEST_CASE("what can't map is a skipped comment and a warning", "[bindgen]") {
           "    Public Field i: Int32\n"
           "End Struct\n"
           "\n"
-          "// skipped: struct aligned, since no packing puts its fields where C has them, as "
-          "_Alignas can\n"
+          "// skipped: struct aligned, since no packing lays it out as C does: a field is packed "
+          "by itself, or\n"
+          "// an alignment is asked for\n"
           "// skipped: struct empty, since it has no fields\n"
           "// skipped: struct flexible, since its field items is an array without a size\n"
           "// skipped: struct anonymous, since it holds a union or struct without a name\n"
@@ -386,8 +387,8 @@ TEST_CASE("what can't map is a skipped comment and a warning", "[bindgen]") {
     CHECK(made->warnings ==
           errors_t{
               "test.h:4:8: skipped struct bits, since its field a is a bit field",
-              std::string("test.h:6:8: skipped struct aligned, since no packing puts its fields "
-                          "where C has them, as _Alignas can"),
+              std::string("test.h:6:8: skipped struct aligned, since no packing lays it out as C "
+                          "does: a field is packed by itself, or an alignment is asked for"),
               "test.h:7:8: skipped struct empty, since it has no fields",
               std::string("test.h:8:8: skipped struct flexible, since its field items is an array "
                           "without a size"),
@@ -957,6 +958,18 @@ TEST_CASE("packed structs and unions become packed @CLayout and @CUnion Structs"
           "Public Extern \"C\"\n"
           "    Function poll(who: identity, tight: Ptr<tight>, raw: bytes): status\n"
           "End Extern\n");
+}
+
+TEST_CASE("a struct no packing lays out says a field is packed by itself or aligned", "[bindgen]") {
+    CHECK(module_of("#include <stdint.h>\n"
+                    "struct fp { uint8_t a; int32_t b __attribute__((packed)); int64_t c; };\n"
+                    "struct __attribute__((packed, aligned(4))) pa { uint8_t a; int32_t b; };\n") ==
+          "// skipped: struct fp, since no packing lays it out as C does: a field is packed by "
+          "itself, or an\n"
+          "// alignment is asked for\n"
+          "// skipped: struct pa, since no packing lays it out as C does: a field is packed by "
+          "itself, or an\n"
+          "// alignment is asked for\n");
 }
 
 TEST_CASE("an array without elements is skipped like a flexible array member", "[bindgen]") {

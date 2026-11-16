@@ -91,6 +91,18 @@ TEST_CASE("the tree puts block contents on their own lines", "[dump]") {
                              "    (call Print (string i))))\n");
 }
 
+TEST_CASE("the tree shows @CLayout and @CUnion as written, with a packing", "[dump]") {
+    CHECK(tree("@CUnion(Pack: 1) Public Struct D\n    Field a: Int32\nEnd Struct\n"
+               "@CLayout(Pack: 4) Struct E\n    Field a: Int32\nEnd Struct\n"
+               "@CLayout Struct F\n    Field a: Int32\nEnd Struct") ==
+          "(struct Public @CUnion(Pack: 1) D\n"
+          "  (field a: Int32))\n"
+          "(struct @CLayout(Pack: 4) E\n"
+          "  (field a: Int32))\n"
+          "(struct @CLayout F\n"
+          "  (field a: Int32))\n");
+}
+
 TEST_CASE("the tree gives Else, Case, and what follows a block their own lines", "[dump]") {
     CHECK(tree("If hp <= 0\n"
                "    Die()\n"

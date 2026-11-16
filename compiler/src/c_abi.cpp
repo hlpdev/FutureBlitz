@@ -172,8 +172,15 @@ c_layout_t c_layout(const type_table_t& types, const type_id_t type, const c_int
     const std::uint64_t pack = info.c_pack;
     for (const field_t& part : info.fields) {
         const c_layout_t inner = c_layout(types, part.type, integers);
+        // Past what a std::uint64_t counts, it's as big as one, and so is where each Field after
+        // is, so each has an offset still.
         if (layout.size > UINT64_MAX / 4 || inner.size > UINT64_MAX / 4) {
-            return { .size = UINT64_MAX, .align = std::max(layout.align, inner.align) };
+            layout.offsets.resize(info.fields.size(), UINT64_MAX);
+            layout.size = UINT64_MAX;
+            layout.align =
+                std::max(layout.align, pack != 0 ? std::min(inner.align, pack) : inner.align);
+            layout.fields.clear();
+            return layout;
         }
 
         const std::uint64_t align = pack != 0 ? std::min(inner.align, pack) : inner.align;

@@ -674,7 +674,13 @@ private:
         }
 
         if (modifiers.is_c_layout) {
-            out.items.push_back(atom("@CLayout", tone_t::KEYWORD));
+            std::string text = modifiers.is_c_union ? "@CUnion" : "@CLayout";
+            if (modifiers.c_pack) {
+                const builder_t tree(m_ast, true);
+                text += std::format("(Pack: {})", plain(tree.expr(*modifiers.c_pack)));
+            }
+
+            out.items.push_back(atom(std::move(text), tone_t::KEYWORD));
         }
 
         if (modifiers.is_main_thread) {

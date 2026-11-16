@@ -81,6 +81,76 @@ End Struct
     Field value: Int32
 End Struct
 
+// Each shape after a byte, which is its alignment before it.
+@CLayout Struct AfterStatus
+    Field pad: UInt8
+    Field shape: Status
+End Struct
+
+@CLayout Struct AfterLate
+    Field pad: UInt8
+    Field shape: Late
+End Struct
+
+@CLayout Struct AfterTight
+    Field pad: UInt8
+    Field shape: Tight
+End Struct
+
+@CLayout Struct AfterHalf
+    Field pad: UInt8
+    Field shape: Half
+End Struct
+
+@CLayout Struct AfterEight
+    Field pad: UInt8
+    Field shape: Eight
+End Struct
+
+@CLayout Struct AfterAddress
+    Field pad: UInt8
+    Field shape: Address
+End Struct
+
+@CLayout Struct AfterIdentity
+    Field pad: UInt8
+    Field shape: Identity
+End Struct
+
+@CLayout Struct AfterNested
+    Field pad: UInt8
+    Field shape: Nested
+End Struct
+
+@CLayout Struct AfterNumber
+    Field pad: UInt8
+    Field shape: Number
+End Struct
+
+@CLayout Struct AfterFloats
+    Field pad: UInt8
+    Field shape: Floats
+End Struct
+
+@CLayout Struct AfterPackedUnion
+    Field pad: UInt8
+    Field shape: PackedUnion
+End Struct
+
+Enum Kind
+    ONE = 1
+End Enum
+
+@CUnion Struct WithKind
+    Field kind: Kind
+    Field value: Int32
+End Struct
+
+@CLayout Struct HoldsKind
+    Field tag: Int32
+    Field held: WithKind
+End Struct
+
 Extern "C" Lib "vecmath"
     Function vm_packed_size(which: Int32): Int64
     Function vm_packed_align(which: Int32): Int64
@@ -101,6 +171,9 @@ Extern "C" Lib "vecmath"
     Function vm_floats_swap(floats: Floats): Floats
     Function vm_packed_union_next(packed: PackedUnion): PackedUnion
     Function vm_status_fill(status: Ptr<Status>)
+    Function vm_with_kind_give(): WithKind
+    Function vm_holds_kind_give(): HoldsKind
+    Function vm_with_kind_set(ByRef with: WithKind)
 End Extern
 
 // fb's sizes are C's, and so is how each one lines up in a Struct.
@@ -109,8 +182,18 @@ Local sizes = [
     SizeOf<Address>(), SizeOf<Identity>(), SizeOf<Nested>(), SizeOf<Number>(), SizeOf<Floats>(),
     SizeOf<PackedUnion>(),
 ]
+Local aligns = [
+    SizeOf<AfterStatus>() - SizeOf<Status>(), SizeOf<AfterLate>() - SizeOf<Late>(),
+    SizeOf<AfterTight>() - SizeOf<Tight>(), SizeOf<AfterHalf>() - SizeOf<Half>(),
+    SizeOf<AfterEight>() - SizeOf<Eight>(), SizeOf<AfterAddress>() - SizeOf<Address>(),
+    SizeOf<AfterIdentity>() - SizeOf<Identity>(), SizeOf<AfterNested>() - SizeOf<Nested>(),
+    SizeOf<AfterNumber>() - SizeOf<Number>(), SizeOf<AfterFloats>() - SizeOf<Floats>(),
+    SizeOf<AfterPackedUnion>() - SizeOf<PackedUnion>(),
+]
 For i = 0 Until sizes.Count
-    Print("{i}: {sizes[i]} {sizes[i] == vm_packed_size(i As Int32)} {vm_packed_align(i As Int32)}")
+    Local size = sizes[i] == vm_packed_size(i As Int32)
+    Local align = aligns[i] == vm_packed_align(i As Int32)
+    Print("{i}: {sizes[i]} {size} {aligns[i]} {align}")
 End For
 
 // By value from C and back, and through a Ptr.
@@ -187,3 +270,9 @@ Print("{copy == status} {copy.id + 1 == status.id} {Tight(1, 2, 3.0, 4) == Tight
 Local statuses = [status, copy]
 statuses[1].state = 99
 Print("{statuses[0].state} {statuses[1].state} {statuses[1].id}")
+
+// What C gives in a union isn't checked as any one Field: its Enum's bytes may be the other's.
+Local with = vm_with_kind_give()
+Local holds = vm_holds_kind_give()
+vm_with_kind_set(ByRef with)
+Print("{with.value} {holds.tag} {holds.held.value}")

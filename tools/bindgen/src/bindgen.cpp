@@ -1583,7 +1583,8 @@ private:
             }
         }
 
-        return "no packing puts its fields where C has them, as _Alignas can";
+        return "no packing lays it out as C does: a field is packed by itself, or an alignment is "
+               "asked for";
     }
 
     // Declarations

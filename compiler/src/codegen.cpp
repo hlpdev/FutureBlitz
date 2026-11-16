@@ -3077,9 +3077,18 @@ private:
                                  const std::function<std::vector<debug_member_t>()>& members) {
         LLVMMetadataRef file = debug_file(m_main_file);
         const std::uint64_t size = size_in_bits(layout);
-        const std::uint32_t align = align_in_bits(layout);
+        std::uint32_t align = align_in_bits(layout);
         const c_struct_layout_t* laid = reference ? nullptr : c_struct_of(type);
         const bool united = laid != nullptr && m_mir.types->get(type).c_union;
+        // One laid out by C says its alignment only where its packing lowers it, as clang does.
+        if (laid != nullptr) {
+            std::uint64_t natural = 1;
+            for (const field_t& field : m_mir.types->get(type).fields) {
+                natural = std::max(natural, c_layout(*m_mir.types, field.type, m_integers).align);
+            }
+
+            align = laid->layout.align < natural ? align : 0;
+        }
         // A Class's struct is by its full name, which its fb_class_t has, so the script tells it
         // from another module's of its name.
         const std::string struct_name =
@@ -3102,12 +3111,8 @@ private:
                                 : LLVMOffsetOfElement(data, layout, static_cast<unsigned>(i));
             made.push_back(LLVMDIBuilderCreateMemberType(
                 type_maker(), temporary, list[i].name.data(), list[i].name.size(), file, 0,
-                size_in_bits(element),
-                laid != nullptr
-                    ? static_cast<std::uint32_t>(aligned_at(laid->layout.align, offset) * 8)
-                    : align_in_bits(element),
-                offset * 8, list[i].artificial ? LLVMDIFlagArtificial : LLVMDIFlagZero,
-                list[i].type));
+                size_in_bits(element), laid != nullptr ? 0 : align_in_bits(element), offset * 8,
+                list[i].artificial ? LLVMDIFlagArtificial : LLVMDIFlagZero, list[i].type));
         }
 
         LLVMMetadataRef real =

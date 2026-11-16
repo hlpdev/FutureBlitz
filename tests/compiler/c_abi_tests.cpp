@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <expected>
 #include <format>
+#include <regex>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -322,6 +323,10 @@ TEST_CASE("a packed Struct is laid out as #pragma pack has it", "[c_abi]") {
           shape_t{ .size = 20, .align = 2, .offsets = { 0, 2, 18 } });
     CHECK(shape_of(types, c_struct(types, "HoldsPacked", { u8, late })) ==
           shape_t{ .size = 16, .align = 4, .offsets = { 0, 4 } });
+    // A packed one in a packed one is at the smaller of its own packed alignment and the outer's
+    // packing, as #pragma pack(2) around a pack(4) one puts it at 2.
+    CHECK(shape_of(types, c_struct(types, "PackedInPacked", { u8, late }, 2)) ==
+          shape_t{ .size = 14, .align = 2, .offsets = { 0, 2 } });
     CHECK(shape_of(types,
                    c_struct(types, "HoldsArray", { u8, types.fixed_array(late, { 2 }), u8 })) ==
           shape_t{ .size = 32, .align = 4, .offsets = { 0, 4, 28 } });
@@ -413,6 +418,8 @@ TEST_CASE("an Extern Function's packed Structs and unions go as clang declares t
         "    Field c: UInt16\nEnd Struct\n"
         "@CUnion Struct FD\n    Field f: Float32\n    Field d: Float64\nEnd Struct\n"
         "@CUnion Struct FF\n    Field a: Float32\n    Field b: Float32\nEnd Struct\n"
+        "@CUnion Struct F3D\n    Field f: Float32[3]\n    Field d: Float64\nEnd Struct\n"
+        "@CUnion Struct B3S\n    Field b: UInt8[3]\n    Field s: UInt16\nEnd Struct\n"
         "Extern \"C\"\n"
         "    Function late(v: Late): Late\n"
         "    Function early(v: Early): Early\n"
@@ -420,9 +427,12 @@ TEST_CASE("an Extern Function's packed Structs and unions go as clang declares t
         "    Function mix(v: Mix): Mix\n"
         "    Function fd(v: FD): FD\n"
         "    Function ff(v: FF): FF\n"
+        "    Function f3d(v: F3D): F3D\n"
+        "    Function b3s(v: B3S): B3S\n"
         "End Extern\n"
         "Local a = late(Late(1, 2))\nLocal b = early(Early(1, 2))\nLocal c = five(Five(1, 2))\n"
-        "Local d = mix(Mix(1, 2, 3))\nLocal e = fd(FD())\nLocal f = ff(FF())\n",
+        "Local d = mix(Mix(1, 2, 3))\nLocal e = fd(FD())\nLocal f = ff(FF())\n"
+        "Local g = f3d(F3D())\nLocal h = b3s(B3S())\n",
         files);
     REQUIRE_FALSE(compilation.diagnostics.has_errors());
     const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
@@ -432,7 +442,8 @@ TEST_CASE("an Extern Function's packed Structs and unions go as clang declares t
             .value_or("");
     };
 
-    // Each as clang declares its C, with the IR types each has.
+    // Each in the registers and memory clang passes its C in, and as clang declares it but for
+    // the two below.
     const std::string linux = ir("x86_64-unknown-linux-gnu");
     CHECK(linux.contains("%fb.Late = type { [0 x i32], <{ i32, i64 }> }"));
     CHECK(linux.contains("%fb.FD = type { [0 x i64], <{ [8 x i8] }> }"));
@@ -445,6 +456,11 @@ TEST_CASE("an Extern Function's packed Structs and unions go as clang declares t
                          "align 8)"));
     CHECK(linux.contains("declare double @fd(double)"));
     CHECK(linux.contains("declare float @ff(float)"));
+    // clang has { double, double } and i32: the same two SSE registers, and the same register,
+    // since an integer piece here covers the Fields' bytes without the padding after them, as
+    // for a plain Struct.
+    CHECK(linux.contains("declare { double, float } @f3d(double, float)"));
+    CHECK(linux.contains("declare i24 @b3s(i24)"));
 
     const std::string windows = ir("x86_64-w64-windows-gnu");
     CHECK(windows.contains("declare void @late(ptr sret(%fb.Late) align 4, ptr)"));
@@ -688,4 +704,113 @@ TEST_CASE("an Extern Function keeps its symbol, whatever codegen calls its own c
         CHECK(ir.contains(std::format("declare i32 @{}()", name)));
         CHECK_FALSE(ir.contains(std::format("@{}.1", name)));
     }
+}
+
+// clang marks each argument that's a homogeneous float aggregate alignstack(8) on AArch64 Linux,
+// which places nothing differently: clang's own IR with and without it compiles to the same
+// stack stores, once the vector registers are used up and with small integers beside it on the
+// stack too, and Apple's has none. fb's is as it is.
+TEST_CASE("an AArch64 call of float aggregates past the registers is as clang's places it",
+          "[c_abi]") {
+    const std::vector<fb::library_file_t> files =
+        fb::standard_library().value_or(std::vector<fb::library_file_t>{});
+    const fb::compilation_t compilation = fb::compile(
+        "main.fb",
+        "@CLayout Struct V2\n    Field x: Float32\n    Field y: Float32\nEnd Struct\n"
+        "@CLayout Struct V1\n    Field x: Float32\nEnd Struct\n"
+        "Extern \"C\"\n"
+        "    Function take(a: V2, b: V2, c: V2, d: V2, e: V2, f: V2, g: V2, h: V2, i: V2, j: V1,"
+        " k: Int32)\n"
+        "End Extern\n"
+        "Local v = V2(1.0, 2.0)\n"
+        "take(v, v, v, v, v, v, v, v, v, V1(3.0), 4)\n",
+        files);
+    REQUIRE_FALSE(compilation.diagnostics.has_errors());
+    const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+    for (const std::string_view triple :
+         { "aarch64-unknown-linux-gnu", "arm64-apple-macosx14.0.0" }) {
+        const std::string ir = fb::emit_ir(module, compilation.sources, compilation.file,
+                                           { .target_triple = std::string(triple) })
+                                   .value_or("");
+        INFO(triple);
+        CHECK(ir.contains("declare void @take([2 x float], [2 x float], [2 x float], [2 x float], "
+                          "[2 x float], [2 x float], [2 x float], [2 x float], [2 x float], "
+                          "[1 x float], i32)"));
+    }
+}
+
+namespace {
+
+/// The body of `function`, by its name in the IR, like "fb.Read(ByRef Tight)".
+std::string function_body(const std::string& ir, const std::string_view function) {
+    const std::size_t start = ir.find(std::format("@\"{}\"(", function));
+    REQUIRE(start != std::string::npos);
+    return ir.substr(start, ir.find("\n}\n", start) - start);
+}
+
+} // namespace
+
+TEST_CASE("a packed Struct's Fields are read and written at the alignment they have", "[c_abi]") {
+    const std::vector<fb::library_file_t> files =
+        fb::standard_library().value_or(std::vector<fb::library_file_t>{});
+    const fb::compilation_t compilation = fb::compile(
+        "main.fb",
+        "Import std.core\n"
+        "Enum Level\n    LOW = 1\nEnd Enum\n"
+        "@CLayout(Pack: 1) Struct Tight\n    Field a: UInt8\n    Field b: Int64\nEnd Struct\n"
+        "@CLayout(Pack: 4) Struct Late\n    Field a: Int32\n    Field b: Int64\nEnd Struct\n"
+        "@CLayout Struct Plain\n    Field a: Int32\n    Field b: Int64\nEnd Struct\n"
+        "@CLayout(Pack: 1) Struct Holds\n"
+        "    Field a: UInt8\n"
+        "    Field plain: Plain\n"
+        "    Field many: Late[2]\n"
+        "    Field ids: Int32[2]\n"
+        "End Struct\n"
+        "@CLayout(Pack: 1) Struct Zeroed\n"
+        "    Field a: UInt8\n"
+        "    Field level: Level\n"
+        "    Field ids: Int32[2]\n"
+        "End Struct\n"
+        "Function Tight1(ByRef t: Tight)\n    t.b = t.b + 1\nEnd Function\n"
+        "Function Late1(ByRef l: Late)\n    l.b = l.b + 1\nEnd Function\n"
+        "Function Plain1(ByRef p: Plain)\n    p.b = p.b + 1\nEnd Function\n"
+        "Function Nested(ByRef h: Holds)\n    h.plain.b = h.plain.b + 1\nEnd Function\n"
+        "Function Element(ByRef h: Holds)\n    h.many[1].b = h.many[1].b + 1\nEnd Function\n"
+        "Function Copied(ByRef h: Holds, ByRef g: Holds)\n    h.ids = g.ids\nEnd Function\n"
+        "Function Made(): Zeroed Throws Error\n    Throw Error(\"no\")\nEnd Function\n"
+        "Local t = Tight(1, 2)\nTight1(ByRef t)\n"
+        "Local l = Late(1, 2)\nLate1(ByRef l)\n"
+        "Local p = Plain(1, 2)\nPlain1(ByRef p)\n"
+        "Local h = Holds()\nLocal g = Holds()\nNested(ByRef h)\nElement(ByRef h)\n"
+        "Copied(ByRef h, ByRef g)\n"
+        "Local z = Try? Made()\n",
+        files);
+    REQUIRE_FALSE(compilation.diagnostics.has_errors());
+    const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+    const std::string ir = fb::emit_ir(module, compilation.sources, compilation.file,
+                                       { .target_triple = "x86_64-unknown-linux-gnu" })
+                               .value_or("");
+    const auto loads_and_stores = [&](const std::string_view function, const int align) {
+        const std::string body = function_body(ir, function);
+        INFO(body);
+        CHECK(std::regex_search(
+            body, std::regex(std::format(R"(= load i64, ptr %[0-9a-z.]+, align {}\b)", align))));
+        CHECK(std::regex_search(
+            body, std::regex(std::format(R"(store i64 %[0-9a-z.]+, ptr %[0-9a-z.]+, align {}\b)",
+                                         align))));
+    };
+    // A Field at offset 1 and one at 4, a plain Struct's inside a packed one, and an element's
+    // inside one, at their real alignment; a plain Struct's as it was.
+    loads_and_stores("fb.Tight1(ByRef Tight)", 1);
+    loads_and_stores("fb.Late1(ByRef Late)", 4);
+    loads_and_stores("fb.Plain1(ByRef Plain)", 8);
+    loads_and_stores("fb.Nested(ByRef Holds)", 1);
+    loads_and_stores("fb.Element(ByRef Holds)", 1);
+    // A fixed array's copy, and the zero of one in a packed Struct whose zero isn't all zero
+    // bytes, are at the Field's.
+    CHECK(function_body(ir, "fb.Copied(ByRef Holds, ByRef Holds)")
+              .contains("@llvm.memmove.p0.p0.i64(ptr align 1 %"));
+    CHECK(std::regex_search(function_body(ir, "fb.Made()"),
+                            std::regex(R"(@llvm.memset.p0.i64\(ptr align 1 %[0-9a-z.]+, i8 0, )"
+                                       R"(i64 ptrtoint \(ptr getelementptr \(\[2 x i32\])")));
 }

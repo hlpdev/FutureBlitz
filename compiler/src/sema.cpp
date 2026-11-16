@@ -686,6 +686,12 @@ private:
     /// Whether a lambda with errors in its body fits a Func as it would without them, which is
     /// how overloads that all have them are told apart.
     bool m_bodies_as_sound = false;
+    /// What SizeOf couldn't measure, since its size depends on itself, when a check met one: a
+    /// Const's, which a packing or a fixed array's size reads, says it where it's read.
+    std::optional<type_id_t> m_size_cycle;
+    /// A member's object while it's checked, which is a place the member is read from, not a
+    /// value read whole.
+    std::optional<expr_id_t> m_projected;
     /// Where match() notes the errors of each lambda's body it checks, when something asks.
     std::vector<std::string>* m_body_flaws = nullptr;
     /// Pairs of generic Functions declared before every Interface knew the ones it extends
@@ -5997,6 +6003,21 @@ private:
             const auto found = std::ranges::find_if(fields, missing);
             return found != fields.end() ? std::optional(found->name) : std::nullopt;
         };
+
+        // A union's Fields are one place, so its == and Hash are its own.
+        const bool united = is_struct(type) && m_analysis.types.get(type).c_union;
+        if (united && required.owner == builtin.equatable && required.name == "==") {
+            error(span,
+                  "{} is a @CUnion Struct, whose Fields share their bytes, so it needs an "
+                  "Operator == of its own to implement Equatable",
+                  shown_name(type));
+            return true;
+        }
+
+        if (united && required.owner == builtin.hashable && required.name == "Hash" &&
+            operators_of(type, "==").empty()) {
+            return true;
+        }
 
         // A Class's built-in == compares objects, whatever its fields are.
         if (required.owner == builtin.equatable && required.name == "==") {
@@ -15340,16 +15361,37 @@ private:
         }
     }
 
+    /// Says where a Const that SizeOf couldn't work out is read, as a packing or a fixed array's
+    /// size, when nothing said why, which is that the size depends on itself.
+    bool report_size_cycle(const expr_id_t expression, const std::size_t errors) {
+        const std::optional<type_id_t> cycle = std::exchange(m_size_cycle, std::nullopt);
+        if (!cycle || integer_value(expression)) {
+            return false;
+        }
+
+        if (m_diagnostics->error_count() == errors) {
+            error(span_of(expression), "SizeOf can't measure {}, whose size depends on itself",
+                  shown_name(*cycle));
+        }
+
+        return true;
+    }
+
     /// A @CLayout Struct's packing, "Pack: N": an integer known at compile time, 1, 2, 4, 8, or
     /// 16, as #pragma pack's is, which a Const can choose by the target.
     std::optional<std::uint8_t> packing_of(const expr_id_t expression) {
         const std::size_t errors = m_diagnostics->error_count();
         m_run_refused = false;
         m_read_failed_const = false;
+        m_size_cycle.reset();
         const type_id_t type = check(expression, type_id_t::INT64);
         if (m_run_refused && !integer_value(expression)) {
             error(span_of(expression), "this Const Function can't run here, since its code needs "
                                        "types that aren't declared yet");
+            return std::nullopt;
+        }
+
+        if (report_size_cycle(expression, errors)) {
             return std::nullopt;
         }
 
@@ -15403,6 +15445,12 @@ private:
             return;
         }
 
+        // Its size is an Int64 SizeOf gives, which C's memory is measured by.
+        if (fb::c_layout(m_analysis.types, type, build_c_integers()).size >
+            static_cast<std::uint64_t>(INT64_MAX)) {
+            error(node->name.span, "{} takes more bytes than an Int64 counts", shown_name(type));
+        }
+
         // A union's Fields share their bytes, whose zero is all zero bytes.
         if (united) {
             for (const stmt_id_t member : node->members) {
@@ -15424,9 +15472,9 @@ private:
 
             if (const std::optional<std::string> why = not_c_data(field.type)) {
                 error(field.span,
-                      "a @CLayout Struct's Field holds what C can: a number, Bool, Enum, CString, "
+                      "a {} Struct's Field holds what C can: a number, Bool, Enum, CString, "
                       "Ptr, Callback, or a fixed array or @CLayout Struct of these; {}",
-                      *why);
+                      united ? "@CUnion" : "@CLayout", *why);
             } else if (const type_id_t plain = plain_struct_in(field.type);
                        plain != type_id_t::INVALID) {
                 error(field.span,
@@ -15986,7 +16034,12 @@ private:
             const std::size_t errors = m_diagnostics->error_count();
             m_run_refused = false;
             m_read_failed_const = false;
+            m_size_cycle.reset();
             const type_id_t type = check(expression, type_id_t::INT64);
+            if (report_size_cycle(expression, errors)) {
+                return type_id_t::INVALID;
+            }
+
             // A Const type parameter's size is known in each instance.
             dimensions.push_back(info(expression).parameter);
             if (info(expression).parameter != type_id_t::INVALID) {
@@ -18500,7 +18553,13 @@ private:
             return;
         }
 
-        // "x op= y" works like "x = x op y", and the result has to fit back into x.
+        // "x op= y" works like "x = x op y", and the result has to fit back into x, which it
+        // reads, a union's Field too.
+        if (!check_union_read(node.target, type)) {
+            check_any(node.value, type_id_t::NONE);
+            return;
+        }
+
         operator_call_t call;
         const type_id_t result =
             is_shift(*node.op)
@@ -21568,6 +21627,12 @@ private:
                           symbol(*found).name);
                     return std::nullopt;
                 }
+
+                if (!is_object(info(member.object).type) &&
+                    !check_aligned(member.object, std::format("changed by its Property '{}'",
+                                                              symbol(*found).name))) {
+                    return std::nullopt;
+                }
             }
 
             // An object's fields can change through any reference to it.
@@ -21854,9 +21919,6 @@ private:
                is_class(symbol(*found).owner);
     }
 
-    /// The variable a place starts from, after it's checked: "p" in "p.pos.x", and Self for a
-    /// field used by name. nullopt for anything else, like a call's result, or a field after a
-    /// '?.', which may not be there.
     /// How a place is aligned: to `align` bytes at least, UINT64_MAX when that's its type's own,
     /// and `packed` the packed Struct or union whose Field it's in where it may be less.
     struct place_align_t {
@@ -21864,15 +21926,114 @@ private:
         type_id_t packed = type_id_t::INVALID;
     };
 
+    /// "a Bool", or "an Event": a name after its article.
+    [[nodiscard]] static std::string with_article(const std::string& name) {
+        const bool vowel = !name.empty() && std::string_view("AEIOU").contains(name.front());
+        return std::format("{} {}", vowel ? "an" : "a", name);
+    }
+
+    /// Whether some bytes aren't a value of `type`: a Bool's, an Enum's that isn't @Open, a
+    /// CString's, a Callback's, and what holds one, in a Field or a fixed array.
+    [[nodiscard]] bool has_invalid_bytes(const type_id_t type) const {
+        if (type == type_id_t::BOOL || type == type_id_t::CSTRING) {
+            return true;
+        }
+
+        const type_t& info = m_analysis.types.get(type);
+        switch (info.kind) {
+        case type_kind_t::ENUM:
+            return !info.open;
+        case type_kind_t::CALLBACK:
+            return true;
+        case type_kind_t::FIXED_ARRAY:
+            return has_invalid_bytes(info.inner);
+        case type_kind_t::STRUCT:
+            return info.c_layout && std::ranges::any_of(info.fields, [this](const field_t& field) {
+                       return has_invalid_bytes(field.type);
+                   });
+        default:
+            return false;
+        }
+    }
+
+    /// The @CUnion Struct whose Field a place passes, on its way from its variable: "u" in
+    /// "u.b", "s.u.inner.on", and "p[0].b", or Self's in its own code. INVALID for none.
+    [[nodiscard]] type_id_t union_passed(const expr_id_t id) {
+        const expr_node_t& node = m_ast.get(id).node;
+        const std::optional<symbol_id_t> found = info(id).symbol;
+        const bool field = found && symbol(*found).kind == symbol_kind_t::FIELD &&
+                           !symbol(*found).modifiers.is_static;
+        const auto united = [this](const type_id_t type) {
+            return is_struct(type) && m_analysis.types.get(type).c_union;
+        };
+        if (const auto* member = std::get_if<member_expr_t>(&node)) {
+            const type_id_t owner = non_null(info(member->object).type);
+            if (field && united(owner)) {
+                return owner;
+            }
+
+            return field ? union_passed(member->object) : type_id_t::INVALID;
+        }
+
+        if (const auto* element = std::get_if<index_expr_t>(&node)) {
+            return union_passed(element->object);
+        }
+
+        if (std::holds_alternative<name_expr_t>(node) && field && united(symbol(*found).owner)) {
+            return symbol(*found).owner;
+        }
+
+        return type_id_t::INVALID;
+    }
+
+    /// A read of a union's Field, or of what's inside one, that can hold bytes that aren't its
+    /// type's is C's to vouch for: in Unsafe code, the program says it's the Field that was set.
+    /// Reports one anywhere else.
+    bool check_union_read(const expr_id_t id, const type_id_t type) {
+        if (m_unsafe > 0 || !has_invalid_bytes(type)) {
+            return true;
+        }
+
+        const type_id_t united = union_passed(id);
+        if (united == type_id_t::INVALID) {
+            return true;
+        }
+
+        error(span_of(id),
+              "'{}' is a Field of the @CUnion Struct {}, which can hold bytes that aren't {}; read "
+              "it in Unsafe, once the program knows it's the Field that was set",
+              text(id), shown_name(united), with_article(shown_name(type)));
+        return false;
+    }
+
+    /// Whether `function` is the New a @CUnion Struct gets, which makes its zero.
+    [[nodiscard]] bool makes_union_zero(const symbol_t& function) const {
+        return function.kind == symbol_kind_t::CONSTRUCTOR && !function.declaration &&
+               is_struct(function.owner) && m_analysis.types.get(function.owner).c_union;
+    }
+
     /// The first @CUnion Struct a value of `type` holds, in a Field or a fixed array, maybe
     /// itself, or INVALID.
     [[nodiscard]] type_id_t union_in(const type_id_t type) const {
-        const type_t& info = m_analysis.types.get(type);
-        if (info.kind == type_kind_t::FIXED_ARRAY) {
-            return union_in(info.inner);
+        std::vector<type_id_t> seen;
+        return union_in(type, seen);
+    }
+
+    /// The same, through a Struct's or tuple's Fields, a T?, and an array's elements, as == looks
+    /// at them, each type once.
+    [[nodiscard]] type_id_t union_in(const type_id_t type, std::vector<type_id_t>& seen) const {
+        if (type == type_id_t::INVALID || std::ranges::contains(seen, type)) {
+            return type_id_t::INVALID;
         }
 
-        if (info.kind != type_kind_t::STRUCT || !info.c_layout) {
+        seen.push_back(type);
+        const type_t& info = m_analysis.types.get(type);
+        if (info.kind == type_kind_t::FIXED_ARRAY || info.kind == type_kind_t::ARRAY ||
+            info.kind == type_kind_t::NULLABLE) {
+            return union_in(info.inner, seen);
+        }
+
+        if (info.kind != type_kind_t::STRUCT && info.kind != type_kind_t::TUPLE) {
             return type_id_t::INVALID;
         }
 
@@ -21881,7 +22042,7 @@ private:
         }
 
         for (const field_t& field : info.fields) {
-            if (const type_id_t found = union_in(field.type); found != type_id_t::INVALID) {
+            if (const type_id_t found = union_in(field.type, seen); found != type_id_t::INVALID) {
                 return found;
             }
         }
@@ -21911,7 +22072,12 @@ private:
 
     /// A value's alignment, its type's own, which its packing may make less than its Fields'.
     [[nodiscard]] place_align_t own_align(const type_id_t type) const {
-        return { .align = c_align_of(type), .packed = packed_struct(non_null(type)) };
+        type_id_t inner = non_null(type);
+        while (is_fixed_array(inner)) {
+            inner = element_of(inner);
+        }
+
+        return { .align = c_align_of(type), .packed = packed_struct(inner) };
     }
 
     /// The alignment a place is sure to have: a variable's, Self's, or any other value's is its
@@ -21990,6 +22156,9 @@ private:
         return false;
     }
 
+    /// The variable a place starts from, after it's checked: "p" in "p.pos.x", and Self for a
+    /// field used by name. nullopt for anything else, like a call's result, or a field after a
+    /// '?.', which may not be there.
     std::optional<symbol_id_t> root_of(const expr_id_t id) {
         const expr_node_t& node = m_ast.get(id).node;
         // "Enemy.count" is a whole variable, and so is "game.score".
@@ -22343,6 +22512,7 @@ private:
         const bool target = m_partial == id; // checking a member changes m_partial
         const bool kept = m_place_use == id;
         const bool element = m_element_use == id;
+        const bool projected = m_projected == id;
         type_id_t type = std::visit(
             [this, id, hint](const auto& node) { return this->check_expr(id, node, hint); },
             m_ast.get(id).node);
@@ -22354,6 +22524,12 @@ private:
         // An Atomic or a Mutex isn't copied: it's used where it is.
         if (!target && !kept && in_place(type)) {
             report_copy(id, type);
+            type = type_id_t::INVALID;
+        }
+
+        // A union's Field that can hold bytes that aren't its type's is read in Unsafe code.
+        if (!target && !element && !projected && type != type_id_t::INVALID &&
+            !check_union_read(id, type)) {
             type = type_id_t::INVALID;
         }
 
@@ -26445,6 +26621,7 @@ private:
 
         // While types are being declared, what T holds is declared first, so T is whole.
         if (std::vector<type_id_t> path; !m_declared && !declare_held(type, path)) {
+            m_size_cycle = type;
             error(m_ast.get(argument).span, "SizeOf can't measure {}, whose size depends on itself",
                   shown_name(type));
             return type_id_t::INVALID;
@@ -29266,6 +29443,13 @@ private:
                 const auto found =
                     std::ranges::find(function.parameters, argument.name->text,
                                       [this](const symbol_id_t id) { return symbol(id).name; });
+                if (found == function.parameters.end() && makes_union_zero(function)) {
+                    error(argument.name->span, "a @CUnion Struct's New takes nothing and makes "
+                                               "its zero; set the Field it holds after");
+                    valid = false;
+                    break;
+                }
+
                 if (found == function.parameters.end()) {
                     error(argument.name->span, "'{}' has no parameter named '{}'",
                           callable_name(function), argument.name->text);
@@ -29283,8 +29467,7 @@ private:
                 continue;
             } else if (position < count) {
                 parameter = position++;
-            } else if (function.kind == symbol_kind_t::CONSTRUCTOR && !function.declaration &&
-                       is_struct(function.owner) && m_analysis.types.get(function.owner).c_union) {
+            } else if (makes_union_zero(function)) {
                 // A union's New makes its zero, whose one Field the code sets after.
                 error(span, "a @CUnion Struct's New takes nothing and makes its zero; set the "
                             "Field it holds after");
@@ -29856,7 +30039,9 @@ private:
             m_element_use = node.object;
         }
 
+        const std::optional<expr_id_t> outer_projected = std::exchange(m_projected, node.object);
         type_id_t object = check(node.object, *object_type);
+        m_projected = outer_projected;
         m_place_use = outer;
         m_element_use = outer_element;
         m_partial.reset();

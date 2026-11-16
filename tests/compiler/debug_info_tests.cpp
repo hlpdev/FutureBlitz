@@ -338,12 +338,12 @@ TEST_CASE("a packed Struct's Fields are where C has them, and a union is one, to
                                     "Local a = Address()\n");
     CHECK(std::regex_search(ir, std::regex(R"(DW_TAG_structure_type, name: "Status", )"
                                            R"(file: ![0-9]+, size: 96, align: 32)")));
+    // As clang writes C's: a member without an alignment, and a union's without one of its own.
     CHECK(std::regex_search(ir, std::regex(R"(DW_TAG_member, name: "id", scope: ![0-9]+, )"
                                            R"(file: ![0-9]+, baseType: ![0-9]+, size: 64, )"
-                                           R"(align: 32, offset: 32\))")));
+                                           R"(offset: 32\))")));
     CHECK(std::regex_search(ir, std::regex(R"(DW_TAG_union_type, name: "Address", )"
-                                           R"(file: ![0-9]+, size: 128, align: 64)")));
+                                           R"(file: ![0-9]+, size: 128, elements)")));
     CHECK(std::regex_search(ir, std::regex(R"(DW_TAG_member, name: "ip", scope: ![0-9]+, )"
-                                           R"(file: ![0-9]+, baseType: ![0-9]+, size: 128, )"
-                                           R"(align: 64\))")));
+                                           R"(file: ![0-9]+, baseType: ![0-9]+, size: 128\))")));
 }

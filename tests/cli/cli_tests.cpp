@@ -661,6 +661,31 @@ TEST_CASE("fb new makes a package that fb runs", "[cli]") {
     }
 }
 
+TEST_CASE("fb build says a packed Struct is too big to measure, and doesn't crash", "[cli]") {
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "huge";
+    std::filesystem::remove_all(folder);
+    std::filesystem::create_directories(folder);
+    {
+        std::ofstream file(folder / "main.fb", std::ios::binary);
+        file << "Import std.core\n"
+                "@CLayout Struct S1\n    Field b: Int64[2147483647]\nEnd Struct\n"
+                "@CLayout(Pack: 1) Struct H\n"
+                "    Field a: UInt8\n"
+                "    Field s: S1[2147483647]\n"
+                "    Field c: Int32\n"
+                "End Struct\n"
+                "Unsafe Function F(p: Ptr<H>): Int32\n    Return p[0].c\nEnd Function\n"
+                "Local q: Ptr<H> = Null\n"
+                "Unsafe\n    Print(\"{F(q)}\")\nEnd Unsafe\n";
+    }
+
+    const fb::process_result_t built = fb_run({ "build", fb::to_utf8(folder / "main.fb") });
+    INFO(built.output);
+    CHECK(built.exit_code == 1);
+    CHECK(built.output.contains("error: H takes more bytes than an Int64 counts"));
+    std::filesystem::remove_all(folder);
+}
+
 TEST_CASE("fb new refuses a folder that isn't empty, and a name a package can't have", "[cli]") {
     const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "new_refused";
     std::filesystem::remove_all(folder);
