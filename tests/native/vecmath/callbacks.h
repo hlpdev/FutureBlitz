@@ -7,6 +7,7 @@
 // again, and gives one back: its first field the two's sum plus the integers', and each other
 // field the two's sum.
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -74,5 +75,12 @@ VM_CALLBACK(packed_pair, vm_packed_pair)
 VM_CALLBACK(either, vm_either)
 
 #undef VM_CALLBACK
+
+// An enum in what crosses a function pointer, as C's caller says, a hue or not: beside a struct
+// in registers, inside a struct both ways, and in a union, whose bytes may be the other field's.
+typedef enum vm_hue { VM_HUE_RED = 1, VM_HUE_GREEN = 2 } vm_hue;
+
+typedef vm_twelve (*vm_hued_fn)(vm_hue hue, vm_twelve value);
+vm_twelve vm_call_hued(vm_hued_fn fn, int32_t hue, vm_twelve value);
 
 #endif

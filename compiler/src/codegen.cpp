@@ -2549,9 +2549,15 @@ private:
 
         LLVMBasicBlockRef current = LLVMGetInsertBlock(builder());
         LLVMValueRef outer = std::exchange(m_llvm_function, thunk);
+        // The allocas go in a block of their own, which jumps to the body last, as a Function's
+        // do, since the body's Enum checks end blocks with branches.
         LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(context(), thunk, "entry");
+        LLVMBasicBlockRef body = LLVMAppendBasicBlockInContext(context(), thunk, "body");
         LLVMBasicBlockRef outer_entry = std::exchange(m_entry, entry);
-        LLVMPositionBuilderAtEnd(builder(), entry);
+        // A thunk made while another function's body is generated has blocks of its own, not
+        // before that function's next one.
+        LLVMBasicBlockRef outer_next = std::exchange(m_next_block, nullptr);
+        LLVMPositionBuilderAtEnd(builder(), body);
         std::vector<LLVMValueRef> arguments;
         if (node.closure) {
             arguments.push_back(LLVMConstPointerNull(m_ptr));
@@ -2602,7 +2608,10 @@ private:
             LLVMBuildRet(builder(), result);
         }
 
+        LLVMPositionBuilderAtEnd(builder(), entry);
+        LLVMBuildBr(builder(), body);
         m_entry = outer_entry;
+        m_next_block = outer_next;
         m_llvm_function = outer;
         LLVMPositionBuilderAtEnd(builder(), current);
         m_thunks.emplace(key, thunk);

@@ -53,6 +53,11 @@ End Struct
     Field f: Float32
 End Struct
 
+Enum Hue
+    Red = 1
+    Green = 2
+End Enum
+
 Extern "C"
     Function vm_call_text(fn: Callback(Text, Int64, Int64, Int64, Int64, Int64, Int64, Text): Text,
                           value: Text): Text
@@ -88,6 +93,7 @@ Extern "C"
                                          Either): Either, value: Either): Either
     Function vm_either_pointer(): Callback(Either, Int64, Int64, Int64, Int64, Int64, Int64,
                                            Either): Either
+    Function vm_call_hued(fn: Callback(Hue, Twelve): Twelve, hue: Int32, value: Twelve): Twelve
 End Extern
 
 Function JoinText(first: Text, a: Int64, b: Int64, c: Int64, d: Int64, e: Int64, f: Int64,
@@ -135,6 +141,11 @@ Function JoinEither(first: Either, a: Int64, b: Int64, c: Int64, d: Int64, e: In
     Return made
 End Function
 
+// A closed Enum beside a Struct in registers.
+Function Hued(hue: Hue, value: Twelve): Twelve
+    Return Twelve(value.a + (hue As Int32), value.b, value.c)
+End Function
+
 Local byte: UInt8 = 7
 Unsafe
     Local at = AddressOf(byte)
@@ -178,4 +189,7 @@ Unsafe
     Local either = vm_call_either(JoinEither, nine)
     Local eitherC = vm_either_pointer()(nine, 1, 2, 3, 4, 5, 6, eighteen)
     Print("union:", either.n, "/", eitherC.n)
+
+    Local hued = vm_call_hued(Hued, 2, Twelve(1, 2, 3))
+    Print("a hue beside:", hued.a, hued.b, hued.c)
 End Unsafe

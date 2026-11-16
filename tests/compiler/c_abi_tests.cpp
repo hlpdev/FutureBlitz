@@ -479,6 +479,43 @@ TEST_CASE("an Extern Function's packed Structs and unions go as clang declares t
     CHECK(ir("arm64-apple-macosx14.0.0").contains("declare i40 @five(i64)"));
 }
 
+TEST_CASE("a Callback's thunk with a closed Enum beside its Structs is whole IR on each target",
+          "[c_abi]") {
+    // The Enum's check branches, and the Structs' copies go in the thunk's alloca block, not
+    // after it; the thunks are made while the top-level code is.
+    const std::vector<fb::library_file_t> files =
+        fb::standard_library().value_or(std::vector<fb::library_file_t>{});
+    const fb::compilation_t compilation =
+        fb::compile("main.fb",
+                    "Enum Color\n    Red\n    Green\nEnd Enum\n"
+                    "@CLayout Struct Text\n    Field bytes: Ptr<UInt8>\n    Field size: UInt64\n"
+                    "End Struct\n"
+                    "@CLayout Struct Point\n    Field x: Int32\n    Field y: Int32\nEnd Struct\n"
+                    "@CLayout Struct Tint\n    Field color: Color\n    Field edges: Color[2]\n"
+                    "End Struct\n"
+                    "Function ColorText(c: Color, t: Text): Text => t\n"
+                    "Function ColorPoint(c: Color): Point => Point(1, 2)\n"
+                    "Function Tinted(t: Tint, c: Color): Tint => t\n"
+                    "Local a: Callback(Color, Text): Text = ColorText\n"
+                    "Local b: Callback(Color): Point = ColorPoint\n"
+                    "Local c: Callback(Tint, Color): Tint = Tinted\n",
+                    files);
+    REQUIRE_FALSE(compilation.diagnostics.has_errors());
+    const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+    for (const std::string_view triple :
+         { "x86_64-unknown-linux-gnu", "x86_64-w64-windows-gnu", "aarch64-unknown-linux-gnu",
+           "arm64-apple-macosx14.0.0", "x86_64-apple-macosx14.0.0" }) {
+        CAPTURE(triple);
+        const auto made = fb::emit_ir(module, compilation.sources, compilation.file,
+                                      { .target_triple = std::string(triple) });
+        INFO((made ? std::string() : made.error()));
+        REQUIRE(made);
+        CHECK(made->contains("@\"fb.callback.ColorText(Color, Text)\""));
+        CHECK(made->contains("@\"fb.callback.ColorPoint(Color)\""));
+        CHECK(made->contains("C passed 'c' a value that isn't one of Color's"));
+    }
+}
+
 TEST_CASE("a Callback's Structs go as the target's C ABI has them, both ways", "[c_abi]") {
     const std::vector<fb::library_file_t> files =
         fb::standard_library().value_or(std::vector<fb::library_file_t>{});

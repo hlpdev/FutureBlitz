@@ -129,3 +129,7 @@ VM_CALLBACK(two_floats, vm_two_floats)
 VM_CALLBACK(four_floats, vm_four_floats)
 VM_CALLBACK(packed_pair, vm_packed_pair)
 VM_CALLBACK(either, vm_either)
+
+vm_twelve vm_call_hued(vm_hued_fn fn, int32_t hue, vm_twelve value) {
+    return fn((vm_hue)hue, value);
+}
