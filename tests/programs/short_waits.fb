@@ -44,7 +44,8 @@ Async Function Afters(time: Duration, count: Int): Duration
     Return Instant.Now() - started
 End Function
 
-Print("Timer.After at 1 ms, 20 times, quickly:", Await Afters(1.Milliseconds, 20) < 100.Milliseconds)
+Print("Timer.After at 1 ms, 20 times, quickly:",
+      Await Afters(1.Milliseconds, 20) < 100.Milliseconds)
 Print("and at 50 ms, all of it:", Await Afters(50.Milliseconds, 1) >= 50.Milliseconds)
 
 Async Function Receives(udp: UdpSocket, time: Duration, count: Int): Duration Throws NetError
