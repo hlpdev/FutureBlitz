@@ -3,6 +3,7 @@
 // is 3.1 s; and a datagram that's already come is taken at 0.
 Import std.core
 Import std.time
+Import std.math
 Import std.net
 Import std.net.game
 Import std.uuid
@@ -85,43 +86,52 @@ Print("IPC Accept at 0, 200 times:", timedOut, "timed out, quickly:",
       Instant.Now() - started < 200.Milliseconds)
 ipc.Close()
 
-// A short timeout waits about as long as it says, not a tick of Windows's timer, 15.6 ms: 20 waits of
-// 1 ms of nothing take under 100 ms in all, where ticks are 312. On Linux and macOS it passed
-// before too, as their waits had no ticks.
-Function Quickly(started: Instant): Bool => Instant.Now() - started < 100.Milliseconds
+// A short timeout waits about as long as it says, not a tick of Windows's timer, 15.6 ms: of 20
+// waits of 1 ms of nothing, the median's under 8 ms, half a tick, where each was a tick, and a wait
+// a loaded machine stalls can't decide it. On Linux and macOS it passed before too, as their waits
+// had no ticks.
+Function Waited(begun: Instant): Double => (Instant.Now() - begun).TotalMilliseconds
+
+Function Quickly(waits: Double[]): Bool => Median(waits) < 8
 
 timedOut = 0
-started = Instant.Now()
+Local received: Double[] = []
 For i = 0 Until 20
+    Local begun = Instant.Now()
     Try
         Local _got = Try udp.Receive(1.Milliseconds)
     Catch e As TimeoutError
         timedOut += 1
     End Try
+    received.Add(Waited(begun))
 End For
 
-Print("Receive at 1 ms, 20 times:", timedOut, "timed out, quickly:", Quickly(started))
+Print("Receive at 1 ms, 20 times:", timedOut, "timed out, quickly:", Quickly(received))
 Local waiting = Try TcpListener.Listen(loopback)
 timedOut = 0
-started = Instant.Now()
+Local accepted: Double[] = []
 For i = 0 Until 20
+    Local begun = Instant.Now()
     Try
         Local _got = Try waiting.Accept(1.Milliseconds)
     Catch e As TimeoutError
         timedOut += 1
     End Try
+    accepted.Add(Waited(begun))
 End For
 
-Print("Accept at 1 ms, 20 times:", timedOut, "timed out, quickly:", Quickly(started))
+Print("Accept at 1 ms, 20 times:", timedOut, "timed out, quickly:", Quickly(accepted))
 waiting.Close()
 Local serviced = Try GameHost.Bind(loopback)
 events = 0
-started = Instant.Now()
+Local servicing: Double[] = []
 For i = 0 Until 20
+    Local begun = Instant.Now()
     events += (Try serviced.Service(1.Milliseconds)).Count
+    servicing.Add(Waited(begun))
 End For
 
-Print("GameHost.Service at 1 ms, 20 times:", events, "events, quickly:", Quickly(started))
+Print("GameHost.Service at 1 ms, 20 times:", events, "events, quickly:", Quickly(servicing))
 serviced.Close()
 // And a longer one still waits all of it.
 started = Instant.Now()

@@ -1,67 +1,80 @@
-// A short timed wait lasts about as long as it says, not a tick of Windows's timer, 15.6 ms: 20
-// waits of 1 ms take under 100 ms in all, where ticks are 312, for Sleep with a Cancellation, a
-// Selector's Timeout, Timer.After, and ReceiveAsync; and a 50 ms one still waits all of it. On
-// Linux and macOS it passed before too, as their waits had no ticks.
+// A short timed wait lasts about as long as it says, not a tick of Windows's timer, 15.6 ms: of 20
+// waits of 1 ms, the median's under 8 ms, half a tick, where each was a tick, for Sleep with a
+// Cancellation, a Selector's Timeout, Timer.After, and ReceiveAsync, and a wait a loaded machine
+// stalls can't decide it; and a 50 ms one still waits all of it. On Linux and macOS it passed
+// before too, as their waits had no ticks.
 Import std.core
 Import std.time
+Import std.math
 Import std.net
 Import std.concurrent
 
-Function Quickly(started: Instant): Bool => Instant.Now() - started < 100.Milliseconds
+Function Waited(begun: Instant): Double => (Instant.Now() - begun).TotalMilliseconds
+
+Function Quickly(waits: Double[]): Bool => Median(waits) < 8
 
 Function All(started: Instant, time: Duration): Bool => Instant.Now() - started >= time
 
 Local cancel = Cancellation()
-Local started = Instant.Now()
+Local slept: Double[] = []
 For i = 0 Until 20
+    Local begun = Instant.Now()
     Try Sleep(1.Milliseconds, cancel)
+    slept.Add(Waited(begun))
 End For
 
-Print("Sleep with a Cancellation at 1 ms, 20 times, quickly:", Quickly(started))
-started = Instant.Now()
+Print("Sleep with a Cancellation at 1 ms, 20 times, quickly:", Quickly(slept))
+Local started = Instant.Now()
 Try Sleep(50.Milliseconds, cancel)
 Print("and at 50 ms, all of it:", All(started, 50.Milliseconds))
 
 Local channel = Channel<Int64>(4)
 Local timedOut = 0
-started = Instant.Now()
+Local selected: Double[] = []
 For i = 0 Until 20
+    Local begun = Instant.Now()
     Local _waited = Selector().On(channel, Function(x: Int64)
     End Function).Timeout(1.Milliseconds, Function()
         timedOut += 1
     End Function).Wait()
+    selected.Add(Waited(begun))
 End For
 
 Print("a Selector's Timeout at 1 ms, 20 times:", timedOut, "timed out, quickly:",
-      Quickly(started))
+      Quickly(selected))
 
-Async Function Afters(time: Duration, count: Int): Duration
-    Local started = Instant.Now()
+// Each wait's milliseconds.
+Async Function Afters(time: Duration, count: Int): Double[]
+    Local waits: Double[] = []
     For i = 0 Until count
+        Local begun = Instant.Now()
         Await Timer.After(time)
+        waits.Add(Waited(begun))
     End For
 
-    Return Instant.Now() - started
+    Return waits
 End Function
 
-Print("Timer.After at 1 ms, 20 times, quickly:",
-      Await Afters(1.Milliseconds, 20) < 100.Milliseconds)
-Print("and at 50 ms, all of it:", Await Afters(50.Milliseconds, 1) >= 50.Milliseconds)
+Print("Timer.After at 1 ms, 20 times, quickly:", Quickly(Await Afters(1.Milliseconds, 20)))
+Print("and at 50 ms, all of it:", (Await Afters(50.Milliseconds, 1))[0] >= 50)
 
-Async Function Receives(udp: UdpSocket, time: Duration, count: Int): Duration Throws NetError
-    Local started = Instant.Now()
+// Each wait's milliseconds.
+Async Function Receives(udp: UdpSocket, time: Duration, count: Int): Double[] Throws NetError
+    Local waits: Double[] = []
     For i = 0 Until count
+        Local begun = Instant.Now()
         Try
             Local _got = Try Await udp.ReceiveAsync(time)
         Catch e As TimeoutError
         End Try
+        waits.Add(Waited(begun))
     End For
 
-    Return Instant.Now() - started
+    Return waits
 End Function
 
 Local udp = Try UdpSocket.Bind(SocketAddress(IpAddress.Loopback, 0))
 Print("ReceiveAsync at 1 ms, 20 times, quickly:",
-      (Try Await Receives(udp, 1.Milliseconds, 20)) < 100.Milliseconds)
-Print("and at 50 ms, all of it:", (Try Await Receives(udp, 50.Milliseconds, 1)) >= 50.Milliseconds)
+      Quickly(Try Await Receives(udp, 1.Milliseconds, 20)))
+Print("and at 50 ms, all of it:", (Try Await Receives(udp, 50.Milliseconds, 1))[0] >= 50)
 udp.Close()

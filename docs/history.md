@@ -109,7 +109,10 @@ Packed `@CLayout` Structs and C unions, for the Steamworks SDK the game binds th
   finished meanwhile, and a failed one is dropped rather than thrown. Tests: net_zero_wait at 1
   ms and 50 ms, and an IPC listener's Accept at 0; short_waits; net_tls_tcp's polled Accept(0),
   silent client, and refused one; and cli "a Connect at a timeout of 0 panics before anything
-  reaches the listener".
+  reaches the listener". CI's fix (finding 41, macOS): the 1 ms lines timed 20 waits' total under
+  100 ms, which a loaded runner's stalls exceeded; net_zero_wait and short_waits now time each wait
+  and want the median under 8 ms, half a Windows tick, so a stalled wait can't decide it, and with
+  the high-resolution timers off by hand, every 1 ms line still printed False on Windows.
 
 ## 1.3.5
 
