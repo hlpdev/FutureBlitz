@@ -148,7 +148,17 @@ Packed `@CLayout` Structs and C unions, for the Steamworks SDK the game binds th
   Consts use as any. CMakeLists.txt reads the file and refuses to configure when they aren't
   `fb_version`. Tests: cli "a program's FB_VERSION is the version fb --version says", with a
   Const Function of the three; driver "a library's Const of FB_VERSION is the version of the fb
-  that built it", through its interface file; without the file, both fail to compile.
+  that built it", through its interface file; without the file, both fail to compile. The
+  review's fixes (findings 28 to 31): spec 11 says a module's own Consts and Globals hide
+  imported ones without a warning, as the game's own FB_VERSION hides std's; the docs say, in
+  the same words, that FB_VERSION is the version of the fb that compiled the code that uses it,
+  so a prebuilt library's compiled Functions and Consts have the library's and what compiles with
+  the program has the program's, and the driver test holds the interface file to that, the Const
+  a literal and an `@Inline` body keeping the name; fb refuses a std whose FB_VERSION isn't its
+  own, in `unreadable_std`, before anything compiles ("this fb is <v> but the std it found at
+  <path> is <w>"), tested by driver "fb refuses a std whose FB_VERSION isn't its own", which a std
+  of another version passed before; and the docs say they're Consts, not `#If` symbols, from
+  1.4.0 on.
 
 ## 1.3.5
 
