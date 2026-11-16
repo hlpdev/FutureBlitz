@@ -657,7 +657,9 @@ TEST_CASE("a program without imports loads only std/core and std.collections.map
     }
 
     // std/core/'s initialize first, each after what it imports, as std.core.value does after
-    // the Map it holds, and std.core.load after the Value it converts, and the main module last.
+    // the Map it holds, and std.core.load after the Value it converts, and the main module last;
+    // std.core.version, which imports nothing, comes where its file does, before what waits for
+    // the Map.
     CHECK(names == std::vector<std::string>{
                        "std.core.interfaces",
                        "std.core.assert",
@@ -668,6 +670,7 @@ TEST_CASE("a program without imports loads only std/core and std.collections.map
                        "std.core.parse",
                        "std.core.print",
                        "std.core.range",
+                       "std.core.version",
                        "std.collections.map",
                        "std.core.value",
                        "std.core.load",
