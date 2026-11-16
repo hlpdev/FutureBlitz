@@ -107,8 +107,9 @@ Packed `@CLayout` Structs and C unions, for the Steamworks SDK the game binds th
   only fail and leave the listener a connection; and a TlsListener's handshakes go on between
   Accept calls, each for up to its HandshakeLimit, so Accept(0) gives a client whose handshake
   finished meanwhile, and a failed one is dropped rather than thrown. Tests: net_zero_wait at 1
-  ms and 50 ms, short_waits, net_tls_accept, net_tls_tcp's refused client, and cli "a Connect at
-  a timeout of 0 panics before anything reaches the listener".
+  ms and 50 ms, and an IPC listener's Accept at 0; short_waits; net_tls_tcp's polled Accept(0),
+  silent client, and refused one; and cli "a Connect at a timeout of 0 panics before anything
+  reaches the listener".
 
 ## 1.3.5
 
