@@ -8,11 +8,11 @@
 #include <algorithm>
 #include <array>
 #include <catch2/catch_test_macros.hpp>
+#include <charconv>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
-#include <cstdio>
 #include <cstdlib>
 #include <expected>
 #include <filesystem>
@@ -1839,6 +1839,8 @@ TEST_CASE("fb run's program ends when fb does, however fb ends, and its folder g
 }
 
 #ifndef _WIN32
+namespace {
+
 /// How many processes have `text` in their command line, fb's and its forks' by its source's path.
 int processes_with(const std::string& text) {
     // However wide the terminal says it is, as ps cuts each line to COLUMNS otherwise.
@@ -1861,12 +1863,19 @@ std::vector<pid_t> children_of(const pid_t parent) {
     REQUIRE(listed);
     std::vector<pid_t> children;
     for (const auto line : std::views::split(listed->output, '\n')) {
-        long pid = 0;
-        long ppid = 0;
-        if (std::sscanf(std::string(line.begin(), line.end()).c_str(), "%ld %ld", &pid, &ppid) ==
-                2 &&
-            ppid == parent) {
-            children.push_back(static_cast<pid_t>(pid));
+        // Each line is a pid and its parent's, with spaces before and between.
+        std::vector<long> numbers;
+        for (const auto word : std::views::split(line, ' ')) {
+            const std::string_view text(word.begin(), word.end());
+            long number = 0;
+            if (!text.empty() &&
+                std::from_chars(text.data(), text.data() + text.size(), number).ec == std::errc{}) {
+                numbers.push_back(number);
+            }
+        }
+
+        if (numbers.size() == 2 && numbers[1] == parent) {
+            children.push_back(static_cast<pid_t>(numbers[0]));
         }
     }
 
@@ -1910,12 +1919,16 @@ tie_program_t tie_program(const std::string_view stem, const std::string_view sl
                                  "Sleep({}.Seconds)\n"
                                  "Try File.WriteText(Path(\"{}\"), \"not ended\")\n",
                                  started.generic_string(), sleep, marker.generic_string()));
-    return { .name = name,
-             .folder = folder,
-             .started = started,
-             .marker = marker,
-             .source = fb::to_utf8(source) };
+    return {
+        .name = name,
+        .folder = folder,
+        .started = started,
+        .marker = marker,
+        .source = fb::to_utf8(source),
+    };
 }
+
+} // namespace
 
 TEST_CASE("fb run's program doesn't run on when fb is killed as it starts", "[cli]") {
     // FB_TEST_TIE_DELAY holds fb between the program's start and its watcher's having it, which a
@@ -2026,11 +2039,13 @@ TEST_CASE("fb run's ended program keeps its pid until its watcher is gone", "[cl
         fb::run_process("/bin/ps", arguments);
     REQUIRE(state);
     INFO(pid << ": " << state->output);
-    CHECK(state->output.starts_with("Z"));
+    CHECK(state->output.starts_with('Z'));
     CHECK(running.wait() == 0);
 }
 
 #ifdef __linux__
+namespace {
+
 /// How many files a process has open, by /proc.
 std::size_t open_files(const pid_t pid) {
     std::error_code error;
@@ -2039,6 +2054,8 @@ std::size_t open_files(const pid_t pid) {
     return static_cast<std::size_t>(
         std::ranges::distance(files, std::filesystem::directory_iterator()));
 }
+
+} // namespace
 
 TEST_CASE("fb run's watcher holds only its own pipes", "[cli]") {
     // While fb holds the program, the watcher has its pipe from fb and the gate it opens, and
