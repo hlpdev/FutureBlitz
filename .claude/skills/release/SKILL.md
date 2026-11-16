@@ -32,6 +32,9 @@ to the release covers only the text the user saw; if it changes after, show it a
 - `CMakeLists.txt`: `project(FutureBlitz VERSION V ...)`.
 - `editors/vscode/package.json`'s `"version"`, and `editors/vscode/package-lock.json`'s two (the
   top and `packages[""]`), as commit 096e6d92 did for 1.0.0.
+- `std/core/version.fb`: `FB_VERSION` is `"V"` and `FB_VERSION_MAJOR`, `_MINOR`, and `_PATCH` its
+  three numbers. CMake refuses to configure when they differ from `project(... VERSION V)`, and
+  fb refuses a std whose version isn't its own.
 - `docs/history.md`: a `## V` entry at the top, with what the release fixes or adds.
 - CLAUDE.md's Current step, where it names the released version.
 - Verify as CLAUDE.md says, then commit `version V [skip ci]` as the user and push master.
