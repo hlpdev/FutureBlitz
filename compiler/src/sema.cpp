@@ -29,6 +29,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -877,6 +878,17 @@ private:
 
     std::unordered_map<symbol_id_t, main_only_t> m_main_only;
     std::vector<reflected_use_t> m_reflected_uses;
+    /// A For Field loop's f.Get(value), where it is and whether it's in Unsafe code, which each of
+    /// the loop's copies reads its Field by.
+    struct field_read_t {
+        type_id_t owner;
+        span_t span;
+        stmt_id_t loop;
+        bool unsafe = false;
+        /// The loop's variable, as the code names it.
+        std::string variable;
+    };
+    std::vector<field_read_t> m_field_reads;
     /// The code each function's or lambda's code can run: what it calls, and its lambdas.
     std::unordered_map<symbol_id_t, std::vector<symbol_id_t>> m_reaches;
     /// The lambdas' symbols, which an error's path leaves out, as part of the code around them.
@@ -1264,10 +1276,12 @@ private:
     auto on_trial(Function&& function) {
         m_trials.emplace_back();
         const std::size_t uses = m_reflected_uses.size();
+        const std::size_t reads = m_field_reads.size();
         auto result = quietly(std::forward<Function>(function));
         const trial_t trial = std::move(m_trials.back());
         m_trials.pop_back();
         m_reflected_uses.resize(uses);
+        m_field_reads.resize(reads);
         for (const symbol_id_t code : std::views::reverse(trial.reaches)) {
             m_reaches[code].pop_back();
         }
@@ -12506,7 +12520,7 @@ private:
     /// to it. Those types are what loops over a type parameter's Methods and Properties go over,
     /// for the inspections.
     void note_reflected_uses() {
-        if (m_reflected_uses.empty() && m_reflected_parameters.empty()) {
+        if (m_reflected_uses.empty() && m_reflected_parameters.empty() && m_field_reads.empty()) {
             return;
         }
 
@@ -12535,7 +12549,10 @@ private:
         // for Self and the Interface's, and a generic type's Static Method's after its instance's.
         // Each function that can run in its place takes them too.
         std::unordered_map<type_id_t, std::vector<type_id_t>> given;
-        for (const expr_info_t& expr : m_analysis.exprs) {
+        // The call that gives each type argument, where one does, by the parameter and the type.
+        std::map<std::pair<type_id_t, type_id_t>, expr_id_t> given_by;
+        for (std::size_t e = 0; e < m_analysis.exprs.size(); ++e) {
+            const expr_info_t& expr = m_analysis.exprs[e];
             if (!expr.symbol) {
                 continue;
             }
@@ -12555,6 +12572,8 @@ private:
                 if (parameters.size() == own) {
                     for (std::size_t i = 0; i < own; ++i) {
                         given[parameters[i]].push_back(arguments[i]);
+                        given_by.try_emplace({ parameters[i], arguments[i] },
+                                             static_cast<expr_id_t>(e));
                     }
                 }
 
@@ -12605,6 +12624,8 @@ private:
             return found;
         };
 
+        check_field_reads(types_for, given, given_by);
+
         // A loop over a T?'s Properties, Static Fields, or Methods goes over none.
         for (const reflected_use_t& use : m_reflected_uses) {
             const type_id_t owner = use.owner;
@@ -12644,6 +12665,116 @@ private:
         for (const type_id_t parameter : m_reflected_parameters) {
             for (const type_id_t type : types_for(parameter)) {
                 m_reflected_types.insert(definition_of(type));
+            }
+        }
+    }
+
+    /// Each For Field loop's f.Get(value) outside Unsafe code reads a union's Field in the loop's
+    /// copy for it, which is a read of a union's Field like any other: one of a type that can hold
+    /// bytes that aren't its own is said where the Get is, naming the union, the Field, and the
+    /// call the copy is made for. A loop over another loop's type parameter goes over the Fields'
+    /// types of what that one goes over.
+    template <typename TypesFor>
+    void check_field_reads(const TypesFor& types_for,
+                           const std::unordered_map<type_id_t, std::vector<type_id_t>>& given,
+                           const std::map<std::pair<type_id_t, type_id_t>, expr_id_t>& given_by) {
+        if (m_field_reads.empty()) {
+            return;
+        }
+
+        // Each For Field loop's type parameter for its Fields' types, and what it goes over.
+        std::unordered_map<type_id_t, type_id_t> field_parameters;
+        for (std::size_t i = 0; i < m_analysis.stmts.size(); ++i) {
+            const auto* loop =
+                std::get_if<for_member_stmt_t>(&m_ast.get(static_cast<stmt_id_t>(i)).node);
+            const std::vector<type_id_t>& arguments = m_analysis.stmts[i].type_arguments;
+            if (loop != nullptr && loop->kind == member_kind_t::FIELD && arguments.size() >= 2 &&
+                arguments[1] != type_id_t::INVALID) {
+                field_parameters.emplace(arguments[1], arguments[0]);
+            }
+        }
+
+        // The call that gave a concrete type to a type parameter, through those it was given
+        // through.
+        const auto call_for = [&](const type_id_t parameter,
+                                  const type_id_t type) -> std::optional<expr_id_t> {
+            std::vector<type_id_t> pending{ parameter };
+            std::unordered_set<type_id_t> seen{ parameter };
+            while (!pending.empty()) {
+                const type_id_t next = pending.back();
+                pending.pop_back();
+                if (const auto found = given_by.find({ next, type }); found != given_by.end()) {
+                    return found->second;
+                }
+
+                const auto through = given.find(next);
+                if (through == given.end()) {
+                    continue;
+                }
+
+                for (const type_id_t inner : through->second) {
+                    if (is_parameter(inner) && seen.insert(inner).second) {
+                        pending.push_back(inner);
+                    }
+                }
+            }
+
+            return std::nullopt;
+        };
+        // What a loop's type goes over, with the call that gave each, if one did.
+        const std::function<std::vector<std::pair<type_id_t, std::optional<expr_id_t>>>(type_id_t)>
+            types_of = [&](const type_id_t owner) {
+                std::vector<std::pair<type_id_t, std::optional<expr_id_t>>> found;
+                if (!is_parameter(owner)) {
+                    found.emplace_back(owner, std::nullopt);
+                } else if (const auto outer = field_parameters.find(owner);
+                           outer != field_parameters.end()) {
+                    for (const auto& [type, call] : types_of(outer->second)) {
+                        for (const field_t& field : reflected_fields(type)) {
+                            found.emplace_back(field.type, call);
+                        }
+                    }
+                } else {
+                    for (const type_id_t type : types_for(owner)) {
+                        found.emplace_back(type, call_for(owner, type));
+                    }
+                }
+
+                return found;
+            };
+
+        // Each Get's copy for each union, once for each call that makes one.
+        std::set<std::tuple<std::uint32_t, type_id_t, std::string, std::optional<expr_id_t>>> said;
+        for (const field_read_t& read : m_field_reads) {
+            if (read.unsafe) {
+                continue;
+            }
+
+            for (const auto& [type, call] : types_of(read.owner)) {
+                const type_id_t united = non_null(type);
+                if (!is_struct(united) || !m_analysis.types.get(united).c_union) {
+                    continue;
+                }
+
+                for (const field_t& field : m_analysis.types.get(united).fields) {
+                    if (!has_invalid_bytes(field.type) ||
+                        !said.emplace(read.span.begin, united, field.name, call).second) {
+                        continue;
+                    }
+
+                    const std::string made =
+                        call ? std::format(" that '{}' makes", text(*call)) : std::string();
+                    diagnostic_t& diagnostic = error(
+                        read.span,
+                        "this {}.Get reads Field '{}' of the @CUnion Struct {}, which can hold "
+                        "bytes that aren't {}, in the loop's copy for {}{}; read it in Unsafe, "
+                        "once the program knows it's the Field that was set",
+                        read.variable, field.name, shown_name(united),
+                        with_article(shown_name(field.type)), shown_name(united), made);
+                    if (call) {
+                        diagnostic.with_label(span_of(*call), "the copy is made for this call");
+                    }
+                }
             }
         }
     }
@@ -20876,6 +21007,16 @@ private:
         if (member.text == "Get" && !method) {
             if (takes(1)) {
                 value_of_owner(arguments[0]);
+            }
+
+            if (kind == member_kind_t::FIELD && found.declaration) {
+                m_field_reads.push_back({
+                    .owner = found.owner,
+                    .span = span_of(id),
+                    .loop = *found.declaration,
+                    .unsafe = m_unsafe > 0,
+                    .variable = std::string(found.name),
+                });
             }
 
             if (kind == member_kind_t::PROPERTY) {

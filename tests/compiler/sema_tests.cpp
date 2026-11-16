@@ -8346,6 +8346,98 @@ TEST_CASE("a @CUnion's Field that can hold bytes that aren't its type's is read 
               .empty());
 }
 
+TEST_CASE("a union's Field read any other way than by name is read in Unsafe too", "[sema]") {
+    const std::string_view u = "Import std.core\n"
+                               "@CUnion Struct U\n"
+                               "    Field b: Bool\n"
+                               "    Field x: UInt8\n"
+                               "End Struct\n"
+                               "@CLayout Struct Holder\n"
+                               "    Field n: Int32\n"
+                               "    Field u: U\n"
+                               "End Struct\n";
+    const std::string_view show = "Function Show<T>(value: T)\n"
+                                  "    For Field f: F In T\n"
+                                  "        Where F: Printable\n"
+                                  "        Local got = f.Get(value)\n"
+                                  "        Print(\"{f.Name}={got}\")\n"
+                                  "    End For\n"
+                                  "End Function\n";
+    const auto read = [](const std::string_view call) {
+        return std::format(
+            "f.Get(value): this f.Get reads Field 'b' of the @CUnion Struct U, which "
+            "can hold bytes that aren't a Bool, in the loop's copy for U{}; read it "
+            "in Unsafe, once the program knows it's the Field that was set",
+            call.empty() ? std::string() : std::format(" that '{}' makes", call));
+    };
+    // A For Field loop's Get, in the copy a call makes, through another generic's call too, at
+    // the program's own call.
+    CHECK(errors_of(std::format("{}{}Function Outer<T>(value: T)\n"
+                                "    For Field f: F In T\n"
+                                "        Where F: Printable\n"
+                                "    End For\n"
+                                "    Show(value)\n"
+                                "End Function\n"
+                                "Local u = U()\nu.x = 2\nOuter(u)\n",
+                                u, show)) == errors_t{ read("Outer(u)") });
+    CHECK(errors_of(std::format("{}{}Local u = U()\nu.x = 2\nShow(u)\n", u, show)) ==
+          errors_t{ read("Show(u)") });
+    // Over a concrete union. A loop over a loop's own type parameter, like a Field's type of a
+    // Struct that holds a union, isn't something fb has, so reaches none.
+    CHECK(errors_of(std::format("{}Local u = U()\n"
+                                "For Field f: F In U\n"
+                                "    Local got = f.Get(u)\n"
+                                "End For\n",
+                                u)) == errors_t{ "f.Get(u): this f.Get reads Field 'b' of the "
+                                                 "@CUnion Struct U, which can hold bytes that "
+                                                 "aren't a Bool, in the loop's copy for U; read it "
+                                                 "in Unsafe, once the program knows it's the Field "
+                                                 "that was set" });
+    // In Unsafe it's read, and a Holder's own Fields are read anywhere, the union whole too.
+    CHECK(errors_of(std::format("{}Function Shown<T>(value: T)\n"
+                                "    For Field f: F In T\n"
+                                "        Unsafe\n"
+                                "            Local got = f.Get(value)\n"
+                                "        End Unsafe\n"
+                                "    End For\n"
+                                "End Function\n"
+                                "Function Each<T>(value: T)\n"
+                                "    For Field f: F In T\n"
+                                "        Local got = f.Get(value)\n"
+                                "    End For\n"
+                                "End Function\n"
+                                "Shown(U())\nEach(Holder())\n",
+                                u))
+              .empty());
+    // A union's own Method and Property read its Fields as any code does.
+    CHECK(errors_of(std::format("{}Extend U\n"
+                                "    Method On(): Bool => b\n"
+                                "    Property Lit: Bool\n"
+                                "        Get => b\n"
+                                "    End Property\n"
+                                "    Unsafe Method Checked(): Bool => b\n"
+                                "    Method Count(): UInt8 => x\n"
+                                "End Extend\n",
+                                u)) ==
+          errors_t{
+              "b: 'b' is a Field of the @CUnion Struct U, which can hold bytes that aren't a Bool; "
+              "read it in Unsafe, once the program knows it's the Field that was set",
+              "b: 'b' is a Field of the @CUnion Struct U, which can hold bytes that aren't a Bool; "
+              "read it in Unsafe, once the program knows it's the Field that was set",
+          });
+    // A union isn't a tuple to take apart, converts to nothing, and has no == for a Select.
+    CHECK(errors_of(std::format("{}Local u = U()\nLocal a, c = u\n", u)) ==
+          errors_t{ "u: expected a tuple to take apart, found U" });
+    CHECK(errors_of(std::format("{}Local u = U()\nLocal n = u As Int64\n", u)) ==
+          errors_t{ "u As Int64: 'As' can't convert U to Int64" });
+    CHECK(!errors_of(std::format("{}Local u = U()\nSelect u\n    Case U()\nEnd Select\n", u))
+               .empty());
+    // Defaults<U> writes a Value of its Fields as Save does, which doesn't take a union.
+    CHECK(errors_of(std::format("{}Local made = Defaults<U>()\n", u)) ==
+          errors_t{ "U: Save can't write U, a @CUnion Struct, whose Fields share their bytes, so "
+                    "which one to write isn't known" });
+}
+
 TEST_CASE("a @CLayout Struct or @CUnion too big for an Int64 to count is an error at it",
           "[sema]") {
     // Packed or not, used or not.

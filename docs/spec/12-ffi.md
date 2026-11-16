@@ -94,8 +94,10 @@ End Struct
   so its Fields have no defaults; reading a Field reads those bytes as that type, as C does, and
   writing one writes its own. A Field of a type not every pattern of bytes is a value of, a
   `Bool`, an Enum that isn't `@Open`, a `CString`, a `Callback`, or a Struct or fixed array that
-  holds one, is read only in Unsafe code, where the program vouches it's the Field that was set;
-  numbers, `@Open` Enums, and `Ptr`s are read anywhere, and every Field is written anywhere. What
+  holds one, is read only in Unsafe code, where the program vouches it's the Field that was set,
+  by its name, in the union's own code too, or by a For Field loop's `f.Get`, whose copy for the
+  union is the error, naming the call that makes it; numbers, `@Open` Enums, and `Ptr`s are read
+  anywhere, and every Field is written anywhere. What
   C gives in one isn't checked as any Field, so an Enum's value isn't either. It has no `==` or
   Hash but an `Operator ==` and a `Hash` of its own, which it needs to implement Equatable or
   Hashable, and Load and Save don't take it, since which Field they'd write or fill isn't known.

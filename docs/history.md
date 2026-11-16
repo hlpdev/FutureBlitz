@@ -47,7 +47,10 @@ Packed `@CLayout` Structs and C unions, for the Steamworks SDK the game binds th
   lowered alignment (eight fail when it isn't lowered), fb's alignment of each of the package's
   shapes against C's, SysV's two union shapes whose IR types differ from clang's with the same
   registers, and AArch64's float aggregates past the registers, where clang's alignstack(8)
-  changes no stack store (clang's own IR compiled with and without it is the same).
+  changes no stack store (clang's own IR compiled with and without it is the same). Then a For
+  Field loop's `f.Get` in its copy for a union is the same error, at the Get, naming the
+  program's call that makes the copy, through other generics' calls too (finding 17): sema's pass
+  over the loops' types keeps, for each type a type parameter is given, the call that gave it.
 - **The LSP's hover** says `@CLayout(Pack: 4) Struct Status`; `fb doc` lists the attribute, and an
   interface file keeps it and the Const it names.
 - Tests: tests/packages/packed against tests/native/vecmath/packed.c, which C compiles (each
