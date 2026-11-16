@@ -112,7 +112,11 @@ Packed `@CLayout` Structs and C unions, for the Steamworks SDK the game binds th
   reaches the listener". CI's fix (finding 41, macOS): the 1 ms lines timed 20 waits' total under
   100 ms, which a loaded runner's stalls exceeded; net_zero_wait and short_waits now time each wait
   and want the median under 8 ms, half a Windows tick, so a stalled wait can't decide it, and with
-  the high-resolution timers off by hand, every 1 ms line still printed False on Windows.
+  the high-resolution timers off by hand, every 1 ms line still printed False on Windows. The
+  median failed too (finding 42): on macOS, which coalesces timers, and on Windows with 10
+  programs at once, over half the waits were late; "quickly" is now the fastest of the 20 under
+  8 ms, as with the bug every wait is a tick or more, and with the timers off every 1 ms line
+  still printed False.
 - **A Callback takes and gives `@CLayout` Structs and `@CUnion`s by value** (scpcb-x, 2026-11-15,
   for Discord's join callback, `void (*)(Discord_String, void*)` with a pointer and a size_t by
   value): sema's `callback_of` takes a Struct, which is checked as an Extern's is once Fields are
