@@ -143,7 +143,16 @@ Packed `@CLayout` Structs and C unions, for the Steamworks SDK the game binds th
   median failed too (finding 42): on macOS, which coalesces timers, and on Windows with 10
   programs at once, over half the waits were late; "quickly" is now the fastest of the 20 under
   8 ms, as with the bug every wait is a tick or more, and with the timers off every 1 ms line
-  still printed False.
+  still printed False. And the fastest failed once (finding 43, master 84fbb1d6): in Windows'
+  release pass, ~1275 programs side by side on 4 vCPUs, all 20 of short_waits' ReceiveAsync
+  waits, the program's last 300 ms or so, were late, while its other lines were on time. Its
+  timeout is a uv timer on the I/O loop, as Timer.After's is, which the high-resolution wake
+  serves, and on this PC neither was ever late, even on 4 cores beside 16 spinning processes, so
+  it was the machine stalling. Each 1 ms line now has up to 5 rounds of 20, each ending at the
+  first wait under 8 ms, and a False line prints each round's waits to 0.1 ms; a first wait isn't
+  counted, as with the tick one that starts between two of its ticks can end under 8 ms (8.1 and
+  11 ms in the by-hand run). With the timers off, three runs printed False for every 1 ms line,
+  with no counted wait under 15.1 ms.
 - **A Callback takes and gives `@CLayout` Structs and `@CUnion`s by value** (scpcb-x, 2026-11-15,
   for Discord's join callback, `void (*)(Discord_String, void*)` with a pointer and a size_t by
   value): sema's `callback_of` takes a Struct, which is checked as an Extern's is once Fields are

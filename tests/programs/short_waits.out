@@ -1,7 +1,7 @@
-Sleep with a Cancellation at 1 ms, 20 times, quickly: True
+Sleep with a Cancellation at 1 ms, quickly: True
 and at 50 ms, all of it: True
-a Selector's Timeout at 1 ms, 20 times: 20 timed out, quickly: True
-Timer.After at 1 ms, 20 times, quickly: True
+a Selector's Timeout at 1 ms, 0 taken, quickly: True
+Timer.After at 1 ms, quickly: True
 and at 50 ms, all of it: True
-ReceiveAsync at 1 ms, 20 times, quickly: True
+ReceiveAsync at 1 ms, 0 received, quickly: True
 and at 50 ms, all of it: True

@@ -1,8 +1,11 @@
 // A timeout of 0 doesn't wait: 200 receives, accepts, and GameHost Updates of nothing take under
 // 200 ms in all, a millisecond each at most where a wait of the system's tick, 15.6 ms on Windows,
 // is 3.1 s; and a datagram that's already come is taken at 0.
+// Each 1 ms line retries, up to 5 rounds of 20, as a loaded runner's machine can stall for all of
+// one round's 300 ms or so, which the tick never lets a round under; a False one prints the waits.
 Import std.core
 Import std.time
+Import std.math
 Import std.net
 Import std.net.game
 Import std.uuid
@@ -85,58 +88,78 @@ Print("IPC Accept at 0, 200 times:", timedOut, "timed out, quickly:",
       Instant.Now() - started < 200.Milliseconds)
 ipc.Close()
 
-// A short timeout waits about as long as it says, not a tick of Windows's timer, 15.6 ms: of 20
-// waits of 1 ms of nothing, the fastest is under 8 ms, half a tick, where each was a tick or more,
-// so a loaded machine, which can make most of them late, can't decide it. On Linux and macOS it
-// passed before too, as their waits had no ticks.
+// A short timeout waits about as long as it says, not a tick of Windows's timer, 15.6 ms: one of 20
+// waits of 1 ms of nothing comes in under 8 ms, half a tick, where each was a tick or more, so a
+// loaded machine, which can make most of them late, can't decide it. On Linux and macOS it passed
+// before too, as their waits had no ticks.
 Function Waited(begun: Instant): Double => (Instant.Now() - begun).TotalMilliseconds
 
-// Whether the fastest wait took under 8 ms.
-Function Quickly(waits: Double[]): Bool
-    For wait In waits
-        If wait < 8 Then Return True
+/// Up to 5 rounds of 20 waits, timed by `wait`, each to 0.1 ms, when none took under 8 ms; none
+/// once one did. A first wait isn't counted: one that starts between two of the tick's can end at
+/// the next, under 8 ms with the tick too, and those after it start as a tick ends.
+Function Late(wait: Func(): Double): Double[][]
+    Local _first = wait()
+    Local rounds: Double[][] = []
+    For round = 0 Until 5
+        Local waits: Double[] = []
+        For i = 0 Until 20
+            Local took = wait()
+            If took < 8 Then Return []
+            waits.Add(Round(took * 10) / 10)
+        End For
+        rounds.Add(waits)
     End For
-    Return False
+    Return rounds
 End Function
 
-timedOut = 0
-Local received: Double[] = []
-For i = 0 Until 20
+/// The line, quickly if no round was late, and then each late round's waits.
+Function Show(line: String, late: Double[][])
+    Print(line, "quickly:", late.Count == 0)
+    For waits In late
+        Print("    waits:", waits)
+    End For
+End Function
+
+Local received = 0
+Local late = Late(Function(): Double
     Local begun = Instant.Now()
     Try
         Local _got = Try udp.Receive(1.Milliseconds)
+        received += 1
     Catch e As TimeoutError
-        timedOut += 1
+    Catch e
+        Panic("receiving: {e.Message}")
     End Try
-    received.Add(Waited(begun))
-End For
-
-Print("Receive at 1 ms, 20 times:", timedOut, "timed out, quickly:", Quickly(received))
+    Return Waited(begun)
+End Function)
+Show("Receive at 1 ms, {received} received,", late)
 Local waiting = Try TcpListener.Listen(loopback)
-timedOut = 0
-Local accepted: Double[] = []
-For i = 0 Until 20
+Local accepted = 0
+late = Late(Function(): Double
     Local begun = Instant.Now()
     Try
         Local _got = Try waiting.Accept(1.Milliseconds)
+        accepted += 1
     Catch e As TimeoutError
-        timedOut += 1
+    Catch e
+        Panic("accepting: {e.Message}")
     End Try
-    accepted.Add(Waited(begun))
-End For
-
-Print("Accept at 1 ms, 20 times:", timedOut, "timed out, quickly:", Quickly(accepted))
+    Return Waited(begun)
+End Function)
+Show("Accept at 1 ms, {accepted} accepted,", late)
 waiting.Close()
 Local serviced = Try GameHost.Bind(loopback)
 events = 0
-Local servicing: Double[] = []
-For i = 0 Until 20
+late = Late(Function(): Double
     Local begun = Instant.Now()
-    events += (Try serviced.Service(1.Milliseconds)).Count
-    servicing.Add(Waited(begun))
-End For
-
-Print("GameHost.Service at 1 ms, 20 times:", events, "events, quickly:", Quickly(servicing))
+    Try
+        events += (Try serviced.Service(1.Milliseconds)).Count
+    Catch e
+        Panic("servicing: {e.Message}")
+    End Try
+    Return Waited(begun)
+End Function)
+Show("GameHost.Service at 1 ms, {events} events,", late)
 serviced.Close()
 // And a longer one still waits all of it.
 started = Instant.Now()

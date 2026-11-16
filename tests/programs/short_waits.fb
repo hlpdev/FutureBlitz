@@ -1,85 +1,114 @@
-// A short timed wait lasts about as long as it says, not a tick of Windows's timer, 15.6 ms: of 20
-// waits of 1 ms, the fastest is under 8 ms, half a tick, where each was a tick or more, for Sleep
-// with a Cancellation, a Selector's Timeout, Timer.After, and ReceiveAsync, so a loaded machine,
-// which can make most of them late, can't decide it; and a 50 ms one still waits all of it. On
-// Linux and macOS it passed before too, as their waits had no ticks.
+// A short timed wait lasts about as long as it says, not a tick of Windows's timer, 15.6 ms: one of
+// 20 waits of 1 ms comes in under 8 ms, half a tick, where each was a tick or more, for Sleep with
+// a Cancellation, a Selector's Timeout, Timer.After, and ReceiveAsync, so a loaded machine, which
+// can make most of them late, can't decide it; and a 50 ms one still waits all of it. On Linux and
+// macOS it passed before too, as their waits had no ticks.
+// Each 1 ms line retries, up to 5 rounds of 20, as a loaded runner's machine can stall for all of
+// one round's 300 ms or so, which the tick never lets a round under; a False one prints the waits.
 Import std.core
 Import std.time
+Import std.math
 Import std.net
 Import std.concurrent
 
 Function Waited(begun: Instant): Double => (Instant.Now() - begun).TotalMilliseconds
 
-// Whether the fastest wait took under 8 ms.
-Function Quickly(waits: Double[]): Bool
-    For wait In waits
-        If wait < 8 Then Return True
+/// Up to 5 rounds of 20 waits, timed by `wait`, each to 0.1 ms, when none took under 8 ms; none
+/// once one did. A first wait isn't counted: one that starts between two of the tick's can end at
+/// the next, under 8 ms with the tick too, and those after it start as a tick ends.
+Function Late(wait: Func(): Double): Double[][]
+    Local _first = wait()
+    Local rounds: Double[][] = []
+    For round = 0 Until 5
+        Local waits: Double[] = []
+        For i = 0 Until 20
+            Local took = wait()
+            If took < 8 Then Return []
+            waits.Add(Round(took * 10) / 10)
+        End For
+        rounds.Add(waits)
     End For
-    Return False
+    Return rounds
+End Function
+
+/// Late's Async twin.
+Async Function LateAsync(wait: Func(): Task<Double>): Double[][]
+    Local _first = Await wait()
+    Local rounds: Double[][] = []
+    For round = 0 Until 5
+        Local waits: Double[] = []
+        For i = 0 Until 20
+            Local took = Await wait()
+            If took < 8 Then Return []
+            waits.Add(Round(took * 10) / 10)
+        End For
+        rounds.Add(waits)
+    End For
+    Return rounds
+End Function
+
+/// The line, quickly if no round was late, and then each late round's waits.
+Function Show(line: String, late: Double[][])
+    Print(line, "quickly:", late.Count == 0)
+    For waits In late
+        Print("    waits:", waits)
+    End For
 End Function
 
 Function All(started: Instant, time: Duration): Bool => Instant.Now() - started >= time
 
 Local cancel = Cancellation()
-Local slept: Double[] = []
-For i = 0 Until 20
+Local late = Late(Function(): Double
     Local begun = Instant.Now()
-    Try Sleep(1.Milliseconds, cancel)
-    slept.Add(Waited(begun))
-End For
-
-Print("Sleep with a Cancellation at 1 ms, 20 times, quickly:", Quickly(slept))
+    Try? Sleep(1.Milliseconds, cancel)
+    Return Waited(begun)
+End Function)
+Show("Sleep with a Cancellation at 1 ms,", late)
 Local started = Instant.Now()
 Try Sleep(50.Milliseconds, cancel)
 Print("and at 50 ms, all of it:", All(started, 50.Milliseconds))
 
 Local channel = Channel<Int64>(4)
-Local timedOut = 0
-Local selected: Double[] = []
-For i = 0 Until 20
+Local taken = 0
+late = Late(Function(): Double
     Local begun = Instant.Now()
     Local _waited = Selector().On(channel, Function(x: Int64)
+        taken += 1
     End Function).Timeout(1.Milliseconds, Function()
-        timedOut += 1
     End Function).Wait()
-    selected.Add(Waited(begun))
-End For
+    Return Waited(begun)
+End Function)
+Show("a Selector's Timeout at 1 ms, {taken} taken,", late)
 
-Print("a Selector's Timeout at 1 ms, 20 times:", timedOut, "timed out, quickly:",
-      Quickly(selected))
-
-// Each wait's milliseconds.
-Async Function Afters(time: Duration, count: Int): Double[]
-    Local waits: Double[] = []
-    For i = 0 Until count
-        Local begun = Instant.Now()
-        Await Timer.After(time)
-        waits.Add(Waited(begun))
-    End For
-
-    Return waits
-End Function
-
-Print("Timer.After at 1 ms, 20 times, quickly:", Quickly(Await Afters(1.Milliseconds, 20)))
-Print("and at 50 ms, all of it:", (Await Afters(50.Milliseconds, 1))[0] >= 50)
-
-// Each wait's milliseconds.
-Async Function Receives(udp: UdpSocket, time: Duration, count: Int): Double[] Throws NetError
-    Local waits: Double[] = []
-    For i = 0 Until count
-        Local begun = Instant.Now()
-        Try
-            Local _got = Try Await udp.ReceiveAsync(time)
-        Catch e As TimeoutError
-        End Try
-        waits.Add(Waited(begun))
-    End For
-
-    Return waits
-End Function
+late = Await LateAsync(Async Function(): Double
+    Local begun = Instant.Now()
+    Await Timer.After(1.Milliseconds)
+    Return Waited(begun)
+End Function)
+Show("Timer.After at 1 ms,", late)
+started = Instant.Now()
+Await Timer.After(50.Milliseconds)
+Print("and at 50 ms, all of it:", All(started, 50.Milliseconds))
 
 Local udp = Try UdpSocket.Bind(SocketAddress(IpAddress.Loopback, 0))
-Print("ReceiveAsync at 1 ms, 20 times, quickly:",
-      Quickly(Try Await Receives(udp, 1.Milliseconds, 20)))
-Print("and at 50 ms, all of it:", (Try Await Receives(udp, 50.Milliseconds, 1))[0] >= 50)
+Local received = 0
+late = Await LateAsync(Async Function(): Double
+    Local begun = Instant.Now()
+    Try
+        Local _got = Try Await udp.ReceiveAsync(1.Milliseconds)
+        received += 1
+    Catch e As TimeoutError
+    Catch e
+        Panic("receiving: {e.Message}")
+    End Try
+    Return Waited(begun)
+End Function)
+Show("ReceiveAsync at 1 ms, {received} received,", late)
+started = Instant.Now()
+Try
+    Local _got = Try Await udp.ReceiveAsync(50.Milliseconds)
+Catch e As TimeoutError
+End Try
+
+Print("and at 50 ms, all of it:", All(started, 50.Milliseconds))
 udp.Close()
