@@ -87,6 +87,17 @@ Packed `@CLayout` Structs and C unions, for the Steamworks SDK the game binds th
   watcher ends first", "a SIGTERM sent to fb run's program while it's held ends it", "fb run's
   ended program keeps its pid until its watcher is gone", and, on Linux, "fb run's watcher holds
   only its own pipes", and the tie-window test at COLUMNS=40; each failed on 47c24dea.
+- **A timeout of 0 waited a timer tick** (scpcb-x, 2026-11-15): `UdpSocket.Receive` with nothing
+  come took about 15.6 ms on Windows at a timeout of 0, so each `GameHost.Update` did too, and
+  so did TCP's, IPC's, and TLS's Accept and a Connect, though std.net's docs say a timeout that
+  isn't positive doesn't wait. The runtime's `wait_until` asked the condition variable for a wait
+  of none, which waits for the system's next tick on Windows; at 0 it now looks once and doesn't
+  wait, on every system. A socket reads what comes from its Bind on, so a datagram that's come is
+  taken at 0. TCP's Read had done so already, and the Async versions' timer of 0 runs on the I/O
+  loop's next turn; Selector's Timeout(0) and Channels don't go through it. Test:
+  tests/programs/net_zero_wait, 200 Receives, ReceiveAsyncs, Accepts, and GameHost Updates of
+  nothing each under 200 ms in all, and a datagram there already taken at 0; on 24c8424e,
+  Receive, Accept, and Update each took about 3.1 s on Windows.
 
 ## 1.3.5
 

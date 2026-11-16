@@ -213,10 +213,15 @@ std::int32_t call(const std::function<std::int32_t(uv_loop_t*)>& job) {
 }
 
 /// Waits until `ready` holds, or `timeout` nanoseconds have gone, unless it's negative, and says
-/// whether it holds.
+/// whether it holds. A timeout of 0 doesn't wait at all: a wait of none on a condition variable
+/// waits for the system's next tick on Windows, 15.6 ms.
 template <typename Ready>
 bool wait_until(std::unique_lock<std::mutex>& lock, socket_t* socket, const std::int64_t timeout,
                 Ready ready) {
+    if (timeout == 0) {
+        return ready();
+    }
+
     if (timeout < 0 || timeout >= forever) {
         socket->changed.wait(lock, ready);
         return true;

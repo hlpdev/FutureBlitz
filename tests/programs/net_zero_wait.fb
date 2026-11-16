@@ -1,0 +1,77 @@
+// A timeout of 0 doesn't wait: 200 receives, accepts, and GameHost Updates of nothing take under
+// 200 ms in all, a millisecond each at most where a wait of the system's tick, 15.6 ms on Windows,
+// is 3.1 s; and a datagram that's already come is taken at 0.
+Import std.core
+Import std.time
+Import std.net
+Import std.net.game
+
+Local loopback = SocketAddress(IpAddress.Loopback, 0)
+Local udp = Try UdpSocket.Bind(loopback)
+Local timedOut = 0
+Local started = Instant.Now()
+For i = 0 Until 200
+    Try
+        Local _got = Try udp.Receive(Duration.Zero())
+    Catch e As TimeoutError
+        timedOut += 1
+    End Try
+End For
+
+Print("Receive at 0, 200 times:", timedOut, "timed out, quickly:",
+      Instant.Now() - started < 200.Milliseconds)
+
+Async Function Receives(udp: UdpSocket): Int64 Throws NetError
+    Local timedOut = 0
+    For i = 0 Until 200
+        Try
+            Local _got = Try Await udp.ReceiveAsync(Duration.Zero())
+        Catch e As TimeoutError
+            timedOut += 1
+        End Try
+    End For
+
+    Return timedOut
+End Function
+
+started = Instant.Now()
+Local timedOutAsync = Try Await Receives(udp)
+Print("ReceiveAsync at 0, 200 times:", timedOutAsync, "timed out, quickly:",
+      Instant.Now() - started < 200.Milliseconds)
+
+Local listener = Try TcpListener.Listen(loopback)
+timedOut = 0
+started = Instant.Now()
+For i = 0 Until 200
+    Try
+        Local _got = Try listener.Accept(Duration.Zero())
+    Catch e As TimeoutError
+        timedOut += 1
+    End Try
+End For
+
+Print("Accept at 0, 200 times:", timedOut, "timed out, quickly:",
+      Instant.Now() - started < 200.Milliseconds)
+listener.Close()
+
+// A GameHost's Update takes what's come at 0, as a game's frame calls it.
+Local host = Try GameHost.Bind(loopback)
+Local events = 0
+started = Instant.Now()
+For i = 0 Until 200
+    events += (Try host.Update()).Count
+End For
+
+Print("GameHost.Update, 200 times:", events, "events, quickly:",
+      Instant.Now() - started < 200.Milliseconds)
+host.Close()
+
+// One that's come is taken at 0: the socket reads what comes from its Bind on, so it's there by
+// the time a wait of a second for it ends.
+Local sender = Try UdpSocket.Bind(loopback)
+Try sender.Send([1, 2, 3], udp.LocalAddress)
+Sleep(1.Seconds)
+Local got = Try udp.Receive(Duration.Zero())
+Print("there already:", got.Bytes, got.From.Port == sender.LocalAddress.Port)
+sender.Close()
+udp.Close()
