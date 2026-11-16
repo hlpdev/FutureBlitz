@@ -65,6 +65,16 @@ Package Function NanosecondsOf(timeout: Duration?): Int64
     Return Max(timeout.Nanoseconds, 0)
 End Function
 
+/// Panics unless a Connect's timeout, where it has one, is above 0, as a connect that doesn't wait
+/// can't connect, but its SYN would still reach the other side.
+@PanicsAtCaller
+Package Function CheckConnectTimeout(timeout: Duration?)
+    If timeout != Null && timeout.Nanoseconds <= 0
+        Panic(
+            "a Connect's timeout is above 0, not {timeout}, as one that doesn't wait can't connect")
+    End If
+End Function
+
 /// An address's bytes, as the runtime's functions take them: 4 or 6 for its family, its 16 bytes,
 /// an IPv4 address's 4 first, its port, the most significant byte first, and its scope, the
 /// least significant first.
