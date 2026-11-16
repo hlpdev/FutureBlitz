@@ -5,6 +5,7 @@ Import std.core
 Import std.time
 Import std.net
 Import std.net.game
+Import std.uuid
 
 Local loopback = SocketAddress(IpAddress.Loopback, 0)
 Local udp = Try UdpSocket.Bind(loopback)
@@ -65,6 +66,24 @@ End For
 Print("GameHost.Update, 200 times:", events, "events, quickly:",
       Instant.Now() - started < 200.Milliseconds)
 host.Close()
+
+// An IPC listener's Accept at 0 too. A TlsListener's Accept(0) is net_tls_tcp's, as it needs the
+// test certificates, and a Connect at 0, which panics, is the cli test "a Connect at a timeout of 0
+// panics before anything reaches the listener".
+Local ipc = Try IpcListener.Listen("fb-test-zero-wait-{Uuid.V4()}")
+timedOut = 0
+started = Instant.Now()
+For i = 0 Until 200
+    Try
+        Local _got = Try ipc.Accept(Duration.Zero())
+    Catch e As TimeoutError
+        timedOut += 1
+    End Try
+End For
+
+Print("IPC Accept at 0, 200 times:", timedOut, "timed out, quickly:",
+      Instant.Now() - started < 200.Milliseconds)
+ipc.Close()
 
 // A short timeout waits about as long as it says, not a tick of Windows's timer, 15.6 ms: 20 waits of
 // 1 ms of nothing take under 100 ms in all, where ticks are 312. On Linux and macOS it passed
