@@ -502,9 +502,13 @@ TEST_CASE("a Callback's thunk with a closed Enum beside its Structs is whole IR 
                     files);
     REQUIRE_FALSE(compilation.diagnostics.has_errors());
     const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
-    for (const std::string_view triple :
-         { "x86_64-unknown-linux-gnu", "x86_64-w64-windows-gnu", "aarch64-unknown-linux-gnu",
-           "arm64-apple-macosx14.0.0", "x86_64-apple-macosx14.0.0" }) {
+    for (const std::string_view triple : {
+             "x86_64-unknown-linux-gnu",
+             "x86_64-w64-windows-gnu",
+             "aarch64-unknown-linux-gnu",
+             "arm64-apple-macosx14.0.0",
+             "x86_64-apple-macosx14.0.0",
+         }) {
         CAPTURE(triple);
         const auto made = fb::emit_ir(module, compilation.sources, compilation.file,
                                       { .target_triple = std::string(triple) });
