@@ -28,7 +28,7 @@
 #ifndef _WIN32
 #include <fcntl.h>
 #include <unistd.h>
-#elif !defined(CREATE_WAITABLE_TIMER_HIGH_RESOLUTION)
+#elifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
 // Windows 10 1803's, which older headers don't name.
 #define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
 #endif
