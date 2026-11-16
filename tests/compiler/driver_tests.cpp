@@ -4671,9 +4671,11 @@ TEST_CASE("a library's Const of FB_VERSION is the version of the fb that built i
     const packages_t packages;
     packages.write("tools/project.toml",
                    "[project]\nname = \"tools\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
-    packages.write("tools/tools.fb", "Import std.core\n"
-                                     "Public Const BUILT_WITH = FB_VERSION\n"
-                                     "Public Const BUILT_MAJOR = FB_VERSION_MAJOR\n");
+    packages.write("tools/tools.fb",
+                   "Import std.core\n"
+                   "Public Const BUILT_WITH = FB_VERSION\n"
+                   "Public Const BUILT_MAJOR = FB_VERSION_MAJOR\n"
+                   "@Inline Public Function InlineVersion(): String => FB_VERSION\n");
     const std::expected<fb::compilation_t, std::string> tools =
         fb::compile_file(packages / "tools");
     REQUIRE(tools);
@@ -4682,6 +4684,12 @@ TEST_CASE("a library's Const of FB_VERSION is the version of the fb that built i
     const std::string text =
         fb::write_interface(*tools, fb::build_mode_t::DEBUG, diagnostics).value_or("");
     REQUIRE_FALSE(text.empty());
+    // The Const is its value, the library's fb's, and an @Inline Function's body keeps the name,
+    // which the program's std gives, as the docs say.
+    INFO(text);
+    CHECK(text.contains(
+        std::format("Public Const BUILT_WITH: String = \"{}\"\n", fb::build_config::version)));
+    CHECK(text.contains("@Inline Public Function InlineVersion(): String => FB_VERSION\n"));
     packages.write("prebuilt/project.toml",
                    "[project]\nname = \"tools\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
     packages.write(std::format("prebuilt/lib/{}/debug/tools.fbi", fb::build_target()), text);

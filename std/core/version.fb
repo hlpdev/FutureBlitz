@@ -1,7 +1,14 @@
 //! FB_VERSION, the version of fb that built the program, and its three numbers.
 //!
-//! They're Consts, so compile-time code and other Consts use them too. Each release of fb writes
-//! its own version here, which its build refuses to differ from what `fb --version` says.
+//! They're Consts, for code and Const expressions, and not `#If` symbols, so `#If` can't choose by
+//! them. They're there from fb 1.4.0 on, so a library that must build with an older fb can't name
+//! them. Each release of fb writes its own version here, which its build refuses to differ from
+//! what `fb --version` says, and fb refuses a std whose version isn't its own; a build of fb
+//! between releases says the last release's version, as `fb --version` does.
+//!
+//! FB_VERSION is the version of the fb that compiled the code that uses it, so a prebuilt library's
+//! own compiled Functions and Consts have the library's, and what's compiled with the program
+//! (generics, `@Inline` and Const Functions, default arguments) has the program's.
 //!
 //! # Examples
 //!
