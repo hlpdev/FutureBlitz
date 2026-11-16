@@ -97,7 +97,18 @@ Packed `@CLayout` Structs and C unions, for the Steamworks SDK the game binds th
   loop's next turn; Selector's Timeout(0) and Channels don't go through it. Test:
   tests/programs/net_zero_wait, 200 Receives, ReceiveAsyncs, Accepts, and GameHost Updates of
   nothing each under 200 ms in all, and a datagram there already taken at 0; on 24c8424e,
-  Receive, Accept, and Update each took about 3.1 s on Windows.
+  Receive, Accept, and Update each took about 3.1 s on Windows. The review's fixes (findings 24
+  to 27): a short timeout's wait waited a tick too, 15.6 ms for 1 ms, as did Sleep with a
+  Cancellation, a Selector's Timeout, Timer.After, and ReceiveAsync: the runtime's
+  `condition_t` waits on its thread's event and a high-resolution waitable timer on Windows, for
+  sockets, the pool, and a Cancellation, and the I/O thread sets a high-resolution timer to
+  libuv's next timer before each poll, which wakes the loop through the thread pool, so 1 ms
+  takes about 1.5, and 50 still 50; a Connect at 0 panics before anything's sent, as it could
+  only fail and leave the listener a connection; and a TlsListener's handshakes go on between
+  Accept calls, each for up to its HandshakeLimit, so Accept(0) gives a client whose handshake
+  finished meanwhile, and a failed one is dropped rather than thrown. Tests: net_zero_wait at 1
+  ms and 50 ms, short_waits, net_tls_accept, net_tls_tcp's refused client, and cli "a Connect at
+  a timeout of 0 panics before anything reaches the listener".
 
 ## 1.3.5
 
