@@ -3317,7 +3317,8 @@ private:
                   shown_name(plain));
         } else if (plain != type_id_t::INVALID) {
             error(span,
-                  "C code sees {} here, so it has to be @CLayout, which lays it out as C does",
+                  "C code sees {} here, so it has to be @CLayout or @CUnion, which lay it out as "
+                  "C does",
                   shown_name(plain));
         } else if (by_value && is_struct(type) &&
                    fb::c_layout(m_analysis.types, type, build_c_integers()).size > UINT32_MAX) {
@@ -14015,16 +14016,24 @@ private:
             return inner == type_id_t::NONE ? type_id_t::INVALID : plain_struct_in(inner);
         }
 
+        // A Struct a Callback takes or gives by value is callback_of's to check, as it says
+        // which; what it has through a Ptr or a fixed array is this one's.
         if (is_callback(type)) {
             const type_t& code = m_analysis.types.get(type);
             for (const type_id_t parameter : code.parameters) {
+                if (is_struct(parameter)) {
+                    continue;
+                }
+
                 if (const type_id_t plain = plain_struct_in(parameter);
                     plain != type_id_t::INVALID) {
                     return plain;
                 }
             }
 
-            return code.inner == type_id_t::NONE ? type_id_t::INVALID : plain_struct_in(code.inner);
+            return code.inner == type_id_t::NONE || is_struct(code.inner)
+                       ? type_id_t::INVALID
+                       : plain_struct_in(code.inner);
         }
 
         return is_struct(type) && !is_c_layout(type) ? type : type_id_t::INVALID;

@@ -16614,6 +16614,16 @@ TEST_CASE("a Callback takes and gives a @CLayout Struct or a @CUnion by value", 
                     "    Field f: Float32\n"
                     "End Struct\n")
               .empty());
+    // One error for a Callback's plain Struct in a @CLayout Struct's Field, at the Callback's
+    // parameter.
+    CHECK(errors_of("Struct Plain\n"
+                    "    Field n: Int32\n"
+                    "End Struct\n"
+                    "@CLayout Struct Holder\n"
+                    "    Field bad: Callback(Plain)\n"
+                    "End Struct\n") ==
+          errors_t{ "Plain: C code sees Plain here, so it has to be @CLayout or @CUnion, which lay "
+                    "it out as C does" });
     // A Struct C sees is @CLayout, and not a generic one's instance, as an Extern's is.
     CHECK(errors_of("Struct Plain\n"
                     "    Field n: Int32\n"
@@ -16624,8 +16634,8 @@ TEST_CASE("a Callback takes and gives a @CLayout Struct or a @CUnion by value", 
                     "Local a: Callback(Plain) = Null\n"
                     "Local b: Callback(): Pair<Int32> = Null\n") ==
           errors_t{
-              std::string("Plain: C code sees Plain here, so it has to be @CLayout, which lays it "
-                          "out as C does"),
+              std::string("Plain: C code sees Plain here, so it has to be @CLayout or @CUnion, "
+                          "which lay it out as C does"),
               std::string("Pair<Int32>: C code sees Pair<Int32> here, a generic Struct's instance, "
                           "which can't be @CLayout; declare a @CLayout Struct of the types C has"),
           });
@@ -16738,8 +16748,8 @@ TEST_CASE("a @CLayout Struct holds what C can, and is the only Struct C sees", "
           });
 
     // A Struct that C code sees, by value, ByRef, or through a Ptr, is @CLayout.
-    const std::string_view sees = "C code sees Plain here, so it has to be @CLayout, which lays it "
-                                  "out as C does";
+    const std::string_view sees = "C code sees Plain here, so it has to be @CLayout or @CUnion, "
+                                  "which lay it out as C does";
     CHECK(errors_of("Struct Plain\n"
                     "    Field x: Int32\n"
                     "End Struct\n"
