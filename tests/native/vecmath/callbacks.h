@@ -59,6 +59,21 @@ typedef union vm_either {
     float f;
 } vm_either;
 
+typedef struct vm_double_int {
+    double d;
+    int32_t i;
+} vm_double_int;
+
+typedef struct vm_int_double {
+    int32_t i;
+    double d;
+} vm_int_double;
+
+typedef struct vm_pair64 {
+    int64_t a;
+    int64_t b;
+} vm_pair64;
+
 #define VM_CALLBACK(name, type)                                                                    \
     typedef type (*vm_##name##_fn)(type first, int64_t a, int64_t b, int64_t c, int64_t d,         \
                                    int64_t e, int64_t f, type last);                               \
@@ -73,8 +88,38 @@ VM_CALLBACK(two_floats, vm_two_floats)
 VM_CALLBACK(four_floats, vm_four_floats)
 VM_CALLBACK(packed_pair, vm_packed_pair)
 VM_CALLBACK(either, vm_either)
+VM_CALLBACK(double_int, vm_double_int)
+VM_CALLBACK(int_double, vm_int_double)
 
 #undef VM_CALLBACK
+
+// Where registers run out, each way: a Struct after eight floats; one that needs two integer
+// registers when one is left, after five integers, with one more integer after it; a Struct in
+// memory for the result, with one after four integers; narrow integers and a Bool beside one;
+// and four floats after eight, which AArch64 passes on the stack. C calls fb's function with
+// what it's given and gives what that gives, and gives a pointer to its own, which does as fb's.
+typedef vm_two_floats (*vm_after_floats_fn)(float a, float b, float c, float d, float e, float f,
+                                            float g, float h, vm_two_floats value);
+vm_two_floats vm_call_after_floats(vm_after_floats_fn fn, vm_two_floats value);
+vm_after_floats_fn vm_after_floats_pointer(void);
+
+typedef vm_pair64 (*vm_no_room_fn)(int64_t a, int64_t b, int64_t c, int64_t d, int64_t e,
+                                   vm_pair64 value, int64_t f);
+vm_pair64 vm_call_no_room(vm_no_room_fn fn, vm_pair64 value);
+vm_no_room_fn vm_no_room_pointer(void);
+
+typedef vm_twenty_four (*vm_sret_fn)(int64_t a, int64_t b, int64_t c, int64_t d, vm_twelve value);
+vm_twenty_four vm_call_sret(vm_sret_fn fn, vm_twelve value);
+vm_sret_fn vm_sret_pointer(void);
+
+typedef vm_three (*vm_narrow_fn)(uint8_t a, vm_twelve value, int16_t b, bool c);
+vm_three vm_call_narrow(vm_narrow_fn fn, vm_twelve value);
+vm_narrow_fn vm_narrow_pointer(void);
+
+typedef vm_four_floats (*vm_hfa_late_fn)(float a, float b, float c, float d, float e, float f,
+                                         float g, float h, vm_four_floats value);
+vm_four_floats vm_call_hfa_late(vm_hfa_late_fn fn, vm_four_floats value);
+vm_hfa_late_fn vm_hfa_late_pointer(void);
 
 // An enum in what crosses a function pointer, as C's caller says, a hue or not: beside a struct
 // in registers, inside a struct both ways, and in a union, whose bytes may be the other field's.

@@ -53,6 +53,21 @@ End Struct
     Field f: Float32
 End Struct
 
+@CLayout Struct DoubleInt
+    Field d: Float64
+    Field i: Int32
+End Struct
+
+@CLayout Struct IntDouble
+    Field i: Int32
+    Field d: Float64
+End Struct
+
+@CLayout Struct Pair64
+    Field a: Int64
+    Field b: Int64
+End Struct
+
 Enum Hue
     Red = 1
     Green = 2
@@ -93,6 +108,33 @@ Extern "C"
                                          Either): Either, value: Either): Either
     Function vm_either_pointer(): Callback(Either, Int64, Int64, Int64, Int64, Int64, Int64,
                                            Either): Either
+    Function vm_call_double_int(fn: Callback(DoubleInt, Int64, Int64, Int64, Int64, Int64, Int64,
+                                             DoubleInt): DoubleInt, value: DoubleInt): DoubleInt
+    Function vm_double_int_pointer(): Callback(DoubleInt, Int64, Int64, Int64, Int64, Int64, Int64,
+                                               DoubleInt): DoubleInt
+    Function vm_call_int_double(fn: Callback(IntDouble, Int64, Int64, Int64, Int64, Int64, Int64,
+                                             IntDouble): IntDouble, value: IntDouble): IntDouble
+    Function vm_int_double_pointer(): Callback(IntDouble, Int64, Int64, Int64, Int64, Int64, Int64,
+                                               IntDouble): IntDouble
+    Function vm_call_after_floats(fn: Callback(Float32, Float32, Float32, Float32, Float32, Float32,
+                                               Float32, Float32, TwoFloats): TwoFloats,
+                                  value: TwoFloats): TwoFloats
+    Function vm_after_floats_pointer(): Callback(Float32, Float32, Float32, Float32, Float32,
+                                                 Float32, Float32, Float32, TwoFloats): TwoFloats
+    Function vm_call_no_room(fn: Callback(Int64, Int64, Int64, Int64, Int64, Pair64, Int64): Pair64,
+                             value: Pair64): Pair64
+    Function vm_no_room_pointer(): Callback(Int64, Int64, Int64, Int64, Int64, Pair64,
+                                            Int64): Pair64
+    Function vm_call_sret(fn: Callback(Int64, Int64, Int64, Int64, Twelve): TwentyFour,
+                          value: Twelve): TwentyFour
+    Function vm_sret_pointer(): Callback(Int64, Int64, Int64, Int64, Twelve): TwentyFour
+    Function vm_call_narrow(fn: Callback(UInt8, Twelve, Int16, Bool): Three, value: Twelve): Three
+    Function vm_narrow_pointer(): Callback(UInt8, Twelve, Int16, Bool): Three
+    Function vm_call_hfa_late(fn: Callback(Float32, Float32, Float32, Float32, Float32, Float32,
+                                           Float32, Float32, FourFloats): FourFloats,
+                              value: FourFloats): FourFloats
+    Function vm_hfa_late_pointer(): Callback(Float32, Float32, Float32, Float32, Float32, Float32,
+                                             Float32, Float32, FourFloats): FourFloats
     Function vm_call_hued(fn: Callback(Hue, Twelve): Twelve, hue: Int32, value: Twelve): Twelve
 End Extern
 
@@ -139,6 +181,41 @@ Function JoinEither(first: Either, a: Int64, b: Int64, c: Int64, d: Int64, e: In
     Local made = Either()
     made.n = first.n + last.n + ((a + b + c + d + e + f) As Int32)
     Return made
+End Function
+
+Function JoinDoubleInt(first: DoubleInt, a: Int64, b: Int64, c: Int64, d: Int64, e: Int64,
+                       f: Int64, last: DoubleInt): DoubleInt
+    Return DoubleInt(first.d + last.d + ((a + b + c + d + e + f) As Float64), first.i + last.i)
+End Function
+
+Function JoinIntDouble(first: IntDouble, a: Int64, b: Int64, c: Int64, d: Int64, e: Int64,
+                       f: Int64, last: IntDouble): IntDouble
+    Return IntDouble(first.i + last.i + ((a + b + c + d + e + f) As Int32), first.d + last.d)
+End Function
+
+// Where registers run out: each gives its Struct with the numbers before it added to its first
+// Field, as C's does.
+Function AfterFloats(a: Float32, b: Float32, c: Float32, d: Float32, e: Float32, f: Float32,
+                     g: Float32, h: Float32, value: TwoFloats): TwoFloats
+    Return TwoFloats(value.x + a + b + c + d + e + f + g + h, value.y)
+End Function
+
+Function NoRoom(a: Int64, b: Int64, c: Int64, d: Int64, e: Int64, value: Pair64,
+                f: Int64): Pair64
+    Return Pair64(value.a + a + b + c + d + e, value.b + f)
+End Function
+
+Function InMemory(a: Int64, b: Int64, c: Int64, d: Int64, value: Twelve): TwentyFour
+    Return TwentyFour(a + b + c + d + value.a, value.b, value.c)
+End Function
+
+Function Narrow(a: UInt8, value: Twelve, b: Int16, c: Bool): Three
+    Return Three(a, ((value.a + (c ? 1 : 0)) As UInt8), ((b + 400) As UInt8))
+End Function
+
+Function HfaLate(a: Float32, b: Float32, c: Float32, d: Float32, e: Float32, f: Float32,
+                 g: Float32, h: Float32, value: FourFloats): FourFloats
+    Return FourFloats(value.x, value.y, value.z, value.w + a + b + c + d + e + f + g + h)
 End Function
 
 // A closed Enum beside a Struct in registers.
@@ -189,6 +266,38 @@ Unsafe
     Local either = vm_call_either(JoinEither, nine)
     Local eitherC = vm_either_pointer()(nine, 1, 2, 3, 4, 5, 6, eighteen)
     Print("union:", either.n, "/", eitherC.n)
+
+    Local di = vm_call_double_int(JoinDoubleInt, DoubleInt(1.5, 10))
+    Local diC = vm_double_int_pointer()(DoubleInt(1.5, 10), 1, 2, 3, 4, 5, 6, DoubleInt(3.0, 20))
+    Print("double and int:", di.d, di.i, "/", diC.d, diC.i)
+
+    Local id = vm_call_int_double(JoinIntDouble, IntDouble(10, 1.5))
+    Local idC = vm_int_double_pointer()(IntDouble(10, 1.5), 1, 2, 3, 4, 5, 6, IntDouble(20, 3.0))
+    Print("int and double:", id.i, id.d, "/", idC.i, idC.d)
+
+    Local floats = vm_call_after_floats(AfterFloats, TwoFloats(1.5, 2.5))
+    Local floatsC =
+        vm_after_floats_pointer()(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, TwoFloats(1.5, 2.5))
+    Print("after eight floats:", floats.x, floats.y, "/", floatsC.x, floatsC.y)
+
+    Local roomless = vm_call_no_room(NoRoom, Pair64(100, 200))
+    Local roomlessC = vm_no_room_pointer()(1, 2, 3, 4, 5, Pair64(100, 200), 6)
+    Print("no room left:", roomless.a, roomless.b, "/", roomlessC.a, roomlessC.b)
+
+    Local memory = vm_call_sret(InMemory, Twelve(100, 200, 300))
+    Local memoryC = vm_sret_pointer()(1, 2, 3, 4, Twelve(100, 200, 300))
+    Print("in memory after four:", memory.a, memory.b, memory.c, "/", memoryC.a, memoryC.b,
+          memoryC.c)
+
+    Local narrow = vm_call_narrow(Narrow, Twelve(7, 0, 0))
+    Local narrowC = vm_narrow_pointer()(200, Twelve(7, 0, 0), -300, True)
+    Print("narrow beside:", narrow.a, narrow.b, narrow.c, "/", narrowC.a, narrowC.b, narrowC.c)
+
+    Local late = vm_call_hfa_late(HfaLate, FourFloats(1.0, 2.0, 3.0, 4.0))
+    Local lateC = vm_hfa_late_pointer()(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0,
+                                        FourFloats(1.0, 2.0, 3.0, 4.0))
+    Print("four floats after eight:", late.x, late.y, late.z, late.w, "/", lateC.x, lateC.y,
+          lateC.z, lateC.w)
 
     Local hued = vm_call_hued(Hued, 2, Twelve(1, 2, 3))
     Print("a hue beside:", hued.a, hued.b, hued.c)

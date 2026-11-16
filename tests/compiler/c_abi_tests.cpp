@@ -588,7 +588,10 @@ TEST_CASE("a Callback's Structs go as the target's C ABI has them, both ways", "
     // C's Function gets each as clang's C function does, and a call through a Callback passes
     // each as clang's call through a pointer does, on each target. SysV's Text is two i64s where
     // clang has a ptr and an i64, and AArch64's Vec3 is [3 x float] where clang gives a Struct
-    // of three floats and takes an alignstack(8) array: the same registers.
+    // of three floats and takes an alignstack(8) array: the same registers. Each string was
+    // checked against clang's own, from `clang --target=<triple> -O1 -S -emit-llvm` of the same
+    // shapes written as C, each Function as a C function and each call through a pointer, with
+    // clang's attributes that change no register (noundef, captures, dead_on_return) left out.
     for (const std::string_view triple :
          { "x86_64-unknown-linux-gnu", "x86_64-apple-macosx14.0.0" }) {
         CAPTURE(triple);

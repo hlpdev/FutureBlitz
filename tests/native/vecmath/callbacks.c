@@ -95,6 +95,30 @@ static vm_packed_pair join_packed_pair(vm_packed_pair first, int64_t sum, vm_pac
     return first;
 }
 
+static vm_double_int twice_double_int(vm_double_int v) {
+    v.d *= 2;
+    v.i *= 2;
+    return v;
+}
+
+static vm_double_int join_double_int(vm_double_int first, int64_t sum, vm_double_int last) {
+    first.d += last.d + (double)sum;
+    first.i += last.i;
+    return first;
+}
+
+static vm_int_double twice_int_double(vm_int_double v) {
+    v.i *= 2;
+    v.d *= 2;
+    return v;
+}
+
+static vm_int_double join_int_double(vm_int_double first, int64_t sum, vm_int_double last) {
+    first.i = (int32_t)(first.i + last.i + sum);
+    first.d += last.d;
+    return first;
+}
+
 static vm_either twice_either(vm_either v) {
     v.n *= 2;
     return v;
@@ -129,6 +153,80 @@ VM_CALLBACK(two_floats, vm_two_floats)
 VM_CALLBACK(four_floats, vm_four_floats)
 VM_CALLBACK(packed_pair, vm_packed_pair)
 VM_CALLBACK(either, vm_either)
+VM_CALLBACK(double_int, vm_double_int)
+VM_CALLBACK(int_double, vm_int_double)
+
+// The functions where registers run out: each gives its struct with the numbers before it added
+// to its first field.
+
+vm_two_floats vm_call_after_floats(vm_after_floats_fn fn, vm_two_floats value) {
+    return fn(1, 2, 3, 4, 5, 6, 7, 8, value);
+}
+
+static vm_two_floats own_after_floats(float a, float b, float c, float d, float e, float f, float g,
+                                      float h, vm_two_floats value) {
+    value.x += a + b + c + d + e + f + g + h;
+    return value;
+}
+
+vm_after_floats_fn vm_after_floats_pointer(void) {
+    return own_after_floats;
+}
+
+vm_pair64 vm_call_no_room(vm_no_room_fn fn, vm_pair64 value) {
+    return fn(1, 2, 3, 4, 5, value, 6);
+}
+
+static vm_pair64 own_no_room(int64_t a, int64_t b, int64_t c, int64_t d, int64_t e, vm_pair64 value,
+                             int64_t f) {
+    value.a += a + b + c + d + e;
+    value.b += f;
+    return value;
+}
+
+vm_no_room_fn vm_no_room_pointer(void) {
+    return own_no_room;
+}
+
+vm_twenty_four vm_call_sret(vm_sret_fn fn, vm_twelve value) {
+    return fn(1, 2, 3, 4, value);
+}
+
+static vm_twenty_four own_sret(int64_t a, int64_t b, int64_t c, int64_t d, vm_twelve value) {
+    const vm_twenty_four made = { a + b + c + d + value.a, value.b, value.c };
+    return made;
+}
+
+vm_sret_fn vm_sret_pointer(void) {
+    return own_sret;
+}
+
+vm_three vm_call_narrow(vm_narrow_fn fn, vm_twelve value) {
+    return fn(200, value, -300, true);
+}
+
+static vm_three own_narrow(uint8_t a, vm_twelve value, int16_t b, bool c) {
+    const vm_three made = { a, (uint8_t)(value.a + (c ? 1 : 0)), (uint8_t)(b + 400) };
+    return made;
+}
+
+vm_narrow_fn vm_narrow_pointer(void) {
+    return own_narrow;
+}
+
+vm_four_floats vm_call_hfa_late(vm_hfa_late_fn fn, vm_four_floats value) {
+    return fn(1, 2, 3, 4, 5, 6, 7, 8, value);
+}
+
+static vm_four_floats own_hfa_late(float a, float b, float c, float d, float e, float f, float g,
+                                   float h, vm_four_floats value) {
+    value.w += a + b + c + d + e + f + g + h;
+    return value;
+}
+
+vm_hfa_late_fn vm_hfa_late_pointer(void) {
+    return own_hfa_late;
+}
 
 vm_twelve vm_call_hued(vm_hued_fn fn, int32_t hue, vm_twelve value) {
     return fn((vm_hue)hue, value);
