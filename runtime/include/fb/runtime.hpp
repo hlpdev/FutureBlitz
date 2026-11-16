@@ -815,6 +815,11 @@ void fb_io_net_send_async(fb_task_t* task, void* handle, const std::uint8_t* fro
 /// Waits for a UDP socket to have a datagram, which fb_io_net_received takes.
 std::int32_t fb_io_net_receive(void* handle, std::int64_t timeout);
 void fb_io_net_receive_async(fb_task_t* task, void* handle, std::int64_t timeout);
+/// Waits for any of the sockets `handles`, a Ptr<Void>[], to have what a wait on it alone waits
+/// for: gives 0 once one does, to look again, or UV_ETIMEDOUT after `timeout` nanoseconds,
+/// unless it's negative.
+std::int32_t fb_io_net_wait_any(const fb_array_t* handles, std::int64_t timeout);
+void fb_io_net_wait_any_async(fb_task_t* task, const fb_array_t* handles, std::int64_t timeout);
 /// Takes a UDP socket's next datagram into `bytes`, a UInt8[], and where it came from into
 /// `from`: gives 1, or 0 when there's none.
 std::int32_t fb_io_net_received(void* handle, fb_array_t* bytes, fb_array_t* from);

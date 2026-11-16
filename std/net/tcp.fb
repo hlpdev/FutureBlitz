@@ -32,7 +32,7 @@ Const BACKLOG = 511
 /// stream.Close()
 /// ```
 Public Class TcpStream Implements Reader, Writer
-    ReadOnly Field Socket: StreamSocket
+    Package ReadOnly Field Socket: StreamSocket
 
     New(socket: StreamSocket)
         Socket = socket
@@ -185,7 +185,7 @@ End Class
 /// End Loop
 /// ```
 Public Class TcpListener
-    ReadOnly Field Socket: ListenerSocket
+    Package ReadOnly Field Socket: ListenerSocket
 
     New(socket: ListenerSocket)
         Socket = socket

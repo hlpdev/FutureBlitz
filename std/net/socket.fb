@@ -22,6 +22,8 @@ Package Extern "runtime"
     Function fb_io_net_listen(socket: Ptr<Void>, address: UInt8[], backlog: Int32): Int32
     Function fb_io_net_listen_pipe(socket: Ptr<Void>, name: String, backlog: Int32): Int32
     Function fb_io_net_accept(socket: Ptr<Void>, timeout: Int64): Int32
+    Function fb_io_net_wait_any(sockets: Ptr<Void>[], timeout: Int64): Int32
+    Function fb_io_net_wait_any_async(sockets: Ptr<Void>[], timeout: Int64): Task<Int32>
     Function fb_io_net_accept_async(socket: Ptr<Void>, timeout: Int64): Task<Int32>
     Function fb_io_net_accepted(socket: Ptr<Void>): Ptr<Void>
     Function fb_io_net_read(socket: Ptr<Void>, into: Ptr<UInt8>, count: Int64,

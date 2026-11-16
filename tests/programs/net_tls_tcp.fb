@@ -1,15 +1,18 @@
 // std.net.tls over TCP, through the test certificates net_tls/make_certificates.sh made: a
 // TlsListener on a Thread of its own answers a blocking client, then one on the main thread
-// answers Async clients, the first of which refuses its certificate, and goes on to the next;
-// a client that connects and says nothing holds Accept and AcceptAsync only until their timeout;
-// a server that closes at once ends the handshake with a NetError of CLOSED, and one that never
-// answers with a TimeoutError, when the TcpStream's ReadTimeout passes. Nothing leaves the
-// machine, and the ports are the OS's to pick.
+// answers Async clients, the first of which refuses its certificate, which the listener drops,
+// going on to the next; a client that connects and says nothing holds Accept and AcceptAsync
+// only until their timeout; a server that closes at once ends the handshake with a NetError of
+// CLOSED, and one that never answers with a TimeoutError, when the TcpStream's ReadTimeout
+// passes; and a listener's handshakes go on between Accept(0)s, which give a client that
+// finished meanwhile and drop a silent one at the HandshakeLimit. Nothing leaves the machine, and
+// the ports are the OS's to pick.
 Import std.core
 Import std.crypto
 Import std.ffi
 Import std.io
 Import std.net
+Import std.text
 Import std.time
 Import "./net_tls_tcp/certificates"
 
@@ -58,16 +61,19 @@ End Try
 
 answering.Join()
 
-// Async, on the main thread: the listener answers each client as it comes.
-Async Function Answer(listener: TlsListener): String
+// Async, on the main thread: the listener answers each client as it comes, waiting up to
+// `timeout` for one whose handshake is done.
+Async Function Answer(listener: TlsListener, timeout: Duration? = Null): String
     Try
-        Local tls = Try Await listener.AcceptAsync()
+        Local tls = Try Await listener.AcceptAsync(timeout)
         Local line = Try Await BufferedReader(tls).ReadLineAsync() ?? "-"
         Try Await tls.WriteAsync(Buffer<UInt8>.From("you said {line}\n".Bytes))
         Try Await tls.CloseAsync()
         Return "answered {line}"
     Catch e As NetError
         Return "the listener: NetError {e.Kind}"
+    Catch e As TimeoutError
+        Return "the listener: TimeoutError"
     Catch e As Error
         Return "the listener failed: {e.Message}"
     End Try
@@ -89,8 +95,9 @@ End Function
 Try
     Local listener = TlsListener.Listen(SocketAddress(IpAddress.Loopback, 0), Server())
     Local port = listener.LocalAddress.Port
-    // A client that trusts only the OS's roots refuses the test certificate.
-    Local refused = Answer(listener)
+    // A client that trusts only the OS's roots refuses the test certificate, and the listener
+    // drops it, so there's no client for a second.
+    Local refused = Answer(listener, 1.Seconds)
     Print(Ask(TlsClient(), port).Wait())
     Print(refused.Wait())
     Local answered = Answer(listener)
@@ -174,3 +181,80 @@ Try
 Catch e As Error
     Print("failed: {e.Message}")
 End Try
+
+// A TlsListener's handshakes go on between its Accept calls, so Accept(0), polled, gives a client
+// whose handshake finished meanwhile; Accept(0) with no client returns at once; and a connection
+// that never says anything is dropped at the listener's HandshakeLimit, not held.
+Local polled = Try TlsListener.Listen("127.0.0.1", 0, TlsServer(Certificates(localhost_pem),
+                                                                (Try? Key.FromPem(
+                                                                    localhost_key)).Expect(
+                                                                        "the test's keys read")))
+Local pollPort = polled.LocalAddress.Port
+
+// No client: at once.
+Local pollStarted = Instant.Now()
+Try
+    Local _tls = Try polled.Accept(Duration.Zero())
+Catch e As TimeoutError
+    Print("Accept(0) with no client:", e.Message.Contains("took longer"),
+          Instant.Now() - pollStarted < 100.Milliseconds)
+End Try
+
+// A client on a Thread of its own handshakes while the main thread polls Accept(0); it gets the
+// port through a Channel.
+ports.Send(pollPort)
+Local polling = Thread.Start(Function()
+    Try
+        Local at = ports.Receive() ?? 0
+        Local trusting = TlsClient()
+        trusting.TrustOnly(Certificates(ca_pem))
+        Local tls = Try trusting.Connect(Try TcpStream.Connect("localhost", at), "localhost")
+        Try tls.WriteText("hello\n")
+        Try tls.Close()
+    Catch e As Error
+        Print("the client failed: {e.Message}")
+    End Try
+End Function)
+Local accepted: TlsStream<TcpStream>? = Null
+Local polls = 0
+pollStarted = Instant.Now()
+While accepted == Null && Instant.Now() - pollStarted < 5.Seconds
+    Try
+        accepted = Try polled.Accept(Duration.Zero())
+    Catch e As TimeoutError
+        polls += 1
+        Sleep(16.Milliseconds)
+    End Try
+End While
+
+polling.Join()
+Print("polled Accept(0) gave the client:", accepted != Null, polls > 0)
+If accepted != Null
+    Print("it said:", (Try BufferedReader(accepted).ReadLine()) ?? "-")
+End If
+
+// A connection that never handshakes is dropped at the limit, and its side sees the end.
+polled.HandshakeLimit = 300.Milliseconds
+Local dropped = Try TcpStream.Connect(SocketAddress(IpAddress.Loopback, pollPort))
+pollStarted = Instant.Now()
+While Instant.Now() - pollStarted < 1.Seconds
+    Try
+        Local _tls = Try polled.Accept(Duration.Zero())
+        Print("a silent client was given")
+    Catch e As TimeoutError
+        Sleep(16.Milliseconds)
+    End Try
+End While
+
+dropped.ReadTimeout = 2.Seconds
+Local silentBuffer = Buffer<UInt8>(16)
+Local ended = False
+Try
+    ended = (Try dropped.Read(silentBuffer)) == 0
+Catch e As IOError
+    ended = True
+End Try
+
+Print("the silent one was dropped:", ended)
+dropped.Close()
+polled.Close()
