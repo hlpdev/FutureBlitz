@@ -1841,7 +1841,8 @@ TEST_CASE("fb run's program ends when fb does, however fb ends, and its folder g
 #ifndef _WIN32
 /// How many processes have `text` in their command line, fb's and its forks' by its source's path.
 int processes_with(const std::string& text) {
-    const std::vector<std::string> arguments{ "-A", "-o", "args=" };
+    // However wide the terminal says it is, as ps cuts each line to COLUMNS otherwise.
+    const std::vector<std::string> arguments{ "-A", "-ww", "-o", "args=" };
     const std::expected<fb::process_result_t, std::string> listed =
         fb::run_process("/bin/ps", arguments);
     REQUIRE(listed);
@@ -1934,10 +1935,14 @@ TEST_CASE("fb run's program doesn't run on when fb is killed as it starts", "[cl
                                  started.generic_string(), marker.generic_string()));
     const std::string source_path = fb::to_utf8(source);
     const environment_variable_t delay("FB_TEST_TIE_DELAY", "3000");
+    // A terminal narrower than the source's path, which processes_with still finds.
+    const environment_variable_t columns("COLUMNS", "40");
     {
-        // Killed as soon as the program says it's up, which it isn't until it's tied.
+        // Killed as soon as the program says it's up, which it isn't until it's tied. Then fb
+        // and its watcher are there to see, so the checks that nothing's left can fail.
         running_fb_t running({ "run", source_path });
         REQUIRE(appears(started));
+        CHECK(processes_with(source_path) == 2);
         running.send(SIGKILL);
         (void)running.wait();
         std::this_thread::sleep_for(std::chrono::milliseconds(2500));
