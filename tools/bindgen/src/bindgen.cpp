@@ -1396,10 +1396,7 @@ private:
         for (int i = 0; i < count; ++i) {
             const CXType written = clang_getArgType(function, static_cast<unsigned>(i));
             const CXType parameter = clang_getCanonicalType(written);
-            if (parameter.kind == CXType_Record) {
-                return std::unexpected("a callback that takes a struct by value");
-            }
-
+            // A struct or union by value is its binding, as an Extern Function's is.
             const mapped_t mapped = map_parameter(written, parameter);
             if (!mapped) {
                 return std::unexpected(std::format("a callback that takes {}", mapped.error()));
@@ -1416,10 +1413,6 @@ private:
         text += ')';
         const CXType written = clang_getResultType(function);
         const CXType result = clang_getCanonicalType(written);
-        if (result.kind == CXType_Record) {
-            return std::unexpected("a callback that gives a struct by value");
-        }
-
         if (result.kind != CXType_Void) {
             const mapped_t mapped = map_type(written);
             if (!mapped) {
