@@ -1300,13 +1300,16 @@ checks, so neither what the last check answers nor it waits behind them. Whateve
 request, a whole package's checks or a file that isn't open, does so on a thread of its own; every
 request a worker has gets 30 seconds from when it came, then it's answered RequestFailed, whether
 what it needs is still compiling or not, and that compile goes on, with no limit, for whoever asks
-next. shutdown first waits for every check the client's messages started, the code's and the
-project files', to finish and publish, up to a request's 30 seconds, as a client may send shutdown
-and exit right behind an open; then 3 seconds for the requests before it, which those checks were
-what they waited for. exit, or stdin closing, ends the process once the message thread gets to it,
-or once one message has held that thread for 6 seconds, longer than shutdown waits for its
-requests, though not while shutdown waits for the checks, which its own limit ends; without a
-shutdown before it, what's waiting is dropped, as such a client wants no answers to it. As it ends, what's been sent is written for as long as the client's reading
+next. shutdown first waits for the checks the documents' opens and changes started, the code's
+and the project files', to finish and publish, for 5 seconds at most, as a client may send shutdown
+and exit right behind an open; not for what imports them, the folders, or a request's own check,
+which can take minutes. Then it waits 3 seconds for the requests before it, which those checks were
+what they waited for, and fails those still waiting, so it's answered in 8 seconds whatever's
+running. exit, or stdin closing, ends the process once the message thread gets to it, or once one
+message has held that thread for 6 seconds, longer than shutdown waits for its requests, counted
+for shutdown from the end of its wait for the checks, which its own limit ends; without a shutdown
+before it,
+what's waiting is dropped, as such a client wants no answers to it. As it ends, what's been sent is written for as long as the client's reading
 it, and for 5 seconds past the last byte it took, not 5 seconds in all, which cut a long answer
 short on a busy machine, and every answer behind it, though the client was reading
 (`outbox_t::flush`, by `fd_buffer_t::written`). The tests set the 6 seconds themselves, with

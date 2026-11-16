@@ -221,8 +221,10 @@ public:
     /// Waits until no check waits or runs, as the tests do before they look.
     void settle();
 
-    /// The same, until `until` at the latest: whether every check's done.
-    bool settle(std::chrono::steady_clock::time_point until);
+    /// Waits until the checks the documents' opens and changes started are done and published,
+    /// until `until` at the latest, as shutdown does: whether they are. Not what imports them, the
+    /// folders, the files changed on disk, or a request's own, which can take minutes.
+    bool settle_documents(std::chrono::steady_clock::time_point until);
 
     [[nodiscard]] std::vector<check_record_t> history() const;
 
@@ -282,6 +284,8 @@ private:
     /// Counts the edits, so a check knows which texts it read.
     std::uint64_t m_generation = 0;
     std::size_t m_running = 0;
+    /// Whether a document's own check is running, which settle_documents() waits for.
+    bool m_checking_document = false;
     bool m_stopping = false;
     std::vector<check_record_t> m_history;
     /// What std's modules declare, which every check needs, and only the first works out.

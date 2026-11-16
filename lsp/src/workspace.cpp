@@ -1033,12 +1033,10 @@ void workspace_t::settle() {
     });
 }
 
-bool workspace_t::settle(const std::chrono::steady_clock::time_point until) {
+bool workspace_t::settle_documents(const std::chrono::steady_clock::time_point until) {
     std::unique_lock lock(m_mutex);
-    return m_done.wait_until(lock, until, [this] {
-        return m_stopping || (m_edited.empty() && m_dependents.empty() && m_alone.empty() &&
-                              m_loads.empty() && m_running == 0);
-    });
+    return m_done.wait_until(
+        lock, until, [this] { return m_stopping || (m_edited.empty() && !m_checking_document); });
 }
 
 std::vector<check_record_t> workspace_t::history() const {
@@ -1082,7 +1080,9 @@ void workspace_t::run_foreground() {
         const std::string key = next->first;
         m_edited.erase(next);
         const std::filesystem::path path = m_paths.at(key);
+        m_checking_document = true;
         static_cast<void>(run_job(lock, job_for(path)));
+        m_checking_document = false;
         // Then what imports it, once the edits stop.
         m_dependents[key] = steady_t::now() + m_options.dependents_delay;
         m_work.notify_all();

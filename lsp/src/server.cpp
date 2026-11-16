@@ -41,6 +41,10 @@ namespace {
 /// until the client says exit: the client's waiting for it, and it for them.
 constexpr std::chrono::seconds shutdown_wait(3);
 
+/// How long shutdown waits before that for the documents' checks to publish, as a client may send
+/// exit right behind an open: so shutdown's answered in 8 seconds, though a check takes minutes.
+constexpr std::chrono::seconds settle_wait(5);
+
 /// What a request is about changed since the client asked it, so it's the client's to ask again.
 class content_modified_t : public std::runtime_error {
 public:
@@ -579,6 +583,14 @@ void server_t::answer_request(const json_t& id, const std::string& method, const
     }
 }
 
+bool server_t::settled_within(const std::chrono::milliseconds time) const {
+    using duration_t = std::chrono::steady_clock::duration;
+    const std::chrono::steady_clock::rep settled = m_settled.load();
+    return settled != duration_t::min().count() &&
+           (settled == duration_t::max().count() ||
+            std::chrono::steady_clock::now().time_since_epoch() - duration_t(settled) < time);
+}
+
 std::optional<json_t> server_t::answer(const std::string& method, const json_t& params) {
     if (std::optional<json_t> manifest =
             m_initialized ? m_toml->answer(method, params) : std::nullopt) {
@@ -589,17 +601,17 @@ std::optional<json_t> server_t::answer(const std::string& method, const json_t& 
         return initialize(params);
     }
 
-    // Every check the client's messages started publishes first, as a client may send exit right
-    // behind it, up to as long as a request waits; then the requests before it are answered,
-    // those the workers have too, which those checks were what they waited for.
+    // The documents' checks publish first, as a client may send exit right behind it, for 5
+    // seconds at most; then the requests before it are answered, those the workers have too,
+    // which those checks were what they waited for. A request's own check isn't waited for.
     if (method == "shutdown") {
-        m_settling = true;
-        const auto checked = std::chrono::steady_clock::now() + m_request_deadline;
-        if (m_workspace->settle(checked)) {
+        m_settled = std::chrono::steady_clock::duration::max().count();
+        const auto checked = std::chrono::steady_clock::now() + settle_wait;
+        if (m_workspace->settle_documents(checked)) {
             static_cast<void>(m_toml->settle(checked));
         }
 
-        m_settling = false;
+        m_settled = std::chrono::steady_clock::now().time_since_epoch().count();
         const auto until = std::chrono::steady_clock::now() + shutdown_wait;
         m_quick.wait_idle(until);
         m_moved.wait_idle(until);

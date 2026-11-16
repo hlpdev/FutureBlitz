@@ -68,11 +68,10 @@ public:
         return m_exit;
     }
 
-    /// Whether shutdown is waiting for the checks the client's messages started, which holds the
-    /// message thread as long as they take, up to a request's deadline, and no longer.
-    [[nodiscard]] bool settling() const {
-        return m_settling.load();
-    }
+    /// Whether shutdown is waiting for the documents' checks to publish, up to 5 seconds, or
+    /// stopped waiting in the last `time`: how long shutdown holds the message thread counts from
+    /// then, as that wait has its own limit.
+    [[nodiscard]] bool settled_within(std::chrono::milliseconds time) const;
 
     [[nodiscard]] workspace_t& workspace() {
         return *m_workspace;
@@ -89,7 +88,11 @@ private:
     positions_t m_positions;
     bool m_initialized = false;
     bool m_shut_down = false;
-    std::atomic<bool> m_settling = false;
+    /// When shutdown stopped waiting for the documents' checks, since the clock's start: its
+    /// minimum before it's waited, its maximum while it waits.
+    std::atomic<std::chrono::steady_clock::rep> m_settled{
+        std::chrono::steady_clock::duration::min().count(),
+    };
     std::optional<int> m_exit;
     /// The client's initializationOptions.formatOnSave: whether a save formats the document.
     bool m_format_on_save = false;

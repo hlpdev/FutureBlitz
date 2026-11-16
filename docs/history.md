@@ -87,6 +87,21 @@ Packed `@CLayout` Structs and C unions, for the Steamworks SDK the game binds th
   watcher ends first", "a SIGTERM sent to fb run's program while it's held ends it", "fb run's
   ended program keeps its pid until its watcher is gone", and, on Linux, "fb run's watcher holds
   only its own pipes", and the tie-window test at COLUMNS=40; each failed on 47c24dea.
+- **fb-lsp's shutdown waited for a slow check** (CI on dev/land-1.4 8f046821, finding 40): the
+  fix for finding 38 had shutdown wait for every check, up to a request's 30 seconds, and with a
+  document whose check takes minutes, and a references request whose own check of the workspace
+  does too, shutdown wasn't answered in lsp_probe's 15 seconds, or its 30. It waits now only for
+  the documents' own checks, those their opens and changes started
+  (`workspace_t::settle_documents`), never for what imports them, the folders, or a request's
+  check, and for 5 seconds at most, so it's answered in 8 whatever's running; a request still
+  running then is as it was before 38. And the reader's 6-second backstop after exit counts from
+  the end of that wait (`server_t::settled_within`), not only while it waits, which had ended
+  fb-lsp a second into shutdown's 3 seconds for the requests, with its answer unsent.
+  Tests: lsp_probe's `test_shutdown_and_exit_end_it_with_a_check_running`, which failed on
+  b3da0a7a in 30 seconds with shutdown unanswered;
+  `test_shutdown_is_answered_though_exit_came_right_behind_it`, which failed with the limit alone,
+  the backstop as it was; and "fb-lsp answers what's piped behind an open whose check is slow",
+  still green.
 - **fb-lsp's piped shutdown lost the hover and the diagnostics** (macOS CI on 4b33c21c, finding
   38): a client that pipes initialize, an open, a hover, shutdown, and exit at once had the hover
   wait on a worker for the open's check, while shutdown waited only 3 seconds for the workers and
