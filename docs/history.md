@@ -127,7 +127,21 @@ Packed `@CLayout` Structs and C unions, for the Steamworks SDK the game binds th
   bytes, of two and of four floats, a packed one, and a union, first, after six integers, and
   as the result; c_abi's thunks and calls on five targets, each as clang's; sema's
   acceptance, and a plain Struct and a generic one's instance refused. On 24c8424e the package
-  didn't compile: 48 errors of "a Callback takes and gives what C can ... not Text".
+  didn't compile: 48 errors of "a Callback takes and gives what C can ... not Text". The review's
+  fixes (findings 32 to 36): a thunk with a closed Enum parameter and a Struct in registers was
+  invalid IR, as its allocas came after the Enum check's branch, and its blocks went into the
+  function being made when it was, so a thunk has an alloca block of its own and sets the next
+  block aside; each Enum in a Struct that crosses a Callback is checked both ways, a thunk's
+  parameter by codegen's `check_c_enums` and a Callback's result by lowering's
+  `check_enum_fields`, but not inside a `@CUnion`; fb-bindgen binds a callback that takes or
+  gives a struct by value, packed and unions too; a Callback's plain Struct in a `@CLayout`
+  Struct's Field is one error, which names `@CUnion` beside `@CLayout`; and the package goes
+  where registers run out, with mixed and narrow shapes. Tests: c_abi "a Callback's thunk with a
+  closed Enum beside its Structs is whole IR on each target", the packages
+  panic_enum_callback_struct and panic_enum_callback_struct_result, bindgen "a callback that
+  takes or gives a struct by value binds it, packed and unions too", and callback_structs'
+  new shapes; each failed on 1349d3ff but the package's Windows run, where Win64 passes its
+  Struct by pointer.
 
 ## 1.3.5
 
