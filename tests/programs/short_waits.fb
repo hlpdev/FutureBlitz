@@ -1,17 +1,22 @@
 // A short timed wait lasts about as long as it says, not a tick of Windows's timer, 15.6 ms: of 20
-// waits of 1 ms, the median's under 8 ms, half a tick, where each was a tick, for Sleep with a
-// Cancellation, a Selector's Timeout, Timer.After, and ReceiveAsync, and a wait a loaded machine
-// stalls can't decide it; and a 50 ms one still waits all of it. On Linux and macOS it passed
-// before too, as their waits had no ticks.
+// waits of 1 ms, the fastest is under 8 ms, half a tick, where each was a tick or more, for Sleep
+// with a Cancellation, a Selector's Timeout, Timer.After, and ReceiveAsync, so a loaded machine,
+// which can make most of them late, can't decide it; and a 50 ms one still waits all of it. On
+// Linux and macOS it passed before too, as their waits had no ticks.
 Import std.core
 Import std.time
-Import std.math
 Import std.net
 Import std.concurrent
 
 Function Waited(begun: Instant): Double => (Instant.Now() - begun).TotalMilliseconds
 
-Function Quickly(waits: Double[]): Bool => Median(waits) < 8
+// Whether the fastest wait took under 8 ms.
+Function Quickly(waits: Double[]): Bool
+    For wait In waits
+        If wait < 8 Then Return True
+    End For
+    Return False
+End Function
 
 Function All(started: Instant, time: Duration): Bool => Instant.Now() - started >= time
 

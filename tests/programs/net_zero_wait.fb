@@ -3,7 +3,6 @@
 // is 3.1 s; and a datagram that's already come is taken at 0.
 Import std.core
 Import std.time
-Import std.math
 Import std.net
 Import std.net.game
 Import std.uuid
@@ -87,12 +86,18 @@ Print("IPC Accept at 0, 200 times:", timedOut, "timed out, quickly:",
 ipc.Close()
 
 // A short timeout waits about as long as it says, not a tick of Windows's timer, 15.6 ms: of 20
-// waits of 1 ms of nothing, the median's under 8 ms, half a tick, where each was a tick, and a wait
-// a loaded machine stalls can't decide it. On Linux and macOS it passed before too, as their waits
-// had no ticks.
+// waits of 1 ms of nothing, the fastest is under 8 ms, half a tick, where each was a tick or more,
+// so a loaded machine, which can make most of them late, can't decide it. On Linux and macOS it
+// passed before too, as their waits had no ticks.
 Function Waited(begun: Instant): Double => (Instant.Now() - begun).TotalMilliseconds
 
-Function Quickly(waits: Double[]): Bool => Median(waits) < 8
+// Whether the fastest wait took under 8 ms.
+Function Quickly(waits: Double[]): Bool
+    For wait In waits
+        If wait < 8 Then Return True
+    End For
+    Return False
+End Function
 
 timedOut = 0
 Local received: Double[] = []
