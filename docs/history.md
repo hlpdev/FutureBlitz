@@ -113,6 +113,21 @@ Packed `@CLayout` Structs and C unions, for the Steamworks SDK the game binds th
   100 ms, which a loaded runner's stalls exceeded; net_zero_wait and short_waits now time each wait
   and want the median under 8 ms, half a Windows tick, so a stalled wait can't decide it, and with
   the high-resolution timers off by hand, every 1 ms line still printed False on Windows.
+- **A Callback takes and gives `@CLayout` Structs and `@CUnion`s by value** (scpcb-x, 2026-11-15,
+  for Discord's join callback, `void (*)(Discord_String, void*)` with a pointer and a size_t by
+  value): sema's `callback_of` takes a Struct, which is checked as an Extern's is once Fields are
+  declared (`check_pending_c_structs`), and codegen gives a Callback the C type an Extern of its
+  shape has (`c_shape_t`, `c_struct_function_type`, `add_c_attributes`). Its thunk takes each
+  Struct as C's function does, from its pieces or through a pointer to a copy (`struct_from_c`),
+  and gives the result back in registers (`struct_to_c`) or in the caller's memory; a call
+  through a Callback passes each as clang's call of a function pointer does
+  (`call_callback_structs`, with `pass_to_c` and `from_c`, which the Extern call uses too). Tests:
+  tests/packages/callback_structs against tests/native/vecmath/callbacks.c, C calling an fb
+  Function and fb calling C's pointer with Discord's `{ ptr, size_t }`, Structs of 3, 12, and 24
+  bytes, of two and of four floats, a packed one, and a union, first, after six integers, and
+  as the result; c_abi's thunks and calls on five targets, each as clang's; sema's
+  acceptance, and a plain Struct and a generic one's instance refused. On 24c8424e the package
+  didn't compile: 48 errors of "a Callback takes and gives what C can ... not Text".
 
 ## 1.3.5
 

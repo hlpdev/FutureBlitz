@@ -16566,7 +16566,7 @@ TEST_CASE("a Callback is a Function of exactly its types, or a lambda that captu
                     "Print(\"{i(2)}\")\n") ==
           errors_t{
               std::string("String: a Callback takes and gives what C can: numbers, Bools, Enums, "
-                          "CStrings, Ptrs, and Callbacks, and a Struct through a Ptr, not String"),
+                          "CStrings, Ptrs, Callbacks, and @CLayout Structs, not String"),
               std::string("Callback(Int32)?: Callback(Int32) can be Null already, as C's NULL"),
               std::string("i: calling a Callback needs Unsafe code: an Unsafe block, Function, or "
                           "Method"),
@@ -16588,6 +16588,46 @@ TEST_CASE("a Callback is a Function of exactly its types, or a lambda that captu
               std::string("cb: Callback(Int32) is C's pointer, not a T?, so '\?\?' doesn't take "
                           "it; compare it with Null instead"),
               "cb: Callback(Int32) can't be shown in a string",
+          });
+}
+
+TEST_CASE("a Callback takes and gives a @CLayout Struct or a @CUnion by value", "[sema]") {
+    // As C's function pointer does, both ways, a Struct declared further down too.
+    CHECK(errors_of("@CLayout Struct Text\n"
+                    "    Field bytes: Ptr<UInt8>\n"
+                    "    Field size: UInt64\n"
+                    "End Struct\n"
+                    "Function Joined(secret: Text, data: Ptr<Void>)\n"
+                    "End Function\n"
+                    "Function Mirror(p: Packed, u: Either): Packed => p\n"
+                    "Local joined: Callback(Text, Ptr<Void>) = Joined\n"
+                    "Local mirror: Callback(Packed, Either): Packed = Mirror\n"
+                    "Unsafe\n"
+                    "    Local back = mirror(Packed(), Either())\n"
+                    "End Unsafe\n"
+                    "@CLayout(Pack: 1) Struct Packed\n"
+                    "    Field a: UInt8\n"
+                    "    Field b: Int32\n"
+                    "End Struct\n"
+                    "@CUnion Struct Either\n"
+                    "    Field n: Int32\n"
+                    "    Field f: Float32\n"
+                    "End Struct\n")
+              .empty());
+    // A Struct C sees is @CLayout, and not a generic one's instance, as an Extern's is.
+    CHECK(errors_of("Struct Plain\n"
+                    "    Field n: Int32\n"
+                    "End Struct\n"
+                    "Struct Pair<T>\n"
+                    "    Field a: T\n"
+                    "End Struct\n"
+                    "Local a: Callback(Plain) = Null\n"
+                    "Local b: Callback(): Pair<Int32> = Null\n") ==
+          errors_t{
+              std::string("Plain: C code sees Plain here, so it has to be @CLayout, which lays it "
+                          "out as C does"),
+              std::string("Pair<Int32>: C code sees Pair<Int32> here, a generic Struct's instance, "
+                          "which can't be @CLayout; declare a @CLayout Struct of the types C has"),
           });
 }
 

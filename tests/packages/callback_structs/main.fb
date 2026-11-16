@@ -1,0 +1,181 @@
+// Structs and unions by value through Callbacks, against the C that
+// tests/native/vecmath/callbacks.c compiles: C calls an fb Function it's given, and fb calls a
+// C function's pointer. Each takes the Struct first, six integers, so the Struct after them goes
+// on the stack where the registers run out, and the Struct doubled, and gives one back: its
+// first Field the two's sum plus the integers', each other Field the two's sum. Both ways give
+// the same.
+
+Import std.core
+
+// Discord's string: a pointer and a size_t.
+@CLayout Struct Text
+    Field bytes: Ptr<UInt8>
+    Field size: UInt64
+End Struct
+
+@CLayout Struct Three
+    Field a: UInt8
+    Field b: UInt8
+    Field c: UInt8
+End Struct
+
+@CLayout Struct Twelve
+    Field a: Int32
+    Field b: Int32
+    Field c: Int32
+End Struct
+
+@CLayout Struct TwentyFour
+    Field a: Int64
+    Field b: Int64
+    Field c: Int64
+End Struct
+
+@CLayout Struct TwoFloats
+    Field x: Float32
+    Field y: Float32
+End Struct
+
+@CLayout Struct FourFloats
+    Field x: Float32
+    Field y: Float32
+    Field z: Float32
+    Field w: Float32
+End Struct
+
+@CLayout(Pack: 4) Struct PackedPair
+    Field a: Int32
+    Field b: Int64
+End Struct
+
+@CUnion Struct Either
+    Field n: Int32
+    Field f: Float32
+End Struct
+
+Extern "C"
+    Function vm_call_text(fn: Callback(Text, Int64, Int64, Int64, Int64, Int64, Int64, Text): Text,
+                          value: Text): Text
+    Function vm_text_pointer(): Callback(Text, Int64, Int64, Int64, Int64, Int64, Int64, Text): Text
+    Function vm_call_three(fn: Callback(Three, Int64, Int64, Int64, Int64, Int64, Int64,
+                                        Three): Three, value: Three): Three
+    Function vm_three_pointer(): Callback(Three, Int64, Int64, Int64, Int64, Int64, Int64,
+                                          Three): Three
+    Function vm_call_twelve(fn: Callback(Twelve, Int64, Int64, Int64, Int64, Int64, Int64,
+                                         Twelve): Twelve, value: Twelve): Twelve
+    Function vm_twelve_pointer(): Callback(Twelve, Int64, Int64, Int64, Int64, Int64, Int64,
+                                           Twelve): Twelve
+    Function vm_call_twenty_four(fn: Callback(TwentyFour, Int64, Int64, Int64, Int64, Int64, Int64,
+                                              TwentyFour): TwentyFour,
+                                 value: TwentyFour): TwentyFour
+    Function vm_twenty_four_pointer(): Callback(TwentyFour, Int64, Int64, Int64, Int64, Int64,
+                                                Int64, TwentyFour): TwentyFour
+    Function vm_call_two_floats(fn: Callback(TwoFloats, Int64, Int64, Int64, Int64, Int64, Int64,
+                                             TwoFloats): TwoFloats, value: TwoFloats): TwoFloats
+    Function vm_two_floats_pointer(): Callback(TwoFloats, Int64, Int64, Int64, Int64, Int64, Int64,
+                                               TwoFloats): TwoFloats
+    Function vm_call_four_floats(fn: Callback(FourFloats, Int64, Int64, Int64, Int64, Int64, Int64,
+                                              FourFloats): FourFloats,
+                                 value: FourFloats): FourFloats
+    Function vm_four_floats_pointer(): Callback(FourFloats, Int64, Int64, Int64, Int64, Int64,
+                                                Int64, FourFloats): FourFloats
+    Function vm_call_packed_pair(fn: Callback(PackedPair, Int64, Int64, Int64, Int64, Int64, Int64,
+                                              PackedPair): PackedPair,
+                                 value: PackedPair): PackedPair
+    Function vm_packed_pair_pointer(): Callback(PackedPair, Int64, Int64, Int64, Int64, Int64,
+                                                Int64, PackedPair): PackedPair
+    Function vm_call_either(fn: Callback(Either, Int64, Int64, Int64, Int64, Int64, Int64,
+                                         Either): Either, value: Either): Either
+    Function vm_either_pointer(): Callback(Either, Int64, Int64, Int64, Int64, Int64, Int64,
+                                           Either): Either
+End Extern
+
+Function JoinText(first: Text, a: Int64, b: Int64, c: Int64, d: Int64, e: Int64, f: Int64,
+                  last: Text): Text
+    Return Text(first.bytes, first.size + last.size + ((a + b + c + d + e + f) As UInt64))
+End Function
+
+Function JoinThree(first: Three, a: Int64, b: Int64, c: Int64, d: Int64, e: Int64, f: Int64,
+                   last: Three): Three
+    Return Three((first.a + last.a) + ((a + b + c + d + e + f) As UInt8), first.b + last.b,
+                 first.c + last.c)
+End Function
+
+Function JoinTwelve(first: Twelve, a: Int64, b: Int64, c: Int64, d: Int64, e: Int64, f: Int64,
+                    last: Twelve): Twelve
+    Return Twelve(first.a + last.a + ((a + b + c + d + e + f) As Int32), first.b + last.b,
+                  first.c + last.c)
+End Function
+
+Function JoinTwentyFour(first: TwentyFour, a: Int64, b: Int64, c: Int64, d: Int64, e: Int64,
+                        f: Int64, last: TwentyFour): TwentyFour
+    Return TwentyFour(first.a + last.a + a + b + c + d + e + f, first.b + last.b, first.c + last.c)
+End Function
+
+Function JoinTwoFloats(first: TwoFloats, a: Int64, b: Int64, c: Int64, d: Int64, e: Int64,
+                       f: Int64, last: TwoFloats): TwoFloats
+    Return TwoFloats(first.x + last.x + ((a + b + c + d + e + f) As Float32), first.y + last.y)
+End Function
+
+Function JoinFourFloats(first: FourFloats, a: Int64, b: Int64, c: Int64, d: Int64, e: Int64,
+                        f: Int64, last: FourFloats): FourFloats
+    Return FourFloats(first.x + last.x + ((a + b + c + d + e + f) As Float32), first.y + last.y,
+                      first.z + last.z, first.w + last.w)
+End Function
+
+Function JoinPackedPair(first: PackedPair, a: Int64, b: Int64, c: Int64, d: Int64, e: Int64,
+                        f: Int64, last: PackedPair): PackedPair
+    Return PackedPair(first.a + last.a + ((a + b + c + d + e + f) As Int32), first.b + last.b)
+End Function
+
+Function JoinEither(first: Either, a: Int64, b: Int64, c: Int64, d: Int64, e: Int64, f: Int64,
+                    last: Either): Either
+    Local made = Either()
+    made.n = first.n + last.n + ((a + b + c + d + e + f) As Int32)
+    Return made
+End Function
+
+Local byte: UInt8 = 7
+Unsafe
+    Local at = AddressOf(byte)
+    Local text = Text(at, 5)
+    Local fromC = vm_call_text(JoinText, text)
+    Local fromFb = vm_text_pointer()(text, 1, 2, 3, 4, 5, 6, Text(at, 10))
+    Print("text:", fromC.bytes == at, fromC.size, fromFb.bytes == at, fromFb.size)
+
+    Local three = vm_call_three(JoinThree, Three(10, 20, 30))
+    Local threeC = vm_three_pointer()(Three(10, 20, 30), 1, 2, 3, 4, 5, 6, Three(20, 40, 60))
+    Print("three:", three.a, three.b, three.c, "/", threeC.a, threeC.b, threeC.c)
+
+    Local twelve = vm_call_twelve(JoinTwelve, Twelve(100, 200, 300))
+    Local twelveC =
+        vm_twelve_pointer()(Twelve(100, 200, 300), 1, 2, 3, 4, 5, 6, Twelve(200, 400, 600))
+    Print("twelve:", twelve.a, twelve.b, twelve.c, "/", twelveC.a, twelveC.b, twelveC.c)
+
+    Local wide = vm_call_twenty_four(JoinTwentyFour, TwentyFour(1000, 2000, 3000))
+    Local wideC = vm_twenty_four_pointer()(TwentyFour(1000, 2000, 3000), 1, 2, 3, 4, 5, 6,
+                                           TwentyFour(2000, 4000, 6000))
+    Print("twenty-four:", wide.a, wide.b, wide.c, "/", wideC.a, wideC.b, wideC.c)
+
+    Local two = vm_call_two_floats(JoinTwoFloats, TwoFloats(1.5, 2.5))
+    Local twoC = vm_two_floats_pointer()(TwoFloats(1.5, 2.5), 1, 2, 3, 4, 5, 6, TwoFloats(3.0, 5.0))
+    Print("two floats:", two.x, two.y, "/", twoC.x, twoC.y)
+
+    Local four = vm_call_four_floats(JoinFourFloats, FourFloats(1.0, 2.0, 3.0, 4.0))
+    Local fourC = vm_four_floats_pointer()(FourFloats(1.0, 2.0, 3.0, 4.0), 1, 2, 3, 4, 5, 6,
+                                           FourFloats(2.0, 4.0, 6.0, 8.0))
+    Print("four floats:", four.x, four.y, four.z, four.w, "/", fourC.x, fourC.y, fourC.z, fourC.w)
+
+    Local pair = vm_call_packed_pair(JoinPackedPair, PackedPair(7, 1 << 40))
+    Local pairC =
+        vm_packed_pair_pointer()(PackedPair(7, 1 << 40), 1, 2, 3, 4, 5, 6, PackedPair(14, 2 << 40))
+    Print("packed:", pair.a, pair.b, "/", pairC.a, pairC.b)
+
+    Local nine = Either()
+    nine.n = 9
+    Local eighteen = Either()
+    eighteen.n = 18
+    Local either = vm_call_either(JoinEither, nine)
+    Local eitherC = vm_either_pointer()(nine, 1, 2, 3, 4, 5, 6, eighteen)
+    Print("union:", either.n, "/", eitherC.n)
+End Unsafe

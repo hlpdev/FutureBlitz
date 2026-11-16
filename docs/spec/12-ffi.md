@@ -265,9 +265,13 @@ Unsafe
 End Unsafe
 ```
 
-- `Callback(A, B): R` takes and gives what C can: numbers, `Bool`, Enums, `CString`, `Ptr`, and
-  other Callbacks; a Struct goes through a `Ptr`. It's C data, so a `@CLayout` Struct's Field or
-  a Ptr's T can be one, and it's Sendable.
+- `Callback(A, B): R` takes and gives what C can: numbers, `Bool`, Enums, `CString`, `Ptr`, other
+  Callbacks, and `@CLayout` Structs and `@CUnion`s, packed or not, by value, which go as the
+  target's C ABI passes them, as an Extern Function's do: in registers, in pieces, through a
+  pointer to a copy, on the stack, or in memory the caller gives for the result. That holds both
+  ways, for a Function C calls through one and for a call of one from FutureBlitz. A Struct C sees
+  is `@CLayout`, and not a generic Struct's instance. It's C data, so a `@CLayout` Struct's Field
+  or a Ptr's T can be one, and it's Sendable.
 - Where a Callback is expected, a Function's name gives its code by the C ABI: a top-level
   Function of exactly the Callback's types, after a module's qualifier too, or an Extern
   Function, but not one that's built in, generic, Async, Unsafe, or takes a parameter ByRef or

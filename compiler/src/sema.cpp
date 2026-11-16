@@ -561,6 +561,7 @@ public:
         settle_string_parameters();
         check_pending_bounds();
         check_pending_pointers();
+        check_pending_c_structs();
         check_pending_sendables();
         check_refinements();
         link_classes();
@@ -920,6 +921,13 @@ private:
         std::vector<bound_t> bounds;
     };
     std::vector<pending_pointer_t> m_pending_pointers;
+    /// A Struct a Callback takes or gives by value, written while types are declared, which is
+    /// checked as C's once they all are: a Struct declared further down had no Fields yet.
+    struct pending_c_struct_t {
+        type_id_t type;
+        span_t span;
+    };
+    std::vector<pending_c_struct_t> m_pending_c_structs;
     /// A Mutex or Channel written while types are declared, whose T is checked for Sendable again
     /// once they all are, with the constraints where it was written: a Struct declared further
     /// down had no fields the first time.
@@ -15618,28 +15626,47 @@ private:
         }
     }
 
-    /// "Callback(A, B): R", which takes and gives what C can, but no Struct by value.
+    /// "Callback(A, B): R", which takes and gives what C can: a @CLayout Struct or @CUnion by
+    /// value too, as the C ABI passes it.
     type_id_t callback_of(const function_type_t& node, const std::vector<type_id_t>& parameters,
                           const type_id_t result) {
         bool valid = true;
         for (std::size_t i = 0; i <= parameters.size(); ++i) {
             const bool last = i == parameters.size();
             const type_id_t type = last ? result : parameters[i];
-            if (type == type_id_t::NONE || type == type_id_t::INVALID ||
-                (is_c_scalar(type) && !is_struct(type))) {
+            if (type == type_id_t::NONE || type == type_id_t::INVALID || is_c_scalar(type)) {
                 continue;
             }
 
             const type_expr_id_t written =
                 last ? node.result.value_or(type_expr_id_t{}) : node.parameters[i];
-            error(m_ast.get(written).span,
+            const span_t span = m_ast.get(written).span;
+            if (is_struct(type)) {
+                if (m_declared) {
+                    check_c_struct(type, span, true);
+                } else {
+                    m_pending_c_structs.push_back({ .type = type, .span = span });
+                }
+
+                continue;
+            }
+
+            error(span,
                   "a Callback takes and gives what C can: numbers, Bools, Enums, CStrings, Ptrs, "
-                  "and Callbacks, and a Struct through a Ptr, not {}",
+                  "Callbacks, and @CLayout Structs, not {}",
                   shown_name(type));
             valid = false;
         }
 
         return valid ? m_analysis.types.callback(parameters, result) : type_id_t::INVALID;
+    }
+
+    /// The Structs Callbacks written while types were declared take or give, checked as C's now
+    /// that their Fields are.
+    void check_pending_c_structs() {
+        for (const pending_c_struct_t& pending : std::exchange(m_pending_c_structs, {})) {
+            check_c_struct(pending.type, pending.span, true);
+        }
     }
 
     [[nodiscard]] bool is_callback(const type_id_t type) const {
