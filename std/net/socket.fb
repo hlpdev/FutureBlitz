@@ -22,6 +22,8 @@ Package Extern "runtime"
     Function fb_io_net_listen(socket: Ptr<Void>, address: UInt8[], backlog: Int32): Int32
     Function fb_io_net_listen_pipe(socket: Ptr<Void>, name: String, backlog: Int32): Int32
     Function fb_io_net_accept(socket: Ptr<Void>, timeout: Int64): Int32
+    Function fb_io_net_wait_any(sockets: Ptr<Void>[], timeout: Int64): Int32
+    Function fb_io_net_wait_any_async(sockets: Ptr<Void>[], timeout: Int64): Task<Int32>
     Function fb_io_net_accept_async(socket: Ptr<Void>, timeout: Int64): Task<Int32>
     Function fb_io_net_accepted(socket: Ptr<Void>): Ptr<Void>
     Function fb_io_net_read(socket: Ptr<Void>, into: Ptr<UInt8>, count: Int64,
@@ -63,6 +65,16 @@ Const TIMED_OUT = 8
 Package Function NanosecondsOf(timeout: Duration?): Int64
     If timeout == Null Then Return -1
     Return Max(timeout.Nanoseconds, 0)
+End Function
+
+/// Panics unless a Connect's timeout, where it has one, is above 0, as a connect that doesn't wait
+/// can't connect, but its SYN would still reach the other side.
+@PanicsAtCaller
+Package Function CheckConnectTimeout(timeout: Duration?)
+    If timeout != Null && timeout.Nanoseconds <= 0
+        Panic(
+            "a Connect's timeout is above 0, not {timeout}, as one that doesn't wait can't connect")
+    End If
 End Function
 
 /// An address's bytes, as the runtime's functions take them: 4 or 6 for its family, its 16 bytes,

@@ -5,6 +5,7 @@
 
 #include "fb/concurrent.hpp"
 
+#include "condition.hpp"
 #include "fb/runtime.hpp"
 #include "fb/time.hpp"
 #include "internal.hpp"
@@ -101,7 +102,7 @@ struct waker_t {
 struct cancel_t {
     /// Guards `waiting`, and the waits for the flag itself, which `set` wakes.
     std::mutex mutex;
-    std::condition_variable set_now;
+    fb::runtime::condition_t set_now;
     std::atomic<bool> set = false;
     /// Each wait's own, so many waits on one lock are each taken off as they end.
     std::vector<const waker_t*> waiting;

@@ -599,6 +599,39 @@ bool is_system_library(std::string name) {
 
 } // namespace
 
+TEST_CASE("a program's FB_VERSION is the version fb --version says", "[cli]") {
+    const std::filesystem::path source =
+        write_source("fb_version/main.fb",
+                     "Import std.core\n"
+                     "Const Function Packed(major: Int, minor: Int, patch: Int): Int\n"
+                     "    Return major * 1000000 + minor * 1000 + patch\n"
+                     "End Function\n"
+                     "Const PACKED = Packed(FB_VERSION_MAJOR, FB_VERSION_MINOR, FB_VERSION_PATCH)\n"
+                     "Print(\"{FB_VERSION} {FB_VERSION_MAJOR} {FB_VERSION_MINOR} "
+                     "{FB_VERSION_PATCH} {PACKED}\")\n");
+    const fb::process_result_t version = fb_run({ "--version" });
+    REQUIRE(version.output.starts_with("fb "));
+    // "fb 1.4.0 (abc1234, windows-x64)": the version is up to the space.
+    const std::string said = version.output.substr(3, version.output.find(' ', 3) - 3);
+    std::vector<int> parts;
+    for (const auto part : std::views::split(said, '.')) {
+        int number = 0;
+        const std::string_view text(part.begin(), part.end());
+        REQUIRE(std::from_chars(text.data(), text.data() + text.size(), number).ec == std::errc{});
+        parts.push_back(number);
+    }
+
+    REQUIRE(parts.size() == 3);
+    const int major = parts[0];
+    const int minor = parts[1];
+    const int patch = parts[2];
+    const fb::process_result_t run = fb_run({ "run", fb::to_utf8(source), "--color", "never" });
+    INFO(run.output);
+    CHECK(run.exit_code == 0);
+    CHECK(run.output.contains(std::format("{} {} {} {} {}\n", said, major, minor, patch,
+                                          (major * 1000000) + (minor * 1000) + patch)));
+}
+
 TEST_CASE("fb --version prints the version, the commit, and the target", "[cli]") {
     const fb::process_result_t result = fb_run({ "--version" });
     CHECK(result.exit_code == 0);
@@ -1755,6 +1788,46 @@ std::string own_name(const std::string_view stem) {
 }
 
 } // namespace
+
+TEST_CASE("a Connect at a timeout of 0 panics before anything reaches the listener", "[cli]") {
+    // A listener in a program of its own, which outlives the one that panics: it says its port,
+    // then whether a connection came in the next three seconds.
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "connect_zero";
+    std::filesystem::remove_all(folder);
+    std::filesystem::create_directories(folder);
+    const std::filesystem::path port = folder / "port.txt";
+    const std::filesystem::path heard = folder / "heard.txt";
+    const std::filesystem::path listening = write_source(
+        "connect_zero/listener.fb",
+        std::format(
+            "Import std.core\nImport std.io\nImport std.net\nImport std.time\n"
+            "Local listener = Try TcpListener.Listen(SocketAddress(IpAddress.Loopback, 0))\n"
+            "Try File.WriteText(Path(\"{}\"), \"{{listener.LocalAddress.Port}}\")\n"
+            "Local came = \"nothing\"\n"
+            "Try\n"
+            "    Local _client = Try listener.Accept(3.Seconds)\n"
+            "    came = \"a connection\"\n"
+            "Catch e As TimeoutError\n"
+            "End Try\n"
+            "Try File.WriteText(Path(\"{}\"), came)\n",
+            port.generic_string(), heard.generic_string()));
+    running_fb_t listener({ "run", fb::to_utf8(listening) });
+    REQUIRE(appears(port));
+    const std::filesystem::path connecting =
+        write_source("connect_zero/connect.fb",
+                     std::format("Import std.core\nImport std.net\nImport std.time\n"
+                                 "Local _stream = Try TcpStream.Connect("
+                                 "SocketAddress(IpAddress.Loopback, {}), Duration.Zero())\n",
+                                 read_file(port)));
+    const fb::process_result_t connected =
+        fb_run({ "run", fb::to_utf8(connecting), "--color", "never" });
+    INFO(connected.output);
+    CHECK(connected.exit_code != 0);
+    CHECK(connected.output.contains(
+        "a Connect's timeout is above 0, not 0s, as one that doesn't wait can't connect"));
+    (void)listener.wait();
+    CHECK(read_file(heard) == "nothing");
+}
 
 TEST_CASE("fb run's program ends when fb does, however fb ends, and its folder goes", "[cli]") {
     // The program says it started, then writes a marker a moment later, unless it's ended first.

@@ -1,3 +1,4 @@
+#include "condition.hpp"
 #include "fb/concurrent.hpp"
 #include "fb/runtime.hpp"
 #include "fb/time.hpp"
@@ -421,7 +422,7 @@ private:
     /// What waits for a change wakes at each, and an idle worker at a job to run, or the pool's
     /// stop: a Channel's change, which signal() gives, wakes the threads waiting on Channels, not
     /// every idle worker.
-    std::condition_variable m_wake;
+    fb::runtime::condition_t m_wake;
     std::condition_variable m_idle;
     std::vector<std::thread> m_workers;
     /// The threads started for jobs of their own, until finish() or the next start_thread()

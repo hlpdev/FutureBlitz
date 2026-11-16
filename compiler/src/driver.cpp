@@ -4790,12 +4790,39 @@ namespace {
 
 /// Why the standard library can't be read, which every program loads std/core/ and
 /// std.collections.map of, or nullopt when it can.
+/// The FB_VERSION a std/core/version.fb's text says, or nullopt where it says none.
+std::optional<std::string> std_version(const std::string_view text) {
+    constexpr std::string_view start = "Public Const FB_VERSION = \"";
+    const std::size_t at = text.find(start);
+    if (at == std::string_view::npos) {
+        return std::nullopt;
+    }
+
+    const std::size_t from = at + start.size();
+    const std::size_t end = text.find('"', from);
+    if (end == std::string_view::npos) {
+        return std::nullopt;
+    }
+
+    return std::string(text.substr(from, end - from));
+}
+
 std::optional<std::string> unreadable_std() {
     std::error_code error;
     const std::filesystem::path& std_folder = toolchain().std;
     if (!disk::is_regular_file(std_folder / "core" / "error.fb", error) ||
         !disk::is_regular_file(std_folder / "collections" / "map.fb", error)) {
         return std::format("cannot read the standard library in '{}'", to_utf8(std_folder));
+    }
+
+    // A std of another fb's, as a copy beside another fb's, would say another FB_VERSION than
+    // this fb's own.
+    const std::optional<std::string> text = bytes_of(std_folder / "core" / "version.fb");
+    const std::optional<std::string> version = text ? std_version(*text) : std::nullopt;
+    if (version != build_config::version) {
+        return std::format("this fb is {} but the std it found at '{}' is {}",
+                           build_config::version, to_utf8(std_folder),
+                           version.value_or("one from before 1.4.0, with no FB_VERSION"));
     }
 
     return std::nullopt;

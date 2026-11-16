@@ -114,6 +114,78 @@ Packed `@CLayout` Structs and C unions, for the Steamworks SDK the game binds th
   waits only for a check that's running. Test: lsp "fb-lsp answers what's piped behind an open
   whose check is slow", the piped sequence with `FB_TEST_CHECK_DELAY` at 4 seconds; on 4b33c21c's
   fb-lsp with only that delay added, its hover and its diagnostics were missing, as in CI.
+- **A timeout of 0 waited a timer tick** (scpcb-x, 2026-11-15): `UdpSocket.Receive` with nothing
+  come took about 15.6 ms on Windows at a timeout of 0, so each `GameHost.Update` did too, and
+  so did TCP's, IPC's, and TLS's Accept and a Connect, though std.net's docs say a timeout that
+  isn't positive doesn't wait. The runtime's `wait_until` asked the condition variable for a wait
+  of none, which waits for the system's next tick on Windows; at 0 it now looks once and doesn't
+  wait, on every system. A socket reads what comes from its Bind on, so a datagram that's come is
+  taken at 0. TCP's Read had done so already, and the Async versions' timer of 0 runs on the I/O
+  loop's next turn; Selector's Timeout(0) and Channels don't go through it. Test:
+  tests/programs/net_zero_wait, 200 Receives, ReceiveAsyncs, Accepts, and GameHost Updates of
+  nothing each under 200 ms in all, and a datagram there already taken at 0; on 24c8424e,
+  Receive, Accept, and Update each took about 3.1 s on Windows. The review's fixes (findings 24
+  to 27): a short timeout's wait waited a tick too, 15.6 ms for 1 ms, as did Sleep with a
+  Cancellation, a Selector's Timeout, Timer.After, and ReceiveAsync: the runtime's
+  `condition_t` waits on its thread's event and a high-resolution waitable timer on Windows, for
+  sockets, the pool, and a Cancellation, and the I/O thread sets a high-resolution timer to
+  libuv's next timer before each poll, which wakes the loop through the thread pool, so 1 ms
+  takes about 1.5, and 50 still 50; a Connect at 0 panics before anything's sent, as it could
+  only fail and leave the listener a connection; and a TlsListener's handshakes go on between
+  Accept calls, each for up to its HandshakeLimit, so Accept(0) gives a client whose handshake
+  finished meanwhile, and a failed one is dropped rather than thrown. Tests: net_zero_wait at 1
+  ms and 50 ms, and an IPC listener's Accept at 0; short_waits; net_tls_tcp's polled Accept(0),
+  silent client, and refused one; and cli "a Connect at a timeout of 0 panics before anything
+  reaches the listener". CI's fix (finding 41, macOS): the 1 ms lines timed 20 waits' total under
+  100 ms, which a loaded runner's stalls exceeded; net_zero_wait and short_waits now time each wait
+  and want the median under 8 ms, half a Windows tick, so a stalled wait can't decide it, and with
+  the high-resolution timers off by hand, every 1 ms line still printed False on Windows.
+- **A Callback takes and gives `@CLayout` Structs and `@CUnion`s by value** (scpcb-x, 2026-11-15,
+  for Discord's join callback, `void (*)(Discord_String, void*)` with a pointer and a size_t by
+  value): sema's `callback_of` takes a Struct, which is checked as an Extern's is once Fields are
+  declared (`check_pending_c_structs`), and codegen gives a Callback the C type an Extern of its
+  shape has (`c_shape_t`, `c_struct_function_type`, `add_c_attributes`). Its thunk takes each
+  Struct as C's function does, from its pieces or through a pointer to a copy (`struct_from_c`),
+  and gives the result back in registers (`struct_to_c`) or in the caller's memory; a call
+  through a Callback passes each as clang's call of a function pointer does
+  (`call_callback_structs`, with `pass_to_c` and `from_c`, which the Extern call uses too). Tests:
+  tests/packages/callback_structs against tests/native/vecmath/callbacks.c, C calling an fb
+  Function and fb calling C's pointer with Discord's `{ ptr, size_t }`, Structs of 3, 12, and 24
+  bytes, of two and of four floats, a packed one, and a union, first, after six integers, and
+  as the result; c_abi's thunks and calls on five targets, each as clang's; sema's
+  acceptance, and a plain Struct and a generic one's instance refused. On 24c8424e the package
+  didn't compile: 48 errors of "a Callback takes and gives what C can ... not Text". The review's
+  fixes (findings 32 to 36): a thunk with a closed Enum parameter and a Struct in registers was
+  invalid IR, as its allocas came after the Enum check's branch, and its blocks went into the
+  function being made when it was, so a thunk has an alloca block of its own and sets the next
+  block aside; each Enum in a Struct that crosses a Callback is checked both ways, a thunk's
+  parameter by codegen's `check_c_enums` and a Callback's result by lowering's
+  `check_enum_fields`, but not inside a `@CUnion`; fb-bindgen binds a callback that takes or
+  gives a struct by value, packed and unions too; a Callback's plain Struct in a `@CLayout`
+  Struct's Field is one error, which names `@CUnion` beside `@CLayout`; and the package goes
+  where registers run out, with mixed and narrow shapes. Tests: c_abi "a Callback's thunk with a
+  closed Enum beside its Structs is whole IR on each target", the packages
+  panic_enum_callback_struct and panic_enum_callback_struct_result, bindgen "a callback that
+  takes or gives a struct by value binds it, packed and unions too", and callback_structs'
+  new shapes; each failed on 1349d3ff but the package's Windows run, where Win64 passes its
+  Struct by pointer.
+- **`FB_VERSION`** (scpcb-x, 2026-11-15, which kept it by hand in app/app.fb with a test holding it
+  to `fb --version`): std/core/version.fb's Consts `FB_VERSION`, like "1.4.0", and
+  `FB_VERSION_MAJOR`, `FB_VERSION_MINOR`, and `FB_VERSION_PATCH`, which compile-time code and
+  Consts use as any. CMakeLists.txt reads the file and refuses to configure when they aren't
+  `fb_version`. Tests: cli "a program's FB_VERSION is the version fb --version says", with a
+  Const Function of the three; driver "a library's Const of FB_VERSION is the version of the fb
+  that built it", through its interface file; without the file, both fail to compile. The
+  review's fixes (findings 28 to 31): spec 11 says a module's own Consts and Globals hide
+  imported ones without a warning, as the game's own FB_VERSION hides std's; the docs say, in
+  the same words, that FB_VERSION is the version of the fb that compiled the code that uses it,
+  so a prebuilt library's compiled Functions and Consts have the library's and what compiles with
+  the program has the program's, and the driver test holds the interface file to that, the Const
+  a literal and an `@Inline` body keeping the name; fb refuses a std whose FB_VERSION isn't its
+  own, in `unreadable_std`, before anything compiles ("this fb is <v> but the std it found at
+  <path> is <w>"), tested by driver "fb refuses a std whose FB_VERSION isn't its own", which a std
+  of another version passed before; and the docs say they're Consts, not `#If` symbols, from
+  1.4.0 on.
 
 ## 1.3.5
 

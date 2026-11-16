@@ -265,9 +265,13 @@ Unsafe
 End Unsafe
 ```
 
-- `Callback(A, B): R` takes and gives what C can: numbers, `Bool`, Enums, `CString`, `Ptr`, and
-  other Callbacks; a Struct goes through a `Ptr`. It's C data, so a `@CLayout` Struct's Field or
-  a Ptr's T can be one, and it's Sendable.
+- `Callback(A, B): R` takes and gives what C can: numbers, `Bool`, Enums, `CString`, `Ptr`, other
+  Callbacks, and `@CLayout` Structs and `@CUnion`s, packed or not, by value, which go as the
+  target's C ABI passes them, as an Extern Function's do: in registers, in pieces, through a
+  pointer to a copy, on the stack, or in memory the caller gives for the result. That holds both
+  ways, for a Function C calls through one and for a call of one from FutureBlitz. A Struct C sees
+  is `@CLayout`, and not a generic Struct's instance. It's C data, so a `@CLayout` Struct's Field
+  or a Ptr's T can be one, and it's Sendable.
 - Where a Callback is expected, a Function's name gives its code by the C ABI: a top-level
   Function of exactly the Callback's types, after a module's qualifier too, or an Extern
   Function, but not one that's built in, generic, Async, Unsafe, or takes a parameter ByRef or
@@ -282,12 +286,13 @@ End Unsafe
   don't take one, as they don't take a Ptr; it isn't shown in a string.
 - C can call a Callback on any thread, so its code is checked as work on another thread (see
   [10](10-concurrency.md)): it can't reach `@MainThread` code. It can't throw, and a panic in one
-  ends the program as any panic does. An Enum C passes it has to be one of its values, as one C
-  gives back does, or the program panics, where the Callback's Function or lambda is.
+  ends the program as any panic does. An Enum C passes it has to be one of its values, by itself
+  or in a Struct's Fields and their fixed arrays at any depth but a `@CUnion`'s, as one C gives
+  back does, or the program panics, where the Callback's Function or lambda is.
 - Only Unsafe code calls a Callback from FutureBlitz: `compare(a, b)`, by the C ABI, with its
   arguments in order, without names or ByRef. An Enum a Callback gives has to be one of its
-  values, or the program panics at the call, and a debug build panics on a Null Callback's
-  call.
+  values, by itself or in a Struct it gives, but not in a `@CUnion`, or the program panics at
+  the call, and a debug build panics on a Null Callback's call.
 
 ## Safety
 

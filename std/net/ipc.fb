@@ -42,11 +42,12 @@ Public Class IpcStream Implements Reader, Writer
 
     /// Connects to the IpcListener of `name`, waiting up to `timeout`, or as long as it takes for
     /// a Null one. Throws a NetError of REFUSED when nothing listens at it, and a TimeoutError when
-    /// it takes too long. A name that isn't one panics.
+    /// it takes too long. A name that isn't one panics, and so does a timeout that isn't above 0.
     @PanicsAtCaller
     Public Static Method Connect(
             name: String, timeout: Duration? = Null): IpcStream Throws NetError, TimeoutError
         CheckName(name)
+        CheckConnectTimeout(timeout)
         Local socket = StreamSocket(SocketKind.IPC, "IpcStream", name)
         Local code = fb_io_net_connect_pipe(socket.Handle, name, NanosecondsOf(timeout))
         If code != 0 Then Try ThrowSocketError(code, "connecting to {name}", name)
@@ -58,6 +59,7 @@ Public Class IpcStream Implements Reader, Writer
     Public Static Async Method ConnectAsync(
             name: String, timeout: Duration? = Null): IpcStream Throws NetError, TimeoutError
         CheckName(name)
+        CheckConnectTimeout(timeout)
         Local socket = StreamSocket(SocketKind.IPC, "IpcStream", name)
         Local code = Await fb_io_net_connect_pipe_async(socket.Handle, name,
                                                         NanosecondsOf(timeout))

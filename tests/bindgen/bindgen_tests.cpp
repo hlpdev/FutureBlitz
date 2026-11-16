@@ -284,7 +284,7 @@ TEST_CASE("function pointers become Callbacks", "[bindgen]") {
           "    Function each(visit: Callback(Int32, Ptr<Void>), user: Ptr<Void>)\n"
           "    Function paint(paint: Callback(shade, CString),\n"
           "                   choose: Callback(): Callback(Int32, Int32): Int32)\n"
-          "    // skipped: move, which takes a callback that takes a struct by value\n"
+          "    Function move(mover: Callback(point))\n"
           "    // skipped: log_all, which takes a callback that takes varargs\n"
           "End Extern\n");
 
@@ -313,6 +313,34 @@ TEST_CASE("function pointers become Callbacks", "[bindgen]") {
         "Int32)\n"
         "    Function set_handler(h: Callback(CLong): CLong)\n"
         "End Extern\n");
+}
+
+TEST_CASE("a callback that takes or gives a struct by value binds it, packed and unions too",
+          "[bindgen]") {
+    // A header shaped as an SDK's: a string of a pointer and a size, by value, to a join
+    // callback through a typedef, which a struct's field holds too, and a packed struct and a
+    // union through another.
+    const std::string text =
+        module_of("#include <stddef.h>\n"
+                  "#include <stdint.h>\n"
+                  "typedef struct sdk_text { const uint8_t* bytes; uint64_t size; } sdk_text;\n"
+                  "typedef void (*sdk_joined)(sdk_text secret, void* data);\n"
+                  "typedef struct sdk_hooks { sdk_joined on_join; void* data; } sdk_hooks;\n"
+                  "void sdk_on_join(sdk_joined joined, void* data);\n"
+                  "#pragma pack(push, 4)\n"
+                  "typedef struct sdk_id { int32_t kind; int64_t value; } sdk_id;\n"
+                  "#pragma pack(pop)\n"
+                  "typedef union sdk_either { int32_t n; float f; } sdk_either;\n"
+                  "void sdk_pick(sdk_either (*pick)(sdk_id id, sdk_text name));\n");
+    CHECK(text ==
+          "@CLayout Public Struct sdk_text\n    Public Field bytes: Ptr<UInt8>\n    Public Field "
+          "size: UInt64\nEnd Struct\n\n@CLayout Public Struct sdk_hooks\n    Public Field on_join: "
+          "Callback(sdk_text, Ptr<Void>)\n    Public Field data: Ptr<Void>\nEnd "
+          "Struct\n\n@CLayout(Pack: 4) Public Struct sdk_id\n    Public Field kind: Int32\n    "
+          "Public Field value: Int64\nEnd Struct\n\n@CUnion Public Struct sdk_either\n    Public "
+          "Field n: Int32\n    Public Field f: Float32\nEnd Struct\n\nPublic Extern \"C\"\n    "
+          "Function sdk_on_join(joined: Callback(sdk_text, Ptr<Void>), data: Ptr<Void>)\n    "
+          "Function sdk_pick(pick: Callback(sdk_id, sdk_text): sdk_either)\nEnd Extern\n");
 }
 
 TEST_CASE("what can't map is a skipped comment and a warning", "[bindgen]") {

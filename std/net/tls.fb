@@ -449,6 +449,29 @@ Public Class TlsStream<S> Implements Reader, Writer
         End Loop
     End Method
 
+    /// The handshake's steps as far as what's come takes them, with a stream whose reads don't
+    /// wait: whether it's done, or False when it wants more.
+    Method Advance(): Bool Throws NetError
+        Loop
+            Local step = fb_tls_handshake(State)
+            Try
+                If step == HANDSHAKE_FAILED
+                    If Try? Send() == True Then Try? Inner.Flush()
+                    Throw NetError(NetErrorKind.TLS, fb_tls_message(State))
+                End If
+
+                If step == HANDSHAKE_ENDED Then Throw NetError(NetErrorKind.CLOSED,
+                                                               fb_tls_message(State))
+                If Try Send() Then Try Inner.Flush()
+                If step == HANDSHAKE_DONE Then Return True
+                Try Receive()
+            Catch e As IOError
+                If (e.Cause As? TimeoutError) != Null Then Return False
+                Throw Failed(e)
+            End Try
+        End Loop
+    End Method
+
     /// Handshake's Async twin.
     Async Method HandshakeAsync() Throws NetError, TimeoutError
         Loop
@@ -627,15 +650,35 @@ Public Class TlsStream<S> Implements Reader, Writer
     End Method
 End Class
 
+/// A connection whose handshake is under way, and when it came.
+Class Handshaking
+    ReadOnly Field Tcp: TcpStream
+    ReadOnly Field Tls: TlsStream<TcpStream>
+    ReadOnly Field Came: Instant
+
+    New(tcp: TcpStream, tls: TlsStream<TcpStream>, came: Instant)
+        Tcp = tcp
+        Tls = tls
+        Came = came
+    End New
+End Class
+
 /// Takes TCP connections at an address and accepts each as its TlsServer does, giving them as
-/// TlsStreams over TcpStreams. It closes when it goes, or at Close.
+/// TlsStreams over TcpStreams once their handshakes are done. The handshakes go on whenever
+/// Accept or AcceptAsync runs, each for up to HandshakeLimit from its connection, so a client
+/// that connects between two calls of Accept(0) is given by a later one. It closes when it goes,
+/// or at Close.
 Public Class TlsListener
     ReadOnly Field Listener: TcpListener
     ReadOnly Field Server: TlsServer
+    /// The connections whose handshakes are under way, in the order they came.
+    Field Pending: Handshaking[] = []
+    Field Limit: Duration
 
     New(listener: TcpListener, server: TlsServer)
         Listener = listener
         Server = server
+        Limit = 10.Seconds
     End New
 
     /// Listens at `address` as `server`, as TcpListener.Listen does. Panics for a backlog below 1.
@@ -657,34 +700,130 @@ Public Class TlsListener
         Get => Listener.LocalAddress
     End Property
 
-    /// The next connection, once its handshake is done, waiting up to `timeout` for a TCP
-    /// connection and its handshake, or as long as they take for a Null one. A client whose
-    /// handshake fails throws here, as a NetError, or as a TimeoutError when it's too slow for
-    /// `timeout`, after which the listener takes the next one.
+    /// How long a client has for its handshake from when it connects, after which it's dropped:
+    /// 10 seconds unless it's set. Panics for one that isn't above 0.
+    Public Property HandshakeLimit: Duration
+        Get => Limit
+        Set(value)
+            If value.Nanoseconds <= 0
+                Panic("a TlsListener's HandshakeLimit is above 0, not {value}")
+            End If
+
+            Limit = value
+        End Set
+    End Property
+
+    /// The next client whose handshake is done, waiting up to `timeout` for one, or as long as it
+    /// takes for a Null one; a timeout of 0 gives one that's done already, or throws a
+    /// TimeoutError. A client whose handshake fails, or doesn't finish within HandshakeLimit, is
+    /// dropped, and the listener goes on with the rest.
     Public Method Accept(timeout: Duration? = Null): TlsStream<TcpStream> Throws NetError,
                                                                                  TimeoutError
         Local started = Instant.Now()
-        Local tcp = Try Listener.Accept(timeout)
-        tcp.ReadTimeout = Left(timeout, started)
-        Local tls = Try Server.Accept(tcp)
-        tcp.ReadTimeout = Null
-        Return tls
+        Loop
+            Local done = Try Advance()
+            If done != Null Then Return done
+            If timeout != Null && !(started.Elapsed < timeout) Then Throw TimedOut()
+            Local _changed = fb_io_net_wait_any(Handles(), NanosecondsOf(Waiting(timeout, started)))
+        End Loop
     End Method
 
     /// Accept's Async twin, which waits on the main thread.
     Public Async Method AcceptAsync(
             timeout: Duration? = Null): TlsStream<TcpStream> Throws NetError, TimeoutError
         Local started = Instant.Now()
-        Local tcp = Try Await Listener.AcceptAsync(timeout)
-        tcp.ReadTimeout = Left(timeout, started)
-        Local tls = Try Await Server.AcceptAsync(tcp)
-        tcp.ReadTimeout = Null
-        Return tls
+        Loop
+            Local done = Try Advance()
+            If done != Null Then Return done
+            If timeout != Null && !(started.Elapsed < timeout) Then Throw TimedOut()
+            Local _changed = Await fb_io_net_wait_any_async(Handles(),
+                                                            NanosecondsOf(Waiting(timeout,
+                                                                                  started)))
+        End Loop
     End Method
 
-    /// Closes it at once, as a TcpListener closes.
+    /// Closes it at once, as a TcpListener closes, with the connections whose handshakes are under
+    /// way.
     Public Method Close()
         Listener.Close()
+        For each In Pending
+            each.Tcp.Close()
+        End For
+
+        Pending.Clear()
+    End Method
+
+    /// Takes the connections that have come, and has each handshake go as far as what's come takes
+    /// it, in the order they came: the first that's done, or Null. One that fails, or is past
+    /// HandshakeLimit, is dropped.
+    Method Advance(): TlsStream<TcpStream>? Throws NetError
+        Loop
+            Local tcp: TcpStream? = Null
+            Try
+                tcp = Try Listener.Accept(Duration.Zero())
+            Catch e As TimeoutError
+            End Try
+
+            If tcp == Null Then Break
+            tcp.ReadTimeout = Duration.Zero()
+            Pending.Add(Handshaking(tcp, TlsStream<TcpStream>(tcp, Server.Setup.Config(), ""),
+                                    Instant.Now()))
+        End Loop
+
+        Local at = 0
+        While at < Pending.Count
+            Local each = Pending[at]
+            Local done = False
+            Local failed = False
+            Try
+                done = Try each.Tls.Advance()
+            Catch e As NetError
+                failed = True
+            End Try
+
+            If done
+                Pending.RemoveAt(at)
+                each.Tcp.ReadTimeout = Null
+                Return each.Tls
+            End If
+
+            If failed || !(each.Came.Elapsed < Limit)
+                Pending.RemoveAt(at)
+                each.Tcp.Close()
+            Else
+                at += 1
+            End If
+        End While
+
+        Return Null
+    End Method
+
+    /// The listener's socket and those of the handshakes under way, which a wait wakes for.
+    Method Handles(): Ptr<Void>[]
+        Local handles: Ptr<Void>[] = [Listener.Socket.Handle]
+        For each In Pending
+            handles.Add(each.Tcp.Socket.Handle)
+        End For
+
+        Return handles
+    End Method
+
+    /// How long to wait before looking again: until `timeout` is up, or the first handshake's
+    /// limit, whichever's sooner, or Null for as long as it takes.
+    Method Waiting(timeout: Duration?, started: Instant): Duration?
+        Local wait = Left(timeout, started)
+        For each In Pending
+            Local left = Limit - each.Came.Elapsed
+            If left < Duration.Zero() Then left = Duration.Zero()
+            If wait == Null || left < wait Then wait = left
+        End For
+
+        Return wait
+    End Method
+
+    Method TimedOut(): TimeoutError
+        Return TimeoutError(
+            "accepting a TLS client at {LocalAddress} took longer than it was given")
     End Method
 End Class
 

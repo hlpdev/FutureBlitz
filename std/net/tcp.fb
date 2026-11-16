@@ -32,7 +32,7 @@ Const BACKLOG = 511
 /// stream.Close()
 /// ```
 Public Class TcpStream Implements Reader, Writer
-    ReadOnly Field Socket: StreamSocket
+    Package ReadOnly Field Socket: StreamSocket
 
     New(socket: StreamSocket)
         Socket = socket
@@ -40,10 +40,13 @@ Public Class TcpStream Implements Reader, Writer
 
     /// Connects to `address`, waiting up to `timeout`, or as long as the OS does for a Null one.
     /// Throws a NetError of REFUSED when nothing listens there, of UNREACHABLE when the network
-    /// can't get there, and a TimeoutError when it takes too long.
+    /// can't get there, and a TimeoutError when it takes too long. Panics for a timeout that
+    /// isn't above 0, before anything's sent.
+    @PanicsAtCaller
     Public Static Method Connect(
             address: SocketAddress, timeout: Duration? = Null): TcpStream Throws NetError,
                                                                                  TimeoutError
+        CheckConnectTimeout(timeout)
         Local socket = StreamSocket(SocketKind.TCP, "TcpStream", address.ToString())
         Local code = fb_io_net_connect(socket.Handle, SocketBytes(address), NanosecondsOf(timeout))
         If code != 0 Then Try ThrowSocketError(code, "connecting to {address}", socket.Peer)
@@ -51,10 +54,13 @@ Public Class TcpStream Implements Reader, Writer
     End Method
 
     /// Connects to `host` at `port`, trying its addresses in the order Dns.Resolve gives them,
-    /// each for up to `timeout`, and throws what the last one did when none connects.
+    /// each for up to `timeout`, and throws what the last one did when none connects. Panics for
+    /// a timeout that isn't above 0, before anything's sent.
+    @PanicsAtCaller
     Public Static Method Connect(
             host: String, port: UInt16, timeout: Duration? = Null): TcpStream Throws NetError,
                                                                                      TimeoutError
+        CheckConnectTimeout(timeout)
         Local addresses = Try Dns.Resolve(host)
         For at = 0 Until addresses.Count
             Try
@@ -70,9 +76,11 @@ Public Class TcpStream Implements Reader, Writer
     End Method
 
     /// Connect's Async twin, which waits on the main thread.
+    @PanicsAtCaller
     Public Static Async Method ConnectAsync(
             address: SocketAddress, timeout: Duration? = Null): TcpStream Throws NetError,
                                                                                  TimeoutError
+        CheckConnectTimeout(timeout)
         Local socket = StreamSocket(SocketKind.TCP, "TcpStream", address.ToString())
         Local code = Await fb_io_net_connect_async(socket.Handle, SocketBytes(address),
                                                    NanosecondsOf(timeout))
@@ -81,9 +89,11 @@ Public Class TcpStream Implements Reader, Writer
     End Method
 
     /// Connect's Async twin to a host, through Dns.ResolveAsync.
+    @PanicsAtCaller
     Public Static Async Method ConnectAsync(
             host: String, port: UInt16, timeout: Duration? = Null): TcpStream Throws NetError,
                                                                                      TimeoutError
+        CheckConnectTimeout(timeout)
         Local addresses = Try Await Dns.ResolveAsync(host)
         For at = 0 Until addresses.Count
             Try
@@ -175,7 +185,7 @@ End Class
 /// End Loop
 /// ```
 Public Class TcpListener
-    ReadOnly Field Socket: ListenerSocket
+    Package ReadOnly Field Socket: ListenerSocket
 
     New(socket: ListenerSocket)
         Socket = socket

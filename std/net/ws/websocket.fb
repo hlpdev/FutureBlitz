@@ -11,6 +11,7 @@ Import std.ffi
 Import std.crypto
 Import std.io.streams
 Import std.time.duration
+Import std.net.socket
 Import std.net.tcp
 Import std.net.tls
 Import std.net.url
@@ -128,11 +129,12 @@ Public Class WebSocket
     /// and as long for each read of the TLS handshake and the server's answer, or as long as it
     /// takes for a Null one. Throws a NetError as TcpStream.Connect and TlsClient.Connect do, and
     /// of OTHER for a URL that isn't ws:// or wss:// and an answer that isn't a WebSocket's.
-    /// Panics when a subprotocol isn't a token.
+    /// Panics when a subprotocol isn't a token, and for a timeout that isn't above 0.
     @PanicsAtCaller
     Public Static Method Connect(url: String, protocols: String[] = [], timeout: Duration? = Null,
                                  tls: TlsClient? = Null): WebSocket Throws NetError, TimeoutError
         CheckProtocols(protocols)
+        CheckConnectTimeout(timeout)
         Local target = Try TargetOf(url)
         Local tcp = Try TcpStream.Connect(target.Host, target.Port, timeout)
         Local stream: Duplex = tcp
@@ -172,6 +174,7 @@ Public Class WebSocket
             url: String, protocols: String[] = [], timeout: Duration? = Null,
             tls: TlsClient? = Null): WebSocket Throws NetError, TimeoutError
         CheckProtocols(protocols)
+        CheckConnectTimeout(timeout)
         Local target = Try TargetOf(url)
         Local tcp = Try Await TcpStream.ConnectAsync(target.Host, target.Port, timeout)
         Local stream: Duplex = tcp

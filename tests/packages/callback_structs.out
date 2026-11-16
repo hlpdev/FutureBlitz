@@ -1,0 +1,16 @@
+text: True 36 True 36
+three: 51 60 90 / 51 60 90
+twelve: 321 600 900 / 321 600 900
+twenty-four: 3021 6000 9000 / 3021 6000 9000
+two floats: 25.5 7.5 / 25.5 7.5
+four floats: 24 6 9 12 / 24 6 9 12
+packed: 42 3298534883328 / 42 3298534883328
+union: 48 / 48
+double and int: 25.5 30 / 25.5 30
+int and double: 51 4.5 / 51 4.5
+after eight floats: 37.5 2.5 / 37.5 2.5
+no room left: 115 206 / 115 206
+in memory after four: 110 200 300 / 110 200 300
+narrow beside: 200 8 100 / 200 8 100
+four floats after eight: 1 2 3 40 / 1 2 3 40
+a hue beside: 3 2 3

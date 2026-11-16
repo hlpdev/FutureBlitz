@@ -479,6 +479,189 @@ TEST_CASE("an Extern Function's packed Structs and unions go as clang declares t
     CHECK(ir("arm64-apple-macosx14.0.0").contains("declare i40 @five(i64)"));
 }
 
+TEST_CASE("a Callback's thunk with a closed Enum beside its Structs is whole IR on each target",
+          "[c_abi]") {
+    // The Enum's check branches, and the Structs' copies go in the thunk's alloca block, not
+    // after it; the thunks are made while the top-level code is.
+    const std::vector<fb::library_file_t> files =
+        fb::standard_library().value_or(std::vector<fb::library_file_t>{});
+    const fb::compilation_t compilation =
+        fb::compile("main.fb",
+                    "Enum Color\n    Red\n    Green\nEnd Enum\n"
+                    "@CLayout Struct Text\n    Field bytes: Ptr<UInt8>\n    Field size: UInt64\n"
+                    "End Struct\n"
+                    "@CLayout Struct Point\n    Field x: Int32\n    Field y: Int32\nEnd Struct\n"
+                    "@CLayout Struct Tint\n    Field color: Color\n    Field edges: Color[2]\n"
+                    "End Struct\n"
+                    "Function ColorText(c: Color, t: Text): Text => t\n"
+                    "Function ColorPoint(c: Color): Point => Point(1, 2)\n"
+                    "Function Tinted(t: Tint, c: Color): Tint => t\n"
+                    "Local a: Callback(Color, Text): Text = ColorText\n"
+                    "Local b: Callback(Color): Point = ColorPoint\n"
+                    "Local c: Callback(Tint, Color): Tint = Tinted\n",
+                    files);
+    REQUIRE_FALSE(compilation.diagnostics.has_errors());
+    const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+    for (const std::string_view triple : {
+             "x86_64-unknown-linux-gnu",
+             "x86_64-w64-windows-gnu",
+             "aarch64-unknown-linux-gnu",
+             "arm64-apple-macosx14.0.0",
+             "x86_64-apple-macosx14.0.0",
+         }) {
+        CAPTURE(triple);
+        const auto made = fb::emit_ir(module, compilation.sources, compilation.file,
+                                      { .target_triple = std::string(triple) });
+        INFO((made ? std::string() : made.error()));
+        REQUIRE(made);
+        CHECK(made->contains("@\"fb.callback.ColorText(Color, Text)\""));
+        CHECK(made->contains("@\"fb.callback.ColorPoint(Color)\""));
+        CHECK(made->contains("C passed 'c' a value that isn't one of Color's"));
+        CHECK(made->contains("C passed Field edges of 't' a value that isn't one of Color's"));
+    }
+}
+
+TEST_CASE("a Callback's Structs go as the target's C ABI has them, both ways", "[c_abi]") {
+    const std::vector<fb::library_file_t> files =
+        fb::standard_library().value_or(std::vector<fb::library_file_t>{});
+    const fb::compilation_t compilation = fb::compile(
+        "main.fb",
+        "@CLayout Struct Text\n"
+        "    Field bytes: Ptr<UInt8>\n"
+        "    Field size: UInt64\n"
+        "End Struct\n"
+        "@CLayout Struct Point\n"
+        "    Field x: Int32\n"
+        "    Field y: Int32\n"
+        "End Struct\n"
+        "@CLayout Struct Vec3\n"
+        "    Field x: Float32\n"
+        "    Field y: Float32\n"
+        "    Field z: Float32\n"
+        "End Struct\n"
+        "@CLayout Struct Box\n"
+        "    Field min: Point\n"
+        "    Field max: Point\n"
+        "    Field filled: Bool\n"
+        "End Struct\n"
+        "@CLayout(Pack: 4) Struct Late\n"
+        "    Field a: Int32\n"
+        "    Field b: Int64\n"
+        "End Struct\n"
+        "@CUnion Struct Either\n"
+        "    Field n: Int32\n"
+        "    Field f: Float32\n"
+        "End Struct\n"
+        "Function TextCb(v: Text, data: Ptr<Void>): Text => v\n"
+        "Function PointCb(a: Point, b: Point): Point => a\n"
+        "Function Vec3Cb(v: Vec3, by: Float32): Vec3 => v\n"
+        "Function BoxCb(x: Int32, b: Box): Box => b\n"
+        "Function LateCb(v: Late): Late => v\n"
+        "Function EitherCb(v: Either): Either => v\n"
+        "Function StackCb(a: Int64, b: Int64, c: Int64, d: Int64, e: Int64, t: Text, f: Int64): "
+        "Int64 => a + f\n"
+        "Local text: Callback(Text, Ptr<Void>): Text = TextCb\n"
+        "Local point: Callback(Point, Point): Point = PointCb\n"
+        "Local vec3: Callback(Vec3, Float32): Vec3 = Vec3Cb\n"
+        "Local box: Callback(Int32, Box): Box = BoxCb\n"
+        "Local late: Callback(Late): Late = LateCb\n"
+        "Local either: Callback(Either): Either = EitherCb\n"
+        "Local stack: Callback(Int64, Int64, Int64, Int64, Int64, Text, Int64): Int64 = StackCb\n"
+        "Unsafe\n"
+        "    Local a = text(Text(), Null)\n"
+        "    Local b = box(1, Box())\n"
+        "    Local c = late(Late())\n"
+        "End Unsafe\n",
+        files);
+    REQUIRE_FALSE(compilation.diagnostics.has_errors());
+    const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+    const auto ir = [&](const std::string_view triple) {
+        return fb::emit_ir(module, compilation.sources, compilation.file,
+                           { .target_triple = std::string(triple) })
+            .value_or("");
+    };
+
+    // The IR with each value's own name as %v, so a call reads as its types.
+    const auto named = [&](const std::string_view triple) {
+        return std::regex_replace(ir(triple), std::regex("%(c_struct[0-9]*|[0-9]+)"), "%v");
+    };
+    const auto thunk = [](const std::string_view name, const std::string_view types) {
+        return std::format("@\"fb.callback.{}\"({})", name, types);
+    };
+
+    // C's Function gets each as clang's C function does, and a call through a Callback passes
+    // each as clang's call through a pointer does, on each target. SysV's Text is two i64s where
+    // clang has a ptr and an i64, and AArch64's Vec3 is [3 x float] where clang gives a Struct
+    // of three floats and takes an alignstack(8) array: the same registers. Each string was
+    // checked against clang's own, from `clang --target=<triple> -O1 -S -emit-llvm` of the same
+    // shapes written as C, each Function as a C function and each call through a pointer, with
+    // clang's attributes that change no register (noundef, captures, dead_on_return) left out.
+    for (const std::string_view triple :
+         { "x86_64-unknown-linux-gnu", "x86_64-apple-macosx14.0.0" }) {
+        CAPTURE(triple);
+        const std::string sysv = named(triple);
+        CHECK(sysv.contains("{ i64, i64 } " +
+                            thunk("TextCb(Text, Ptr<Void>)", "i64 %v, i64 %v, ptr %v")));
+        CHECK(sysv.contains("i64 " + thunk("PointCb(Point, Point)", "i64 %v, i64 %v")));
+        CHECK(sysv.contains("{ <2 x float>, float } " +
+                            thunk("Vec3Cb(Vec3, Float32)", "<2 x float> %v, float %v, float %v")));
+        CHECK(sysv.contains("void " + thunk("BoxCb(Int32, Box)",
+                                            "ptr sret(%fb.Box) align 4 %v, i32 %v, ptr "
+                                            "byval(%fb.Box) align 8 %v")));
+        CHECK(sysv.contains("void " + thunk("LateCb(Late)", "ptr sret(%fb.Late) align 4 %v, ptr "
+                                                            "byval(%fb.Late) align 8 %v")));
+        CHECK(sysv.contains("i32 " + thunk("EitherCb(Either)", "i32 %v")));
+        CHECK(
+            sysv.contains("i64 " + thunk("StackCb(Int64, Int64, Int64, Int64, Int64, Text, Int64)",
+                                         "i64 %v, i64 %v, i64 %v, i64 %v, i64 %v, ptr "
+                                         "byval(%fb.Text) align 8 %v, i64 %v")));
+        CHECK(sysv.contains("%v = call { i64, i64 } %v(i64 %v, i64 %v, ptr null)"));
+        CHECK(sysv.contains("call void %v(ptr sret(%fb.Box) align 4 %v, i32 1, ptr byval(%fb.Box) "
+                            "align 8 %v)"));
+        CHECK(sysv.contains("call void %v(ptr sret(%fb.Late) align 4 %v, ptr byval(%fb.Late) "
+                            "align 8 %v)"));
+    }
+
+    const std::string windows = named("x86_64-w64-windows-gnu");
+    CHECK(windows.contains("void " + thunk("TextCb(Text, Ptr<Void>)",
+                                           "ptr sret(%fb.Text) align 8 %v, ptr %v, ptr %v")));
+    CHECK(windows.contains("i64 " + thunk("PointCb(Point, Point)", "i64 %v, i64 %v")));
+    CHECK(windows.contains("void " + thunk("Vec3Cb(Vec3, Float32)",
+                                           "ptr sret(%fb.Vec3) align 4 %v, ptr %v, float %v")));
+    CHECK(windows.contains(
+        "void " + thunk("BoxCb(Int32, Box)", "ptr sret(%fb.Box) align 4 %v, i32 %v, ptr %v")));
+    CHECK(
+        windows.contains("void " + thunk("LateCb(Late)", "ptr sret(%fb.Late) align 4 %v, ptr %v")));
+    CHECK(windows.contains("i32 " + thunk("EitherCb(Either)", "i32 %v")));
+    CHECK(
+        windows.contains("i64 " + thunk("StackCb(Int64, Int64, Int64, Int64, Int64, Text, Int64)",
+                                        "i64 %v, i64 %v, i64 %v, i64 %v, i64 %v, ptr %v, i64 %v")));
+    CHECK(windows.contains("call void %v(ptr sret(%fb.Text) align 8 %v, ptr %v, ptr null)"));
+    CHECK(windows.contains("call void %v(ptr sret(%fb.Box) align 4 %v, i32 1, ptr %v)"));
+    CHECK(windows.contains("call void %v(ptr sret(%fb.Late) align 4 %v, ptr %v)"));
+
+    for (const std::string_view triple :
+         { "aarch64-unknown-linux-gnu", "arm64-apple-macosx14.0.0" }) {
+        CAPTURE(triple);
+        const std::string arm = named(triple);
+        CHECK(
+            arm.contains("[2 x i64] " + thunk("TextCb(Text, Ptr<Void>)", "[2 x i64] %v, ptr %v")));
+        CHECK(arm.contains("i64 " + thunk("PointCb(Point, Point)", "i64 %v, i64 %v")));
+        CHECK(arm.contains("[3 x float] " +
+                           thunk("Vec3Cb(Vec3, Float32)", "[3 x float] %v, float %v")));
+        CHECK(arm.contains(
+            "void " + thunk("BoxCb(Int32, Box)", "ptr sret(%fb.Box) align 4 %v, i32 %v, ptr %v")));
+        CHECK(arm.contains("[2 x i64] " + thunk("LateCb(Late)", "[2 x i64] %v")));
+        CHECK(arm.contains("i32 " + thunk("EitherCb(Either)", "i64 %v")));
+        CHECK(arm.contains("i64 " + thunk("StackCb(Int64, Int64, Int64, Int64, Int64, Text, Int64)",
+                                          "i64 %v, i64 %v, i64 %v, i64 %v, i64 %v, [2 x i64] %v, "
+                                          "i64 %v")));
+        CHECK(arm.contains("%v = call [2 x i64] %v([2 x i64] %v, ptr null)"));
+        CHECK(arm.contains("call void %v(ptr sret(%fb.Box) align 4 %v, i32 1, ptr %v)"));
+        CHECK(arm.contains("%v = call [2 x i64] %v([2 x i64] %v)"));
+    }
+}
+
 TEST_CASE("an Extern Function's Structs go as the target's C ABI has them", "[c_abi]") {
     const std::vector<fb::library_file_t> files =
         fb::standard_library().value_or(std::vector<fb::library_file_t>{});

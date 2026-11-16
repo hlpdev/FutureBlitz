@@ -5,7 +5,9 @@
 // so the I/O thread never touches an object of the caller's but a blocking one's memory while
 // it waits. The program's end closes what's still open, before the I/O thread stops.
 
+#include "condition.hpp"
 #include "fb/runtime.hpp"
+#include "fb/time.hpp"
 #include "internal.hpp"
 #include "io_internal.hpp"
 
@@ -18,6 +20,7 @@
 #include <cstring>
 #include <deque>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -80,6 +83,10 @@ struct waiting_t {
     uv_timer_t timer{};
     fb_task_t* task = nullptr;
     socket_t* socket = nullptr;
+    /// For a wait on any of several sockets, each of them, on whose lists it is, `socket` first.
+    std::vector<socket_t*> group;
+    /// What a blocking wait is told in place of `task`'s finishing.
+    std::function<void(std::int32_t)> done;
     bool timed = false;
     bool closes = false;
 };
@@ -105,7 +112,7 @@ struct socket_t {
     };
     uv_connect_t connecting{};
     std::mutex mutex;
-    std::condition_variable changed;
+    fb::runtime::condition_t changed;
     /// The fb object holds it, as an accepted one's doesn't until fb_io_net_accepted takes it.
     bool held = true;
     /// It has a handle, until libuv closed it.
@@ -213,16 +220,22 @@ std::int32_t call(const std::function<std::int32_t(uv_loop_t*)>& job) {
 }
 
 /// Waits until `ready` holds, or `timeout` nanoseconds have gone, unless it's negative, and says
-/// whether it holds.
+/// whether it holds. A timeout of 0 doesn't wait at all: a wait of none on a condition variable
+/// waits for the system's next tick on Windows, 15.6 ms.
 template <typename Ready>
 bool wait_until(std::unique_lock<std::mutex>& lock, socket_t* socket, const std::int64_t timeout,
                 Ready ready) {
+    if (timeout == 0) {
+        return ready();
+    }
+
     if (timeout < 0 || timeout >= forever) {
         socket->changed.wait(lock, ready);
         return true;
     }
 
-    return socket->changed.wait_for(lock, std::chrono::nanoseconds(timeout), ready);
+    return socket->changed.wait_until(
+        lock, fb::time::sleep_end(std::chrono::steady_clock::now(), timeout), ready);
 }
 
 /// Holds a new Task<Int32> until finish_task.
@@ -246,10 +259,23 @@ void on_wait_closed(uv_handle_t* handle) {
     delete reinterpret_cast<waiting_t*>(handle);
 }
 
-/// Finishes a waiting Task with `code`, taking it off its socket's list.
+/// Finishes a waiting Task with `code`, or tells a blocking wait it, taking it off its sockets'
+/// lists.
 void finish_waiting(waiting_t* waiting, const std::int32_t code) {
-    std::erase(waiting->socket->waiting, waiting);
-    finish_task(waiting->task, code);
+    if (waiting->group.empty()) {
+        std::erase(waiting->socket->waiting, waiting);
+    } else {
+        for (socket_t* each : waiting->group) {
+            std::erase(each->waiting, waiting);
+        }
+    }
+
+    if (waiting->done) {
+        waiting->done(code);
+    } else {
+        finish_task(waiting->task, code);
+    }
+
     if (!waiting->timed) {
         delete waiting;
         return;
@@ -1103,6 +1129,88 @@ void wait_async(fb_task_t* task, socket_t* socket, const std::int64_t timeout,
 
 void start_nothing(socket_t* /*socket*/) {}
 
+/// Whether there's something for one waiting on the socket, by its kind: bytes or an end for a
+/// stream, a connection for a listener, a datagram for a UDP socket, or that it's closing.
+bool ready_now(const socket_t* socket) {
+    switch (socket->kind) {
+    case kind_t::TCP:
+    case kind_t::PIPE:
+        return readable(socket);
+    case kind_t::TCP_LISTENER:
+    case kind_t::PIPE_LISTENER:
+        return acceptable(socket);
+    case kind_t::UDP:
+        return received(socket);
+    }
+
+    return true;
+}
+
+/// Has the socket read what comes, if it's one that reads, as a wait on it alone does.
+void start_reading(socket_t* socket) {
+    if (socket->kind == kind_t::TCP || socket->kind == kind_t::PIPE) {
+        read_more(socket);
+    } else if (socket->kind == kind_t::UDP) {
+        receive_more(socket);
+    }
+}
+
+/// The sockets an array of handles holds.
+std::vector<socket_t*> sockets_of(const fb_array_t* handles) {
+    const auto* data = static_cast<void* const*>(handles->data);
+    std::vector<socket_t*> sockets;
+    sockets.reserve(static_cast<std::size_t>(handles->count));
+    for (std::int64_t i = 0; i < handles->count; ++i) {
+        sockets.push_back(static_cast<socket_t*>(data[i]));
+    }
+
+    return sockets;
+}
+
+/// Whether one of the sockets has something for its waiter.
+bool any_ready(const std::vector<socket_t*>& sockets) {
+    return std::ranges::any_of(sockets, [](socket_t* socket) {
+        const std::scoped_lock lock(socket->mutex);
+        return ready_now(socket);
+    });
+}
+
+/// On the I/O thread, has `task` finish, or `done` be told, once any of the sockets changes, with
+/// 0, or once `timeout` nanoseconds pass, with UV_ETIMEDOUT, unless it's negative.
+void wait_for_any(uv_loop_t* loop, const std::vector<socket_t*>& sockets, fb_task_t* task,
+                  std::function<void(std::int32_t)> done, const std::int64_t timeout) {
+    for (socket_t* socket : sockets) {
+        start_reading(socket);
+    }
+
+    if (any_ready(sockets) || sockets.empty()) {
+        const std::int32_t code = sockets.empty() ? UV_ETIMEDOUT : 0;
+        if (done) {
+            done(code);
+        } else {
+            finish_task(task, code);
+        }
+
+        return;
+    }
+
+    auto* waiting = new waiting_t;
+    waiting->task = task;
+    waiting->socket = sockets.front();
+    waiting->group = sockets;
+    waiting->done = std::move(done);
+    waiting->timed = timeout >= 0 && timeout < forever;
+    if (waiting->timed) {
+        uv_update_time(loop);
+        uv_timer_init(loop, &waiting->timer);
+        uv_timer_start(&waiting->timer, on_waited_too_long, milliseconds_of(timeout), 0);
+    }
+
+    for (socket_t* socket : sockets) {
+        socket->waiting.push_back(waiting);
+    }
+}
+
 /// Closes every socket still open as the program ends, on the I/O thread, before it stops, so
 /// its loop has nothing left; a socket opened after is refused.
 void close_all() {
@@ -1380,6 +1488,50 @@ std::int32_t fb_io_net_receive(void* handle, const std::int64_t timeout) {
 
 void fb_io_net_receive_async(fb_task_t* task, void* handle, const std::int64_t timeout) {
     wait_async(task, static_cast<socket_t*>(handle), timeout, receive_more, received);
+}
+
+std::int32_t fb_io_net_wait_any(const fb_array_t* handles, const std::int64_t timeout) {
+    const std::vector<socket_t*> sockets = sockets_of(handles);
+    if (any_ready(sockets) || timeout == 0) {
+        return any_ready(sockets) ? 0 : UV_ETIMEDOUT;
+    }
+
+    // The I/O thread tells it, as it would a Task, what ended the wait.
+    struct result_t {
+        std::mutex mutex;
+        fb::runtime::condition_t told;
+        std::optional<std::int32_t> code;
+    };
+    const auto result = std::make_shared<result_t>();
+    const auto tell = [result](const std::int32_t code) {
+        const std::scoped_lock lock(result->mutex);
+        result->code = code;
+        result->told.notify_all();
+    };
+    run([sockets, timeout, tell](uv_loop_t* loop) {
+        if (loop == nullptr) {
+            tell(UV_ECANCELED);
+            return;
+        }
+
+        wait_for_any(loop, sockets, nullptr, tell, timeout);
+    });
+    std::unique_lock lock(result->mutex);
+    result->told.wait(lock, [&] { return result->code.has_value(); });
+    return result->code.value_or(UV_ECANCELED);
+}
+
+void fb_io_net_wait_any_async(fb_task_t* task, const fb_array_t* handles,
+                              const std::int64_t timeout) {
+    hold_task(task);
+    run([task, sockets = sockets_of(handles), timeout](uv_loop_t* loop) {
+        if (loop == nullptr) {
+            finish_task(task, UV_ECANCELED);
+            return;
+        }
+
+        wait_for_any(loop, sockets, task, nullptr, timeout);
+    });
 }
 
 std::int32_t fb_io_net_received(void* handle, fb_array_t* bytes, fb_array_t* from) {

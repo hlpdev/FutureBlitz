@@ -1,0 +1,38 @@
+// Each Enum in a Struct that C passes a Callback has to be one of its values, in its Fields and
+// their arrays, or the program panics where the Callback's Function is; one in a @CUnion isn't
+// checked, as the union's bytes may be its other Field's. tests/native/vecmath/callbacks.c makes
+// the Struct of the numbers it's given.
+
+Import std.core
+
+Enum Hue
+    Red = 1
+    Green = 2
+End Enum
+
+@CLayout Struct Tint
+    Field hue: Hue
+    Field alpha: Int32
+    Field edges: Hue[2]
+End Struct
+
+@CUnion Struct HueBits
+    Field hue: Hue
+    Field raw: Int32
+End Struct
+
+Extern "C"
+    Function vm_paint_tint(paint: Callback(Tint), hue: Int32, edge: Int32)
+    Function vm_read_bits(read: Callback(HueBits): Int32, raw: Int32): Int32
+End Extern
+
+Function Paint(tint: Tint)
+    Print("{tint.hue} {tint.alpha} {tint.edges[0]} {tint.edges[1]}")
+End Function
+
+Function Read(bits: HueBits): Int32 => bits.raw
+
+vm_paint_tint(Paint, 2, 1)
+Print(vm_read_bits(Read, 9))
+vm_paint_tint(Paint, 2, 9)
+Print("unreachable")

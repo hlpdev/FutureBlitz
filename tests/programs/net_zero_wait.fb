@@ -1,0 +1,153 @@
+// A timeout of 0 doesn't wait: 200 receives, accepts, and GameHost Updates of nothing take under
+// 200 ms in all, a millisecond each at most where a wait of the system's tick, 15.6 ms on Windows,
+// is 3.1 s; and a datagram that's already come is taken at 0.
+Import std.core
+Import std.time
+Import std.math
+Import std.net
+Import std.net.game
+Import std.uuid
+
+Local loopback = SocketAddress(IpAddress.Loopback, 0)
+Local udp = Try UdpSocket.Bind(loopback)
+Local timedOut = 0
+Local started = Instant.Now()
+For i = 0 Until 200
+    Try
+        Local _got = Try udp.Receive(Duration.Zero())
+    Catch e As TimeoutError
+        timedOut += 1
+    End Try
+End For
+
+Print("Receive at 0, 200 times:", timedOut, "timed out, quickly:",
+      Instant.Now() - started < 200.Milliseconds)
+
+Async Function Receives(udp: UdpSocket): Int64 Throws NetError
+    Local timedOut = 0
+    For i = 0 Until 200
+        Try
+            Local _got = Try Await udp.ReceiveAsync(Duration.Zero())
+        Catch e As TimeoutError
+            timedOut += 1
+        End Try
+    End For
+
+    Return timedOut
+End Function
+
+started = Instant.Now()
+Local timedOutAsync = Try Await Receives(udp)
+Print("ReceiveAsync at 0, 200 times:", timedOutAsync, "timed out, quickly:",
+      Instant.Now() - started < 200.Milliseconds)
+
+Local listener = Try TcpListener.Listen(loopback)
+timedOut = 0
+started = Instant.Now()
+For i = 0 Until 200
+    Try
+        Local _got = Try listener.Accept(Duration.Zero())
+    Catch e As TimeoutError
+        timedOut += 1
+    End Try
+End For
+
+Print("Accept at 0, 200 times:", timedOut, "timed out, quickly:",
+      Instant.Now() - started < 200.Milliseconds)
+listener.Close()
+
+// A GameHost's Update takes what's come at 0, as a game's frame calls it.
+Local host = Try GameHost.Bind(loopback)
+Local events = 0
+started = Instant.Now()
+For i = 0 Until 200
+    events += (Try host.Update()).Count
+End For
+
+Print("GameHost.Update, 200 times:", events, "events, quickly:",
+      Instant.Now() - started < 200.Milliseconds)
+host.Close()
+
+// An IPC listener's Accept at 0 too. A TlsListener's Accept(0) is net_tls_tcp's, as it needs the
+// test certificates, and a Connect at 0, which panics, is the cli test "a Connect at a timeout of 0
+// panics before anything reaches the listener".
+Local ipc = Try IpcListener.Listen("fb-test-zero-wait-{Uuid.V4()}")
+timedOut = 0
+started = Instant.Now()
+For i = 0 Until 200
+    Try
+        Local _got = Try ipc.Accept(Duration.Zero())
+    Catch e As TimeoutError
+        timedOut += 1
+    End Try
+End For
+
+Print("IPC Accept at 0, 200 times:", timedOut, "timed out, quickly:",
+      Instant.Now() - started < 200.Milliseconds)
+ipc.Close()
+
+// A short timeout waits about as long as it says, not a tick of Windows's timer, 15.6 ms: of 20
+// waits of 1 ms of nothing, the median's under 8 ms, half a tick, where each was a tick, and a wait
+// a loaded machine stalls can't decide it. On Linux and macOS it passed before too, as their waits
+// had no ticks.
+Function Waited(begun: Instant): Double => (Instant.Now() - begun).TotalMilliseconds
+
+Function Quickly(waits: Double[]): Bool => Median(waits) < 8
+
+timedOut = 0
+Local received: Double[] = []
+For i = 0 Until 20
+    Local begun = Instant.Now()
+    Try
+        Local _got = Try udp.Receive(1.Milliseconds)
+    Catch e As TimeoutError
+        timedOut += 1
+    End Try
+    received.Add(Waited(begun))
+End For
+
+Print("Receive at 1 ms, 20 times:", timedOut, "timed out, quickly:", Quickly(received))
+Local waiting = Try TcpListener.Listen(loopback)
+timedOut = 0
+Local accepted: Double[] = []
+For i = 0 Until 20
+    Local begun = Instant.Now()
+    Try
+        Local _got = Try waiting.Accept(1.Milliseconds)
+    Catch e As TimeoutError
+        timedOut += 1
+    End Try
+    accepted.Add(Waited(begun))
+End For
+
+Print("Accept at 1 ms, 20 times:", timedOut, "timed out, quickly:", Quickly(accepted))
+waiting.Close()
+Local serviced = Try GameHost.Bind(loopback)
+events = 0
+Local servicing: Double[] = []
+For i = 0 Until 20
+    Local begun = Instant.Now()
+    events += (Try serviced.Service(1.Milliseconds)).Count
+    servicing.Add(Waited(begun))
+End For
+
+Print("GameHost.Service at 1 ms, 20 times:", events, "events, quickly:", Quickly(servicing))
+serviced.Close()
+// And a longer one still waits all of it.
+started = Instant.Now()
+Try
+    Local _got = Try udp.Receive(50.Milliseconds)
+Catch e As TimeoutError
+End Try
+
+Print("Receive at 50 ms waits it all:", Instant.Now() - started >= 50.Milliseconds)
+
+// One that's come is taken at 0: the socket reads what comes from its Bind on, so it's there by
+// the time a wait of a second for it ends.
+Local sender = Try UdpSocket.Bind(loopback)
+Try sender.Send([1, 2, 3], udp.LocalAddress)
+Sleep(1.Seconds)
+Local got = Try udp.Receive(Duration.Zero())
+Print("there already:", got.Bytes, got.From.Port == sender.LocalAddress.Port)
+sender.Close()
+udp.Close()

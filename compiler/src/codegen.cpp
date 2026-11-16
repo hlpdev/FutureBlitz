@@ -139,6 +139,28 @@ struct c_signature_t {
     std::optional<c_struct_abi_t> result;
 };
 
+/// A C function's result and parameters, each by value but for those ByRef: an Extern
+/// Function's, or a Callback's, which C calls or fb does.
+struct c_shape_t {
+    type_id_t result = type_id_t::NONE;
+    std::vector<type_id_t> parameters;
+    std::vector<bool> by_ref;
+};
+
+/// An argument of a call by the C ABI: its value, or its address when it's ByRef.
+struct c_argument_t {
+    LLVMValueRef value = nullptr;
+    type_id_t type = type_id_t::NONE;
+    bool by_ref = false;
+};
+
+/// A call's arguments by the C ABI, and the memory its Struct result comes back in, when it's
+/// MEMORY.
+struct c_arguments_t {
+    std::vector<LLVMValueRef> values;
+    LLVMValueRef result_memory = nullptr;
+};
+
 /// LLVM's targets, registered once per process: both of FutureBlitz's, so either's code can be
 /// made on either.
 void initialize_targets() {
@@ -2128,17 +2150,52 @@ private:
         LLVMAddAttributeAtIndex(function, index, LLVMCreateEnumAttribute(context(), kind, align));
     }
 
-    /// An Extern Function that takes or gives a Struct by value, declared as the C ABI has it,
-    /// as clang does: a Struct in registers as its pieces, through a pointer to a copy, or in
+    /// An Extern Function's shape as C sees it.
+    [[nodiscard]] static c_shape_t shape_of(const mir_function_t& function) {
+        c_shape_t shape{ .result = function.return_type };
+        for (std::size_t i = 0; i < function.parameter_count; ++i) {
+            shape.parameters.push_back(function.locals[i].type);
+            shape.by_ref.push_back(function.locals[i].by_ref);
+        }
+
+        return shape;
+    }
+
+    /// A Callback's shape, whose parameters C passes by value.
+    [[nodiscard]] c_shape_t shape_of_callback(const type_id_t callback) const {
+        const type_t& info = m_mir.types->get(callback);
+        return {
+            .result = info.inner,
+            .parameters = info.parameters,
+            .by_ref = std::vector<bool>(info.parameters.size(), false),
+        };
+    }
+
+    /// Whether a shape takes or gives a Struct by value, which the C ABI passes its own way.
+    [[nodiscard]] bool has_structs(const c_shape_t& shape) const {
+        if (is_struct(shape.result)) {
+            return true;
+        }
+
+        for (std::size_t i = 0; i < shape.parameters.size(); ++i) {
+            if (!shape.by_ref[i] && is_struct(shape.parameters[i])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// The LLVM function type of a shape that takes or gives a Struct by value, as clang
+    /// declares the C: a Struct in registers as its pieces, through a pointer to a copy, or in
     /// memory, byval for an argument and sret for the result. Scalars take registers before and
-    /// after.
-    function_ref_t declare_c_structs(const mir_function_t& function, const mir_extern_t& external) {
+    /// after. `signature` gets how each Struct goes.
+    LLVMTypeRef c_struct_function_type(const c_shape_t& shape, c_signature_t& signature) {
         c_registers_t registers;
-        c_signature_t signature;
         std::vector<LLVMTypeRef> parameters;
-        LLVMTypeRef result = llvm_type(function.return_type);
-        if (is_struct(function.return_type)) {
-            signature.result = struct_abi(function.return_type, true, registers);
+        LLVMTypeRef result = llvm_type(shape.result);
+        if (is_struct(shape.result)) {
+            signature.result = struct_abi(shape.result, true, registers);
             if (signature.result->passing.pass == c_pass_t::MEMORY) {
                 parameters.push_back(m_ptr);
                 registers.integers = registers.integers > 0 ? registers.integers - 1 : 0;
@@ -2152,19 +2209,19 @@ private:
             }
         }
 
-        for (std::size_t i = 0; i < function.parameter_count; ++i) {
-            const local_t& parameter = function.locals[i];
-            if (parameter.by_ref || !is_struct(parameter.type)) {
+        for (std::size_t i = 0; i < shape.parameters.size(); ++i) {
+            const type_id_t type = shape.parameters[i];
+            if (shape.by_ref[i] || !is_struct(type)) {
                 // A scalar takes a register of its kind, while one is left.
-                unsigned& left = !parameter.by_ref && is_float(parameter.type) ? registers.sse
-                                                                               : registers.integers;
+                unsigned& left =
+                    !shape.by_ref[i] && is_float(type) ? registers.sse : registers.integers;
                 left = left > 0 ? left - 1 : 0;
-                parameters.push_back(parameter.by_ref ? m_ptr : llvm_type(parameter.type));
+                parameters.push_back(shape.by_ref[i] ? m_ptr : llvm_type(type));
                 signature.parameters.emplace_back();
                 continue;
             }
 
-            const c_struct_abi_t abi = struct_abi(parameter.type, false, registers);
+            const c_struct_abi_t abi = struct_abi(type, false, registers);
             if (abi.passing.pass == c_pass_t::DIRECT) {
                 std::ranges::copy(pieces_types(abi.passing), std::back_inserter(parameters));
             } else {
@@ -2174,28 +2231,45 @@ private:
             signature.parameters.emplace_back(abi);
         }
 
-        LLVMTypeRef type = LLVMFunctionType(result, parameters.data(),
-                                            static_cast<unsigned>(parameters.size()), 0);
-        m_c_signatures[m_functions.size()] = signature;
-        if (LLVMValueRef found = LLVMGetNamedFunction(m_module.get(), external.symbol.c_str())) {
-            return { .type = type, .value = found };
-        }
+        return LLVMFunctionType(result, parameters.data(), static_cast<unsigned>(parameters.size()),
+                                0);
+    }
 
-        LLVMValueRef value = LLVMAddFunction(m_module.get(), external.symbol.c_str(), type);
+    /// The attributes clang gives a function of a shape that takes or gives a Struct by value,
+    /// or a call of one, each by `add` at its index: sret, byval, their alignments, and C's
+    /// extension of a scalar.
+    void add_c_attributes(const c_shape_t& shape, const c_signature_t& signature,
+                          const std::function<void(unsigned, LLVMAttributeRef)>& add) {
+        const auto typed = [this](const std::string_view name, const type_id_t type) {
+            const unsigned kind = LLVMGetEnumAttributeKindForName(name.data(), name.size());
+            return LLVMCreateTypeAttribute(context(), kind, llvm_type(type));
+        };
+        const auto aligned = [this](const std::uint64_t align) {
+            constexpr std::string_view name = "align";
+            const unsigned kind = LLVMGetEnumAttributeKindForName(name.data(), name.size());
+            return LLVMCreateEnumAttribute(context(), kind, align);
+        };
+        const auto extend = [this, &add](const unsigned index, const type_id_t type) {
+            if (const std::string_view name = c_extension(type); !name.empty()) {
+                const unsigned kind = LLVMGetEnumAttributeKindForName(name.data(), name.size());
+                add(index, LLVMCreateEnumAttribute(context(), kind, 0));
+            }
+        };
+
         unsigned index = 1;
         if (signature.result && signature.result->passing.pass == c_pass_t::MEMORY) {
-            add_type_attribute(value, index, "sret", llvm_type(function.return_type));
-            add_align(value, index, c_layout(*m_mir.types, function.return_type, m_integers).align);
+            add(index, typed("sret", shape.result));
+            add(index, aligned(c_layout(*m_mir.types, shape.result, m_integers).align));
             ++index;
         } else if (!signature.result) {
-            extend_for_c(value, 0, function.return_type);
+            extend(0, shape.result);
         }
 
-        for (std::size_t i = 0; i < function.parameter_count; ++i) {
+        for (std::size_t i = 0; i < shape.parameters.size(); ++i) {
             const std::optional<c_struct_abi_t>& abi = signature.parameters[i];
             if (!abi) {
-                if (!function.locals[i].by_ref) {
-                    extend_for_c(value, index, function.locals[i].type);
+                if (!shape.by_ref[i]) {
+                    extend(index, shape.parameters[i]);
                 }
 
                 ++index;
@@ -2204,17 +2278,31 @@ private:
             } else {
                 // A SysV argument in memory takes eightbytes of the stack, as clang has it.
                 if (abi->passing.pass == c_pass_t::MEMORY) {
-                    add_type_attribute(value, index, "byval", llvm_type(function.locals[i].type));
-                    add_align(
-                        value, index,
-                        std::max<std::uint64_t>(
-                            c_layout(*m_mir.types, function.locals[i].type, m_integers).align, 8));
+                    add(index, typed("byval", shape.parameters[i]));
+                    add(index,
+                        aligned(std::max<std::uint64_t>(
+                            c_layout(*m_mir.types, shape.parameters[i], m_integers).align, 8)));
                 }
 
                 ++index;
             }
         }
+    }
 
+    /// An Extern Function that takes or gives a Struct by value, declared as the C ABI has it.
+    function_ref_t declare_c_structs(const mir_function_t& function, const mir_extern_t& external) {
+        const c_shape_t shape = shape_of(function);
+        c_signature_t signature;
+        LLVMTypeRef type = c_struct_function_type(shape, signature);
+        m_c_signatures[m_functions.size()] = signature;
+        if (LLVMValueRef found = LLVMGetNamedFunction(m_module.get(), external.symbol.c_str())) {
+            return { .type = type, .value = found };
+        }
+
+        LLVMValueRef value = LLVMAddFunction(m_module.get(), external.symbol.c_str(), type);
+        add_c_attributes(shape, signature, [value](const unsigned index, LLVMAttributeRef made) {
+            LLVMAddAttributeAtIndex(value, index, made);
+        });
         return { .type = type, .value = value };
     }
 
@@ -2234,46 +2322,34 @@ private:
         return slot;
     }
 
-    /// A call of an Extern Function that takes or gives a Struct by value, by `signature`.
-    LLVMValueRef call_c_structs(const function_ref_t& function, const c_signature_t& signature,
-                                const call_t& node) {
-        std::vector<LLVMValueRef> arguments;
-        LLVMValueRef result_memory = nullptr;
-        const type_id_t result_type = m_mir.functions[index(node.function)].return_type;
+    /// A call's arguments by `signature`: a Struct as its pieces, or a pointer to a copy of it,
+    /// and the result's memory first when it comes back in memory.
+    c_arguments_t pass_to_c(const c_signature_t& signature, const type_id_t result,
+                            const std::span<const c_argument_t> arguments) {
+        c_arguments_t passed;
         if (signature.result && signature.result->passing.pass == c_pass_t::MEMORY) {
-            result_memory = entry_alloca(result_type);
-            arguments.push_back(result_memory);
+            passed.result_memory = entry_alloca(result);
+            passed.values.push_back(passed.result_memory);
         }
 
-        std::vector<std::pair<unsigned, type_id_t>> byval;
-        for (std::size_t i = 0; i < node.arguments.size(); ++i) {
-            const call_argument_t& argument = node.arguments[i];
-            if (argument.by_ref) {
-                arguments.push_back(address_of(std::get<place_t>(argument.value)));
-                continue;
-            }
-
+        for (std::size_t i = 0; i < arguments.size(); ++i) {
+            const c_argument_t& argument = arguments[i];
             const std::optional<c_struct_abi_t>& abi = signature.parameters[i];
-            if (!abi) {
-                arguments.push_back(value_of(argument.value));
+            if (argument.by_ref || !abi) {
+                passed.values.push_back(argument.value);
                 continue;
             }
 
-            const type_id_t type = type_of(argument.value);
-            LLVMValueRef copy = entry_alloca(type);
-            LLVMBuildStore(builder(), value_of(argument.value), copy);
+            LLVMValueRef copy = entry_alloca(argument.type);
+            LLVMBuildStore(builder(), argument.value, copy);
             if (abi->passing.pass != c_pass_t::DIRECT) {
-                if (abi->passing.pass == c_pass_t::MEMORY) {
-                    byval.emplace_back(static_cast<unsigned>(arguments.size() + 1), type);
-                }
-
-                arguments.push_back(copy);
+                passed.values.push_back(copy);
                 continue;
             }
 
             // Pieces that go together are one array, the Struct's bytes from its start.
             if (abi->passing.together) {
-                arguments.push_back(
+                passed.values.push_back(
                     LLVMBuildLoad2(builder(), pieces_types(abi->passing).front(), copy, ""));
                 continue;
             }
@@ -2282,22 +2358,19 @@ private:
                 LLVMValueRef offset = LLVMConstInt(m_i64, abi->offsets[k], 0);
                 LLVMValueRef at = LLVMBuildGEP2(builder(), LLVMInt8TypeInContext(context()), copy,
                                                 &offset, 1, "");
-                arguments.push_back(
+                passed.values.push_back(
                     LLVMBuildLoad2(builder(), piece_type(abi->passing.pieces[k]), at, ""));
             }
         }
 
-        LLVMValueRef made = call(function, std::move(arguments));
-        for (const auto& [position, type] : byval) {
-            const unsigned kind = LLVMGetEnumAttributeKindForName("byval", 5);
-            LLVMAddCallSiteAttribute(made, position,
-                                     LLVMCreateTypeAttribute(context(), kind, llvm_type(type)));
-        }
+        return passed;
+    }
 
+    /// What a call by `signature` made, as fb's value of `result_type`: the Struct from its
+    /// memory, or from its pieces.
+    LLVMValueRef from_c(LLVMValueRef made, const c_signature_t& signature,
+                        const type_id_t result_type, LLVMValueRef result_memory) {
         if (result_memory != nullptr) {
-            const unsigned kind = LLVMGetEnumAttributeKindForName("sret", 4);
-            LLVMAddCallSiteAttribute(
-                made, 1, LLVMCreateTypeAttribute(context(), kind, llvm_type(result_type)));
             return LLVMBuildLoad2(builder(), llvm_type(result_type), result_memory, "");
         }
 
@@ -2325,6 +2398,57 @@ private:
         }
 
         return LLVMBuildLoad2(builder(), llvm_type(result_type), back, "");
+    }
+
+    /// A call of an Extern Function that takes or gives a Struct by value, by `signature`.
+    LLVMValueRef call_c_structs(const function_ref_t& function, const c_signature_t& signature,
+                                const call_t& node) {
+        std::vector<c_argument_t> arguments;
+        arguments.reserve(node.arguments.size());
+        for (const call_argument_t& argument : node.arguments) {
+            if (argument.by_ref) {
+                arguments.push_back({
+                    .value = address_of(std::get<place_t>(argument.value)),
+                    .by_ref = true,
+                });
+            } else {
+                arguments.push_back({
+                    .value = value_of(argument.value),
+                    .type = type_of(argument.value),
+                });
+            }
+        }
+
+        const type_id_t result_type = m_mir.functions[index(node.function)].return_type;
+        c_arguments_t passed = pass_to_c(signature, result_type, arguments);
+        LLVMValueRef made = call(function, std::move(passed.values));
+        // The call says what's byval and sret too, as clang's does.
+        const unsigned byval = LLVMGetEnumAttributeKindForName("byval", 5);
+        unsigned position = passed.result_memory != nullptr ? 2 : 1;
+        for (std::size_t i = 0; i < arguments.size(); ++i) {
+            const std::optional<c_struct_abi_t>& abi = signature.parameters[i];
+            if (arguments[i].by_ref || !abi) {
+                ++position;
+            } else if (abi->passing.pass == c_pass_t::DIRECT) {
+                position += static_cast<unsigned>(pieces_types(abi->passing).size());
+            } else {
+                if (abi->passing.pass == c_pass_t::MEMORY) {
+                    LLVMAddCallSiteAttribute(
+                        made, position,
+                        LLVMCreateTypeAttribute(context(), byval, llvm_type(arguments[i].type)));
+                }
+
+                ++position;
+            }
+        }
+
+        if (passed.result_memory != nullptr) {
+            const unsigned kind = LLVMGetEnumAttributeKindForName("sret", 4);
+            LLVMAddCallSiteAttribute(
+                made, 1, LLVMCreateTypeAttribute(context(), kind, llvm_type(result_type)));
+        }
+
+        return from_c(made, signature, result_type, passed.result_memory);
     }
 
     /// C passes a Bool extended to a register with zeros, and on x86-64 outside Windows and on
@@ -2365,8 +2489,14 @@ private:
         return is_signed(integer) ? "signext" : "zeroext";
     }
 
-    /// A Callback's LLVM function type: C's for its parameters and result.
+    /// A Callback's LLVM function type: C's for its parameters and result, with a Struct by
+    /// value as the C ABI passes it.
     LLVMTypeRef callback_type(const type_id_t callback) {
+        if (const c_shape_t shape = shape_of_callback(callback); has_structs(shape)) {
+            c_signature_t signature;
+            return c_struct_function_type(shape, signature);
+        }
+
         const type_t& info = m_mir.types->get(callback);
         std::vector<LLVMTypeRef> parameters;
         parameters.reserve(info.parameters.size());
@@ -2402,22 +2532,67 @@ private:
         const bool shared = !node.closure && m_mir.functions[index(node.function)].linkage !=
                                                  mir_linkage_t::INTERNAL;
         set_linkage(thunk, shared ? mir_linkage_t::SHARED : mir_linkage_t::INTERNAL);
-        extend_for_c(thunk, 0, info.inner);
-        for (std::size_t i = 0; i < info.parameters.size(); ++i) {
-            extend_for_c(thunk, static_cast<unsigned>(i + 1), info.parameters[i]);
+        const c_shape_t shape = shape_of_callback(node.type);
+        c_signature_t signature;
+        if (has_structs(shape)) {
+            (void)c_struct_function_type(shape, signature);
+            add_c_attributes(shape, signature,
+                             [thunk](const unsigned index, LLVMAttributeRef made) {
+                                 LLVMAddAttributeAtIndex(thunk, index, made);
+                             });
+        } else {
+            extend_for_c(thunk, 0, info.inner);
+            for (std::size_t i = 0; i < info.parameters.size(); ++i) {
+                extend_for_c(thunk, static_cast<unsigned>(i + 1), info.parameters[i]);
+            }
         }
 
         LLVMBasicBlockRef current = LLVMGetInsertBlock(builder());
         LLVMValueRef outer = std::exchange(m_llvm_function, thunk);
-        LLVMPositionBuilderAtEnd(builder(),
-                                 LLVMAppendBasicBlockInContext(context(), thunk, "entry"));
+        // The allocas go in a block of their own, which jumps to the body last, as a Function's
+        // do, since the body's Enum checks end blocks with branches.
+        LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(context(), thunk, "entry");
+        LLVMBasicBlockRef body = LLVMAppendBasicBlockInContext(context(), thunk, "body");
+        LLVMBasicBlockRef outer_entry = std::exchange(m_entry, entry);
+        // A thunk made while another function's body is generated has blocks of its own, not
+        // before that function's next one.
+        LLVMBasicBlockRef outer_next = std::exchange(m_next_block, nullptr);
+        LLVMPositionBuilderAtEnd(builder(), body);
         std::vector<LLVMValueRef> arguments;
         if (node.closure) {
             arguments.push_back(LLVMConstPointerNull(m_ptr));
         }
 
+        // C's parameters, past the result's memory when it gives a Struct in memory.
+        const bool result_in_memory =
+            signature.result && signature.result->passing.pass == c_pass_t::MEMORY;
+        auto next = static_cast<unsigned>(result_in_memory ? 1 : 0);
         for (std::size_t i = 0; i < info.parameters.size(); ++i) {
-            LLVMValueRef argument = LLVMGetParam(thunk, static_cast<unsigned>(i));
+            if (const std::optional<c_struct_abi_t>& abi =
+                    i < signature.parameters.size() ? signature.parameters[i] : std::nullopt;
+                abi.has_value()) {
+                LLVMValueRef value = struct_from_c(thunk, next, *abi, info.parameters[i]);
+                // Each Enum in a Struct C passes has to be one of its values, as in one an
+                // Extern Function gives.
+                if (holds_checked_enum(info.parameters[i])) {
+                    const mir_function_t& code = m_mir.functions[index(node.function)];
+                    const std::string parameter_name(code.locals[i + (node.closure ? 1 : 0)].name);
+                    LLVMValueRef copy = entry_alloca(info.parameters[i]);
+                    LLVMBuildStore(builder(), value, copy);
+                    check_c_enums(copy, info.parameters[i], {}, node.span,
+                                  [&](const std::string& path, const std::string_view enumeration) {
+                                      return std::format(
+                                          "C passed Field {} of '{}' a value that isn't one of "
+                                          "{}'s",
+                                          path, parameter_name, enumeration);
+                                  });
+                }
+
+                arguments.push_back(value);
+                continue;
+            }
+
+            LLVMValueRef argument = LLVMGetParam(thunk, next++);
             // An Enum C passes has to be one of its values.
             const type_t& parameter = m_mir.types->get(info.parameters[i]);
             if (parameter.kind == type_kind_t::ENUM && !parameter.flags && !parameter.open) {
@@ -2441,14 +2616,143 @@ private:
         LLVMValueRef result = call(m_functions[index(node.function)], std::move(arguments));
         if (info.inner == type_id_t::NONE) {
             LLVMBuildRetVoid(builder());
+        } else if (result_in_memory) {
+            LLVMBuildStore(builder(), result, LLVMGetParam(thunk, 0));
+            LLVMBuildRetVoid(builder());
+        } else if (signature.result) {
+            LLVMBuildRet(builder(), struct_to_c(result, *signature.result, info.inner));
         } else {
             LLVMBuildRet(builder(), result);
         }
 
+        LLVMPositionBuilderAtEnd(builder(), entry);
+        LLVMBuildBr(builder(), body);
+        m_entry = outer_entry;
+        m_next_block = outer_next;
         m_llvm_function = outer;
         LLVMPositionBuilderAtEnd(builder(), current);
         m_thunks.emplace(key, thunk);
         return thunk;
+    }
+
+    /// A Struct C passed a Callback's code by `abi`, from its parameters from `next` on, which
+    /// moves past them: its pieces, or a pointer to a copy of it, which the caller owns.
+    LLVMValueRef struct_from_c(LLVMValueRef function, unsigned& next, const c_struct_abi_t& abi,
+                               const type_id_t type) {
+        if (abi.passing.pass != c_pass_t::DIRECT) {
+            return LLVMBuildLoad2(builder(), llvm_type(type), LLVMGetParam(function, next++), "");
+        }
+
+        LLVMValueRef bytes = entry_alloca(type);
+        if (abi.passing.together) {
+            LLVMBuildStore(builder(), LLVMGetParam(function, next++), bytes);
+            return LLVMBuildLoad2(builder(), llvm_type(type), bytes, "");
+        }
+
+        for (std::size_t k = 0; k < abi.passing.pieces.size(); ++k) {
+            LLVMValueRef offset = LLVMConstInt(m_i64, abi.offsets[k], 0);
+            LLVMValueRef at =
+                LLVMBuildGEP2(builder(), LLVMInt8TypeInContext(context()), bytes, &offset, 1, "");
+            LLVMBuildStore(builder(), LLVMGetParam(function, next++), at);
+        }
+
+        return LLVMBuildLoad2(builder(), llvm_type(type), bytes, "");
+    }
+
+    /// A Struct a Callback's code gives C back by `abi`, in registers: its pieces.
+    LLVMValueRef struct_to_c(LLVMValueRef value, const c_struct_abi_t& abi, const type_id_t type) {
+        LLVMValueRef bytes = entry_alloca(type);
+        LLVMBuildStore(builder(), value, bytes);
+        std::vector<LLVMTypeRef> types = pieces_types(abi.passing);
+        if (abi.passing.together || types.size() == 1) {
+            return LLVMBuildLoad2(builder(), types.front(), bytes, "");
+        }
+
+        LLVMTypeRef both = LLVMStructTypeInContext(context(), types.data(),
+                                                   static_cast<unsigned>(types.size()), 0);
+        LLVMValueRef pieces = LLVMGetUndef(both);
+        for (std::size_t k = 0; k < types.size(); ++k) {
+            LLVMValueRef offset = LLVMConstInt(m_i64, abi.offsets[k], 0);
+            LLVMValueRef at =
+                LLVMBuildGEP2(builder(), LLVMInt8TypeInContext(context()), bytes, &offset, 1, "");
+            pieces =
+                LLVMBuildInsertValue(builder(), pieces, LLVMBuildLoad2(builder(), types[k], at, ""),
+                                     static_cast<unsigned>(k), "");
+        }
+
+        return pieces;
+    }
+
+    /// Whether a value of `type` has an Enum inside that C could set to another value: one that's
+    /// neither @Flags nor @Open, in a Struct's Fields or a fixed array's elements, but not in a
+    /// union, whose bytes may be any of its Fields', as lowering has it for an Extern's.
+    [[nodiscard]] bool holds_checked_enum(const type_id_t type) const {
+        const type_t& info = m_mir.types->get(type);
+        if (info.kind == type_kind_t::ENUM) {
+            return !info.flags && !info.open;
+        }
+
+        if (info.kind == type_kind_t::FIXED_ARRAY) {
+            return holds_checked_enum(info.inner);
+        }
+
+        return is_struct(type) && !info.c_union &&
+               std::ranges::any_of(info.fields, [this](const field_t& field) {
+                   return holds_checked_enum(field.type);
+               });
+    }
+
+    /// Panics where an Enum in the value of `type` at `address`, at `path` inside it, isn't one
+    /// of its values, with what `message` says of the Field's path and the Enum's name: each
+    /// Field's and fixed array element's, but a union's. Its reads are at alignment 1, as a
+    /// packed Struct's Fields may be anywhere.
+    void
+    check_c_enums(LLVMValueRef address, const type_id_t type, const std::string& path,
+                  const span_t span,
+                  const std::function<std::string(const std::string&, std::string_view)>& message) {
+        if (!holds_checked_enum(type)) {
+            return;
+        }
+
+        const type_t& info = m_mir.types->get(type);
+        if (info.kind == type_kind_t::ENUM) {
+            LLVMValueRef value = LLVMBuildLoad2(builder(), llvm_type(type), address, "");
+            LLVMSetAlignment(value, 1);
+            panic_if(LLVMBuildNot(builder(), is_enum_value(value, type), ""),
+                     message(path, m_mir.types->name(type)), span);
+            return;
+        }
+
+        if (info.kind == type_kind_t::FIXED_ARRAY) {
+            // A loop over the elements, each checked as one value.
+            LLVMBasicBlockRef before = LLVMGetInsertBlock(builder());
+            LLVMBasicBlockRef head = add_block("enum_element");
+            LLVMBasicBlockRef done = add_block("enum_elements_done");
+            LLVMBuildBr(builder(), head);
+            LLVMPositionBuilderAtEnd(builder(), head);
+            LLVMValueRef counter = LLVMBuildPhi(builder(), m_i64, "");
+            LLVMValueRef zero = LLVMConstInt(m_i64, 0, 0);
+            LLVMAddIncoming(counter, &zero, &before, 1);
+            std::array<LLVMValueRef, 2> at{ zero, counter };
+            LLVMValueRef element =
+                LLVMBuildGEP2(builder(), llvm_type(type), address, at.data(), 2, "");
+            check_c_enums(element, info.inner, path, span, message);
+            LLVMValueRef next = LLVMBuildAdd(builder(), counter, LLVMConstInt(m_i64, 1, 0), "");
+            LLVMBasicBlockRef from = LLVMGetInsertBlock(builder());
+            LLVMAddIncoming(counter, &next, &from, 1);
+            LLVMValueRef more =
+                LLVMBuildICmp(builder(), LLVMIntULT, next,
+                              LLVMConstInt(m_i64, m_mir.types->element_count(type), 0), "");
+            LLVMBuildCondBr(builder(), more, head, done);
+            LLVMPositionBuilderAtEnd(builder(), done);
+            return;
+        }
+
+        for (std::size_t i = 0; i < info.fields.size(); ++i) {
+            const field_t& field = info.fields[i];
+            check_c_enums(field_address(type, address, static_cast<unsigned>(i)), field.type,
+                          path.empty() ? field.name : path + "." + field.name, span, message);
+        }
     }
 
     /// Whether `value`, an Enum's integer, is one of the Enum's values.
@@ -5323,6 +5627,10 @@ private:
     LLVMValueRef call_callback(const invoke_t& node) {
         const type_id_t type = type_of(node.callee);
         const type_t& info = m_mir.types->get(type);
+        if (const c_shape_t shape = shape_of_callback(type); has_structs(shape)) {
+            return call_callback_structs(node, shape);
+        }
+
         std::vector<LLVMValueRef> arguments;
         arguments.reserve(node.arguments.size());
         for (const operand_t& argument : node.arguments) {
@@ -5343,6 +5651,31 @@ private:
         }
 
         return made;
+    }
+
+    /// A Callback's call that passes or gets a Struct by value, as clang's call of a C function
+    /// pointer does.
+    LLVMValueRef call_callback_structs(const invoke_t& node, const c_shape_t& shape) {
+        c_signature_t signature;
+        LLVMTypeRef type = c_struct_function_type(shape, signature);
+        std::vector<c_argument_t> arguments;
+        arguments.reserve(node.arguments.size());
+        for (const operand_t& argument : node.arguments) {
+            arguments.push_back({ .value = value_of(argument), .type = type_of(argument) });
+        }
+
+        LLVMValueRef callee = value_of(node.callee);
+        if (checked()) {
+            panic_if(LLVMBuildIsNull(builder(), callee, ""), "the Callback is Null", node.span);
+        }
+
+        c_arguments_t passed = pass_to_c(signature, shape.result, arguments);
+        LLVMValueRef made = call({ .type = type, .value = callee }, std::move(passed.values));
+        add_c_attributes(shape, signature,
+                         [made](const unsigned index, LLVMAttributeRef attribute) {
+                             LLVMAddCallSiteAttribute(made, index, attribute);
+                         });
+        return from_c(made, signature, shape.result, passed.result_memory);
     }
 
     LLVMValueRef value(const aggregate_t& node) {

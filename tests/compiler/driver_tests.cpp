@@ -8,6 +8,7 @@
 #include "fb/lockfile.hpp"
 #include "fb/lower.hpp"
 #include "fb/process.hpp"
+#include "fb/toolchain.hpp"
 #include "fb/utf8.hpp"
 
 #include <algorithm>
@@ -656,7 +657,9 @@ TEST_CASE("a program without imports loads only std/core and std.collections.map
     }
 
     // std/core/'s initialize first, each after what it imports, as std.core.value does after
-    // the Map it holds, and std.core.load after the Value it converts, and the main module last.
+    // the Map it holds, and std.core.load after the Value it converts, and the main module last;
+    // std.core.version, which imports nothing, comes where its file does, before what waits for
+    // the Map.
     CHECK(names == std::vector<std::string>{
                        "std.core.interfaces",
                        "std.core.assert",
@@ -667,6 +670,7 @@ TEST_CASE("a program without imports loads only std/core and std.collections.map
                        "std.core.parse",
                        "std.core.print",
                        "std.core.range",
+                       "std.core.version",
                        "std.collections.map",
                        "std.core.value",
                        "std.core.load",
@@ -4664,6 +4668,91 @@ TEST_CASE("an interface file keeps a packed Struct's packing and a union, as pro
 
     CHECK(sizes["STATUS"] == (fb::build_target().contains("windows") ? 16 : 12));
     CHECK(sizes["BYTES"] == 6);
+    packages.remove();
+}
+
+TEST_CASE("a library's Const of FB_VERSION is the version of the fb that built it", "[driver]") {
+    const packages_t packages;
+    packages.write("tools/project.toml",
+                   "[project]\nname = \"tools\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    packages.write("tools/tools.fb",
+                   "Import std.core\n"
+                   "Public Const BUILT_WITH = FB_VERSION\n"
+                   "Public Const BUILT_MAJOR = FB_VERSION_MAJOR\n"
+                   "@Inline Public Function InlineVersion(): String => FB_VERSION\n");
+    const std::expected<fb::compilation_t, std::string> tools =
+        fb::compile_file(packages / "tools");
+    REQUIRE(tools);
+    CHECK(packages.messages(*tools).empty());
+    fb::diagnostic_bag_t diagnostics;
+    const std::string text =
+        fb::write_interface(*tools, fb::build_mode_t::DEBUG, diagnostics).value_or("");
+    REQUIRE_FALSE(text.empty());
+    // The Const is its value, the library's fb's, and an @Inline Function's body keeps the name,
+    // which the program's std gives, as the docs say.
+    INFO(text);
+    CHECK(text.contains(
+        std::format("Public Const BUILT_WITH: String = \"{}\"\n", fb::build_config::version)));
+    CHECK(text.contains("@Inline Public Function InlineVersion(): String => FB_VERSION\n"));
+    packages.write("prebuilt/project.toml",
+                   "[project]\nname = \"tools\"\nversion = \"0.1.0\"\ntype = \"library\"\n");
+    packages.write(std::format("prebuilt/lib/{}/debug/tools.fbi", fb::build_target()), text);
+    packages.write("game/project.toml", "[project]\nname = \"game\"\nversion = \"0.1.0\"\n\n"
+                                        "[dependencies]\ntools = { path = \"../prebuilt\" }\n");
+    packages.write("game/main.fb", "Import std.core\n"
+                                   "Import tools\n"
+                                   "Const SEEN = BUILT_WITH\n"
+                                   "Const SAME = BUILT_WITH == FB_VERSION\n"
+                                   "Const MAJOR = BUILT_MAJOR\n");
+    const std::expected<fb::compilation_t, std::string> game = fb::compile_file(packages / "game");
+    REQUIRE(game);
+    CHECK(packages.messages(*game).empty());
+    // The program compiled against the interface file sees the version the library was built
+    // with, which the same fb says is its own.
+    std::map<std::string, fb::const_value_t> values;
+    for (const fb::symbol_t& symbol : game->analysis.symbols) {
+        if (symbol.kind == fb::symbol_kind_t::CONSTANT && symbol.value) {
+            values.emplace(std::string(symbol.name), *symbol.value);
+        }
+    }
+
+    REQUIRE(values.contains("SEEN"));
+    CHECK(std::get<std::string>(values.at("SEEN").data) == fb::build_config::version);
+    CHECK(std::get<bool>(values.at("SAME").data));
+    CHECK(std::get<std::int64_t>(values.at("MAJOR").data) ==
+          std::stoll(std::string(fb::build_config::version)));
+    packages.remove();
+}
+
+TEST_CASE("fb refuses a std whose FB_VERSION isn't its own", "[driver]") {
+    const packages_t packages;
+    packages.write("game/project.toml", "[project]\nname = \"game\"\nversion = \"0.1.0\"\n");
+    packages.write("game/main.fb", "Import std.core\nPrint(FB_VERSION)\n");
+    // A std of another fb's: the files fb looks for first, and another version.fb. The toolchain
+    // is a copy, as use_toolchain replaces what toolchain() refers to.
+    // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
+    const fb::toolchain_t own = fb::toolchain();
+    const std::filesystem::path other = packages / "other_std";
+    std::filesystem::create_directories(other / "core");
+    std::filesystem::create_directories(other / "collections");
+    std::filesystem::copy_file(own.std / "core" / "error.fb", other / "core" / "error.fb");
+    std::filesystem::copy_file(own.std / "collections" / "map.fb",
+                               other / "collections" / "map.fb");
+    fb::toolchain_t elsewhere = own;
+    elsewhere.std = other;
+    fb::use_toolchain(elsewhere);
+    packages.write("other_std/core/version.fb", "Public Const FB_VERSION = \"9.9.9\"\n");
+    const std::expected<fb::compilation_t, std::string> newer = fb::compile_file(packages / "game");
+    std::filesystem::remove(other / "core" / "version.fb");
+    const std::expected<fb::compilation_t, std::string> older = fb::compile_file(packages / "game");
+    fb::use_toolchain(own);
+    REQUIRE_FALSE(newer);
+    CHECK(newer.error() == std::format("this fb is {} but the std it found at '{}' is 9.9.9",
+                                       fb::build_config::version, fb::to_utf8(other)));
+    REQUIRE_FALSE(older);
+    CHECK(older.error().ends_with("is one from before 1.4.0, with no FB_VERSION"));
+    // Its own std is its own.
+    CHECK(fb::compile_file(packages / "game"));
     packages.remove();
 }
 

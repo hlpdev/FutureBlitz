@@ -18,6 +18,28 @@ endif()
 if(NOT fb_version MATCHES "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")
   message(FATAL_ERROR "FB_VERSION is three numbers, like 1.0.0, not \"${fb_version}\"")
 endif()
+set(fb_version_major "${CMAKE_MATCH_1}")
+set(fb_version_minor "${CMAKE_MATCH_2}")
+set(fb_version_patch "${CMAKE_MATCH_3}")
+
+# std.core's FB_VERSION and its numbers are the version fb is built as, which a release writes
+# in std/core/version.fb when it sets this file's.
+set(fb_version_file "${PROJECT_SOURCE_DIR}/std/core/version.fb")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${fb_version_file}")
+file(READ "${fb_version_file}" fb_version_text)
+foreach(fb_name_and_value IN ITEMS "FB_VERSION=\"${fb_version}\"" "FB_VERSION_MAJOR=${fb_version_major}"
+                                    "FB_VERSION_MINOR=${fb_version_minor}"
+                                    "FB_VERSION_PATCH=${fb_version_patch}")
+  string(FIND "${fb_name_and_value}" "=" fb_at)
+  string(SUBSTRING "${fb_name_and_value}" 0 ${fb_at} fb_name)
+  math(EXPR fb_at "${fb_at} + 1")
+  string(SUBSTRING "${fb_name_and_value}" ${fb_at} -1 fb_wanted)
+  if(NOT fb_version_text MATCHES "Public Const ${fb_name} = ([^\r\n]*)"
+     OR NOT CMAKE_MATCH_1 STREQUAL fb_wanted)
+    message(FATAL_ERROR "std/core/version.fb's ${fb_name} is to be ${fb_wanted}, as fb is built "
+                        "as ${fb_version}")
+  endif()
+endforeach()
 
 option(FB_BUILD_TESTS "Build the test suite" ON)
 # Only what programs link: the runtime, std's bundled libraries, and lib/<target>/, with no LLVM.

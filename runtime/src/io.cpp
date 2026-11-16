@@ -28,6 +28,9 @@
 #ifndef _WIN32
 #include <fcntl.h>
 #include <unistd.h>
+#elifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
+// Windows 10 1803's, which older headers don't name.
+#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
 #endif
 
 namespace {
@@ -386,6 +389,14 @@ private:
     bool m_stopped = false;
     uv_loop_t m_loop{};
     uv_async_t m_wake{};
+#ifdef _WIN32
+    /// libuv's poll on Windows waits whole ticks of the system's timer, 15.6 ms, so before each
+    /// poll a high-resolution timer is set to the loop's next timer, and a wait on it in
+    /// Windows's thread pool wakes the loop then.
+    uv_prepare_t m_before_poll{};
+    HANDLE m_precise = nullptr;
+    HANDLE m_precise_wait = nullptr;
+#endif
     reader_t m_reader;
     std::thread m_thread;
 
@@ -393,11 +404,47 @@ private:
         uv_loop_init(&m_loop);
         uv_async_init(&m_loop, &m_wake, on_wake);
         m_wake.data = this;
+#ifdef _WIN32
+        m_precise = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+                                           TIMER_ALL_ACCESS);
+        if (m_precise != nullptr &&
+            RegisterWaitForSingleObject(&m_precise_wait, m_precise, on_precise, this, INFINITE,
+                                        WT_EXECUTEINWAITTHREAD) != 0) {
+            uv_prepare_init(&m_loop, &m_before_poll);
+            m_before_poll.data = this;
+            uv_prepare_start(&m_before_poll, before_poll);
+            // It doesn't keep the loop running by itself.
+            uv_unref(reinterpret_cast<uv_handle_t*>(&m_before_poll));
+        } else if (m_precise != nullptr) {
+            CloseHandle(m_precise);
+            m_precise = nullptr;
+        }
+#endif
         m_thread = std::thread([this] { uv_run(&m_loop, UV_RUN_DEFAULT); });
         fb::runtime::at_finish(stop_io);
     }
 
     static void stop_io();
+
+#ifdef _WIN32
+    /// Sets the high-resolution timer to the loop's next timer, or stops it when there's none, or
+    /// one that's due.
+    static void before_poll(uv_prepare_t* handle) {
+        auto& self = *static_cast<io_t*>(handle->data);
+        if (const int milliseconds = uv_backend_timeout(&self.m_loop); milliseconds > 0) {
+            LARGE_INTEGER due{};
+            due.QuadPart = -static_cast<LONGLONG>(milliseconds) * 10000;
+            SetWaitableTimerEx(self.m_precise, &due, 0, nullptr, nullptr, nullptr, 0);
+        } else {
+            CancelWaitableTimer(self.m_precise);
+        }
+    }
+
+    /// The high-resolution timer's time came, on a thread of Windows's pool: the loop wakes.
+    static void CALLBACK on_precise(void* const self, const BOOLEAN /*timed_out*/) {
+        uv_async_send(&static_cast<io_t*>(self)->m_wake);
+    }
+#endif
 
     /// Takes the requests given meanwhile, and closes everything once the program's ending.
     static void on_wake(uv_async_t* handle) {
@@ -459,6 +506,15 @@ private:
             }
 
             self.m_timers.clear();
+#ifdef _WIN32
+            // The pool's wait is done before the wake it sends goes.
+            if (self.m_precise != nullptr) {
+                uv_close(reinterpret_cast<uv_handle_t*>(&self.m_before_poll), nullptr);
+                UnregisterWaitEx(self.m_precise_wait, INVALID_HANDLE_VALUE);
+                CloseHandle(self.m_precise);
+                self.m_precise = nullptr;
+            }
+#endif
 
             uv_close(reinterpret_cast<uv_handle_t*>(&self.m_wake), nullptr);
         }

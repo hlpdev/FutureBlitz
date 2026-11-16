@@ -561,6 +561,7 @@ public:
         settle_string_parameters();
         check_pending_bounds();
         check_pending_pointers();
+        check_pending_c_structs();
         check_pending_sendables();
         check_refinements();
         link_classes();
@@ -920,6 +921,13 @@ private:
         std::vector<bound_t> bounds;
     };
     std::vector<pending_pointer_t> m_pending_pointers;
+    /// A Struct a Callback takes or gives by value, written while types are declared, which is
+    /// checked as C's once they all are: a Struct declared further down had no Fields yet.
+    struct pending_c_struct_t {
+        type_id_t type;
+        span_t span;
+    };
+    std::vector<pending_c_struct_t> m_pending_c_structs;
     /// A Mutex or Channel written while types are declared, whose T is checked for Sendable again
     /// once they all are, with the constraints where it was written: a Struct declared further
     /// down had no fields the first time.
@@ -3309,7 +3317,8 @@ private:
                   shown_name(plain));
         } else if (plain != type_id_t::INVALID) {
             error(span,
-                  "C code sees {} here, so it has to be @CLayout, which lays it out as C does",
+                  "C code sees {} here, so it has to be @CLayout or @CUnion, which lay it out as "
+                  "C does",
                   shown_name(plain));
         } else if (by_value && is_struct(type) &&
                    fb::c_layout(m_analysis.types, type, build_c_integers()).size > UINT32_MAX) {
@@ -14007,16 +14016,24 @@ private:
             return inner == type_id_t::NONE ? type_id_t::INVALID : plain_struct_in(inner);
         }
 
+        // A Struct a Callback takes or gives by value is callback_of's to check, as it says
+        // which; what it has through a Ptr or a fixed array is this one's.
         if (is_callback(type)) {
             const type_t& code = m_analysis.types.get(type);
             for (const type_id_t parameter : code.parameters) {
+                if (is_struct(parameter)) {
+                    continue;
+                }
+
                 if (const type_id_t plain = plain_struct_in(parameter);
                     plain != type_id_t::INVALID) {
                     return plain;
                 }
             }
 
-            return code.inner == type_id_t::NONE ? type_id_t::INVALID : plain_struct_in(code.inner);
+            return code.inner == type_id_t::NONE || is_struct(code.inner)
+                       ? type_id_t::INVALID
+                       : plain_struct_in(code.inner);
         }
 
         return is_struct(type) && !is_c_layout(type) ? type : type_id_t::INVALID;
@@ -15618,28 +15635,47 @@ private:
         }
     }
 
-    /// "Callback(A, B): R", which takes and gives what C can, but no Struct by value.
+    /// "Callback(A, B): R", which takes and gives what C can: a @CLayout Struct or @CUnion by
+    /// value too, as the C ABI passes it.
     type_id_t callback_of(const function_type_t& node, const std::vector<type_id_t>& parameters,
                           const type_id_t result) {
         bool valid = true;
         for (std::size_t i = 0; i <= parameters.size(); ++i) {
             const bool last = i == parameters.size();
             const type_id_t type = last ? result : parameters[i];
-            if (type == type_id_t::NONE || type == type_id_t::INVALID ||
-                (is_c_scalar(type) && !is_struct(type))) {
+            if (type == type_id_t::NONE || type == type_id_t::INVALID || is_c_scalar(type)) {
                 continue;
             }
 
             const type_expr_id_t written =
                 last ? node.result.value_or(type_expr_id_t{}) : node.parameters[i];
-            error(m_ast.get(written).span,
+            const span_t span = m_ast.get(written).span;
+            if (is_struct(type)) {
+                if (m_declared) {
+                    check_c_struct(type, span, true);
+                } else {
+                    m_pending_c_structs.push_back({ .type = type, .span = span });
+                }
+
+                continue;
+            }
+
+            error(span,
                   "a Callback takes and gives what C can: numbers, Bools, Enums, CStrings, Ptrs, "
-                  "and Callbacks, and a Struct through a Ptr, not {}",
+                  "Callbacks, and @CLayout Structs, not {}",
                   shown_name(type));
             valid = false;
         }
 
         return valid ? m_analysis.types.callback(parameters, result) : type_id_t::INVALID;
+    }
+
+    /// The Structs Callbacks written while types were declared take or give, checked as C's now
+    /// that their Fields are.
+    void check_pending_c_structs() {
+        for (const pending_c_struct_t& pending : std::exchange(m_pending_c_structs, {})) {
+            check_c_struct(pending.type, pending.span, true);
+        }
     }
 
     [[nodiscard]] bool is_callback(const type_id_t type) const {

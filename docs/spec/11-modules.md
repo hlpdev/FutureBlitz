@@ -16,10 +16,12 @@ Replaces Blitz's `Include` (textual paste) and `.decls` files.
   that way too, as `app.main`. Without a project.toml, a program's main file is named by its
   stem.
 - A name is found in the code's own scopes, then among its module's top-level declarations, then
-  in the modules it imports, then among the built-ins. A module's own types and variables hide
-  imported ones, and its Functions hide imported ones that take the same types (with the same
-  constraints, for generic ones); otherwise Functions of one name are one overload set, and a
-  call that two imported modules' Functions fit equally well is ambiguous. A built-in Function,
+  in the modules it imports, then among the built-ins. A module's own types, Globals, and Consts
+  hide imported ones, without a warning, as a program's own `FB_VERSION` hides std.core's, and
+  two imported ones of a name are ambiguous where it's used; its Functions hide imported ones
+  that take the same types (with the same constraints, for generic ones); otherwise Functions of
+  one name are one overload set, and a call that two imported modules' Functions fit equally
+  well is ambiguous. A built-in Function,
   like Panic, Assert, RefEquals, or RefHash, is hidden by a type or variable of its name, and by
   a module's own or imported Function that takes its types; one that takes any type, like
   RefEquals' and RefHash's Classes, fits a call worse than a Function that names its types. Spawn, Thread,
