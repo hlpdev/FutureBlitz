@@ -2012,6 +2012,24 @@ TEST_CASE("a SIGTERM sent to fb run's program while it's held ends it", "[cli]")
     CHECK(processes_with(program.source) == 0);
 }
 
+TEST_CASE("fb run's ended program keeps its pid until its watcher is gone", "[cli]") {
+    // FB_TEST_REAP_DELAY holds fb between the program's end and its watcher's: the program is
+    // still a zombie of fb's then, so its pid can't be another's when a watcher would kill it.
+    const tie_program_t program = tie_program("tie_reap", "0");
+    const environment_variable_t delay("FB_TEST_REAP_DELAY", "3000");
+    running_fb_t running({ "run", program.source, "--color", "never" });
+    REQUIRE(appears(program.started));
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    const std::string pid = read_file(program.started);
+    const std::vector<std::string> arguments{ "-o", "stat=", "-p", pid };
+    const std::expected<fb::process_result_t, std::string> state =
+        fb::run_process("/bin/ps", arguments);
+    REQUIRE(state);
+    INFO(pid << ": " << state->output);
+    CHECK(state->output.starts_with("Z"));
+    CHECK(running.wait() == 0);
+}
+
 TEST_CASE("fb run passes on a signal that comes as its program starts, and cleans up", "[cli]") {
     // The program signals fb, what started it, as its first act, which is as soon after its start
     // as a signal can come: fb took its handlers only once the program was started, so one that

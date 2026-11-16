@@ -779,6 +779,16 @@ int wait_for(const pid_t pid) {
     return WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
 }
 
+/// The exit code a program ended with, as wait_for() gives it, with the program left a zombie,
+/// so its pid is no one else's until it's reaped after its watcher's gone.
+int wait_unreaped(const pid_t pid) {
+    siginfo_t info{};
+    while (waitid(P_PID, static_cast<id_t>(pid), &info, WEXITED | WNOWAIT) != 0 && errno == EINTR) {
+    }
+
+    return info.si_code == CLD_EXITED ? info.si_status : 128 + info.si_status;
+}
+
 /// The program run_attached() is waiting for, which a signal handler reads.
 std::atomic<pid_t> attached{ 0 };
 /// Whether SIGTERM or SIGHUP came while run_attached() last waited.
@@ -1057,8 +1067,8 @@ std::expected<watched_t, std::string> spawn_watched(const std::filesystem::path&
 
     close(report[0]);
     if (got == sizeof(error)) {
-        waitpid(pid, nullptr, 0);
         stop_watcher(watcher);
+        waitpid(pid, nullptr, 0);
         return std::unexpected(std::format(
             "couldn't run {}: {}", image.path,
             error == watcher_gone ? "the process that ends it with fb ended before it started"
@@ -1324,11 +1334,24 @@ std::expected<int, std::string> run_attached(const std::filesystem::path& progra
         kill(*pid, early);
     }
 
-    std::expected<int, std::string> result = pid.transform(wait_for);
+    std::expected<int, std::string> result = pid.transform(wait_unreaped);
+    // A test's: the program's ended, and the watcher's still there.
+    if (const char* const delay = std::getenv("FB_TEST_REAP_DELAY")) {
+        int milliseconds = 0;
+        if (std::from_chars(delay, delay + std::strlen(delay), milliseconds).ec == std::errc{}) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
+        }
+    }
+
     sigaction(SIGTERM, &terminate, nullptr);
     sigaction(SIGHUP, &hang_up, nullptr);
     attached = 0;
+    // The program's pid is its own until it's reaped, which waits for the watcher to be gone.
     stop_watcher(watcher);
+    if (pid) {
+        waitpid(*pid, nullptr, 0);
+    }
+
     sigaction(SIGINT, &interrupt, nullptr);
     sigaction(SIGQUIT, &quit, nullptr);
     sigaction(SIGPIPE, &broken, nullptr);
