@@ -80,7 +80,27 @@ VM_CALLBACK(either, vm_either)
 // in registers, inside a struct both ways, and in a union, whose bytes may be the other field's.
 typedef enum vm_hue { VM_HUE_RED = 1, VM_HUE_GREEN = 2 } vm_hue;
 
+typedef struct vm_tint {
+    vm_hue hue;
+    int32_t alpha;
+    vm_hue edges[2];
+} vm_tint;
+
+typedef union vm_hue_bits {
+    vm_hue hue;
+    int32_t raw;
+} vm_hue_bits;
+
 typedef vm_twelve (*vm_hued_fn)(vm_hue hue, vm_twelve value);
 vm_twelve vm_call_hued(vm_hued_fn fn, int32_t hue, vm_twelve value);
+
+typedef void (*vm_tint_painter)(vm_tint tint);
+void vm_paint_tint(vm_tint_painter paint, int32_t hue, int32_t edge);
+
+typedef vm_tint (*vm_tinter)(void);
+vm_tinter vm_tinter_of(bool valid);
+
+typedef int32_t (*vm_bits_reader)(vm_hue_bits bits);
+int32_t vm_read_bits(vm_bits_reader read, int32_t raw);
 
 #endif

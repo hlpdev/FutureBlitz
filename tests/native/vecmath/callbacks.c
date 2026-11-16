@@ -133,3 +133,28 @@ VM_CALLBACK(either, vm_either)
 vm_twelve vm_call_hued(vm_hued_fn fn, int32_t hue, vm_twelve value) {
     return fn((vm_hue)hue, value);
 }
+
+void vm_paint_tint(vm_tint_painter paint, int32_t hue, int32_t edge) {
+    const vm_tint tint = { (vm_hue)hue, 50, { (vm_hue)hue, (vm_hue)edge } };
+    paint(tint);
+}
+
+static vm_tint vm_green_tint(void) {
+    const vm_tint tint = { VM_HUE_GREEN, 50, { VM_HUE_GREEN, VM_HUE_RED } };
+    return tint;
+}
+
+static vm_tint vm_no_tint(void) {
+    const vm_tint tint = { (vm_hue)9, 50, { VM_HUE_GREEN, VM_HUE_RED } };
+    return tint;
+}
+
+vm_tinter vm_tinter_of(bool valid) {
+    return valid ? vm_green_tint : vm_no_tint;
+}
+
+int32_t vm_read_bits(vm_bits_reader read, int32_t raw) {
+    vm_hue_bits bits;
+    bits.raw = raw;
+    return read(bits);
+}

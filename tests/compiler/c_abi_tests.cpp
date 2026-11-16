@@ -513,6 +513,7 @@ TEST_CASE("a Callback's thunk with a closed Enum beside its Structs is whole IR 
         CHECK(made->contains("@\"fb.callback.ColorText(Color, Text)\""));
         CHECK(made->contains("@\"fb.callback.ColorPoint(Color)\""));
         CHECK(made->contains("C passed 'c' a value that isn't one of Color's"));
+        CHECK(made->contains("C passed Field edges of 't' a value that isn't one of Color's"));
     }
 }
 

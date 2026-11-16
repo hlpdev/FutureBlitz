@@ -2571,7 +2571,24 @@ private:
             if (const std::optional<c_struct_abi_t>& abi =
                     i < signature.parameters.size() ? signature.parameters[i] : std::nullopt;
                 abi.has_value()) {
-                arguments.push_back(struct_from_c(thunk, next, *abi, info.parameters[i]));
+                LLVMValueRef value = struct_from_c(thunk, next, *abi, info.parameters[i]);
+                // Each Enum in a Struct C passes has to be one of its values, as in one an
+                // Extern Function gives.
+                if (holds_checked_enum(info.parameters[i])) {
+                    const mir_function_t& code = m_mir.functions[index(node.function)];
+                    const std::string parameter_name(code.locals[i + (node.closure ? 1 : 0)].name);
+                    LLVMValueRef copy = entry_alloca(info.parameters[i]);
+                    LLVMBuildStore(builder(), value, copy);
+                    check_c_enums(copy, info.parameters[i], {}, node.span,
+                                  [&](const std::string& path, const std::string_view enumeration) {
+                                      return std::format(
+                                          "C passed Field {} of '{}' a value that isn't one of "
+                                          "{}'s",
+                                          path, parameter_name, enumeration);
+                                  });
+                }
+
+                arguments.push_back(value);
                 continue;
             }
 
@@ -2664,6 +2681,78 @@ private:
         }
 
         return pieces;
+    }
+
+    /// Whether a value of `type` has an Enum inside that C could set to another value: one that's
+    /// neither @Flags nor @Open, in a Struct's Fields or a fixed array's elements, but not in a
+    /// union, whose bytes may be any of its Fields', as lowering has it for an Extern's.
+    [[nodiscard]] bool holds_checked_enum(const type_id_t type) const {
+        const type_t& info = m_mir.types->get(type);
+        if (info.kind == type_kind_t::ENUM) {
+            return !info.flags && !info.open;
+        }
+
+        if (info.kind == type_kind_t::FIXED_ARRAY) {
+            return holds_checked_enum(info.inner);
+        }
+
+        return is_struct(type) && !info.c_union &&
+               std::ranges::any_of(info.fields, [this](const field_t& field) {
+                   return holds_checked_enum(field.type);
+               });
+    }
+
+    /// Panics where an Enum in the value of `type` at `address`, at `path` inside it, isn't one
+    /// of its values, with what `message` says of the Field's path and the Enum's name: each
+    /// Field's and fixed array element's, but a union's. Its reads are at alignment 1, as a
+    /// packed Struct's Fields may be anywhere.
+    void
+    check_c_enums(LLVMValueRef address, const type_id_t type, const std::string& path,
+                  const span_t span,
+                  const std::function<std::string(const std::string&, std::string_view)>& message) {
+        if (!holds_checked_enum(type)) {
+            return;
+        }
+
+        const type_t& info = m_mir.types->get(type);
+        if (info.kind == type_kind_t::ENUM) {
+            LLVMValueRef value = LLVMBuildLoad2(builder(), llvm_type(type), address, "");
+            LLVMSetAlignment(value, 1);
+            panic_if(LLVMBuildNot(builder(), is_enum_value(value, type), ""),
+                     message(path, m_mir.types->name(type)), span);
+            return;
+        }
+
+        if (info.kind == type_kind_t::FIXED_ARRAY) {
+            // A loop over the elements, each checked as one value.
+            LLVMBasicBlockRef before = LLVMGetInsertBlock(builder());
+            LLVMBasicBlockRef head = add_block("enum_element");
+            LLVMBasicBlockRef done = add_block("enum_elements_done");
+            LLVMBuildBr(builder(), head);
+            LLVMPositionBuilderAtEnd(builder(), head);
+            LLVMValueRef counter = LLVMBuildPhi(builder(), m_i64, "");
+            LLVMValueRef zero = LLVMConstInt(m_i64, 0, 0);
+            LLVMAddIncoming(counter, &zero, &before, 1);
+            std::array<LLVMValueRef, 2> at{ zero, counter };
+            LLVMValueRef element =
+                LLVMBuildGEP2(builder(), llvm_type(type), address, at.data(), 2, "");
+            check_c_enums(element, info.inner, path, span, message);
+            LLVMValueRef next = LLVMBuildAdd(builder(), counter, LLVMConstInt(m_i64, 1, 0), "");
+            LLVMBasicBlockRef from = LLVMGetInsertBlock(builder());
+            LLVMAddIncoming(counter, &next, &from, 1);
+            LLVMValueRef more =
+                LLVMBuildICmp(builder(), LLVMIntULT, next,
+                              LLVMConstInt(m_i64, m_mir.types->element_count(type), 0), "");
+            LLVMBuildCondBr(builder(), more, head, done);
+            LLVMPositionBuilderAtEnd(builder(), done);
+            return;
+        }
+
+        for (std::size_t i = 0; i < info.fields.size(); ++i) {
+            const field_t& field = info.fields[i];
+            check_c_enums(field_address(type, address, static_cast<unsigned>(i)), field.type,
+                          path.empty() ? field.name : path + "." + field.name, span, message);
+        }
     }
 
     /// Whether `value`, an Enum's integer, is one of the Enum's values.

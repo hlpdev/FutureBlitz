@@ -1,0 +1,31 @@
+// Each Enum in a Struct that a Callback C gave gives has to be one of its values, or the program
+// panics at the call, as one an Extern Function gives does.
+
+Import std.core
+
+Enum Hue
+    Red = 1
+    Green = 2
+End Enum
+
+@CLayout Struct Tint
+    Field hue: Hue
+    Field alpha: Int32
+    Field edges: Hue[2]
+End Struct
+
+Extern "C"
+    Function vm_tinter_of(valid: Bool): Callback(): Tint
+End Extern
+
+Function Shown(valid: Bool): String
+    Local tinter = vm_tinter_of(valid)
+    Unsafe
+        Local tint = tinter()
+        Return "{tint.hue} {tint.alpha} {tint.edges[0]} {tint.edges[1]}"
+    End Unsafe
+End Function
+
+Print(Shown(True))
+Print(Shown(False))
+Print("unreachable")

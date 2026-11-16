@@ -10866,11 +10866,23 @@ private:
             check_error(*error, span);
         }
 
-        // An Enum C's code gives has to be one of its values, as an Extern Function's does.
+        // An Enum C's code gives has to be one of its values, as an Extern Function's does, and so
+        // does each one in a Struct it gives.
         if (types().get(type_of(callee)).kind == type_kind_t::CALLBACK && only_members(result)) {
             return to_enum(given, result, span,
                            std::format("a Callback gave a value that isn't one of {}'s",
                                        types().name(result)));
+        }
+
+        if (types().get(type_of(callee)).kind == type_kind_t::CALLBACK && is_struct(result)) {
+            const std::string gives(types().name(result));
+            check_enum_fields(std::get<place_t>(given), result, {}, span,
+                              [&](const std::string& path, const std::string_view enumeration) {
+                                  return std::format(
+                                      "a Callback gave {}'s Field {} a value that isn't one of "
+                                      "{}'s",
+                                      gives, path, enumeration);
+                              });
         }
 
         return given;
