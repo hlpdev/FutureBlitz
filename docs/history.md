@@ -60,6 +60,20 @@ Packed `@CLayout` Structs and C unions, for the Steamworks SDK the game binds th
   by clang for five targets, how each goes by value, and the IR clang declares; sema's errors and
   ByRef cases; debug info; an interface file; bindgen over `#pragma pack(push, 4)`, unions, and
   `__attribute__((packed))`; hover and completion.
+- **`fb run`'s program outlived a SIGKILL of fb as it started** (Linux CI on 24c8424e, finding
+  18): on Linux and macOS `run_attached` spawned the program and only then forked its watcher, so
+  a SIGKILL in between, which a loaded runner made long enough for the test's, left the program
+  running with nothing to end it. `spawn_watched` forks the watcher first, then the program, which
+  waits before its exec on a gate only the watcher opens, once fb has given it the program's pid;
+  fb gone before that closes the gate, and the program ends without running. `fb test`'s run of
+  a program goes through it too. The fork keeps neither the watcher's pipe nor the exec report's
+  read end, or the watcher would wait for good on a program that waits on it. `image_t` builds a
+  program's argv and environment for a fork, for this and `spawn_tied`. FB_TEST_TIE_DELAY, a
+  test's, holds fb that many milliseconds between the program's start and the watcher's having
+  it. Test: cli "fb run's program doesn't run on when fb is killed as it starts", with a delay of
+  3 s, kills fb once the program says it's up, then while it's held, and wants no marker, no
+  program run, and no fb, watcher, or program left; on 24c8424e with the delay, the program wrote
+  its marker after fb's SIGKILL.
 
 ## 1.3.5
 

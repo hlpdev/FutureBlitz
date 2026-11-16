@@ -1826,6 +1826,71 @@ TEST_CASE("fb run's program ends when fb does, however fb ends, and its folder g
 }
 
 #ifndef _WIN32
+/// How many processes have `text` in their command line, fb's and its forks' by its source's path.
+int processes_with(const std::string& text) {
+    const std::vector<std::string> arguments{ "-A", "-o", "args=" };
+    const std::expected<fb::process_result_t, std::string> listed =
+        fb::run_process("/bin/ps", arguments);
+    REQUIRE(listed);
+    auto lines = std::views::split(listed->output, '\n');
+    return static_cast<int>(std::ranges::count_if(lines, [&](const auto& line) {
+        return std::string_view(line.begin(), line.end()).contains(text);
+    }));
+}
+
+TEST_CASE("fb run's program doesn't run on when fb is killed as it starts", "[cli]") {
+    // FB_TEST_TIE_DELAY holds fb between the program's start and its watcher's having it, which a
+    // loaded system can do, so a SIGKILL then finds the program with nothing to end it.
+    const std::string name = own_name("tie_window");
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "tie_window";
+    std::filesystem::remove_all(folder);
+    std::filesystem::create_directories(folder);
+    const std::filesystem::path started = folder / "started.txt";
+    const std::filesystem::path marker = folder / "marker.txt";
+    const std::filesystem::path source =
+        write_source(std::format("tie_window/{}.fb", name),
+                     std::format("Import std.core\nImport std.io\nImport std.time\n"
+                                 "Try File.WriteText(Path(\"{}\"), \"up\")\n"
+                                 "Sleep(2.Seconds)\n"
+                                 "Try File.WriteText(Path(\"{}\"), \"not ended\")\n",
+                                 started.generic_string(), marker.generic_string()));
+    const std::string source_path = fb::to_utf8(source);
+    const environment_variable_t delay("FB_TEST_TIE_DELAY", "3000");
+    {
+        // Killed as soon as the program says it's up, which it isn't until it's tied.
+        running_fb_t running({ "run", source_path });
+        REQUIRE(appears(started));
+        running.send(SIGKILL);
+        (void)running.wait();
+        std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+        CHECK_FALSE(std::filesystem::exists(marker));
+        CHECK(processes_with(source_path) == 0);
+    }
+
+    std::filesystem::remove(started);
+    {
+        // Killed while it's held, with fb, its watcher, and the program not yet run: the program
+        // never runs, and nothing's left waiting.
+        running_fb_t running({ "run", source_path });
+        for (int tries = 0; tries < 600 && processes_with(source_path) < 3; ++tries) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+
+        REQUIRE(processes_with(source_path) == 3);
+        running.send(SIGKILL);
+        (void)running.wait();
+        std::this_thread::sleep_for(std::chrono::milliseconds(3500));
+        CHECK_FALSE(std::filesystem::exists(started));
+        CHECK_FALSE(std::filesystem::exists(marker));
+        CHECK(processes_with(source_path) == 0);
+    }
+
+    // Nothing could clean up after a kill then, so the next run does.
+    const fb::process_result_t next = fb_run({ "run", source_path, "--color", "never" });
+    CHECK(next.exit_code == 0);
+    CHECK(temporary_folders(name).empty());
+}
+
 TEST_CASE("fb run passes on a signal that comes as its program starts, and cleans up", "[cli]") {
     // The program signals fb, what started it, as its first act, which is as soon after its start
     // as a signal can come: fb took its handlers only once the program was started, so one that

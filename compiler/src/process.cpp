@@ -5,8 +5,11 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <charconv>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <expected>
 #include <filesystem>
 #include <format>
@@ -576,6 +579,52 @@ void untie(const pid_t group) {
     }
 }
 
+/// A program as execve() takes it: its path, its arguments after its own name, and this process's
+/// environment with `environment`'s variables in place of those of their names. It's made before
+/// a fork, as the child can't make it, and isn't moved, as its pointers are into its strings.
+struct image_t {
+    image_t(const std::filesystem::path& program, const std::span<const std::string> arguments,
+            const environment_t environment)
+        : path(program.string()), copies(arguments.begin(), arguments.end()) {
+        argv.push_back(path.data());
+        for (std::string& argument : copies) {
+            argv.push_back(argument.data());
+        }
+
+        argv.push_back(nullptr);
+        for (const auto& [name, value] : environment) {
+            entries.push_back(std::format("{}={}", name, value));
+        }
+
+        for (char* const* at = environ; *at != nullptr; ++at) {
+            const std::string_view entry(*at);
+            const std::string_view name = entry.substr(0, entry.find('='));
+            if (std::ranges::none_of(
+                    environment, [&](const auto& variable) { return variable.first == name; })) {
+                entries.emplace_back(entry);
+            }
+        }
+
+        for (std::string& entry : entries) {
+            envp.push_back(entry.data());
+        }
+
+        envp.push_back(nullptr);
+    }
+
+    image_t(const image_t&) = delete;
+    image_t& operator=(const image_t&) = delete;
+    image_t(image_t&&) = delete;
+    image_t& operator=(image_t&&) = delete;
+    ~image_t() = default;
+
+    std::string path;
+    std::vector<std::string> copies;
+    std::vector<char*> argv;
+    std::vector<std::string> entries;
+    std::vector<char*> envp;
+};
+
 /// Starts a program, which isn't looked up on PATH; `actions` can be null. It starts with SIGINT,
 /// SIGQUIT, and SIGPIPE at their defaults, as one a shell starts has them, though this process
 /// ignores the first two while it waits for a program in its terminal, and SIGPIPE once it has
@@ -660,38 +709,12 @@ std::expected<pid_t, std::string> spawn_tied(const std::filesystem::path& progra
                                              const environment_t environment,
                                              const std::array<int, 2>& output,
                                              const std::array<int, 2>& input) {
-    std::string path = program.string();
-    std::vector<std::string> copies(arguments.begin(), arguments.end());
-    std::vector<char*> argv{ path.data() };
-    for (std::string& argument : copies) {
-        argv.push_back(argument.data());
-    }
-
-    argv.push_back(nullptr);
-    std::vector<std::string> entries;
-    for (const auto& [name, value] : environment) {
-        entries.push_back(name + "=" + value);
-    }
-
-    for (char** at = environ; *at != nullptr; ++at) {
-        const std::string_view entry(*at);
-        const std::string_view name = entry.substr(0, entry.find('='));
-        if (std::ranges::none_of(environment,
-                                 [&](const auto& variable) { return variable.first == name; })) {
-            entries.emplace_back(entry);
-        }
-    }
-
-    std::vector<char*> envp;
-    for (std::string& entry : entries) {
-        envp.push_back(entry.data());
-    }
-
-    envp.push_back(nullptr);
+    const image_t image(program, arguments, environment);
     // The child says why its exec failed through a pipe that the exec closes.
     std::array<int, 2> report{};
     if (!open_pipe(report)) {
-        return std::unexpected(std::format("couldn't run {}: {}", path, std::strerror(errno)));
+        return std::unexpected(
+            std::format("couldn't run {}: {}", image.path, std::strerror(errno)));
     }
 
     const pid_t parent = getpid();
@@ -716,7 +739,7 @@ std::expected<pid_t, std::string> spawn_tied(const std::filesystem::path& progra
             sigaction(number, &defaults, nullptr);
         }
 
-        execve(path.c_str(), argv.data(), envp.data());
+        execve(image.path.c_str(), image.argv.data(), image.envp.data());
         const int error = errno;
         if (write(report[1], &error, sizeof(error)) != sizeof(error)) {
             _exit(126);
@@ -729,7 +752,8 @@ std::expected<pid_t, std::string> spawn_tied(const std::filesystem::path& progra
     close(report[1]);
     if (pid < 0) {
         close(report[0]);
-        return std::unexpected(std::format("couldn't run {}: {}", path, std::strerror(forked)));
+        return std::unexpected(
+            std::format("couldn't run {}: {}", image.path, std::strerror(forked)));
     }
 
     int error = 0;
@@ -739,7 +763,8 @@ std::expected<pid_t, std::string> spawn_tied(const std::filesystem::path& progra
     close(report[0]);
     if (got == sizeof(error)) {
         waitpid(pid, nullptr, 0);
-        return std::unexpected(std::format("couldn't run {}: {}", path, std::strerror(error)));
+        return std::unexpected(
+            std::format("couldn't run {}: {}", image.path, std::strerror(error)));
     }
 
     return pid;
@@ -792,55 +817,6 @@ struct attached_watcher_t {
     int pipe_end = -1;
 };
 
-/// Forks a process that waits on a pipe only this process writes to, which closes when it ends,
-/// and then ends `program`. Between the fork and its end, the child does only what's safe in a
-/// process with threads. Without one, which fails only when the system's out of processes, the
-/// program runs all the same.
-attached_watcher_t start_watcher(const pid_t program) {
-    std::array<int, 2> ends{};
-    if (!open_pipe(ends)) {
-        return {};
-    }
-
-    const pid_t pid = fork();
-    if (pid == 0) {
-        struct sigaction ignore{};
-        ignore.sa_handler = SIG_IGN;
-        sigemptyset(&ignore.sa_mask);
-        for (const int number : tying_signals) {
-            sigaction(number, &ignore, nullptr);
-        }
-
-        // It keeps nothing of this process's open, such as a pipe its stdout goes to. The pipe's
-        // end is above those, as it's one of them when this process's stdio was closed.
-        const int end = fcntl(ends[0], F_DUPFD_CLOEXEC, STDERR_FILENO + 1);
-        for (const int other : { STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO, ends[0], ends[1] }) {
-            if (other != end) {
-                close(other);
-            }
-        }
-
-        char byte = 0;
-        ssize_t got = 0;
-        while ((got = read(end, &byte, 1)) < 0 && errno == EINTR) {}
-
-        // Only the pipe's end says this process has gone.
-        if (got == 0) {
-            kill(program, SIGKILL);
-        }
-
-        _exit(0);
-    }
-
-    close(ends[0]);
-    if (pid < 0) {
-        close(ends[1]);
-        return {};
-    }
-
-    return { .pid = pid, .pipe_end = ends[1] };
-}
-
 /// Ends the watcher, as the program ended first.
 void stop_watcher(const attached_watcher_t& watcher) {
     if (watcher.pid > 0) {
@@ -848,6 +824,213 @@ void stop_watcher(const attached_watcher_t& watcher) {
         close(watcher.pipe_end);
         waitpid(watcher.pid, nullptr, 0);
     }
+}
+
+/// A program spawn_watched() started, and its watcher.
+struct watched_t {
+    pid_t pid = 0;
+    attached_watcher_t watcher;
+};
+
+/// The watcher's side: it gets the program's pid on `watch`, a pipe only this process writes to,
+/// then opens `gate`, which the program waits on before its exec, and once `watch` closes, as this
+/// process has ended, it ends the program. When this process ends before it gives the pid, the
+/// watcher ends, and the gate closes without opening, which ends the program before it runs. It
+/// does only what's safe in a process with threads.
+[[noreturn]] void watch_program(const std::array<int, 2>& watch, const std::array<int, 2>& gate) {
+    struct sigaction ignore{};
+    ignore.sa_handler = SIG_IGN;
+    sigemptyset(&ignore.sa_mask);
+    for (const int number : tying_signals) {
+        sigaction(number, &ignore, nullptr);
+    }
+
+    // It keeps nothing of this process's open, such as a pipe its stdout goes to. The pipes' ends
+    // are above those, as they're among them when this process's stdio was closed.
+    const int end = fcntl(watch[0], F_DUPFD_CLOEXEC, STDERR_FILENO + 1);
+    const int opening = fcntl(gate[1], F_DUPFD_CLOEXEC, STDERR_FILENO + 1);
+    for (const int other :
+         { STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO, watch[0], watch[1], gate[0], gate[1] }) {
+        if (other != end && other != opening) {
+            close(other);
+        }
+    }
+
+    std::array<char, sizeof(pid_t)> bytes{};
+    std::size_t have = 0;
+    while (have < bytes.size()) {
+        // NOLINTNEXTLINE(clang-analyzer-unix.BlockInCriticalSection): in a fork
+        const ssize_t got = read(end, bytes.data() + have, bytes.size() - have);
+        if (got < 0 && errno == EINTR) {
+            continue;
+        }
+
+        if (got <= 0) {
+            _exit(0);
+        }
+
+        have += static_cast<std::size_t>(got);
+    }
+
+    pid_t program = 0;
+    std::memcpy(&program, bytes.data(), sizeof(program));
+    const char open = 1;
+    if (write(opening, &open, 1) != 1) {
+        _exit(0);
+    }
+
+    close(opening);
+    char byte = 0;
+    ssize_t got = 0;
+    // NOLINTNEXTLINE(clang-analyzer-unix.BlockInCriticalSection): in a fork
+    while ((got = read(end, &byte, 1)) < 0 && errno == EINTR) {}
+
+    // Only the pipe's end says this process has gone.
+    if (got == 0) {
+        kill(program, SIGKILL);
+    }
+
+    _exit(0);
+}
+
+/// Starts a program in this terminal, as spawn() does, with a watcher that ends it when this
+/// process ends, however it ends. The watcher's forked first, and the program, forked next, waits
+/// before its exec until the watcher has its pid, so there's no moment at which the program runs
+/// and a SIGKILL of this process would leave it running. Without a watcher, which fails only when
+/// the system's out of processes, the program runs all the same. Between each fork and its exec
+/// or end, the child does only what's safe in a process with threads.
+std::expected<watched_t, std::string> spawn_watched(const std::filesystem::path& program,
+                                                    const std::span<const std::string> arguments,
+                                                    const environment_t environment) {
+    const image_t image(program, arguments, environment);
+    std::array<int, 2> watch{ -1, -1 };
+    std::array<int, 2> gate{ -1, -1 };
+    attached_watcher_t watcher;
+    if (open_pipe(watch)) {
+        if (open_pipe(gate)) {
+            const pid_t pid = fork();
+            if (pid == 0) {
+                watch_program(watch, gate);
+            }
+
+            close(gate[1]);
+            if (pid > 0) {
+                watcher = { .pid = pid, .pipe_end = watch[1] };
+            } else {
+                close(gate[0]);
+                gate[0] = -1;
+                close(watch[1]);
+            }
+        } else {
+            close(watch[1]);
+        }
+
+        close(watch[0]);
+    }
+
+    // The child says why its exec failed through a pipe that the exec closes.
+    std::array<int, 2> report{};
+    if (!open_pipe(report)) {
+        const int error = errno;
+        if (gate[0] >= 0) {
+            close(gate[0]);
+        }
+
+        stop_watcher(watcher);
+        return std::unexpected(
+            std::format("couldn't run {}: {}", image.path, std::strerror(error)));
+    }
+
+    const pid_t pid = fork();
+    if (pid == 0) {
+        struct sigaction defaults{};
+        defaults.sa_handler = SIG_DFL;
+        sigemptyset(&defaults.sa_mask);
+        for (const int number : { SIGINT, SIGQUIT, SIGPIPE }) {
+            sigaction(number, &defaults, nullptr);
+        }
+
+        // It keeps neither the watcher's pipe, whose end tells the watcher this process has gone,
+        // nor the report's read end, before it waits.
+        if (watcher.pipe_end >= 0) {
+            close(watcher.pipe_end);
+        }
+
+        close(report[0]);
+        if (gate[0] >= 0) {
+            char open = 0;
+            ssize_t got = 0;
+            // NOLINTNEXTLINE(clang-analyzer-unix.BlockInCriticalSection): in a fork
+            while ((got = read(gate[0], &open, 1)) < 0 && errno == EINTR) {}
+
+            if (got != 1) {
+                _exit(127);
+            }
+        }
+
+        execve(image.path.c_str(), image.argv.data(), image.envp.data());
+        const int error = errno;
+        if (write(report[1], &error, sizeof(error)) != sizeof(error)) {
+            _exit(126);
+        }
+
+        _exit(127);
+    }
+
+    const int forked = errno;
+    close(report[1]);
+    if (gate[0] >= 0) {
+        close(gate[0]);
+    }
+
+    if (pid < 0) {
+        close(report[0]);
+        stop_watcher(watcher);
+        return std::unexpected(
+            std::format("couldn't run {}: {}", image.path, std::strerror(forked)));
+    }
+
+    // A test's: the program's started, and the watcher doesn't have it yet.
+    if (const char* const delay = std::getenv("FB_TEST_TIE_DELAY")) {
+        int milliseconds = 0;
+        if (std::from_chars(delay, delay + std::strlen(delay), milliseconds).ec == std::errc{}) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
+        }
+    }
+
+    if (watcher.pid > 0) {
+        std::array<char, sizeof(pid_t)> bytes{};
+        std::memcpy(bytes.data(), &pid, sizeof(pid));
+        std::size_t sent = 0;
+        while (sent < bytes.size()) {
+            const ssize_t wrote = write(watcher.pipe_end, bytes.data() + sent, bytes.size() - sent);
+            if (wrote < 0 && errno == EINTR) {
+                continue;
+            }
+
+            if (wrote <= 0) {
+                break;
+            }
+
+            sent += static_cast<std::size_t>(wrote);
+        }
+    }
+
+    int error = 0;
+    ssize_t got = 0;
+    // The lock is held until the exec, so no other program keeps these pipes' ends.
+    // NOLINTNEXTLINE(clang-analyzer-unix.BlockInCriticalSection): until the exec
+    while ((got = read(report[0], &error, sizeof(error))) < 0 && errno == EINTR) {}
+
+    close(report[0]);
+    if (got == sizeof(error)) {
+        waitpid(pid, nullptr, 0);
+        stop_watcher(watcher);
+        return std::unexpected(
+            std::format("couldn't run {}: {}", image.path, std::strerror(error)));
+    }
+
+    return watched_t{ .pid = pid, .watcher = watcher };
 }
 
 } // namespace
@@ -1092,9 +1275,12 @@ std::expected<int, std::string> run_attached(const std::filesystem::path& progra
     }
 
     std::unique_lock lock(spawning);
-    const std::expected<pid_t, std::string> pid = spawn(program, arguments, nullptr, environment);
-    const attached_watcher_t watcher = pid ? start_watcher(*pid) : attached_watcher_t{};
+    const std::expected<watched_t, std::string> started =
+        spawn_watched(program, arguments, environment);
     lock.unlock();
+    const std::expected<pid_t, std::string> pid =
+        started.transform([](const watched_t& got) { return got.pid; });
+    const attached_watcher_t watcher = started ? started->watcher : attached_watcher_t{};
     attached = pid.value_or(0);
     if (const int early = attached_early.load(); early != 0 && pid) {
         kill(*pid, early);
