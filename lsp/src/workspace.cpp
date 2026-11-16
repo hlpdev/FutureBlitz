@@ -12,9 +12,12 @@
 #include "fb/utf8.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <expected>
 #include <filesystem>
@@ -30,6 +33,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -1029,6 +1033,14 @@ void workspace_t::settle() {
     });
 }
 
+bool workspace_t::settle(const std::chrono::steady_clock::time_point until) {
+    std::unique_lock lock(m_mutex);
+    return m_done.wait_until(lock, until, [this] {
+        return m_stopping || (m_edited.empty() && m_dependents.empty() && m_alone.empty() &&
+                              m_loads.empty() && m_running == 0);
+    });
+}
+
 std::vector<check_record_t> workspace_t::history() const {
     const std::scoped_lock lock(m_mutex);
     return m_history;
@@ -1155,6 +1167,13 @@ std::shared_ptr<const compilation_t> workspace_t::run_job(std::unique_lock<std::
     disk_cache_t* disk = m_watched ? &m_disk : nullptr;
     ++m_running;
     lock.unlock();
+    // A test's: each check takes this many milliseconds longer, as one on a slow machine does.
+    if (const char* const delay = std::getenv("FB_TEST_CHECK_DELAY")) {
+        int milliseconds = 0;
+        if (std::from_chars(delay, delay + std::strlen(delay), milliseconds).ec == std::errc{}) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
+        }
+    }
     const auto start = steady_t::now();
     const check_request_t request{
         .files = job.roots,

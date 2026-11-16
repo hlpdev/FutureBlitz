@@ -68,6 +68,12 @@ public:
         return m_exit;
     }
 
+    /// Whether shutdown is waiting for the checks the client's messages started, which holds the
+    /// message thread as long as they take, up to a request's deadline, and no longer.
+    [[nodiscard]] bool settling() const {
+        return m_settling.load();
+    }
+
     [[nodiscard]] workspace_t& workspace() {
         return *m_workspace;
     }
@@ -83,6 +89,7 @@ private:
     positions_t m_positions;
     bool m_initialized = false;
     bool m_shut_down = false;
+    std::atomic<bool> m_settling = false;
     std::optional<int> m_exit;
     /// The client's initializationOptions.formatOnSave: whether a save formats the document.
     bool m_format_on_save = false;

@@ -8,6 +8,7 @@
 #include "fb/utf8.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
@@ -522,7 +523,12 @@ TEST_CASE("std as a workspace folder: an edit checks only the std files that imp
     CHECK(roots[1].size() * 2 < std_files);
 }
 
-TEST_CASE("fb-lsp talks JSON-RPC over its stdin and stdout", "[lsp]") {
+namespace {
+
+/// Pipes fb-lsp a client's messages at once, as a client may send them: initialize, initialized,
+/// an open document with one error, a hover in it, a message that isn't JSON, shutdown, and exit;
+/// and checks that each is answered, and the document's diagnostics published, before it ends.
+void talk_piped(const fb::environment_t environment) {
     const folder_t folder({});
     const std::string uri = folder.uri("piped.fb");
     std::string input;
@@ -571,7 +577,8 @@ TEST_CASE("fb-lsp talks JSON-RPC over its stdin and stdout", "[lsp]") {
     message({ { "jsonrpc", "2.0" }, { "id", 3 }, { "method", "shutdown" } });
     message({ { "jsonrpc", "2.0" }, { "method", "exit" } });
 
-    const std::expected<fb::process_result_t, std::string> run = fb::run_process(FB_LSP, {}, input);
+    const std::expected<fb::process_result_t, std::string> run =
+        fb::run_process(FB_LSP, {}, input, environment);
     REQUIRE(run);
     CHECK(run->exit_code == 0);
     std::istringstream output(run->output);
@@ -601,6 +608,21 @@ TEST_CASE("fb-lsp talks JSON-RPC over its stdin and stdout", "[lsp]") {
                each["params"]["diagnostics"].size() == 1;
     });
     CHECK(published);
+}
+
+} // namespace
+
+TEST_CASE("fb-lsp talks JSON-RPC over its stdin and stdout", "[lsp]") {
+    talk_piped({});
+}
+
+TEST_CASE("fb-lsp answers what's piped behind an open whose check is slow", "[lsp]") {
+    // FB_TEST_CHECK_DELAY makes each check 4 seconds longer, as a slow machine can: the hover
+    // waits for the open's check, and shutdown for it to publish, before exit ends fb-lsp.
+    const std::array environment{
+        std::pair<std::string, std::string>("FB_TEST_CHECK_DELAY", "4000"),
+    };
+    talk_piped(environment);
 }
 
 namespace {

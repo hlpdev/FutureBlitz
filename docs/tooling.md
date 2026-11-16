@@ -1300,14 +1300,18 @@ checks, so neither what the last check answers nor it waits behind them. Whateve
 request, a whole package's checks or a file that isn't open, does so on a thread of its own; every
 request a worker has gets 30 seconds from when it came, then it's answered RequestFailed, whether
 what it needs is still compiling or not, and that compile goes on, with no limit, for whoever asks
-next. shutdown waits 3 seconds for the requests before it, and exit, or stdin closing, ends the
-process once the message thread gets to it, or once one message has held that thread for 6 seconds,
-longer than shutdown can; without a shutdown before it, what's waiting is dropped, as such a client
-wants no answers to it. As it ends, what's been sent is written for as long as the client's reading
+next. shutdown first waits for every check the client's messages started, the code's and the
+project files', to finish and publish, up to a request's 30 seconds, as a client may send shutdown
+and exit right behind an open; then 3 seconds for the requests before it, which those checks were
+what they waited for. exit, or stdin closing, ends the process once the message thread gets to it,
+or once one message has held that thread for 6 seconds, longer than shutdown waits for its
+requests, though not while shutdown waits for the checks, which its own limit ends; without a
+shutdown before it, what's waiting is dropped, as such a client wants no answers to it. As it ends, what's been sent is written for as long as the client's reading
 it, and for 5 seconds past the last byte it took, not 5 seconds in all, which cut a long answer
 short on a busy machine, and every answer behind it, though the client was reading
 (`outbox_t::flush`, by `fd_buffer_t::written`). The tests set the 6 seconds themselves, with
-`FB_LSP_EXIT_WAIT`'s seconds, where a machine's load mustn't decide whether a message outlasts it. A write that fails, as the client closed what it reads, ends the process too,
+`FB_LSP_EXIT_WAIT`'s seconds, where a machine's load mustn't decide whether a message outlasts it,
+and make each check slower with `FB_TEST_CHECK_DELAY`'s milliseconds, as a slow machine's are. A write that fails, as the client closed what it reads, ends the process too,
 and on every system, with code 0 once the client's said shutdown; so does a length no message has,
 past 1 GiB, and a message's memory grows as its bytes come. Checks and requests run on threads with
 64 MiB for the compiler's recursion (`stack_thread_t`), as the executables' main threads have on

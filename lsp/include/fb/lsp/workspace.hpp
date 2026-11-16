@@ -221,6 +221,9 @@ public:
     /// Waits until no check waits or runs, as the tests do before they look.
     void settle();
 
+    /// The same, until `until` at the latest: whether every check's done.
+    bool settle(std::chrono::steady_clock::time_point until);
+
     [[nodiscard]] std::vector<check_record_t> history() const;
 
 private:

@@ -86,6 +86,9 @@ public:
     /// Waits until the checks of the documents as they are now are done, for the tests.
     void settle();
 
+    /// The same, until `until` at the latest: whether they're done.
+    bool settle(std::chrono::steady_clock::time_point until);
+
 private:
     /// What a registry said, and when.
     template <typename Value>

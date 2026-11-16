@@ -591,6 +591,11 @@ void toml_features_t::settle() {
     m_done.wait(lock, [this] { return m_due.empty() && !m_checking; });
 }
 
+bool toml_features_t::settle(const std::chrono::steady_clock::time_point until) {
+    std::unique_lock lock(m_mutex);
+    return m_done.wait_until(lock, until, [this] { return m_due.empty() && !m_checking; });
+}
+
 void toml_features_t::run() {
     std::unique_lock lock(m_mutex);
     while (!m_stopping) {

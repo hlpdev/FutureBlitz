@@ -589,8 +589,17 @@ std::optional<json_t> server_t::answer(const std::string& method, const json_t& 
         return initialize(params);
     }
 
-    // The requests before it are answered first, those the workers have too.
+    // Every check the client's messages started publishes first, as a client may send exit right
+    // behind it, up to as long as a request waits; then the requests before it are answered,
+    // those the workers have too, which those checks were what they waited for.
     if (method == "shutdown") {
+        m_settling = true;
+        const auto checked = std::chrono::steady_clock::now() + m_request_deadline;
+        if (m_workspace->settle(checked)) {
+            static_cast<void>(m_toml->settle(checked));
+        }
+
+        m_settling = false;
         const auto until = std::chrono::steady_clock::now() + shutdown_wait;
         m_quick.wait_idle(until);
         m_moved.wait_idle(until);

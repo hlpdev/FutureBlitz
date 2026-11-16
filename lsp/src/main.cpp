@@ -113,7 +113,9 @@ void serve() {
         // shutdown, which those before it are owed; one that exits or goes without it wants none,
         // and a long queue of quick messages would keep it here with none of them holding it.
         const auto wait_for_it = [&] {
-            while (!liveness.held_for(exit_wait())) {
+            // A shutdown waiting for the checks the client started is held for them, as its own
+            // deadline says, not for a message that's stuck.
+            while (!liveness.held_for(exit_wait()) || server.settling()) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
             }
         };

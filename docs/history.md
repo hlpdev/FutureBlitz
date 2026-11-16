@@ -87,6 +87,18 @@ Packed `@CLayout` Structs and C unions, for the Steamworks SDK the game binds th
   watcher ends first", "a SIGTERM sent to fb run's program while it's held ends it", "fb run's
   ended program keeps its pid until its watcher is gone", and, on Linux, "fb run's watcher holds
   only its own pipes", and the tie-window test at COLUMNS=40; each failed on 47c24dea.
+- **fb-lsp's piped shutdown lost the hover and the diagnostics** (macOS CI on 4b33c21c, finding
+  38): a client that pipes initialize, an open, a hover, shutdown, and exit at once had the hover
+  wait on a worker for the open's check, while shutdown waited only 3 seconds for the workers and
+  never for the checks, so on a slow machine shutdown answered, exit ended fb-lsp, and neither the
+  hover's answer nor the document's diagnostics were sent. The request's own 30 seconds weren't
+  it. shutdown now waits first for every check the client's messages started to publish
+  (`workspace_t::settle` and `toml_features_t::settle` with a time they stop at, a request's
+  deadline), then for the workers as before, and the reader's 6-second backstop after exit
+  doesn't count that wait (`server_t::settling`). The latency budgets are as they were: hover
+  waits only for a check that's running. Test: lsp "fb-lsp answers what's piped behind an open
+  whose check is slow", the piped sequence with `FB_TEST_CHECK_DELAY` at 4 seconds; on 4b33c21c's
+  fb-lsp with only that delay added, its hover and its diagnostics were missing, as in CI.
 
 ## 1.3.5
 
