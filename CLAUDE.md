@@ -48,7 +48,7 @@ on 2026-11-01, 1.2.2, the editor's speed, on 2026-11-02, 1.2.3, the editor's sav
 1.3.1, six fixes the luau package's work found and RefHash with Identity<T>, 1.3.2, a
 scheduler's time and Scheduler.Current, 1.3.3, `As? Object` on a type parameter's value, and 1.3.4, two fixes the game found, on
 2026-11-12, and 1.3.5, a lambda's own error said, on 2026-11-13, and 1.4.0, packed structs, unions, and
-Callbacks taking Structs, for the game's SDKs, on 2026-11-16. Phase 2, the engine, is planned
+Callbacks taking Structs, for the game's SDKs, on 2026-11-16, and 1.5.0, reflection's parameter names and docs, on 2026-11-28. Phase 2, the engine, is planned
 in docs/engine.md: fbengine's packages, in the public repo hlpdev/fbengine, in milestones E0 to
 E14; E0, its setup, is done (2026-10-31), and E1, app and input, is next. M11, the IDE (errors as
 typed, completion that imports, quick fixes, inspections, refactorings, project.toml in the

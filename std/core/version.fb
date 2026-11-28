@@ -16,14 +16,14 @@
 //! Expect(FB_VERSION == "{FB_VERSION_MAJOR}.{FB_VERSION_MINOR}.{FB_VERSION_PATCH}")
 //! ```
 
-/// The version of fb that built the program, as `fb --version` says it, like "1.4.0".
-Public Const FB_VERSION = "1.4.0"
+/// The version of fb that built the program, as `fb --version` says it, like "1.5.0".
+Public Const FB_VERSION = "1.5.0"
 
 /// FB_VERSION's first number, which a change that breaks programs raises.
 Public Const FB_VERSION_MAJOR = 1
 
 /// FB_VERSION's second number, which an addition raises.
-Public Const FB_VERSION_MINOR = 4
+Public Const FB_VERSION_MINOR = 5
 
 /// FB_VERSION's third number, which a fix raises.
 Public Const FB_VERSION_PATCH = 0

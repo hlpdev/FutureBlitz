@@ -3,7 +3,9 @@
 What each milestone and step added, by name, and each review's fixes, as CLAUDE.md kept
 them while each was built. Newest first.
 
-## After 1.4.0
+## 1.5.0
+
+Reflection's parameter names and docs, for luau's definitions (2026-11-27).
 
 - **Reflection gives a Method's parameters' names and a member's doc** (fb-luau, 2026-11-27,
   finding 44, for luau's definitions in a mod's editor, scpcb-x's L7 and L8): a For Method's
