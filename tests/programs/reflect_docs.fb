@@ -1,0 +1,121 @@
+// A member loop's variable has the member's doc comment, as fb doc reads it, in m.Doc, and a For
+// Method's has its Method's parameters' names in m.ParameterNames; T.Doc is a type's, for what
+// writes a definitions file, as luau's does for a mod's editor.
+Import std.core
+Import std.text
+
+/// A door the player opens.
+///
+/// It takes `force`, in newtons: *enough* opens it.
+Class Door
+    /// How far it's open, from 0 to 1.
+    Field Open: Float64
+    Field Noise: Int
+
+    /// Whether it's locked.
+    Property Locked: Bool
+        Get => Open == 0
+    End Property
+
+    /// How many doors there are.
+    Static Field Count: Int = 0
+
+    /// Opens it, if `force` is enough.
+    Method Push(force: Float64, from: String): Bool => force > 1
+
+    Method Slam(force: Float64, again: Bool): Bool => again
+
+    /// Knocks `times` times.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # Local door = Door()
+    /// Expect(door.Knock(2, "hard"))
+    /// ```
+    Method Knock(times: Int, how: String): Bool => times > 0
+End Class
+
+/// A door that slides.
+Class Slider Extends Door
+    /// Slides it `distance` along `track`.
+    Method Slide(distance: Float64, track: String): Bool => distance > 0
+End Class
+
+Class Crate<T>
+    /// Puts `item` in it, `count` times.
+    Method Put(item: T, count: Int): Bool => count > 0
+
+    // A Method with type parameters of its own isn't one of a loop's.
+    /// Puts `other` beside it.
+    Method Beside<U>(other: U, gap: Int): Bool => gap > 0
+End Class
+
+/// What a door does.
+Enum Sound
+    /// It creaks.
+    CREAK
+    SLAM
+    /// It rattles,
+    /// on and on.
+    RATTLE
+End Enum
+
+Struct Plain
+    Field X: Int
+End Struct
+
+/// Its Static Field is what Noted.Doc is.
+Struct Noted
+    Static Field Doc: String = "a Static Field"
+End Struct
+
+Function Shown(text: String): String => text == "" ? "(none)" : text.Replace("\n", "|")
+
+For Field f In Door
+    Print("field", f.Name, Shown(f.Doc))
+End For
+
+For Property p In Door
+    Print("property", p.Name, Shown(p.Doc))
+End For
+
+For Static Field s In Door
+    Print("static field", s.Name, Shown(s.Doc))
+End For
+
+// The inherited ones first, with the docs of their declarations.
+For Method m: M In Slider
+    Where M: Func(A, B): Bool
+    Print("method", m.Name, m.ParameterNames, Shown(m.Doc))
+End For
+
+For Method m: M In Crate<String>
+    Where M: Func(A, B): Bool
+    Print("generic", m.Name, m.ParameterNames, Shown(m.Doc))
+End For
+
+// A Method that takes nothing has no names, and each m.ParameterNames is an array of its own.
+For Method m: M In Door
+    Where M: Func(A, B): Bool
+    Local names = m.ParameterNames
+    names.Add("changed")
+    Print("fresh", m.Name, names.Count, m.ParameterNames.Count)
+End For
+
+For Member m In Sound
+    Print("member", m.Name, Shown(m.Doc))
+End For
+
+For Field f In (Int, String)
+    Print("tuple", f.Name, Shown(f.Doc))
+End For
+
+Function DocOf<T>(): String => T.Doc
+
+Print("type", Shown(Door.Doc))
+Print("type", Shown(DocOf<Slider>()))
+Print("type", Shown(DocOf<Sound?>()))
+Print("type", Shown(DocOf<Plain>()))
+Print("type", Shown(DocOf<Int>()))
+Print("static", Noted.Doc)

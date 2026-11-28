@@ -7734,13 +7734,13 @@ TEST_CASE("what a For Field's or For Method's variable can't do", "[sema]") {
     CHECK(errors_of(std::format("Import std.core\n"
                                 "{}For Field f In P\n    Print(f)\nEnd For",
                                 point)) ==
-          errors_t{ "f: 'f' is a field of P; it has Name, Index, Get(value), Set(ByRef value, x), "
-                    "Has(A), and Attribute(A)" });
+          errors_t{ "f: 'f' is a field of P; it has Name, Index, Doc, Get(value), "
+                    "Set(ByRef value, x), Has(A), and Attribute(A)" });
     CHECK(errors_of(std::format("Import std.core\n"
                                 "{}For Method m In P\n    Print(m.Index)\nEnd For",
                                 point)) ==
-          errors_t{ "Index: 'm' is a Method of P; it has Name, Has(A), Attribute(A), and "
-                    "Call(value, ...)" });
+          errors_t{ "Index: 'm' is a Method of P; it has Name, ParameterNames, Doc, Has(A), "
+                    "Attribute(A), and Call(value, ...)" });
     CHECK(errors_of(std::format("{}For Field f In P\n    f.Name = \"x\"\nEnd For", point)) ==
           errors_t{ "f.Name: only a variable or one of its fields can be assigned to" });
     // Each copy of the body has its own lambda.
@@ -10902,9 +10902,9 @@ TEST_CASE("loops over Properties, Static Fields, and Methods of a Func type", "[
                                 tier))
               .empty());
     CHECK(errors_of(std::format("{}For Member m In Tier\n    Local i = m.Index\nEnd For", tier)) ==
-          errors_t{ "Index: 'm' is a member of Tier; it has Name and Value" });
+          errors_t{ "Index: 'm' is a member of Tier; it has Name, Doc, and Value" });
     CHECK(errors_of(std::format("{}For Member m In Tier\n    m.Get()\nEnd For", tier)) ==
-          errors_t{ "m.Get: 'm' is a member of Tier; it has Name and Value" });
+          errors_t{ "m.Get: 'm' is a member of Tier; it has Name, Doc, and Value" });
     CHECK(errors_of("For Member m In Int\nEnd For") ==
           errors_t{ "Int: For Member goes over an Enum's members, and Int32 isn't an Enum" });
     CHECK(errors_of(std::format("{}For Member m In Tier?\nEnd For", tier)) ==
@@ -10982,7 +10982,7 @@ TEST_CASE("loops over Properties, Static Fields, and Methods of a Func type", "[
         errors_of(std::format("{}For Method m: M In Player\n    Where M: Int\nEnd For", player)) ==
         errors_t{ "Int: M is the Methods' Func type, like Func(Int): String, not Int32" });
     CHECK(errors_of(std::format("{}For Property p In Player\n    p.Sett(1)\nEnd For", player)) ==
-          errors_t{ "Sett: 'p' is a Property of Player; it has Name, Get(value), "
+          errors_t{ "Sett: 'p' is a Property of Player; it has Name, Doc, Get(value), "
                     "Set(ByRef value, x), Has(A), and Attribute(A)" });
 }
 
@@ -12065,8 +12065,63 @@ TEST_CASE("a Func that throws among overloads, and a For Method loop's own", "[s
                     "    End For\n"
                     "End Function\n"
                     "All(Tool())\n") ==
-          errors_t{ "m: 'm' is a Method of T; it has Name, Has(A), Attribute(A), and "
-                    "Call(value, ...)" });
+          errors_t{ "m: 'm' is a Method of T; it has Name, ParameterNames, Doc, Has(A), "
+                    "Attribute(A), and Call(value, ...)" });
+}
+
+TEST_CASE("a member loop's variable has its member's Doc, a For Method's its ParameterNames, and "
+          "T.Doc is a type's",
+          "[sema]") {
+    constexpr std::string_view door = "/// A door.\n"
+                                      "Class Door\n"
+                                      "    /// How far it's open.\n"
+                                      "    Field Open: Int\n"
+                                      "    Property Shut: Bool\n"
+                                      "        Get => Open == 0\n"
+                                      "    End Property\n"
+                                      "    Static Field Count: Int = 0\n"
+                                      "    Method Push(force: Int): Int => force\n"
+                                      "End Class\n"
+                                      "Enum Tier\n    LOW\nEnd Enum\n";
+    CHECK(errors_of(std::format("{}"
+                                "For Field f In Door\n    Local a: String = f.Doc\nEnd For\n"
+                                "For Property p In Door\n    Local b: String = p.Doc\nEnd For\n"
+                                "For Static Field s In Door\n    Local c: String = s.Doc\nEnd For\n"
+                                "For Method m: M In Door\n"
+                                "    Where M: Func(A): R\n"
+                                "    Local d: String = m.Doc\n"
+                                "    Local names: String[] = m.ParameterNames\n"
+                                "    names.Add(\"more\")\n"
+                                "End For\n"
+                                "For Member m In Tier\n    Local e: String = m.Doc\nEnd For\n"
+                                "Function DocOf<T>(): String => T.Doc\n"
+                                "Local f: String = Door.Doc\n"
+                                "Local g: String = Tier.Doc\n"
+                                "Local h = DocOf<Door?>()\n",
+                                door))
+              .empty());
+    // ParameterNames is a For Method's alone.
+    CHECK(errors_of(std::format("{}For Field f In Door\n    Local n = f.ParameterNames\nEnd For",
+                                door)) ==
+          errors_t{ "ParameterNames: 'f' is a field of Door; it has Name, Index, Doc, Get(value), "
+                    "Set(ByRef value, x), Has(A), and Attribute(A)" });
+    CHECK(errors_of(std::format("{}For Member m In Tier\n    Local n = m.ParameterNames\nEnd For",
+                                door)) ==
+          errors_t{ "ParameterNames: 'm' is a member of Tier; it has Name, Doc, and Value" });
+    // Each is a constant, not a variable or a call.
+    CHECK(errors_of(std::format("{}For Field f In Door\n    f.Doc = \"x\"\nEnd For", door)) ==
+          errors_t{ "f.Doc: only a variable or one of its fields can be assigned to" });
+    CHECK(errors_of(std::format("{}For Field f In Door\n    Local d = f.Doc()\nEnd For", door)) ==
+          errors_t{ "Doc: 'f' is a field of Door; it has Name, Index, Doc, Get(value), "
+                    "Set(ByRef value, x), Has(A), and Attribute(A)" });
+    // T.Doc is a type's, not a value's, and a Static member of its name is that member.
+    CHECK(errors_of(std::format("{}Local d = Door().Doc", door)) ==
+          errors_t{ "Doc: Door has no member named 'Doc'" });
+    CHECK(errors_of("Struct Noted\n"
+                    "    Static Field Doc: Int = 1\n"
+                    "End Struct\n"
+                    "Local n: Int = Noted.Doc\n")
+              .empty());
 }
 
 TEST_CASE("a Function that throws is a value of its own Func type, by its name", "[sema]") {

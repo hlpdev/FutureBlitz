@@ -2883,8 +2883,11 @@ private:
                 }
             }
 
-            values.push_back(
-                { .name = std::string(member.name.text), .bits = value ? bits_of(*value) : 0 });
+            values.push_back({
+                .name = std::string(member.name.text),
+                .bits = value ? bits_of(*value) : 0,
+                .span = member.name.span,
+            });
             known.push_back(value.value_or(const_value_t{}));
             if (value) {
                 last = value;
@@ -20830,8 +20833,8 @@ private:
         return std::get<for_member_stmt_t>(m_ast.get(loop.value_or(stmt_id_t{})).node).kind;
     }
 
-    /// "T.Has(A)" or "T.Attribute(A)" on a type, or a type parameter: a type's own attributes,
-    /// unless it has a Static member by that name.
+    /// "T.Has(A)", "T.Attribute(A)", or "T.Doc" on a type, or a type parameter: a type's own
+    /// attributes, or its doc comment, unless it has a Static member by that name.
     struct reflected_type_t {
         type_id_t type;
         std::string_view member;
@@ -20842,6 +20845,11 @@ private:
             return std::nullopt;
         }
 
+        return reflected_type(member);
+    }
+
+    /// The type a member's on, when it's one that reflects it, as type_attribute() says.
+    std::optional<reflected_type_t> reflected_type(const member_expr_t& member) {
         std::optional<type_id_t> type = parameter_named(member.object);
         if (!type) {
             type = quietly_keeping_ambiguous([&] { return type_named(member.object); });
@@ -20927,13 +20935,19 @@ private:
         return found;
     }
 
-    /// "f.Name" or "f.Index" on a For Field's variable, "m.Name" on a For Method's, or "m.Name" or
-    /// "m.Value" on a For Member's: known in each copy of the loop's body.
+    /// "f.Name" or "f.Index" on a For Field's variable, "m.Name" or "m.ParameterNames" on a For
+    /// Method's, "m.Name" or "m.Value" on a For Member's, and "Doc" on any of them: known in each
+    /// copy of the loop's body.
     type_id_t check_member_variable(const expr_id_t id, const member_expr_t& node,
                                     const symbol_id_t variable) {
         info(id).symbol = variable;
-        if (node.member.text == "Name") {
+        if (node.member.text == "Name" || node.member.text == "Doc") {
             return type_id_t::STRING;
+        }
+
+        if (node.member.text == "ParameterNames" &&
+            member_kind_of(variable) == member_kind_t::METHOD) {
+            return m_analysis.types.array(type_id_t::STRING);
         }
 
         if (node.member.text == "Index" && member_kind_of(variable) == member_kind_t::FIELD) {
@@ -20953,25 +20967,25 @@ private:
         const symbol_t& found = symbol(variable);
         switch (member_kind_of(variable)) {
         case member_kind_t::METHOD:
-            return std::format("'{}' is a Method of {}; it has Name, Has(A), Attribute(A), and "
-                               "Call(value, ...)",
+            return std::format("'{}' is a Method of {}; it has Name, ParameterNames, Doc, "
+                               "Has(A), Attribute(A), and Call(value, ...)",
                                found.name, shown_name(found.owner));
         case member_kind_t::PROPERTY:
-            return std::format("'{}' is a Property of {}; it has Name, Get(value), "
+            return std::format("'{}' is a Property of {}; it has Name, Doc, Get(value), "
                                "Set(ByRef value, x), Has(A), and Attribute(A)",
                                found.name, shown_name(found.owner));
         case member_kind_t::STATIC_FIELD:
-            return std::format("'{}' is a Static Field of {}; it has Name, Get(), Set(x), Has(A), "
-                               "and Attribute(A)",
+            return std::format("'{}' is a Static Field of {}; it has Name, Doc, Get(), Set(x), "
+                               "Has(A), and Attribute(A)",
                                found.name, shown_name(found.owner));
         case member_kind_t::MEMBER:
-            return std::format("'{}' is a member of {}; it has Name and Value", found.name,
+            return std::format("'{}' is a member of {}; it has Name, Doc, and Value", found.name,
                                shown_name(found.owner));
         case member_kind_t::FIELD:
             break;
         }
 
-        return std::format("'{}' is a field of {}; it has Name, Index, Get(value), "
+        return std::format("'{}' is a field of {}; it has Name, Index, Doc, Get(value), "
                            "Set(ByRef value, x), Has(A), and Attribute(A)",
                            found.name, shown_name(found.owner));
     }
@@ -30133,6 +30147,14 @@ private:
         if (node.member.text.empty()) {
             check_unnamed_member(node);
             return type_id_t::INVALID;
+        }
+
+        // "T.Doc": a type's doc comment, before a Static member's name is looked for.
+        if (node.member.text == "Doc") {
+            if (const std::optional<reflected_type_t> reflected = reflected_type(node)) {
+                info(id).reflected = reflected->type;
+                return type_id_t::STRING;
+            }
         }
 
         if (const std::optional<qualified_t> qualified = qualified_name(id)) {

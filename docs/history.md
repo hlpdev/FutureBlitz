@@ -3,6 +3,25 @@
 What each milestone and step added, by name, and each review's fixes, as CLAUDE.md kept
 them while each was built. Newest first.
 
+## After 1.4.0
+
+- **Reflection gives a Method's parameters' names and a member's doc** (fb-luau, 2026-11-27,
+  finding 44, for luau's definitions in a mod's editor, scpcb-x's L7 and L8): a For Method's
+  `m.ParameterNames` is a new `String[]` of the Method's own parameters' names, without Self, in
+  each copy of the body; every member loop's variable, For Field's, Property's, Static Field's,
+  Method's, and Member's, has `Doc`, its declaration's `///` comment as `fb doc` reads it, its
+  Markdown without the examples' hidden lines, `""` for none or a tuple's element; and `T.Doc` is
+  a type's, beside `T.Has` and `T.Attribute`, unless it has a Static member of that name. Sema's
+  `check_member_variable` and `reflected_type`, lowering's `reflected_t` and `doc_at`, an Enum
+  value's span for its member's doc (`enum_value_t::span`), and fb-lsp's completion of a loop's
+  variable. A Func value's names, as SetFunction's lambdas would want, aren't among them: a Func
+  type has none. Tests: tests/programs/reflect_docs, each kind, no doc, a doc of several lines,
+  Markdown and backticks, an example's hidden line, a generic Class's Method, an inherited
+  Method, a tuple, a T?, and a Static Field named Doc; sema's "a member loop's variable has its
+  member's Doc, a For Method's its ParameterNames, and T.Doc is a type's"; and lsp "a loop's
+  variable offers what that kind of loop's has", with a For Method's. On 1.4.0 the program had
+  13 errors, one for each use.
+
 ## 1.4.0
 
 Packed `@CLayout` Structs and C unions, for the Steamworks SDK the game binds through the C ABI

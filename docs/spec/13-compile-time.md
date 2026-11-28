@@ -181,20 +181,23 @@ End Function
   the function's own type parameter `T`, they're constraints on `T`'s fields, which each call
   checks: `Describe(p)` needs each of `p`'s fields to be Printable. A type parameter's fields
   meet a constraint only when one of its own loops says so.
-- The field has `f.Name`, `f.Index`, `f.Get(value)`, which gives an `F`, `f.Set(ByRef value, x)`,
-  `f.Has(A)`, and `f.Attribute(A)`, which gives an `A?`, for an Attribute `A`. `f` isn't a value of
-  its own. A ReadOnly Field changes only in its Class's New, so `f.Set` on one is an error where the
-  loop's copy for it is made, and so is `f.Set` on a Field that the loop's code couldn't assign by
-  name: a Private one outside its file, a Package one outside its package and its tests, and a
-  Protected one outside its file and the code of the Classes extending its Class, and there, in a
-  value that isn't of the code's own Class or one extending it, as Self is. What a type keeps
+- The field has `f.Name`, `f.Index`, `f.Doc`, `f.Get(value)`, which gives an `F`,
+  `f.Set(ByRef value, x)`, `f.Has(A)`, and `f.Attribute(A)`, which gives an `A?`, for an Attribute
+  `A`. `f` isn't a value of its own. A ReadOnly Field changes only in its Class's New, so `f.Set`
+  on one is an error where the loop's copy for it is made, and so is `f.Set` on a Field that the
+  loop's code couldn't assign by name: a Private one outside its file, a Package one outside its
+  package and its tests, and a Protected one outside its file and the code of the Classes
+  extending its Class, and there, in a value that isn't of the code's own Class or one extending
+  it, as Self is. What a type keeps
   to itself, like the memory a std.ffi Buffer owns, stays as its own code has it, while `f.Get`
   still reads every Field. `Where f Has Set` picks only the Fields the loop's code can set, as
   `Where p Has Set` does Properties (below), and over a `T?`, none.
 - `For Method m In T` goes over the Methods of a Struct or Class that take nothing, give nothing,
   and throw nothing (the inherited ones first, each in the place of what it overrides), but not
   Destroy, Unsafe, or ByRef Methods, or Async ones, which give a Task. `m.Call(value)` calls it,
-  through the Method table for a Class. `m` has `m.Name`, `m.Has(A)`, and `m.Attribute(A)` too.
+  through the Method table for a Class. `m` has `m.Name`, `m.ParameterNames`, `m.Doc`, `m.Has(A)`,
+  and `m.Attribute(A)` too. `m.ParameterNames` is a `String[]` of the Method's own parameters'
+  names, in order, without Self, a new array in each copy, as an array's code can change it.
 - `For Method m: M In T` with `Where M: Func(Int): String` goes over the Methods of that Func
   type instead, and `m.Call(value, 5)` passes their arguments. Its Where line picks the Methods;
   it isn't a constraint to meet. A Func type has no ByRef, so a Method with a ByRef parameter is
@@ -231,7 +234,8 @@ End Function
   only when it picks the same way. `Has` and `Or` are words only there. The other loops pick
   only the members they can set, with `Where f Has Set`; their bodies test `f.Has(A)`.
 - `For Member m In E` goes over an Enum's members, in the order they're declared, whatever their
-  values: `m.Name` is the member's name, a String, and `m.Value` is the member, an `E`. A @Flags
+  values: `m.Name` is the member's name, a String, `m.Doc` its doc comment, and `m.Value` is the
+  member, an `E`. A @Flags
   Enum's copies are its declared members, a named combination or a `NONE = 0` among them, and not
   the combinations it doesn't name, and an @Open Enum's its named values.
   `E` is an Enum, or a type parameter with `Where E: Enum` (see
@@ -241,8 +245,9 @@ End Function
   Field's `F` with `Where F: Enum` is one too, so a loop over a type's fields can go over each
   Enum's members.
 - `For Property p: P In T` goes over a Struct's or Class's Properties (inherited ones first),
-  with `p.Name`, `p.Get(value)`, `p.Set(ByRef value, x)`, `p.Has(A)`, and `p.Attribute(A)`, and
-  `For Static Field s: S In T` over its own Static Fields, with `s.Get()` and `s.Set(x)`. Where
+  with `p.Name`, `p.Doc`, `p.Get(value)`, `p.Set(ByRef value, x)`, `p.Has(A)`, and
+  `p.Attribute(A)`, and `For Static Field s: S In T` over its own Static Fields, with `s.Get()` and
+  `s.Set(x)`. Where
   lines on P or S work as on F. An inherited Property's type is what the instance of the Class it's
   in, which T extends, makes it, `Int` for `Base<T>`'s `Item: T` in `Derived Extends Base<Int>`.
   Over a `T?` these loops, and For Method, go over nothing, and their Where lines are on nothing.
@@ -276,9 +281,16 @@ End Function
   meet the loop's Where lines.
 - A lambda in the loop's body is one for each copy. A lambda in code with type parameters can
   loop over them too, since each instance of the code has its own copy of the lambda.
+- Each loop's variable's `Doc` is its member's `///` doc comment, a String, as `fb doc` reads it
+  (see [01](01-lexical.md)): its Markdown, its lines joined by `"\n"`, without their `///` or the
+  hidden lines of its examples. It's `""` for a member without one, and for a tuple's elements,
+  which have no declarations. An inherited member's is its declaration's, and an Override's its
+  own. What writes a definitions file for another language, like a script's editor, reads its
+  members' docs and Methods' parameters' names this way.
 - `T.Has(A)` and `T.Attribute(A)` read the attributes on a type's own declaration, for a type or
-  a type parameter, unless it has a Static member by that name. On a `T?`, through any number of
-  `?`s, they read its T's, as For Field does.
+  a type parameter, and `T.Doc` its doc comment, as a loop's `Doc` does, `""` for a type without
+  one or a built-in one, unless it has a Static member by that name. On a `T?`, through any number
+  of `?`s, they read its T's, as For Field does.
 - `TypeName<T>()` is a built-in, like SizeOf: a String of T's declared name, without its module,
   like `"Map<String, Int32>"` or `"(Int32, String?)"`, the same wherever it's asked for, known at
   compile time, and in generic code the

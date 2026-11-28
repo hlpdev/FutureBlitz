@@ -1,6 +1,7 @@
 #include "fb/lower.hpp"
 
 #include "fb/c_abi.hpp"
+#include "fb/doc.hpp"
 #include "fb/text_format.hpp"
 
 #include <algorithm>
@@ -209,6 +210,10 @@ struct reflected_t {
     std::uint64_t bits = 0;
     /// The member's symbol. A tuple's elements have none.
     std::optional<symbol_id_t> symbol;
+    /// Its doc comment, as fb doc reads it, for m.Doc: "" when it has none.
+    std::string doc;
+    /// A Method's own parameters' names, in order, for m.ParameterNames.
+    std::vector<std::string> parameters;
     /// The type it's a member of.
     type_id_t owner = type_id_t::INVALID;
     /// The Class whose code the loop is in, which its Sets can change the Protected members of.
@@ -4677,13 +4682,20 @@ private:
             const type_id_t signature = concrete(info.type_arguments.at(2));
             for (const loop_method_t& method :
                  reflected_methods(type, signature, fresh, span.file, info.picks)) {
-                reflected_t member{ .name = std::string(m_analysis.symbol(method.symbol).name) };
+                const symbol_t& declared = m_analysis.symbol(method.symbol);
+                reflected_t member{ .name = std::string(declared.name) };
                 member.symbol = method.symbol;
+                member.doc = doc_at(declared.span);
+                for (const symbol_id_t parameter : declared.parameters) {
+                    member.parameters.emplace_back(m_analysis.symbol(parameter).name);
+                }
+
                 copy(std::move(member), method.type, method.arguments);
             }
         } else if (node.kind == member_kind_t::MEMBER) {
             for (const enum_value_t& value : types().get(type).values) {
-                copy({ .name = value.name, .bits = value.bits }, type_id_t::INVALID);
+                copy({ .name = value.name, .bits = value.bits, .doc = doc_at(value.span) },
+                     type_id_t::INVALID);
             }
         } else if (node.kind == member_kind_t::PROPERTY ||
                    node.kind == member_kind_t::STATIC_FIELD) {
@@ -4696,6 +4708,7 @@ private:
 
                 reflected_t member{ .name = std::string(declared.name) };
                 member.symbol = found;
+                member.doc = doc_at(declared.span);
                 copy(std::move(member),
                      types().substitute(declared.type, type_parameters_of(declared),
                                         owner_arguments(type, declared.owner)));
@@ -4721,6 +4734,10 @@ private:
                 // "Where f Has Set" goes over only the ones its code can set, and over a T?, none.
                 reflected_t member{ .name = fields[i].name, .index = i };
                 member.symbol = field_symbol(fielded, i);
+                if (member.symbol) {
+                    member.doc = doc_at(m_analysis.symbol(*member.symbol).span);
+                }
+
                 if (info.picks_settable &&
                     (fielded != type ||
                      (member.symbol &&
@@ -4735,6 +4752,13 @@ private:
         m_reflected.erase(variable);
         leave(breaks);
         join(breaks);
+    }
+
+    /// The doc comment of the declaration whose name is at `span`, as fb doc reads it: its
+    /// Markdown, without its examples' hidden lines. "" when it has none.
+    [[nodiscard]] std::string doc_at(const span_t span) const {
+        const doc_comment_t* comment = m_ast.doc(span);
+        return comment != nullptr ? read_doc(*comment).markdown : std::string();
     }
 
     /// The symbol of a Struct's or Class's field, by its position, which may be in a base Class.
@@ -5968,11 +5992,29 @@ private:
     }
 
     /// A field, an array's Count or Capacity, or a String's Chars or Bytes. A For Field's
-    /// "f.Name" and "f.Index" are constants in each copy of its body.
+    /// "f.Name" and "f.Index" are constants in each copy of its body, and "T.Doc" one in each
+    /// instance's code.
     operand_t lower_expr(const expr_id_t id, const member_expr_t& node) {
         // A name after a module's qualifier is what the name alone would be.
         if (m_analysis.expr(id).qualified) {
             return lower_expr(id, name_expr_t{});
+        }
+
+        // A type's doc comment, of its declaration, or a T?'s T's.
+        if (const type_id_t reflected = m_analysis.expr(id).reflected;
+            reflected != type_id_t::INVALID) {
+            type_id_t type = concrete(reflected);
+            while (is_nullable(type)) {
+                type = types().get(type).inner;
+            }
+
+            const auto declared = m_declared_types.find(definition_of(type));
+            return const_value_t{
+                .type = type_id_t::STRING,
+                .data = declared != m_declared_types.end()
+                            ? doc_at(m_analysis.symbol(declared->second).span)
+                            : std::string(),
+            };
         }
 
         if (m_analysis.expr(id).main_scheduler) {
@@ -5990,6 +6032,21 @@ private:
             if (node.member.text == "Index") {
                 const auto position = static_cast<std::int64_t>(member.index);
                 return const_value_t{ .type = type_id_t::INT32, .data = position };
+            }
+
+            if (node.member.text == "Doc") {
+                return const_value_t{ .type = type_id_t::STRING, .data = member.doc };
+            }
+
+            // A new String[] each time, as an array is a reference its code can change.
+            if (node.member.text == "ParameterNames") {
+                const type_id_t names = types().array(type_id_t::STRING);
+                array_t value{ .type = names };
+                for (const std::string& name : member.parameters) {
+                    value.elements.emplace_back(make_string(name));
+                }
+
+                return temporary(std::move(value), names, true);
             }
 
             if (node.member.text == "Value") {

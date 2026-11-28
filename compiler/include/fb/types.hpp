@@ -1,5 +1,7 @@
 #pragma once
 
+#include "fb/source.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -175,6 +177,8 @@ struct enum_value_t {
     std::string name;
     /// The value's bits, in the Enum's integer type.
     std::uint64_t bits = 0;
+    /// Its name where it's declared, whose doc comment a For Member's m.Doc reads.
+    span_t span;
 };
 
 /// How a VALUE type is computed from two others, like the N * 2 of "Grid<N * 2>". NONE for a

@@ -416,7 +416,7 @@ public:
             return;
         }
 
-        std::vector<std::string_view> values{ "Name" };
+        std::vector<std::string_view> values{ "Name", "Doc" };
         std::vector<std::string_view> methods;
         switch (loop->kind) {
         case member_kind_t::FIELD:
@@ -424,6 +424,7 @@ public:
             methods = { "Get", "Set", "Has", "Attribute" };
             break;
         case member_kind_t::METHOD:
+            values.emplace_back("ParameterNames");
             methods = { "Call", "Has", "Attribute" };
             break;
         case member_kind_t::PROPERTY:

@@ -1,0 +1,23 @@
+field Open How far it's open, from 0 to 1.
+field Noise (none)
+property Locked Whether it's locked.
+static field Count How many doors there are.
+method Push [force, from] Opens it, if `force` is enough.
+method Slam [force, again] (none)
+method Knock [times, how] Knocks `times` times.||# Examples||```|Expect(door.Knock(2, "hard"))|```
+method Slide [distance, track] Slides it `distance` along `track`.
+generic Put [item, count] Puts `item` in it, `count` times.
+fresh Push 3 2
+fresh Slam 3 2
+fresh Knock 3 2
+member CREAK It creaks.
+member SLAM (none)
+member RATTLE It rattles,|on and on.
+tuple 0 (none)
+tuple 1 (none)
+type A door the player opens.||It takes `force`, in newtons: *enough* opens it.
+type A door that slides.
+type What a door does.
+type (none)
+type (none)
+static a Static Field

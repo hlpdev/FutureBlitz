@@ -182,6 +182,9 @@ TEST_CASE("a loop's variable offers what that kind of loop's has", "[lsp]") {
                              "End For\n"
                              "For Field f In Point\n"
                              "    Print(f.Name)\n"
+                             "End For\n"
+                             "For Method m In Point\n"
+                             "    Print(m.Name)\n"
                              "End For\n";
     client_t client({});
     client.open(uri, text);
@@ -196,9 +199,11 @@ TEST_CASE("a loop's variable offers what that kind of loop's has", "[lsp]") {
 
         return found;
     };
-    CHECK(labels_at(8) == std::set<std::string>{ "Name", "Value" });
+    CHECK(labels_at(8) == std::set<std::string>{ "Doc", "Name", "Value" });
     CHECK(labels_at(11) ==
-          std::set<std::string>{ "Attribute", "Get", "Has", "Index", "Name", "Set" });
+          std::set<std::string>{ "Attribute", "Doc", "Get", "Has", "Index", "Name", "Set" });
+    CHECK(labels_at(14) ==
+          std::set<std::string>{ "Attribute", "Call", "Doc", "Has", "Name", "ParameterNames" });
 }
 
 TEST_CASE("completion offers the keywords that go where the word is", "[lsp]") {
